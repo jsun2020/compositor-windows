@@ -55,14 +55,15 @@ export class GlRenderer implements Renderer {
   private layerProgram: WebGLProgram;
   private checkerProgram: WebGLProgram;
   private vao: WebGLVertexArrayObject;
+  private vertexBuffer: WebGLBuffer;
   constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext) {
     this.textures = new LayerTextures(gl);
     this.layerProgram = compile(gl, VERT, FRAG);
     this.checkerProgram = compile(gl, VERT, CHECKER_FRAG);
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
-    const buf = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    this.vertexBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
     for (const p of [this.layerProgram, this.checkerProgram]) {
       const loc = gl.getAttribLocation(p, "unit");
@@ -78,9 +79,9 @@ export class GlRenderer implements Renderer {
     for (const layer of state.layers) {
       keep.add(layer.id);
       const pixels = layer.pixelsWidth > 0 ? engine.layerPixels(state.id, layer.id) : null;
-      this.textures.sync(layer, pixels);
+      this.textures.sync(state.id, layer, pixels);
     }
-    this.textures.retainOnly(keep);
+    this.textures.retainOnly(state.id, keep);
   }
 
   /** Affine placing layer pixel (px, py) in view CSS pixels: doc = T(px), view = rect.origin + doc * ppp. */
@@ -128,7 +129,7 @@ export class GlRenderer implements Renderer {
     const uOpacity = gl.getUniformLocation(this.layerProgram, "opacity");
     gl.uniform1i(gl.getUniformLocation(this.layerProgram, "tex"), 0);
     for (const layer of renderOrder(state)) {
-      const t = this.textures.get(layer.id);
+      const t = this.textures.get(state.id, layer.id);
       if (!t) continue;
       const m = this.layerToView(layer, viewport, state);
       gl.uniform1f(uOpacity, layer.opacity);
@@ -154,5 +155,12 @@ export class GlRenderer implements Renderer {
     for (let y = 0; y < H; y++) flipped.set(out.subarray(y * row, (y + 1) * row), (H - 1 - y) * row);
     return flipped;
   }
-  dispose(): void { this.textures.dispose(); }
+  dispose(): void {
+    this.textures.dispose();
+    const gl = this.gl;
+    gl.deleteProgram(this.layerProgram);
+    gl.deleteProgram(this.checkerProgram);
+    gl.deleteVertexArray(this.vao);
+    gl.deleteBuffer(this.vertexBuffer);
+  }
 }

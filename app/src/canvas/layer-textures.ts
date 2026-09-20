@@ -5,19 +5,25 @@ export const CHUNK = 2048;
 export interface Chunk { texture: WebGLTexture; x: number; y: number; width: number; height: number; }
 export interface LayerTexture { revision: number; width: number; height: number; nearest: boolean; chunks: Chunk[]; }
 
+/** Two sessions opened from the same `.comp` file carry identical layer ids (they come from
+ * the manifest), so the cache is keyed by document handle *and* layer id -- otherwise one
+ * document's texture can be served to another that happens to share a layer id and revision. */
+function key(docId: string, layerId: string): string { return `${docId}:${layerId}`; }
+
 export class LayerTextures {
   private layers = new Map<string, LayerTexture>();
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
-  get(id: string): LayerTexture | undefined { return this.layers.get(id); }
+  get(docId: string, id: string): LayerTexture | undefined { return this.layers.get(key(docId, id)); }
 
   /** Uploads when the revision or sampling changed. `pixels` is the layer's contiguous premultiplied RGBA buffer. */
-  sync(layer: LayerState, pixels: Uint8Array | null): void {
+  sync(docId: string, layer: LayerState, pixels: Uint8Array | null): void {
     const nearest = layer.transform.sampling === "Nearest";
-    const existing = this.layers.get(layer.id);
-    if (!pixels || layer.pixelsWidth === 0) { if (existing) this.remove(layer.id); return; }
+    const k = key(docId, layer.id);
+    const existing = this.layers.get(k);
+    if (!pixels || layer.pixelsWidth === 0) { if (existing) this.remove(docId, layer.id); return; }
     if (existing && existing.revision === layer.pixelsRevision && existing.nearest === nearest) return;
-    if (existing) this.remove(layer.id);
+    if (existing) this.remove(docId, layer.id);
     const gl = this.gl;
     const chunks: Chunk[] = [];
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, layer.pixelsWidth);
@@ -41,14 +47,28 @@ export class LayerTextures {
     gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    this.layers.set(layer.id, { revision: layer.pixelsRevision, width: layer.pixelsWidth, height: layer.pixelsHeight, nearest, chunks });
+    this.layers.set(k, { revision: layer.pixelsRevision, width: layer.pixelsWidth, height: layer.pixelsHeight, nearest, chunks });
   }
-  remove(id: string): void {
-    const t = this.layers.get(id);
+  remove(docId: string, id: string): void {
+    const k = key(docId, id);
+    const t = this.layers.get(k);
     if (!t) return;
     for (const c of t.chunks) this.gl.deleteTexture(c.texture);
-    this.layers.delete(id);
+    this.layers.delete(k);
   }
-  retainOnly(ids: Set<string>): void { for (const id of [...this.layers.keys()]) if (!ids.has(id)) this.remove(id); }
-  dispose(): void { this.retainOnly(new Set()); }
+  /** Keeps only `${docId}:${id}` entries for the given document's current layer ids, dropping
+   * every other document's textures too -- each document only ever retains its own keys. */
+  retainOnly(docId: string, ids: Set<string>): void {
+    const keep = new Set([...ids].map((id) => key(docId, id)));
+    for (const k of [...this.layers.keys()]) {
+      if (keep.has(k)) continue;
+      const t = this.layers.get(k)!;
+      for (const c of t.chunks) this.gl.deleteTexture(c.texture);
+      this.layers.delete(k);
+    }
+  }
+  dispose(): void {
+    for (const t of this.layers.values()) for (const c of t.chunks) this.gl.deleteTexture(c.texture);
+    this.layers.clear();
+  }
 }
