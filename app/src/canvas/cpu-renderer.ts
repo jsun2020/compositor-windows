@@ -17,8 +17,13 @@ export class CpuRenderer implements Renderer {
     const ctx = this.ctx;
     ctx.fillStyle = "#292929"; ctx.fillRect(0, 0, W, H);
     const rect = viewport.documentRect({ width: state.width, height: state.height });
-    const x = Math.round(rect.x * dpr), y = Math.round(rect.y * dpr);
-    const w = Math.max(1, Math.round(rect.width * dpr)), h = Math.max(1, Math.round(rect.height * dpr));
+    // Round the left/right and top/bottom edges independently, then derive width/height from
+    // their difference, matching gl-renderer's scissor rounding so the two renderers never
+    // disagree by a pixel on where the document rect actually falls.
+    const x0 = Math.round(rect.x * dpr), x1 = Math.round((rect.x + rect.width) * dpr);
+    const y0 = Math.round(rect.y * dpr), y1 = Math.round((rect.y + rect.height) * dpr);
+    const x = x0, y = y0;
+    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
     // Only the part of the document inside the canvas element is composited.
     const vx0 = Math.max(0, x), vy0 = Math.max(0, y), vx1 = Math.min(W, x + w), vy1 = Math.min(H, y + h);
     if (vx1 <= vx0 || vy1 <= vy0) return;

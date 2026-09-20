@@ -98,8 +98,11 @@ export function CanvasView() {
   // instead of each keeping its own duplicate keydown/keyup listener and local flag.
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.code === "Space") spaceRef.current = e.type === "keydown"; };
-    window.addEventListener("keydown", key); window.addEventListener("keyup", key);
-    return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+    // Holding space, Alt-Tabbing away and releasing space in another window leaves no keyup
+    // event for this window to see, so also drop the flag when the window loses focus.
+    const blur = () => { spaceRef.current = false; };
+    window.addEventListener("keydown", key); window.addEventListener("keyup", key); window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
   }, []);
 
   // Drag to pan with the hand tool or the space bar.
