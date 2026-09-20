@@ -1,0 +1,26 @@
+{
+  "format": "com.compositor.project",
+  "version": 1,
+  "colorSpace": "sRGB",
+  "resolution": 144.0,
+  "documentID": "A1000000-0000-4000-8000-000000000001",
+  "width": 64,
+  "height": 48,
+  "activeLayerID": "A1000000-0000-4000-8000-000000000011",
+  "layers": [
+    {
+      "id": "A1000000-0000-4000-8000-000000000011",
+      "name": "Background",
+      "isVisible": true,
+      "transform": {
+        "origin": [0, 0],
+        "size": [64, 48],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A1000000-0000-4000-8000-000000000011.png"
+    }
+  ]
+}

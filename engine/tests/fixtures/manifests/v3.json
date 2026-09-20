@@ -1,0 +1,27 @@
+{
+  "format": "com.compositor.project",
+  "version": 3,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A3000000-0000-4000-8000-000000000003",
+  "width": 50,
+  "height": 50,
+  "layers": [
+    {
+      "id": "A3000000-0000-4000-8000-000000000031",
+      "name": "Multiply Layer",
+      "isVisible": true,
+      "opacity": 0.5,
+      "blendMode": "Multiply",
+      "transform": {
+        "origin": [0, 0],
+        "size": [50, 50],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A3000000-0000-4000-8000-000000000031.png"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "format": "com.compositor.project",
+  "version": 7,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A7000000-0000-4000-8000-000000000007",
+  "width": 120,
+  "height": 90,
+  "layers": [
+    {
+      "id": "A7000000-0000-4000-8000-000000000071",
+      "name": "Levels Adjustment",
+      "isVisible": true,
+      "adjustment": {
+        "kind": "Levels",
+        "black": 0.05,
+        "white": 0.95
+      },
+      "transform": {
+        "origin": [0, 0],
+        "size": [120, 90],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      }
+    },
+    {
+      "id": "A7000000-0000-4000-8000-000000000072",
+      "name": "Shape Layer",
+      "isVisible": true,
+      "maskFile": "A7000000-0000-4000-8000-000000000072.mask.png",
+      "maskEnabled": true,
+      "maskLinked": true,
+      "maskPlacement": {
+        "origin": [2.0, 2.0],
+        "size": [60.0, 45.0],
+        "rotation": 15.0,
+        "flipX": false,
+        "flipY": true,
+        "sampling": "Nearest"
+      },
+      "shape": {
+        "kind": "rectangle",
+        "red": 0.2,
+        "green": 0.4,
+        "blue": 0.8,
+        "cornerRadius": 6.0
+      },
+      "transform": {
+        "origin": [0, 0],
+        "size": [60, 45],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A7000000-0000-4000-8000-000000000072.png"
+    }
+  ]
+}

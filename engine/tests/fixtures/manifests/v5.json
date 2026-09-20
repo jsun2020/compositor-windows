@@ -1,0 +1,40 @@
+{
+  "format": "com.compositor.project",
+  "version": 5,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A5000000-0000-4000-8000-000000000005",
+  "width": 30,
+  "height": 30,
+  "layers": [
+    {
+      "id": "A5000000-0000-4000-8000-000000000051",
+      "name": "Base",
+      "isVisible": true,
+      "transform": {
+        "origin": [0, 0],
+        "size": [30, 30],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A5000000-0000-4000-8000-000000000051.png"
+    },
+    {
+      "id": "A5000000-0000-4000-8000-000000000052",
+      "name": "Clipped",
+      "isVisible": true,
+      "maskSourceID": "A5000000-0000-4000-8000-000000000051",
+      "transform": {
+        "origin": [0, 0],
+        "size": [30, 30],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A5000000-0000-4000-8000-000000000052.png"
+    }
+  ]
+}

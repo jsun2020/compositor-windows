@@ -1,0 +1,40 @@
+{
+  "format": "com.compositor.project",
+  "version": 2,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A2000000-0000-4000-8000-000000000002",
+  "width": 80,
+  "height": 60,
+  "layers": [
+    {
+      "id": "A2000000-0000-4000-8000-000000000021",
+      "name": "Group 1",
+      "isVisible": true,
+      "isGroup": true,
+      "transform": {
+        "origin": [0, 0],
+        "size": [80, 60],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      }
+    },
+    {
+      "id": "A2000000-0000-4000-8000-000000000022",
+      "name": "Child",
+      "isVisible": true,
+      "parentID": "A2000000-0000-4000-8000-000000000021",
+      "transform": {
+        "origin": [10, 10],
+        "size": [40, 30],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "Smooth"
+      },
+      "imageFile": "A2000000-0000-4000-8000-000000000022.png"
+    }
+  ]
+}

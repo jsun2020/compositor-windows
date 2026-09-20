@@ -1,0 +1,42 @@
+{
+  "format": "com.compositor.project",
+  "version": 6,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A6000000-0000-4000-8000-000000000006",
+  "width": 90,
+  "height": 70,
+  "layers": [
+    {
+      "id": "A6000000-0000-4000-8000-000000000061",
+      "name": "Masked Group",
+      "isVisible": true,
+      "isGroup": true,
+      "maskFile": "A6000000-0000-4000-8000-000000000061.mask.png",
+      "maskEnabled": true,
+      "transform": {
+        "origin": [0, 0],
+        "size": [90, 70],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      }
+    },
+    {
+      "id": "A6000000-0000-4000-8000-000000000062",
+      "name": "Group Child",
+      "isVisible": true,
+      "parentID": "A6000000-0000-4000-8000-000000000061",
+      "transform": {
+        "origin": [5, 5],
+        "size": [50, 40],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A6000000-0000-4000-8000-000000000062.png"
+    }
+  ]
+}

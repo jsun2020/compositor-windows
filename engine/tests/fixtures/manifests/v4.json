@@ -1,0 +1,27 @@
+{
+  "format": "com.compositor.project",
+  "version": 4,
+  "colorSpace": "sRGB",
+  "resolution": 72.0,
+  "documentID": "A4000000-0000-4000-8000-000000000004",
+  "width": 40,
+  "height": 40,
+  "layers": [
+    {
+      "id": "A4000000-0000-4000-8000-000000000041",
+      "name": "Masked Layer",
+      "isVisible": true,
+      "maskFile": "A4000000-0000-4000-8000-000000000041.mask.png",
+      "maskEnabled": true,
+      "transform": {
+        "origin": [0, 0],
+        "size": [40, 40],
+        "rotation": 0,
+        "flipX": false,
+        "flipY": false,
+        "sampling": "High quality"
+      },
+      "imageFile": "A4000000-0000-4000-8000-000000000041.png"
+    }
+  ]
+}
