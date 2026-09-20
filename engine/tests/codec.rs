@@ -118,3 +118,40 @@ fn tiles_and_halving() {
     };
     assert_eq!(half.pixel(0, 0)[0], expected);
 }
+
+#[test]
+fn halving_a_degenerate_raster_does_not_panic() {
+    let zero_width = Raster::new_transparent(0, 5);
+    let halved_zw = zero_width.halved();
+    assert_eq!((halved_zw.width, halved_zw.height), (0, 5));
+    assert!(halved_zw.same_pixels(&zero_width));
+    let one_by_one = Raster::new_transparent(1, 1);
+    let halved_1x1 = one_by_one.halved();
+    assert_eq!((halved_1x1.width, halved_1x1.height), (1, 1));
+}
+
+#[test]
+fn mask_round_trip_and_non_grayscale_is_invalid() {
+    let mask_bytes = vec![0, 128, 255, 255, 128, 0];
+    let mask = GrayRaster::from_bytes(3, 2, mask_bytes.clone());
+    let encoded = encode_gray_png(&mask).unwrap();
+    let decoded = decode_package_mask(&encoded).unwrap();
+    assert_eq!((decoded.width, decoded.height), (3, 2));
+    assert_eq!(decoded.bytes(), &mask_bytes);
+    assert_eq!(mask.is_uniform(), None);
+    let uniform_mask = GrayRaster::from_bytes(1, 1, vec![255]);
+    let encoded_uniform = encode_gray_png(&uniform_mask).unwrap();
+    let decoded_uniform = decode_package_mask(&encoded_uniform).unwrap();
+    assert_eq!(decoded_uniform.is_uniform(), Some(255));
+    assert_eq!(decode_package_mask(&red_left_png()).unwrap_err(), ProjectError::Invalid);
+}
+
+#[test]
+fn same_pixels_is_pointer_equality() {
+    let r1 = pattern_raster(10, 10);
+    let r2 = r1.clone();
+    assert!(r1.same_pixels(&r2));
+    let bytes = r1.bytes().to_vec();
+    let r3 = Raster::from_premultiplied(10, 10, bytes);
+    assert!(!r1.same_pixels(&r3));
+}

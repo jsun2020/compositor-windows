@@ -65,6 +65,7 @@ impl Raster {
     }
     /// Box-filtered 2x reduction (odd edges average the pixels that exist).
     pub fn halved(&self) -> Raster {
+        if self.width == 0 || self.height == 0 { return self.clone(); }
         let w = (self.width / 2).max(1); let h = (self.height / 2).max(1);
         let mut out = vec![0u8; (w * h * 4) as usize];
         for y in 0..h { for x in 0..w {
@@ -78,7 +79,7 @@ impl Raster {
                 }
             }}
             let i = ((y * w + x) * 4) as usize;
-            for c in 0..4 { out[i + c] = ((sum[c] + n / 2) / n) as u8; }
+            for c in 0..4 { out[i + c] = ((sum[c] + n.max(1) / 2) / n.max(1)) as u8; }
         }}
         Raster::from_premultiplied(w, h, out)
     }
