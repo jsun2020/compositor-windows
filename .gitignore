@@ -1,0 +1,25 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+app/dist/
+app/.vite/
+
+# wasm output
+app/src/engine/pkg/
+engine-wasm/pkg/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Build artifacts (portable zips)
+build-artifacts/
+
+# Local
+.env
+*.log
+.DS_Store
+Thumbs.db
