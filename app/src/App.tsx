@@ -4,6 +4,8 @@ import { BUILD_MARKER } from "./build-info";
 import { installTestApi } from "./test-api";
 import { useEditor } from "./state/store";
 import { getBridge } from "./shell/bridge";
+import { importImages, openProject } from "./actions/files";
+import { useShortcuts } from "./shortcuts/useShortcuts";
 import { CanvasView } from "./canvas/CanvasView";
 import { MenuBar } from "./panels/MenuBar";
 import { ProjectTabs } from "./panels/ProjectTabs";
@@ -45,10 +47,33 @@ export function App() {
     Promise.all([EngineClient.load(), getBridge()]).then(([engine, bridge]) => {
       useEditor.getState().setEngine(engine); useEditor.getState().setBridge(bridge);
       installTestApi({ engine, bridge, store: useEditor });
+      bridge.onFileDrop((paths, position) => {
+        const projects = paths.filter((p) => p.toLowerCase().endsWith(".comp"));
+        const images = paths.filter((p) => !p.toLowerCase().endsWith(".comp"));
+        for (const p of projects) void openProject(p);
+        if (images.length) {
+          const s = useEditor.getState();
+          let at: { x: number; y: number } | undefined;
+          if (position && s.activeId) {
+            const el = document.querySelector('[data-testid="canvas-view"]') as HTMLElement | null;
+            const r = el?.getBoundingClientRect();
+            if (r) {
+              // Tauri reports drop positions in physical pixels relative to the window; the
+              // mock bridge (used in tests) already reports CSS pixels.
+              const dpr = window.devicePixelRatio || 1;
+              const view = bridge.positionIsPhysical ? { x: position.x / dpr, y: position.y / dpr } : position;
+              const d = s.documents[s.activeId];
+              at = s.viewports[s.activeId].documentPoint({ x: view.x - r.left, y: view.y - r.top }, { width: d.width, height: d.height });
+            }
+          }
+          void importImages(images, at);
+        }
+      });
       setVersion(engine.version());
       setReady(true);
     }).catch((e) => setError(String(e)));
   }, []);
+  useShortcuts();
   if (error) return <div data-testid="engine-error">Engine failed to load: {error}</div>;
   if (!ready) return <div data-testid="engine-loading">Loading engine...</div>;
   return (

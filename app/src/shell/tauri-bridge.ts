@@ -5,6 +5,7 @@ import type { PackageFiles } from "../engine/types";
 import { baseName, type ShellBridge } from "./bridge";
 
 export class TauriBridge implements ShellBridge {
+  readonly positionIsPhysical = true;
   async pickOpenPackage(): Promise<string | null> {
     const picked = await open({ directory: true, multiple: false, title: "Open Compositor Project (.comp folder)" });
     return typeof picked === "string" ? picked : null;

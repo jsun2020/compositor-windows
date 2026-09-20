@@ -3,6 +3,7 @@ import { baseName, type ShellBridge } from "./bridge";
 
 /** In-memory shell for browser tests. */
 export class MockBridge implements ShellBridge {
+  readonly positionIsPhysical = false;
   private files = new Map<string, Uint8Array>();
   private packages = new Map<string, PackageFiles>();
   private picks: (string | null)[] = [];

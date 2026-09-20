@@ -1,6 +1,9 @@
 import type { PackageFiles } from "../engine/types";
 
 export interface ShellBridge {
+  /** True when `onFileDrop` positions are physical pixels relative to the window (Tauri);
+   * false when they are already CSS pixels (the mock bridge used in tests). */
+  readonly positionIsPhysical: boolean;
   pickOpenPackage(): Promise<string | null>;
   pickSavePackage(suggested: string): Promise<string | null>;
   pickImportImages(): Promise<string[]>;

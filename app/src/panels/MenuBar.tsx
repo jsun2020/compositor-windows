@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useEditor } from "../state/store";
-import { closeActive, exportPng, importImages, openProject, saveProject, saveProjectAs } from "../actions/files";
+import { importImages, openProject } from "../actions/files";
+import { runAction } from "../shortcuts/useShortcuts";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -16,37 +17,40 @@ export function MenuBar() {
   // update via `s.documents`, which changed on nearly every edit and refetched recents
   // far more often than they could actually change.
   useEffect(() => { s.bridge?.recentPackages().then(setRecent); }, [s.bridge, s.order, s.recentTick]);
-  const zoomBy = (factor: number) => { const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!]; vp.setZoom(vp.zoom * factor, vp.center, { width: d.width, height: d.height }); s.invalidate(); };
   const menus: { title: string; items: Item[] }[] = [
     { title: "File", items: [
-      { id: "new", label: "New Canvas...", run: () => s.openSheet({ kind: "new" }) },
-      { id: "open", label: "Open Project...", run: () => void openProject() },
+      { id: "new", label: "New Canvas...", run: () => runAction("new") },
+      { id: "open", label: "Open Project...", run: () => runAction("open") },
       ...recent.map((p, i) => ({ id: `recent-${i}`, label: `Open Recent: ${s.bridge!.baseName(p)}`, run: () => void openProject(p) })),
+      // No keyboard shortcut (and so no ActionId) covers importing images, so this one
+      // keeps calling the action directly instead of going through runAction.
       { id: "import", label: "Import Images...", run: () => void importImages() },
       "separator",
-      { id: "save", label: "Save", run: () => void saveProject(), enabled: hasDoc },
-      { id: "save-as", label: "Save As...", run: () => void saveProjectAs(), enabled: hasDoc },
-      { id: "export-png", label: "Export PNG...", run: () => void exportPng(), enabled: hasDoc },
-      { id: "export-jpeg", label: "Export JPEG...", run: () => s.openSheet({ kind: "jpeg" }), enabled: hasDoc },
+      { id: "save", label: "Save", run: () => runAction("save"), enabled: hasDoc },
+      { id: "save-as", label: "Save As...", run: () => runAction("save-as"), enabled: hasDoc },
+      { id: "export-png", label: "Export PNG...", run: () => runAction("export-png"), enabled: hasDoc },
+      { id: "export-jpeg", label: "Export JPEG...", run: () => runAction("export-jpeg"), enabled: hasDoc },
       "separator",
-      { id: "close", label: "Close", run: () => void closeActive(), enabled: hasDoc },
+      { id: "close", label: "Close", run: () => runAction("close"), enabled: hasDoc },
     ] },
     { title: "Edit", items: [
-      { id: "undo", label: "Undo", run: s.undo, enabled: hasDoc && !!activeDoc?.canUndo },
-      { id: "redo", label: "Redo", run: s.redo, enabled: hasDoc && !!activeDoc?.canRedo },
+      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: hasDoc && !!activeDoc?.canUndo },
+      { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: hasDoc && !!activeDoc?.canRedo },
     ] },
     { title: "Image", items: [
-      { id: "canvas-size", label: "Canvas Size...", run: () => s.openSheet({ kind: "canvasSize" }), enabled: hasDoc },
-      { id: "image-size", label: "Image Size...", run: () => s.openSheet({ kind: "imageSize" }), enabled: hasDoc },
+      { id: "canvas-size", label: "Canvas Size...", run: () => runAction("canvas-size"), enabled: hasDoc },
+      { id: "image-size", label: "Image Size...", run: () => runAction("image-size"), enabled: hasDoc },
       "separator",
+      // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
+      // command directly, same as Import above.
       { id: "flip-h", label: "Flip Canvas Horizontal", run: () => s.run({ type: "FlipCanvas", horizontal: true }), enabled: hasDoc },
       { id: "flip-v", label: "Flip Canvas Vertical", run: () => s.run({ type: "FlipCanvas", horizontal: false }), enabled: hasDoc },
     ] },
     { title: "View", items: [
-      { id: "zoom-in", label: "Zoom In", run: () => zoomBy(1.25), enabled: hasDoc },
-      { id: "zoom-out", label: "Zoom Out", run: () => zoomBy(0.8), enabled: hasDoc },
-      { id: "fit", label: "Fit on Screen", run: () => { const d = s.documents[s.activeId!]; s.viewports[s.activeId!].fit({ width: d.width, height: d.height }); s.invalidate(); }, enabled: hasDoc },
-      { id: "actual", label: "Actual Size", run: () => { const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!]; vp.setZoom(window.devicePixelRatio || 1, vp.center, { width: d.width, height: d.height }); s.invalidate(); }, enabled: hasDoc },
+      { id: "zoom-in", label: "Zoom In", run: () => runAction("zoom-in"), enabled: hasDoc },
+      { id: "zoom-out", label: "Zoom Out", run: () => runAction("zoom-out"), enabled: hasDoc },
+      { id: "fit", label: "Fit on Screen", run: () => runAction("fit"), enabled: hasDoc },
+      { id: "actual", label: "Actual Size", run: () => runAction("actual"), enabled: hasDoc },
     ] },
   ];
   const [openMenu, setOpenMenu] = useState<string | null>(null);

@@ -4,7 +4,6 @@ import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay } from "./overlay";
 import { installTestApi } from "../test-api";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
-import { isEditableTarget } from "../shortcuts/target";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -114,6 +113,28 @@ export function CanvasView() {
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
   }, []);
 
+  // Zoom tool: a click (no drag) zooms in at the pointer by 1.5x; Alt-click zooms out.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    let start: { x: number; y: number } | null = null;
+    const down = (e: PointerEvent) => { if (useEditor.getState().tool === "zoom" && e.button === 0) start = { x: e.clientX, y: e.clientY }; };
+    const up = (e: PointerEvent) => {
+      if (!start) return;
+      const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+      start = null;
+      if (moved > 4) return;
+      const s = useEditor.getState();
+      if (s.tool !== "zoom" || !s.activeId) return;
+      const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+      const r = el.getBoundingClientRect();
+      const viewPoint = { x: e.clientX - r.left, y: e.clientY - r.top };
+      vp.setZoom(vp.zoom * (e.altKey ? 1 / 1.5 : 1.5), viewPoint, { width: d.width, height: d.height });
+      s.invalidate();
+    };
+    el.addEventListener("pointerdown", down); el.addEventListener("pointerup", up);
+    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointerup", up); };
+  }, []);
+
   // Crop tool: drag to create, move or resize the crop rect, snapping to canvas and layer edges.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
@@ -145,27 +166,6 @@ export function CanvasView() {
     const up = () => { if (!session) return; session = null; guidesRef.current = { xs: [], ys: [] }; useEditor.getState().invalidate(); };
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
-  }, []);
-
-  // Enter applies the crop, Escape cancels it - only while the crop tool is active, no sheet
-  // is open, and focus isn't on a form control (e.g. the ratio select or Cancel/Apply buttons
-  // in CropOptions), where Enter/Escape should keep their native behavior instead.
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return;
-      const s = useEditor.getState();
-      if (s.tool !== "crop" || s.sheet !== null || !s.activeId) return;
-      const doc = s.documents[s.activeId];
-      if (e.key === "Enter") {
-        const rect = s.cropRect ?? { x: 0, y: 0, width: doc.width, height: doc.height };
-        s.run({ type: "Crop", ...rect });
-        s.setCropRect(null);
-      } else if (e.key === "Escape") {
-        s.setCropRect(null);
-      }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
   }, []);
 
   return (
