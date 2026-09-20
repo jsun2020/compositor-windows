@@ -59,6 +59,21 @@ test("export png writes a file of the canvas size", async ({ page }) => {
   expect(size).toEqual([1920, 1080]);
 });
 
+test("save as failure shows the error banner", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await clickMenu(page, "File", "new");
+  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByTestId("layer-add").click();
+  await expect(page.getByTestId("project-tab").first()).toContainText("\u2022");
+  await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/projects/Fail.comp"));
+  await page.evaluate(() => (window as any).__compositor.bridge.failNextWrite("disk is full"));
+  await clickMenu(page, "File", "save-as");
+  await expect(page.getByTestId("error-banner")).toContainText("disk is full");
+  await expect(page.getByTestId("project-tab").first()).toContainText("Untitled");
+  await expect(page.getByTestId("project-tab").first()).toContainText("\u2022");
+});
+
 test("closing a modified document asks first", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();

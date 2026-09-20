@@ -24,9 +24,11 @@ export interface EditorStore {
   busy: boolean;
   rendererKind: "gl" | "cpu" | null;
   renderTick: number;
+  recentTick: number;
   setEngine(engine: EngineClient): void;
   setBridge(bridge: ShellBridge): void;
   setBusy(busy: boolean): void;
+  bumpRecent(): void;
   openDocument(id: string): void;
   closeDocument(id: string): void;
   setActive(id: string): void;
@@ -46,10 +48,11 @@ export interface EditorStore {
 
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
-  sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0,
+  sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
   setEngine: (engine) => set({ engine }),
   setBridge: (bridge) => set({ bridge }),
   setBusy: (busy) => set({ busy }),
+  bumpRecent: () => set((s) => ({ recentTick: s.recentTick + 1 })),
   openDocument: (id) => {
     const engine = get().engine!;
     const state = engine.state(id);

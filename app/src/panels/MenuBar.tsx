@@ -11,7 +11,11 @@ export function MenuBar() {
   // index `s.documents` with a possibly-null activeId (which threw when no document was open).
   const activeDoc = s.activeId ? s.documents[s.activeId] : null;
   const [recent, setRecent] = useState<string[]>([]);
-  useEffect(() => { s.bridge?.recentPackages().then(setRecent); }, [s.bridge, s.documents]);
+  // Refetch only when the bridge changes, the open-document list changes, or a file
+  // action explicitly records a new recent package (`recentTick`) - not on every store
+  // update via `s.documents`, which changed on nearly every edit and refetched recents
+  // far more often than they could actually change.
+  useEffect(() => { s.bridge?.recentPackages().then(setRecent); }, [s.bridge, s.order, s.recentTick]);
   const zoomBy = (factor: number) => { const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!]; vp.setZoom(vp.zoom * factor, vp.center, { width: d.width, height: d.height }); s.invalidate(); };
   const menus: { title: string; items: Item[] }[] = [
     { title: "File", items: [

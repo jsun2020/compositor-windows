@@ -33,6 +33,7 @@ export async function openProject(path?: string): Promise<void> {
     const id = engine.openPackage(files, target);
     s.openDocument(id);
     await bridge.addRecentPackage(target);
+    useEditor.getState().bumpRecent();
   });
 }
 
@@ -44,6 +45,7 @@ async function saveTo(path: string): Promise<void> {
   engine.markSaved(id, path);
   s.refresh(id);
   await bridge.addRecentPackage(path);
+  useEditor.getState().bumpRecent();
 }
 
 export async function saveProject(): Promise<void> {
@@ -51,17 +53,23 @@ export async function saveProject(): Promise<void> {
     const { s } = ctx();
     const doc = s.activeId ? s.documents[s.activeId] : null;
     if (!doc) return;
-    if (doc.path) await saveTo(doc.path); else await saveProjectAs();
+    if (doc.path) await saveTo(doc.path); else await saveAsFlow();
   });
 }
 
-export async function saveProjectAs(): Promise<void> {
+/** Unguarded body shared by `saveProjectAs` and `saveProject`'s no-path fallback, so
+ * neither entry point double-guards (sets busy / routes errors to the banner twice). */
+async function saveAsFlow(): Promise<void> {
   const { s, bridge } = ctx();
   const doc = s.activeId ? s.documents[s.activeId] : null;
   if (!doc) return;
   const suggested = doc.path ? bridge.baseName(doc.path) : "Untitled";
   const path = await bridge.pickSavePackage(suggested);
   if (path) await saveTo(path);
+}
+
+export async function saveProjectAs(): Promise<void> {
+  await guarded(saveAsFlow);
 }
 
 export async function importImages(paths?: string[], at?: { x: number; y: number }): Promise<void> {
