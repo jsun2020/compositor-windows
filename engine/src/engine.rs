@@ -153,7 +153,10 @@ impl Engine {
                 Ok(Dirty::everything())
             }
             Command::FlipCanvas { horizontal } => { ops::flip::flip_canvas(doc, horizontal); Ok(Dirty::structure()) }
-            Command::ImageSize { .. } => Err(CommandError::Argument("not implemented".into())),
+            Command::ImageSize { width, height, resolution, sampling } => {
+                *doc = ops::image_size::image_size(doc, ops::image_size::ImageSizeOptions { width, height, resolution, sampling })?;
+                Ok(Dirty::everything())
+            }
         })
     }
 
