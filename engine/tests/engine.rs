@@ -76,6 +76,7 @@ fn open_and_save_round_trip_through_engine_resets_history() {
     assert_eq!(s.layers.len(), 2);
     assert!(!s.can_undo && !s.is_modified);
     assert_eq!(e.document_ids().len(), 2);
+    assert_eq!(e.document(reopened).unwrap().id, e.document(id).unwrap().id, "manifest document id is preserved on reopen");
     e.close_document(id);
     assert_eq!(e.document_ids(), vec![reopened]);
 }

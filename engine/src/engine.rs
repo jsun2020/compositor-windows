@@ -29,7 +29,10 @@ pub struct LayerState {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentState {
+    /// The engine session handle used to address this document; not the manifest's document id.
     #[serde(with = "ids::upper")] pub id: Uuid,
+    /// The stable id from the project manifest, preserved across save/open round trips.
+    #[serde(with = "ids::upper")] pub document_id: Uuid,
     pub width: u32,
     pub height: u32,
     pub resolution: f64,
@@ -55,11 +58,14 @@ impl Engine {
     pub fn new() -> Engine { Engine::default() }
     pub fn version() -> &'static str { env!("CARGO_PKG_VERSION") }
 
+    /// Sessions are keyed by a fresh handle, independent of `Document.id` (the stable manifest
+    /// id), so the same document can be open more than once and ids reassigned by rare
+    /// collisions with a live session never happen.
     fn insert(&mut self, document: Document, path: Option<String>) -> Uuid {
-        let id = document.id;
-        self.sessions.insert(id, Session { document, history: History::default(), path });
-        self.order.push(id);
-        id
+        let handle = Uuid::new_v4();
+        self.sessions.insert(handle, Session { document, history: History::default(), path });
+        self.order.push(handle);
+        handle
     }
     fn session(&self, id: Uuid) -> Result<&Session, CommandError> { self.sessions.get(&id).ok_or(CommandError::NoDocument) }
     fn session_mut(&mut self, id: Uuid) -> Result<&mut Session, CommandError> { self.sessions.get_mut(&id).ok_or(CommandError::NoDocument) }
@@ -79,11 +85,10 @@ impl Engine {
     }
 
     pub fn open_package(&mut self, pkg: &Package, path: Option<String>) -> Result<Uuid, CommandError> {
-        let mut doc = package::open_package(pkg)?;
-        // Every open starts an independent session: reassign the id so re-opening a saved
-        // package never collides with (or silently replaces) a document that is still open.
-        doc.id = Uuid::new_v4();
-        if self.sessions.contains_key(&doc.id) { self.close_document(doc.id); }
+        // `Document.id` is kept exactly as read from the manifest (stable across save/open,
+        // to match the macOS format); the session handle from `insert` is what keeps two
+        // open sessions from colliding, so no collision guard is needed here.
+        let doc = package::open_package(pkg)?;
         Ok(self.insert(doc, path))
     }
 
@@ -102,7 +107,7 @@ impl Engine {
         let s = self.session(id)?;
         let d = &s.document;
         Ok(DocumentState {
-            id: d.id, width: d.width, height: d.height, resolution: d.resolution, active_layer_id: d.active_layer_id,
+            id, document_id: d.id, width: d.width, height: d.height, resolution: d.resolution, active_layer_id: d.active_layer_id,
             can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), is_modified: s.history.is_modified(),
             path: s.path.clone(),
             layers: d.layers.iter().map(|l| LayerState {
