@@ -16,6 +16,11 @@ describe("keymap", () => {
     expect(matchShortcut(ev("c", { ctrlKey: true, altKey: true }))).toBe("canvas-size");
     expect(matchShortcut(ev("0", { ctrlKey: true }))).toBe("fit");
     expect(matchShortcut(ev("=", { ctrlKey: true }))).toBe("zoom-in");
+    expect(matchShortcut(ev("+", { ctrlKey: true, shiftKey: true }))).toBe("zoom-in");
+    expect(matchShortcut(ev("=", { ctrlKey: true, shiftKey: true }))).toBe("zoom-in");
+    expect(matchShortcut(ev("Enter"))).toBe("crop-apply");
+    expect(matchShortcut(ev("Escape"))).toBe("crop-cancel");
+    expect(matchShortcut(ev("Enter", { ctrlKey: true }))).toBeNull();
     expect(matchShortcut(ev("x"))).toBeNull();
   });
 });

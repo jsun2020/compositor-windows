@@ -23,10 +23,25 @@ test("dropping an image with no document creates one; dropping onto a document a
 test("keyboard shortcuts drive tools and undo", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const state = () => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
+  const cropRect = () => page.evaluate(() => (window as any).__compositor.store.getState().cropRect);
+  const setCropRect = (rect: { x: number; y: number; width: number; height: number }) =>
+    page.evaluate((r) => (window as any).__compositor.store.getState().setCropRect(r), rect);
+
   await page.keyboard.press("Control+n");
   await page.getByRole("button", { name: "Create" }).click();
   await page.keyboard.press("c");
   await expect(page.getByTestId("crop-options")).toBeVisible();
+
+  await setCropRect({ x: 10, y: 10, width: 100, height: 50 });
+  await page.keyboard.press("Escape");
+  expect(await cropRect()).toBeNull();
+
+  await setCropRect({ x: 10, y: 10, width: 100, height: 50 });
+  await page.keyboard.press("Enter");
+  let d = await state();
+  expect([d.width, d.height]).toEqual([100, 50]);
+
   await page.keyboard.press("v");
   await expect(page.getByTestId("crop-options")).toHaveCount(0);
   await page.keyboard.press("Control+Shift+n");

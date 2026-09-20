@@ -9,13 +9,13 @@ export const SHORTCUTS: Record<ActionId, Shortcut[]> = {
   "export-png": [{ key: "e", ctrl: true, shift: true }], "close": [{ key: "w", ctrl: true }],
   "undo": [{ key: "z", ctrl: true }], "redo": [{ key: "z", ctrl: true, shift: true }, { key: "y", ctrl: true }],
   "new-layer": [{ key: "n", ctrl: true, shift: true }], "canvas-size": [{ key: "c", ctrl: true, alt: true }], "image-size": [{ key: "i", ctrl: true, alt: true }],
-  "zoom-in": [{ key: "=", ctrl: true }, { key: "+", ctrl: true }], "zoom-out": [{ key: "-", ctrl: true }], "fit": [{ key: "0", ctrl: true }], "actual": [{ key: "1", ctrl: true }],
+  "zoom-in": [{ key: "=", ctrl: true }, { key: "+", ctrl: true, shift: true }, { key: "=", ctrl: true, shift: true }], "zoom-out": [{ key: "-", ctrl: true }], "fit": [{ key: "0", ctrl: true }], "actual": [{ key: "1", ctrl: true }],
   "tool-move": [{ key: "v" }], "tool-hand": [{ key: "h" }], "tool-zoom": [{ key: "z" }], "tool-crop": [{ key: "c" }],
   "crop-apply": [{ key: "Enter" }], "crop-cancel": [{ key: "Escape" }],
 };
 
 export function matchShortcut(e: KeyboardEvent): ActionId | null {
-  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const key = e.key.toLowerCase();
   const ctrl = e.ctrlKey || e.metaKey;
   for (const [id, list] of Object.entries(SHORTCUTS) as [ActionId, Shortcut[]][]) {
     for (const s of list) {
