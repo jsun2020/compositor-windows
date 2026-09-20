@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["engine", "engine-wasm"]
+members = ["engine", "engine-wasm", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

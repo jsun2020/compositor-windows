@@ -11,7 +11,9 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "e2e": "playwright test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build --no-bundle"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.3.0",
