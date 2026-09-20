@@ -15,6 +15,11 @@ engine-wasm/pkg/
 src-tauri/target/
 src-tauri/gen/
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
 # Build artifacts (portable zips)
 build-artifacts/
 

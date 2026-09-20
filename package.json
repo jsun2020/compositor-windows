@@ -1,0 +1,37 @@
+{
+  "name": "compositor-windows",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "wasm": "wasm-pack build engine-wasm --target web --release --out-dir ../app/src/engine/pkg --out-name compositor_engine",
+    "wasm:dev": "wasm-pack build engine-wasm --target web --dev --out-dir ../app/src/engine/pkg --out-name compositor_engine",
+    "build-info": "powershell -ExecutionPolicy Bypass -File scripts/write-build-info.ps1",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.3.0",
+    "@tauri-apps/plugin-dialog": "^2.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@tauri-apps/cli": "^2.3.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.4",
+    "jsdom": "^25.0.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}
