@@ -171,8 +171,23 @@ impl Engine {
         Ok(Dirty::everything())
     }
 
-    pub fn import_image(&mut self, _id: Option<Uuid>, _bytes: &[u8], _name: &str, _at: Option<Point>) -> Result<Uuid, CommandError> {
-        Err(CommandError::Argument("not implemented".into())) // Task 9
+    pub fn import_image(&mut self, id: Option<Uuid>, bytes: &[u8], name: &str, at: Option<Point>) -> Result<Uuid, CommandError> {
+        let raster = decode_image(bytes)?.raster;
+        match id {
+            Some(id) => {
+                self.edit(id, |doc| { ops::layers::import_raster(doc, raster, name, at)?; Ok(Dirty::structure()) })?;
+                Ok(id)
+            }
+            None => {
+                let mut doc = Document::new(raster.width, raster.height);
+                ops::layers::import_raster(&mut doc, raster, name, None)?;
+                let id = self.insert(doc, None);
+                // A fresh import has content that is not on disk: mark as modified.
+                let s = self.session_mut(id)?;
+                s.history.mark_never_saved();
+                Ok(id)
+            }
+        }
     }
 
     pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png(&self.session(id)?.document)?) }

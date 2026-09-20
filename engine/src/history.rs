@@ -32,5 +32,7 @@ impl History {
     pub fn can_redo(&self) -> bool { !self.redo.is_empty() }
     pub fn mark_saved(&mut self) { self.saved_depth = self.undo.len(); }
     pub fn is_modified(&self) -> bool { self.saved_depth != self.undo.len() }
+    /// Content exists that is not on disk (a fresh import): modified until the first save.
+    pub fn mark_never_saved(&mut self) { self.saved_depth = usize::MAX; }
     pub fn reset(&mut self) { self.undo.clear(); self.redo.clear(); self.saved_depth = 0; }
 }

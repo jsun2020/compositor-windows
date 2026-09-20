@@ -69,3 +69,20 @@ pub fn set_active_layer(doc: &mut Document, id: Option<Uuid>) -> Result<(), Comm
     doc.active_layer_id = id;
     Ok(())
 }
+
+pub fn import_raster(doc: &mut Document, raster: crate::Raster, name: &str, at: Option<crate::Point>) -> Result<Uuid, CommandError> {
+    let pixels = raster.width as u64 * raster.height as u64;
+    if raster.width as i64 > crate::MAX_SIDE || raster.height as i64 > crate::MAX_SIDE || pixels > crate::MAX_PIXELS - doc.used_pixels() {
+        return Err(CommandError::Import(crate::ImportError::TooLarge));
+    }
+    if doc.layers.len() >= MAX_LAYERS { return Err(CommandError::Argument("too many layers".into())); }
+    let center = at.unwrap_or(crate::Point { x: doc.width as f64 / 2.0, y: doc.height as f64 / 2.0 });
+    let origin = crate::Point { x: (center.x - raster.width as f64 / 2.0).floor(), y: (center.y - raster.height as f64 / 2.0).floor() };
+    let mut layer = Layer::with_pixels(name, raster, origin);
+    let active = doc.active_layer_id.and_then(|id| doc.layer(id).cloned());
+    layer.parent_id = match &active { Some(a) if a.is_group => Some(a.id), Some(a) => a.parent_id, None => None };
+    let id = layer.id;
+    doc.layers.push(layer);
+    doc.active_layer_id = Some(id);
+    Ok(id)
+}
