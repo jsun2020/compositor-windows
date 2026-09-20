@@ -17,8 +17,16 @@ fn check_budget(width: u32, height: u32, used: &mut u64) -> Result<(), ProjectEr
     Ok(())
 }
 
+fn check_asset_bytes(bytes: &[u8]) -> Result<(), ProjectError> {
+    if bytes.len() as u64 > MAX_ASSET_BYTES { return Err(ProjectError::TooLarge); }
+    Ok(())
+}
+
 pub fn open_package(pkg: &Package) -> Result<Document, ProjectError> {
     let manifest = Manifest::parse(&pkg.manifest_json)?;
+    if pkg.images.len() != pkg.images.iter().map(|(n, _)| n).collect::<std::collections::HashSet<_>>().len() {
+        return Err(ProjectError::Invalid);
+    }
     let files: HashMap<&str, &Vec<u8>> = pkg.images.iter().map(|(n, b)| (n.as_str(), b)).collect();
     let mut used = 0u64; let mut used_masks = 0u64;
     let mut layers = Vec::with_capacity(manifest.layers.len());
@@ -26,7 +34,7 @@ pub fn open_package(pkg: &Package) -> Result<Document, ProjectError> {
         let pixels = match &record.image_file {
             Some(name) => {
                 let bytes = files.get(name.as_str()).ok_or(ProjectError::MissingImage)?;
-                if bytes.len() as u64 > MAX_ASSET_BYTES { return Err(ProjectError::TooLarge); }
+                check_asset_bytes(bytes)?;
                 let raster = decode_package_png(bytes)?;
                 check_budget(raster.width, raster.height, &mut used)?;
                 Some(raster)
@@ -36,7 +44,7 @@ pub fn open_package(pkg: &Package) -> Result<Document, ProjectError> {
         let mask = match &record.mask_file {
             Some(name) => {
                 let bytes = files.get(name.as_str()).ok_or(ProjectError::MissingImage)?;
-                if bytes.len() as u64 > MAX_ASSET_BYTES { return Err(ProjectError::TooLarge); }
+                check_asset_bytes(bytes)?;
                 let gray = decode_package_mask(bytes)?;
                 check_budget(gray.width, gray.height, &mut used_masks)?;
                 Some(gray)
@@ -59,11 +67,15 @@ pub fn save_package(doc: &Document) -> Result<Package, ProjectError> {
     for layer in &doc.layers {
         if let Some(raster) = &layer.pixels {
             check_budget(raster.width, raster.height, &mut used)?;
-            images.push((LayerRecord::image_filename(&layer.id), encode_png(raster, doc.resolution)?));
+            let bytes = encode_png(raster, doc.resolution)?;
+            check_asset_bytes(&bytes)?;
+            images.push((LayerRecord::image_filename(&layer.id), bytes));
         }
         if let Some(mask) = &layer.mask {
             check_budget(mask.pixels.width, mask.pixels.height, &mut used_masks)?;
-            images.push((LayerRecord::mask_filename(&layer.id), encode_gray_png(&mask.pixels)?));
+            let bytes = encode_gray_png(&mask.pixels)?;
+            check_asset_bytes(&bytes)?;
+            images.push((LayerRecord::mask_filename(&layer.id), bytes));
         }
     }
     Ok(Package { manifest_json: manifest.to_json_pretty()?, images })

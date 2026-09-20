@@ -83,3 +83,14 @@ fn unsupported_save_state_fails_before_encoding() {
     doc.layers.push(Layer::blank("", doc.size()));
     assert_eq!(save_package(&doc).unwrap_err(), ProjectError::Invalid);
 }
+
+#[test]
+fn duplicate_image_names_are_invalid() {
+    let mut doc = Document::new(64, 32);
+    doc.layers.push(Layer::with_pixels("Red", red_left_raster(), Point { x: 0.0, y: 0.0 }));
+    let mut pkg = save_package(&doc).unwrap();
+    assert_eq!(pkg.images.len(), 1);
+    let dup_name = pkg.images[0].0.clone();
+    pkg.images.push((dup_name, vec![1, 2, 3]));
+    assert_eq!(open_package(&pkg).unwrap_err(), ProjectError::Invalid);
+}
