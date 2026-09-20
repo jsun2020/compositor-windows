@@ -139,8 +139,21 @@ impl Engine {
             Command::SetLayerVisible { id, visible } => { ops::layers::set_layer_visible(doc, id, visible)?; Ok(Dirty::structure()) }
             Command::DeleteLayer { id } => { ops::layers::delete_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::SetActiveLayer { id } => { ops::layers::set_active_layer(doc, id)?; Ok(Dirty::structure()) }
-            Command::CanvasSize { .. } | Command::Crop { .. } | Command::ImageSize { .. } | Command::FlipCanvas { .. } =>
-                Err(CommandError::Argument("not implemented".into())),
+            Command::CanvasSize { width, height, anchor, fill } => {
+                *doc = ops::canvas_size::canvas_size(doc, ops::canvas_size::CanvasSizeOptions { width, height, anchor, fill, content_offset: None })?;
+                Ok(Dirty::everything())
+            }
+            Command::Crop { x, y, width, height } => {
+                if ![x, y, width, height].iter().all(|v| v.is_finite()) || width < 1.0 || height < 1.0 || width > MAX_SIDE as f64 || height > MAX_SIDE as f64 {
+                    return Err(CommandError::Argument("crop rectangle out of range".into()));
+                }
+                *doc = ops::canvas_size::canvas_size(doc, ops::canvas_size::CanvasSizeOptions {
+                    width: width.round() as u32, height: height.round() as u32, anchor: 4, fill: None,
+                    content_offset: Some(Point { x: -x.round(), y: -y.round() }) })?;
+                Ok(Dirty::everything())
+            }
+            Command::FlipCanvas { horizontal } => { ops::flip::flip_canvas(doc, horizontal); Ok(Dirty::structure()) }
+            Command::ImageSize { .. } => Err(CommandError::Argument("not implemented".into())),
         })
     }
 
