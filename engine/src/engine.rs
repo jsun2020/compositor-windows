@@ -147,9 +147,14 @@ impl Engine {
                 if ![x, y, width, height].iter().all(|v| v.is_finite()) || width < 1.0 || height < 1.0 || width > MAX_SIDE as f64 || height > MAX_SIDE as f64 {
                     return Err(CommandError::Argument("crop rectangle out of range".into()));
                 }
+                // Round both edges of the rect and derive width/height from their difference,
+                // instead of rounding x and width independently, so the right and bottom edges
+                // land exactly where they were dragged instead of drifting by a pixel.
+                let x0 = x.round(); let x1 = (x + width).round();
+                let y0 = y.round(); let y1 = (y + height).round();
                 *doc = ops::canvas_size::canvas_size(doc, ops::canvas_size::CanvasSizeOptions {
-                    width: width.round() as u32, height: height.round() as u32, anchor: 4, fill: None,
-                    content_offset: Some(Point { x: -x.round(), y: -y.round() }) })?;
+                    width: (x1 - x0) as u32, height: (y1 - y0) as u32, anchor: 4, fill: None,
+                    content_offset: Some(Point { x: -x0, y: -y0 }) })?;
                 Ok(Dirty::everything())
             }
             Command::FlipCanvas { horizontal } => { ops::flip::flip_canvas(doc, horizontal); Ok(Dirty::structure()) }
@@ -193,6 +198,9 @@ impl Engine {
     pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png(&self.session(id)?.document)?) }
     pub fn export_jpeg(&self, id: Uuid, quality: f64, matte: [f64; 3]) -> Result<Vec<u8>, CommandError> {
         Ok(compositor::export_jpeg(&self.session(id)?.document, quality, matte)?)
+    }
+    pub fn export_jpeg_preview(&self, id: Uuid, quality: f64, matte: [f64; 3], max_side: u32) -> Result<Vec<u8>, CommandError> {
+        Ok(compositor::export_jpeg_preview(&self.session(id)?.document, quality, matte, max_side)?)
     }
     pub fn composite(&self, id: Uuid, region: Rect, width: u32, height: u32) -> Result<Raster, CommandError> {
         Ok(compositor::composite(&self.session(id)?.document, region, width, height))

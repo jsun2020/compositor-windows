@@ -81,6 +81,9 @@ impl WasmEngine {
     pub fn export_jpeg(&self, doc: &str, quality: f64, r: f64, g: f64, b: f64) -> Result<Uint8Array, JsError> {
         Ok(Uint8Array::from(self.engine.export_jpeg(parse_id(doc)?, quality, [r, g, b]).map_err(js_err)?.as_slice()))
     }
+    pub fn export_jpeg_preview(&self, doc: &str, quality: f64, r: f64, g: f64, b: f64, max_side: u32) -> Result<Uint8Array, JsError> {
+        Ok(Uint8Array::from(self.engine.export_jpeg_preview(parse_id(doc)?, quality, [r, g, b], max_side).map_err(js_err)?.as_slice()))
+    }
     pub fn composite(&self, doc: &str, x: f64, y: f64, w: f64, h: f64, out_w: u32, out_h: u32) -> Result<Uint8Array, JsError> {
         let raster = self.engine.composite(parse_id(doc)?, Rect { x, y, width: w, height: h }, out_w, out_h).map_err(js_err)?;
         Ok(Uint8Array::from(raster.bytes()))

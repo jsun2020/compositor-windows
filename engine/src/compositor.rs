@@ -122,3 +122,19 @@ pub fn export_jpeg(doc: &Document, quality: f64, matte: [f64; 3]) -> Result<Vec<
     let raster = render_full(doc)?;
     encode_jpeg(&raster, quality, matte, doc.resolution)
 }
+
+/// Composites the document scaled to fit `max_side` (aspect preserved) and encodes it as JPEG.
+/// For a quality/matte preview where a full-resolution encode would freeze the UI on a large
+/// canvas: the compositor already accepts an arbitrary output size, so the preview is rendered
+/// directly at that size instead of downscaling a full-resolution raster afterward.
+pub fn export_jpeg_preview(doc: &Document, quality: f64, matte: [f64; 3], max_side: u32) -> Result<Vec<u8>, ExportError> {
+    check_export_size(doc)?;
+    let max_side = max_side.max(1) as f64;
+    let longest = (doc.width.max(doc.height)) as f64;
+    let scale = (max_side / longest).min(1.0);
+    let out_width = ((doc.width as f64 * scale).round() as u32).max(1);
+    let out_height = ((doc.height as f64 * scale).round() as u32).max(1);
+    let region = Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 };
+    let raster = composite(doc, region, out_width, out_height);
+    encode_jpeg(&raster, quality, matte, doc.resolution)
+}

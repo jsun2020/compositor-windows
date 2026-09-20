@@ -34,6 +34,11 @@ export class EngineClient {
   }
   exportPng(doc: string): Uint8Array { return this.wasm.export_png(doc); }
   exportJpeg(doc: string, quality: number, matte: [number, number, number]): Uint8Array { return this.wasm.export_jpeg(doc, quality, ...matte); }
+  /** Composites and encodes the document scaled to fit `maxSide` (aspect preserved), for a
+   * fast quality/matte preview image that does not need a full-resolution encode. */
+  exportJpegPreview(doc: string, quality: number, matte: [number, number, number], maxSide: number): Uint8Array {
+    return this.wasm.export_jpeg_preview(doc, quality, ...matte, maxSide);
+  }
   composite(doc: string, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
     return this.wasm.composite(doc, region.x, region.y, region.width, region.height, outWidth, outHeight);
   }
