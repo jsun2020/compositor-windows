@@ -45,10 +45,18 @@ export class TauriBridge implements ShellBridge {
   async addRecentPackage(path: string): Promise<void> { await invoke("add_recent_package", { path }); }
   onFileDrop(handler: (paths: string[], position: { x: number; y: number } | null) => void): () => void {
     let unlisten: (() => void) | null = null;
+    let cancelled = false;
     getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") handler(event.payload.paths, event.payload.position ? { x: event.payload.position.x, y: event.payload.position.y } : null);
-    }).then((u) => { unlisten = u; });
-    return () => unlisten?.();
+    }).then((u) => {
+      // The caller may have unsubscribed before this promise settled; if so, don't
+      // leak the listener, unlisten immediately instead of stashing it for later.
+      if (cancelled) { u(); } else { unlisten = u; }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }
   baseName(path: string): string { return baseName(path); }
 }

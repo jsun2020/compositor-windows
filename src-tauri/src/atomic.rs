@@ -23,11 +23,22 @@ pub fn commit(stage: &Path, final_path: &Path) -> std::io::Result<()> {
         Some(b)
     } else { None };
     if let Err(e) = fs::rename(stage, final_path) {
-        if let Some(b) = &backup { let _ = fs::rename(b, final_path); }
         let _ = fs::remove_dir_all(stage);
+        if let Some(b) = &backup {
+            if let Err(restore_err) = fs::rename(b, final_path) {
+                // Neither the new package nor the restore made it; say exactly where the
+                // old package still lives so it isn't mistaken for lost data.
+                return Err(std::io::Error::other(format!(
+                    "The previous project could not be restored; it is intact at {}. The new version was not saved. ({e}; restore failed: {restore_err})",
+                    b.display()
+                )));
+            }
+        }
         return Err(e);
     }
-    if let Some(b) = backup { fs::remove_dir_all(b)?; }
+    // The new package is already in place; a failure to clean up the backup is not
+    // this call's problem to report, so make it best-effort.
+    if let Some(b) = backup { let _ = fs::remove_dir_all(&b); }
     Ok(())
 }
 
@@ -69,5 +80,32 @@ mod tests {
         let final_path = blocker.join("CannotSave.comp");
         assert!(stage_dir(&final_path).is_err());
         assert_eq!(fs::read(&blocker).unwrap(), b"1");
+    }
+
+    // A `commit_succeeds_even_if_backup_cleanup_is_blocked` test (deliberately locking a
+    // file inside the backup so its `remove_dir_all` fails) was tried and dropped: the
+    // only deterministic way found to make a file undeletable on Windows is an exclusive,
+    // no-sharing handle (`OpenOptions::share_mode(0)`), but that also blocks renaming the
+    // *directory* that contains it -- which happens earlier, when the old package is
+    // renamed to its backup path, well before the cleanup step this test wants to exercise.
+    // That made the test fail for the wrong reason (the rename itself, not the cleanup) and
+    // therefore unable to isolate the code path in question. Rust's own `fs::File::open`
+    // does not block deletion on Windows (it shares `FILE_SHARE_DELETE` by default), so a
+    // simple open handle does not reproduce the failure either. Absent a deterministic way
+    // to fail only the cleanup step, the best-effort behavior is instead exercised
+    // structurally below (no backup means nothing to clean up, exercising the `None` arm
+    // of `if let Some(b) = backup`) and covered by code review of the `let _ =` in `commit`.
+
+    #[test]
+    fn commit_without_existing_package_has_no_backup() {
+        let root = temp();
+        let final_path = root.join("A.comp");
+        let stage = stage_dir(&final_path).unwrap();
+        fs::create_dir_all(stage.join("images")).unwrap();
+        fs::write(stage.join("manifest.json"), b"new").unwrap();
+        commit(&stage, &final_path).unwrap();
+        assert_eq!(fs::read(final_path.join("manifest.json")).unwrap(), b"new");
+        let leftovers: Vec<_> = fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+        assert_eq!(leftovers, vec!["A.comp".to_string()], "no backup directory should be left behind when there was nothing to back up");
     }
 }
