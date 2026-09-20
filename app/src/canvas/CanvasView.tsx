@@ -3,6 +3,7 @@ import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay } from "./overlay";
 import { installTestApi } from "../test-api";
+import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -101,6 +102,60 @@ export function CanvasView() {
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
     window.addEventListener("keydown", key); window.addEventListener("keyup", key);
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+  }, []);
+
+  // Crop tool: drag to create, move or resize the crop rect, snapping to canvas and layer edges.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    let session: CropSession | null = null;
+    let space = false;
+    const point = (e: PointerEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const down = (e: PointerEvent) => {
+      const s = useEditor.getState();
+      if (s.tool !== "crop" || space || e.button !== 0 || !s.activeId) return;
+      const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+      const size = { width: d.width, height: d.height };
+      const view = point(e);
+      const docPoint = vp.documentPoint(view, size);
+      const rect = s.cropRect ?? { x: 0, y: 0, width: d.width, height: d.height };
+      const mode = hitTest(rect, view, vp, size);
+      const tolerance = SNAP_SCREEN_PX / vp.pointsPerPixel;
+      session = new CropSession(mode, docPoint, rect, d, ratioValue(s.cropRatio, d), tolerance);
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (!session) return;
+      const s = useEditor.getState(); if (!s.activeId) return;
+      const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+      const docPoint = vp.documentPoint(point(e), { width: d.width, height: d.height });
+      const { rect, guides } = session.update(docPoint, e.altKey);
+      guidesRef.current = guides;
+      s.setCropRect(rect);
+      s.invalidate();
+    };
+    const up = () => { if (!session) return; session = null; guidesRef.current = { xs: [], ys: [] }; useEditor.getState().invalidate(); };
+    const key = (e: KeyboardEvent) => { if (e.code === "Space") space = e.type === "keydown"; };
+    el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
+    window.addEventListener("keydown", key); window.addEventListener("keyup", key);
+    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+  }, []);
+
+  // Enter applies the crop, Escape cancels it - only while the crop tool is active and no sheet is open.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const s = useEditor.getState();
+      if (s.tool !== "crop" || s.sheet !== null || !s.activeId) return;
+      const doc = s.documents[s.activeId];
+      if (e.key === "Enter") {
+        const rect = s.cropRect ?? { x: 0, y: 0, width: doc.width, height: doc.height };
+        s.run({ type: "Crop", ...rect });
+        s.setCropRect(null);
+      } else if (e.key === "Escape") {
+        s.setCropRect(null);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
   }, []);
 
   return (

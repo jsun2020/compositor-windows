@@ -10,6 +10,10 @@ import { ProjectTabs } from "./panels/ProjectTabs";
 import { LayersList } from "./panels/LayersList";
 import { ToolRail } from "./panels/ToolRail";
 import { NewCanvasSheet } from "./sheets/NewCanvasSheet";
+import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
+import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
+import { JpegExportSheet } from "./sheets/JpegExportSheet";
+import { CropOptions } from "./panels/CropOptions";
 import "./styles.css";
 
 export function App() {
@@ -51,6 +55,7 @@ export function App() {
     <div className="app">
       <MenuBar />
       <ProjectTabs />
+      <CropOptions />
       <div className="workspace">
         <ToolRail />
         <CanvasView />
@@ -59,6 +64,9 @@ export function App() {
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER})</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}
+      {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}
+      {sheet?.kind === "imageSize" && <ImageSizeSheet />}
+      {sheet?.kind === "jpeg" && <JpegExportSheet />}
     </div>
   );
 }
