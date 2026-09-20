@@ -132,8 +132,8 @@ impl Engine {
         Ok(dirty)
     }
 
-    pub fn execute(&mut self, id: Uuid, command: Command) -> Result<Dirty, CommandError> {
-        self.edit(id, |doc| match command {
+    pub fn execute(&mut self, handle: Uuid, command: Command) -> Result<Dirty, CommandError> {
+        self.edit(handle, |doc| match command {
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
             Command::RenameLayer { id, name } => { ops::layers::rename_layer(doc, id, &name)?; Ok(Dirty::structure()) }
             Command::SetLayerVisible { id, visible } => { ops::layers::set_layer_visible(doc, id, visible)?; Ok(Dirty::structure()) }

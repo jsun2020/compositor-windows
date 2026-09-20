@@ -34,6 +34,37 @@ fn commands_are_undoable_and_track_modification() {
 }
 
 #[test]
+fn edit_after_undo_past_saved_point_is_modified() {
+    let mut e = Engine::new();
+    let id = e.new_document(10, 10, true).unwrap();
+    let layer = e.state(id).unwrap().layers[0].id;
+    e.execute(id, Command::RenameLayer { id: layer, name: "A".into() }).unwrap();
+    e.execute(id, Command::RenameLayer { id: layer, name: "B".into() }).unwrap();
+    e.execute(id, Command::RenameLayer { id: layer, name: "C".into() }).unwrap();
+    e.mark_saved(id, None);
+    e.undo(id).unwrap();
+    assert!(e.state(id).unwrap().is_modified);
+    e.execute(id, Command::RenameLayer { id: layer, name: "D".into() }).unwrap();
+    assert!(e.state(id).unwrap().is_modified);
+    assert!(!e.state(id).unwrap().can_redo);
+}
+
+#[test]
+fn undo_back_to_saved_point_is_not_modified() {
+    let mut e = Engine::new();
+    let id = e.new_document(10, 10, true).unwrap();
+    let layer = e.state(id).unwrap().layers[0].id;
+    e.execute(id, Command::RenameLayer { id: layer, name: "A".into() }).unwrap();
+    e.mark_saved(id, None);
+    e.execute(id, Command::RenameLayer { id: layer, name: "B".into() }).unwrap();
+    assert!(e.state(id).unwrap().is_modified);
+    e.undo(id).unwrap();
+    assert!(!e.state(id).unwrap().is_modified);
+    e.redo(id).unwrap();
+    assert!(e.state(id).unwrap().is_modified);
+}
+
+#[test]
 fn blank_layers_number_from_first_free_name() {
     let mut e = Engine::new();
     let id = e.new_document(10, 10, true).unwrap();
