@@ -7,6 +7,10 @@ pub mod codec;
 pub mod document;
 pub mod package;
 pub mod compositor;
+pub mod history;
+pub mod command;
+pub mod engine;
+pub mod ops;
 
 pub use error::*;
 pub use geometry::*;
@@ -16,3 +20,6 @@ pub use codec::*;
 pub use document::*;
 pub use package::*;
 pub use compositor::*;
+pub use history::*;
+pub use command::*;
+pub use engine::*;
