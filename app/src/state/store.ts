@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Command, DocumentState } from "../engine/types";
 import type { EngineClient } from "../engine/client";
+import type { ShellBridge } from "../shell/bridge";
 import { Viewport } from "../canvas/viewport";
 import type { Rect } from "../tools/crop-geometry";
 
@@ -10,6 +11,7 @@ export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "i
 
 export interface EditorStore {
   engine: EngineClient | null;
+  bridge: ShellBridge | null;
   documents: Record<string, DocumentState>;
   order: string[];
   activeId: string | null;
@@ -19,9 +21,12 @@ export interface EditorStore {
   cropRatio: CropRatio;
   sheet: Sheet;
   error: string | null;
+  busy: boolean;
   rendererKind: "gl" | "cpu" | null;
   renderTick: number;
   setEngine(engine: EngineClient): void;
+  setBridge(bridge: ShellBridge): void;
+  setBusy(busy: boolean): void;
   openDocument(id: string): void;
   closeDocument(id: string): void;
   setActive(id: string): void;
@@ -40,9 +45,11 @@ export interface EditorStore {
 }
 
 export const useEditor = create<EditorStore>((set, get) => ({
-  engine: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
-  sheet: null, error: null, rendererKind: null, renderTick: 0,
+  engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
+  sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0,
   setEngine: (engine) => set({ engine }),
+  setBridge: (bridge) => set({ bridge }),
+  setBusy: (busy) => set({ busy }),
   openDocument: (id) => {
     const engine = get().engine!;
     const state = engine.state(id);
