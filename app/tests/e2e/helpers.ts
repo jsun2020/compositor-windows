@@ -1,3 +1,16 @@
+import type { Page } from "@playwright/test";
+
+/**
+ * Opens a top-level dropdown menu ("File", "Edit", "Image", "View") and clicks one of
+ * its items. The menu bar mounts each title's items only while that title's dropdown
+ * is open, so a bare `getByTestId("menu-<id>").click()` finds nothing until the title
+ * has been clicked first.
+ */
+export async function clickMenu(page: Page, title: "File" | "Edit" | "Image" | "View", id: string): Promise<void> {
+  await page.getByRole("button", { name: title, exact: true }).click();
+  await page.getByTestId(`menu-${id}`).click();
+}
+
 /**
  * Draws a 2x2 fully-opaque red square on a canvas and returns its PNG bytes as base64,
  * decoded in-browser so tests never depend on a hand-verified base64 literal.

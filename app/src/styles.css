@@ -12,16 +12,17 @@ body { margin: 0; }
   overflow: hidden;
 }
 
-/* Menu bar: a grouped, always-visible toolbar (not a click-to-open dropdown), so every
-   action stays reachable without a prior interaction. */
-.menubar { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: wrap; gap: 12px; background: #2a2a2a; border-bottom: 1px solid #000; padding: 4px 8px; }
-.menu { display: flex; align-items: center; gap: 4px; }
-.menu-title { color: #888; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; margin-right: 2px; }
-.menu-items { display: flex; align-items: center; gap: 2px; }
-.menu-items button { background: none; border: none; color: #ddd; padding: 4px 8px; font: inherit; cursor: pointer; border-radius: 3px; white-space: nowrap; }
-.menu-items button:hover { background: #3a3a3a; }
-.menu-items button:disabled { color: #666; cursor: default; background: none; }
-.menu-sep { width: 1px; align-self: stretch; background: #444; margin: 0 4px; }
+/* Menu bar: macOS-style dropdowns. Each title's items mount only while its menu is
+   open; hovering another title while one is open switches to it; picking an item or
+   moving the mouse off the bar closes it. */
+.menubar { display: flex; flex: 0 0 auto; background: #2a2a2a; border-bottom: 1px solid #000; }
+.menubar button { background: none; border: none; color: #ddd; padding: 6px 10px; font: inherit; cursor: pointer; }
+.menubar button:hover { background: #3a3a3a; }
+.menubar button:disabled { color: #666; cursor: default; background: none; }
+.menu { position: relative; }
+.menu-items { position: absolute; top: 100%; left: 0; z-index: 20; display: flex; flex-direction: column; min-width: 220px; background: #2a2a2a; border: 1px solid #000; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); }
+.menu-items button { text-align: left; padding: 6px 12px; white-space: nowrap; }
+.menu-items hr { border: none; border-top: 1px solid #444; margin: 4px 0; }
 
 /* Project tabs */
 .tabs { display: flex; flex: 0 0 auto; background: #232323; border-bottom: 1px solid #000; overflow-x: auto; }

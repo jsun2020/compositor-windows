@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { redSquarePngBase64 } from "./helpers";
+import { clickMenu, redSquarePngBase64 } from "./helpers";
 
 async function seedImage(page: Page, path: string): Promise<void> {
   const b64 = await page.evaluate(redSquarePngBase64);
@@ -12,7 +12,7 @@ async function seedImage(page: Page, path: string): Promise<void> {
 test("new canvas, import, save, close and reopen", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  await page.getByTestId("menu-new").click();
+  await clickMenu(page, "File", "new");
   await page.getByLabel("Width").fill("300");
   await page.getByLabel("Height").fill("200");
   await page.getByRole("button", { name: "Create" }).click();
@@ -21,22 +21,22 @@ test("new canvas, import, save, close and reopen", async ({ page }) => {
 
   await seedImage(page, "C:/pics/red.png");
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/pics/red.png"));
-  await page.getByTestId("menu-import").click();
+  await clickMenu(page, "File", "import");
   await expect(page.getByTestId("layer-row")).toHaveCount(2);
   await expect(page.getByTestId("layer-row").first()).toContainText("red");
 
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/projects/Test.comp"));
-  await page.getByTestId("menu-save").click();
+  await clickMenu(page, "File", "save");
   await expect(page.getByTestId("project-tab").first()).toContainText("Test");
   await expect(page.getByTestId("project-tab").first()).not.toContainText("\u2022");
   const saved = await page.evaluate(() => (window as any).__compositor.bridge.hasPackage("C:/projects/Test.comp"));
   expect(saved).toBe(true);
 
-  await page.getByTestId("menu-close").click();
+  await clickMenu(page, "File", "close");
   await expect(page.getByTestId("project-tab")).toHaveCount(0);
 
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/projects/Test.comp"));
-  await page.getByTestId("menu-open").click();
+  await clickMenu(page, "File", "open");
   await expect(page.getByTestId("layer-row")).toHaveCount(2);
   const state = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
   expect([state.width, state.height]).toEqual([300, 200]);
@@ -46,10 +46,10 @@ test("new canvas, import, save, close and reopen", async ({ page }) => {
 test("export png writes a file of the canvas size", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  await page.getByTestId("menu-new").click();
+  await clickMenu(page, "File", "new");
   await page.getByRole("button", { name: "Create" }).click();
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/out/Untitled.png"));
-  await page.getByTestId("menu-export-png").click();
+  await clickMenu(page, "File", "export-png");
   const size = await page.evaluate(async () => {
     const bytes = (window as any).__compositor.bridge.fileBytes("C:/out/Untitled.png") as Uint8Array;
     const blob = new Blob([bytes as unknown as BlobPart], { type: "image/png" });
@@ -62,11 +62,11 @@ test("export png writes a file of the canvas size", async ({ page }) => {
 test("closing a modified document asks first", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  await page.getByTestId("menu-new").click();
+  await clickMenu(page, "File", "new");
   await page.getByRole("button", { name: "Create" }).click();
   await page.getByTestId("layer-add").click();
   await expect(page.getByTestId("project-tab").first()).toContainText("\u2022");
   page.once("dialog", (d) => d.dismiss());
-  await page.getByTestId("menu-close").click();
+  await clickMenu(page, "File", "close");
   await expect(page.getByTestId("project-tab")).toHaveCount(1);
 });

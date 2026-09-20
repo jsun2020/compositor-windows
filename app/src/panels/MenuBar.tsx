@@ -1,10 +1,4 @@
 import { useEffect, useState } from "react";
-// Deviation from the brief's snippet: menu items were previously mounted only while a
-// top-level title's dropdown was open (click-to-toggle), so Playwright's direct
-// getByTestId("menu-<id>").click() calls in files.spec.ts (which never open the "File"
-// title first) timed out waiting for an element that was never in the DOM. Rendering
-// each group's items as an always-visible toolbar row keeps the same data-testids and
-// action wiring while making every item immediately actionable.
 import { useEditor } from "../state/store";
 import { closeActive, exportPng, importImages, openProject, saveProject, saveProjectAs } from "../actions/files";
 
@@ -51,16 +45,19 @@ export function MenuBar() {
       { id: "actual", label: "Actual Size", run: () => { const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!]; vp.setZoom(window.devicePixelRatio || 1, vp.center, { width: d.width, height: d.height }); s.invalidate(); }, enabled: hasDoc },
     ] },
   ];
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
   return (
-    <div className="menubar">
+    <div className="menubar" onMouseLeave={() => setOpenMenu(null)}>
       {menus.map((m) => (
-        <div key={m.title} className="menu">
-          <span className="menu-title">{m.title}</span>
-          <div className="menu-items">
-            {m.items.map((it, i) => it === "separator" ? <span key={i} className="menu-sep" /> : (
-              <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy} onClick={() => it.run()}>{it.label}</button>
-            ))}
-          </div>
+        <div key={m.title} className="menu" onMouseEnter={() => openMenu && setOpenMenu(m.title)}>
+          <button data-testid={`menubar-${m.title.toLowerCase()}`} onClick={() => setOpenMenu(openMenu === m.title ? null : m.title)}>{m.title}</button>
+          {openMenu === m.title && (
+            <div className="menu-items">
+              {m.items.map((it, i) => it === "separator" ? <hr key={i} /> : (
+                <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy} onClick={() => { setOpenMenu(null); it.run(); }}>{it.label}</button>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
