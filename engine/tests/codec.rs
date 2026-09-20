@@ -155,3 +155,25 @@ fn same_pixels_is_pointer_equality() {
     let r3 = Raster::from_premultiplied(10, 10, bytes);
     assert!(!r1.same_pixels(&r3));
 }
+
+#[test]
+fn halved_is_memoized_across_clones_and_halving_levels() {
+    let r1 = pattern_raster(300, 270);
+    let r2 = r1.clone();
+    // Two clones of the same pixel buffer, each halved independently, must land on the same
+    // computed raster instead of two separate allocations -- that is the cache this test guards.
+    let h1 = r1.halved();
+    let h2 = r2.halved();
+    assert!(h1.same_pixels(&h2), "halved() of two clones should share the memoized result");
+    assert_eq!((h1.width, h1.height), (150, 135));
+    // The cache is per pixel buffer, not global: halving again from a raster with the same
+    // dimensions but different pixels must not reuse the other buffer's cached result.
+    let other = Raster::from_premultiplied(300, 270, vec![0u8; 300 * 270 * 4]);
+    let h3 = other.halved();
+    assert!(!h1.same_pixels(&h3));
+    // The memoization also chains: halving the halved raster twice, from two clones of it,
+    // shares the second-level result too.
+    let h1b = h1.clone().halved();
+    let h2b = h2.clone().halved();
+    assert!(h1b.same_pixels(&h2b));
+}
