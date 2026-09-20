@@ -21,12 +21,29 @@ pub struct PackageHeader { pub manifest: String, pub image_names: Vec<String> }
 
 fn io(e: std::io::Error, what: &str, path: &Path) -> String { format!("{what} {}: {e}", path.display()) }
 
+/// Rejects a symlink and a path that escapes `root` after canonicalization, matching
+/// `ProjectStore.checkFile` on macOS: `isSymbolicLink != true` and a prefix-match resolved
+/// path. Returns the file's metadata (never a symlink's, since that case is already rejected)
+/// so callers do not need a second stat call.
+fn checked_metadata(root: &Path, file: &Path) -> Result<fs::Metadata, String> {
+    let meta = fs::symlink_metadata(file).map_err(|e| io(e, "Cannot read", file))?;
+    if meta.file_type().is_symlink() {
+        return Err(format!("{} is a symbolic link, which this project format does not allow.", file.display()));
+    }
+    let canonical_root = fs::canonicalize(root).map_err(|e| io(e, "Cannot read", root))?;
+    let canonical_file = fs::canonicalize(file).map_err(|e| io(e, "Cannot read", file))?;
+    if !canonical_file.starts_with(&canonical_root) {
+        return Err(format!("{} is outside the project package.", file.display()));
+    }
+    Ok(meta)
+}
+
 #[tauri::command]
 pub fn read_package_manifest(path: String) -> Result<PackageHeader, String> {
     let root = PathBuf::from(&path);
     if !root.is_dir() { return Err(format!("{} is not a Compositor project folder.", root.display())); }
     let manifest_path = root.join("manifest.json");
-    let meta = fs::metadata(&manifest_path).map_err(|e| io(e, "Cannot read", &manifest_path))?;
+    let meta = checked_metadata(&root, &manifest_path)?;
     if !meta.is_file() || meta.len() > MAX_MANIFEST { return Err("This project exceeds the supported manifest size.".into()); }
     let manifest = fs::read_to_string(&manifest_path).map_err(|e| io(e, "Cannot read", &manifest_path))?;
     let mut image_names = Vec::new();
@@ -43,8 +60,9 @@ pub fn read_package_manifest(path: String) -> Result<PackageHeader, String> {
 #[tauri::command]
 pub fn read_package_image(path: String, name: String) -> Result<Response, String> {
     if !valid_image_name(&name) { return Err("Invalid image name.".into()); }
-    let file = PathBuf::from(&path).join("images").join(&name);
-    let meta = fs::metadata(&file).map_err(|e| io(e, "Cannot read", &file))?;
+    let root = PathBuf::from(&path);
+    let file = root.join("images").join(&name);
+    let meta = checked_metadata(&root, &file)?;
     if !meta.is_file() || meta.len() > MAX_ASSET { return Err("This project exceeds the supported asset size.".into()); }
     Ok(Response::new(fs::read(&file).map_err(|e| io(e, "Cannot read", &file))?))
 }
@@ -101,6 +119,44 @@ pub fn write_package_abort(token: String, pending: State<PendingWrites>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("compositor-package-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn checked_metadata_accepts_a_plain_file_inside_the_root() {
+        let root = temp();
+        let file = root.join("manifest.json");
+        fs::write(&file, b"{}").unwrap();
+        let meta = checked_metadata(&root, &file).unwrap();
+        assert!(meta.is_file());
+    }
+
+    #[test]
+    fn checked_metadata_rejects_a_path_outside_the_root() {
+        let root = temp();
+        fs::create_dir_all(root.join("images")).unwrap();
+        // A name that resolves outside `root/images` once joined and canonicalized (the
+        // package root only ever contains `root` itself, so an ancestor's file is "outside").
+        let outside = root.parent().unwrap().join(format!("outside-{}.png", uuid::Uuid::new_v4()));
+        fs::write(&outside, b"x").unwrap();
+        // Simulate what an escaping asset path would resolve to: a file that is not inside
+        // `root` at all, checked against `root` as the required prefix.
+        assert!(checked_metadata(&root, &outside).is_err());
+    }
+
+    // A `checked_metadata_rejects_a_symlink` test (create a symlink inside `root` pointing
+    // outside it, assert `checked_metadata` rejects it) was not added: creating a filesystem
+    // symlink on Windows requires either Developer Mode or the `SeCreateSymbolicLinkPrivilege`
+    // right, neither of which this sandbox grants, so `std::os::windows::fs::symlink_file`
+    // fails with "A required privilege is not held by the client" before the check under test
+    // ever runs. The rejection itself (`meta.file_type().is_symlink()`) is a single boolean
+    // check with no Windows-specific behavior, and is covered by code review; running it here
+    // would require CI to grant that privilege, which is out of scope for this pass.
+
     #[test]
     fn image_names_are_uuid_pngs_only() {
         assert!(valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.png"));
