@@ -12,8 +12,12 @@ test("crop via the options bar, canvas size and image size sheets", async ({ pag
 
   await page.getByTestId("tool-crop").click();
   await page.evaluate(() => (window as any).__compositor.store.getState().setCropRect({ x: 50, y: 40, width: 200, height: 100 }));
-  await page.getByTestId("crop-apply").click();
+  await page.getByTestId("crop-options").locator("select").focus();
+  await page.keyboard.press("Enter");
   let d = await state();
+  expect([d.width, d.height]).toEqual([400, 300]);
+  await page.getByTestId("crop-apply").click();
+  d = await state();
   expect([d.width, d.height]).toEqual([200, 100]);
   expect(d.layers[0].transform.origin).toEqual([-50, -40]);
 

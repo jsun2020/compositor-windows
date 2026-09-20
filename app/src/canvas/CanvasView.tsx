@@ -4,6 +4,7 @@ import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay } from "./overlay";
 import { installTestApi } from "../test-api";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
+import { isEditableTarget } from "../shortcuts/target";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -13,6 +14,9 @@ export function CanvasView() {
   const rendererRef = useRef<Renderer | null>(null);
   const checkerboardRef = useRef(true);
   const guidesRef = useRef<{ xs: number[]; ys: number[] }>({ xs: [], ys: [] });
+  // Whether the space bar is currently held, shared by the pan and crop pointer
+  // handlers below (both treat space-held as "temporarily pan" regardless of tool).
+  const spaceRef = useRef(false);
   const engine = useEditor((s) => s.engine);
   const activeId = useEditor((s) => s.activeId);
   const state = useEditor((s) => (s.activeId ? s.documents[s.activeId] : null));
@@ -91,28 +95,33 @@ export function CanvasView() {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  // Track the space bar globally; shared by the pan and crop pointer handlers below,
+  // instead of each keeping its own duplicate keydown/keyup listener and local flag.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.code === "Space") spaceRef.current = e.type === "keydown"; };
+    window.addEventListener("keydown", key); window.addEventListener("keyup", key);
+    return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+  }, []);
+
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    let last: { x: number; y: number } | null = null; let space = false;
-    const down = (e: PointerEvent) => { const s = useEditor.getState(); if (s.tool === "hand" || space || e.button === 1) { last = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); } };
+    let last: { x: number; y: number } | null = null;
+    const down = (e: PointerEvent) => { const s = useEditor.getState(); if (s.tool === "hand" || spaceRef.current || e.button === 1) { last = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); } };
     const move = (e: PointerEvent) => { if (!last) return; const s = useEditor.getState(); if (!s.activeId) return; s.viewports[s.activeId].translate({ width: e.clientX - last.x, height: e.clientY - last.y }); last = { x: e.clientX, y: e.clientY }; s.invalidate(); };
     const up = () => { last = null; };
-    const key = (e: KeyboardEvent) => { if (e.code === "Space") space = e.type === "keydown"; };
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
-    window.addEventListener("keydown", key); window.addEventListener("keyup", key);
-    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
   }, []);
 
   // Crop tool: drag to create, move or resize the crop rect, snapping to canvas and layer edges.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
     let session: CropSession | null = null;
-    let space = false;
     const point = (e: PointerEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
     const down = (e: PointerEvent) => {
       const s = useEditor.getState();
-      if (s.tool !== "crop" || space || e.button !== 0 || !s.activeId) return;
+      if (s.tool !== "crop" || spaceRef.current || e.button !== 0 || !s.activeId) return;
       const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
       const size = { width: d.width, height: d.height };
       const view = point(e);
@@ -134,15 +143,16 @@ export function CanvasView() {
       s.invalidate();
     };
     const up = () => { if (!session) return; session = null; guidesRef.current = { xs: [], ys: [] }; useEditor.getState().invalidate(); };
-    const key = (e: KeyboardEvent) => { if (e.code === "Space") space = e.type === "keydown"; };
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
-    window.addEventListener("keydown", key); window.addEventListener("keyup", key);
-    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); };
+    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
   }, []);
 
-  // Enter applies the crop, Escape cancels it - only while the crop tool is active and no sheet is open.
+  // Enter applies the crop, Escape cancels it - only while the crop tool is active, no sheet
+  // is open, and focus isn't on a form control (e.g. the ratio select or Cancel/Apply buttons
+  // in CropOptions), where Enter/Escape should keep their native behavior instead.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (isEditableTarget(e.target)) return;
       const s = useEditor.getState();
       if (s.tool !== "crop" || s.sheet !== null || !s.activeId) return;
       const doc = s.documents[s.activeId];
