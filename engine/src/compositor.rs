@@ -15,11 +15,10 @@ pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
         return fetch(px, py);
     }
     let fx = x - 0.5; let fy = y - 0.5;
-    let x0 = fx.floor(); let y0 = fy.floor();
-    let tx = (fx - x0) as f32; let ty = (fy - y0) as f32;
-    let (mut x0, mut y0) = (x0 as i64, y0 as i64);
-    x0 = x0.clamp(0, w - 1); let x1 = (x0 + 1).clamp(0, w - 1);
-    y0 = y0.clamp(0, h - 1); let y1 = (y0 + 1).clamp(0, h - 1);
+    let xu = fx.floor() as i64; let yu = fy.floor() as i64;
+    let tx = (fx - xu as f64) as f32; let ty = (fy - yu as f64) as f32;
+    let x0 = xu.clamp(0, w - 1); let x1 = (xu + 1).clamp(0, w - 1);
+    let y0 = yu.clamp(0, h - 1); let y1 = (yu + 1).clamp(0, h - 1);
     let a = fetch(x0, y0); let b = fetch(x1, y0); let c = fetch(x0, y1); let d = fetch(x1, y1);
     let mut out = [0f32; 4];
     for i in 0..4 {

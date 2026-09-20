@@ -118,4 +118,19 @@ fn magnified_layer_is_solid_to_its_edge() {
     d.layers.push(layer);
     let out = composite(&d, Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 }, 10, 10);
     assert_eq!(out.pixel(9, 9)[3], 0, "outside layer");
+
+    // Test 2x2 raster with left column red, right column blue (exercises two-index bilinear clamp)
+    let mut d = Document::new(16, 16);
+    let raster2x2 = Raster::from_premultiplied(2, 2, vec![
+        255, 0, 0, 255,    0, 0, 255, 255,     // row 0: red, blue
+        255, 0, 0, 255,    0, 0, 255, 255,     // row 1: red, blue
+    ]);
+    let mut layer = Layer::with_pixels("RedBlue", raster2x2, Point { x: 0.0, y: 0.0 });
+    layer.transform.size = Size { width: 16.0, height: 16.0 };
+    layer.transform.sampling = Sampling::Smooth;
+    d.layers.push(layer);
+    let out = composite(&d, Rect { x: 0.0, y: 0.0, width: 16.0, height: 16.0 }, 16, 16);
+    assert!(out.pixel(0, 0)[0] > 252 && out.pixel(0, 0)[2] < 3, "corner (0,0) is red");
+    assert!(out.pixel(15, 15)[2] > 252 && out.pixel(15, 15)[0] < 3, "corner (15,15) is blue");
+    assert!(out.pixel(0, 15)[0] > 252 && out.pixel(0, 15)[2] < 3, "corner (0,15) is red");
 }
