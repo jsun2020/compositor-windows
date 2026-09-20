@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "wasm": "wasm-pack build engine-wasm --target web --release --out-dir ../app/src/engine/pkg --out-name compositor_engine",
-    "wasm:dev": "wasm-pack build engine-wasm --target web --dev --out-dir ../app/src/engine/pkg --out-name compositor_engine",
+    "wasm": "powershell -ExecutionPolicy Bypass -File scripts/ensure-wasm-pack.ps1 && wasm-pack build engine-wasm --target web --release --out-dir ../app/src/engine/pkg --out-name compositor_engine",
+    "wasm:dev": "powershell -ExecutionPolicy Bypass -File scripts/ensure-wasm-pack.ps1 && wasm-pack build engine-wasm --target web --dev --out-dir ../app/src/engine/pkg --out-name compositor_engine",
     "build-info": "powershell -ExecutionPolicy Bypass -File scripts/write-build-info.ps1",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -36,5 +36,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild"]
+  },
+  "config": {
+    "wasmPackVersion": "0.15.0"
   }
 }

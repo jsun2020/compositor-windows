@@ -19,7 +19,12 @@ Photoshop.
 ## Prerequisites
 
 - Rust 1.95 with the `wasm32-unknown-unknown` target
-- wasm-pack 0.15.0
+- wasm-pack 0.15.0, installed with `cargo install wasm-pack --version 0.15.0 --locked`.
+  It is not an npm dependency: the npm package's postinstall step downloads a binary from
+  GitHub, which the corporate proxy this project runs behind may block. The pinned version
+  lives in `package.json`'s `config.wasmPackVersion`; `pnpm wasm` and `pnpm wasm:dev` run
+  `scripts/ensure-wasm-pack.ps1` first and fail with the install command above if the
+  `wasm-pack` on PATH does not match.
 - Node 22 and pnpm
 - Visual Studio Build Tools with the C++ (VC.Tools.x86.x64) workload
 - Microsoft Edge WebView2 Runtime (preinstalled on Windows 10 19045 and later)
