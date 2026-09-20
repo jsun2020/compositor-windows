@@ -115,7 +115,9 @@ The shell never decodes or touches pixels. The window uses the fixed `tauri://lo
 
 ## 5. Project format on Windows
 
-The Windows app reads and writes the macOS folder package unchanged: a `<name>.comp` directory containing `manifest.json` and `images/<layer UUID>.png` plus `<layer UUID>.mask.png`. New saves write version 6. Validation rejects unsupported versions, invalid metadata, missing assets, unsafe paths and oversized data before the live document is replaced, exactly as `ProjectStore.swift` does. Round-trip tests open every fixture version and re-save it.
+The Windows app reads and writes the macOS folder package unchanged: a `<name>.comp` directory containing `manifest.json` and `images/<layer UUID>.png` plus `<layer UUID>.mask.png`. The macOS source (`ProjectStore.swift`) is ahead of `docs/project-format.md`: it reads versions 1 to 7 and writes version 7, where version 7 adds per-layer `adjustment`, `maskPlacement`, `maskLinked` and `shape` records. The Windows app reads 1 to 7 and writes 7. Fields whose features arrive in a later phase (adjustment, shape, mask placement) are preserved verbatim through open and save so a project never loses data by passing through the Windows app. Validation rejects unsupported versions, invalid metadata, missing assets, unsafe paths and oversized data before the live document is replaced, exactly as `ProjectStore.swift` does. Round-trip tests open every fixture version and re-save it.
+
+JSON encoding follows the structure of Swift's Codable output so either app parses the other's manifest: UUIDs are uppercase hyphenated strings, `origin` is a two-element array `[x, y]`, `size` is `[width, height]`, enum values are their display strings (`"High quality"`, `"Color Dodge"`), absent optionals are omitted, keys are sorted and the JSON is pretty-printed. Whitespace need not match byte for byte.
 
 Undo history and viewport are session-only. Opening fits the canvas, restores the selection and starts with clean history.
 
