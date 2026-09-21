@@ -81,3 +81,18 @@ fn dirty_layers_report_baked_clip_dependants_and_distorted_group_members() {
     let dirty2 = e2.execute(doc2, Command::DistortLayers { ids: vec![folder], bounds, draft: bounds, corners }).unwrap();
     assert!(dirty2.layers.contains(&x) && dirty2.layers.contains(&y) && !dirty2.layers.contains(&folder));
 }
+
+#[test]
+fn duplicate_transformed_is_one_undo_step() {
+    let mut e = Engine::new();
+    let doc = e.new_document(20, 20, false).unwrap();
+    let a = seed(&mut e, doc, "A", 0.0, 0.0);
+    let moved = LayerTransform::axis_aligned(Point { x: 5.0, y: 5.0 }, Size { width: 4.0, height: 4.0 });
+    e.execute(doc, Command::DuplicateLayerTransformed { id: a, transform: moved }).unwrap();
+    let s = e.state(doc).unwrap();
+    assert_eq!(s.layers.len(), 2);
+    assert_eq!(s.layers[1].transform.origin, Point { x: 5.0, y: 5.0 });
+    assert_eq!(s.layers[0].transform.origin, Point { x: 0.0, y: 0.0 });
+    e.undo(doc).unwrap();
+    assert_eq!(e.state(doc).unwrap().layers.len(), 1);
+}

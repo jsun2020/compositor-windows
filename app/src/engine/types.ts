@@ -47,6 +47,7 @@ export type Command =
   | { type: "MoveLayerBy"; id: string; offset: number }
   | { type: "DuplicateLayer"; id: string }
   | { type: "DuplicateLayerTo"; id: string; parent: string | null; above: string | null; atBottom: boolean }
+  | { type: "DuplicateLayerTransformed"; id: string; transform: LayerTransform }
   | { type: "DeleteLayers"; ids: string[]; bake: boolean }
   | { type: "SetLayerTransform"; id: string; transform: LayerTransform }
   | { type: "TransformLayers"; ids: string[]; box: LayerTransform; draft: LayerTransform }

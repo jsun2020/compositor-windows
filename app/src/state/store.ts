@@ -1,13 +1,27 @@
 import { create } from "zustand";
-import type { Command, DocumentState } from "../engine/types";
+import type { BlendMode, Command, Corners, DocumentState, LayerTransform, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { ShellBridge } from "../shell/bridge";
 import { Viewport } from "../canvas/viewport";
 import type { Rect } from "../tools/crop-geometry";
+import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "../tools/transform-geometry";
+import { activeLayer, canTransform, groupBox, transformsAsGroup } from "./selection";
 
 export type Tool = "move" | "hand" | "zoom" | "crop";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" };
+
+export interface TransformEdit {
+  kind: "layer" | "group" | "mask";
+  id: string;
+  ids: string[];
+  box: LayerTransform;
+  original: LayerTransform;
+  draft: LayerTransform;
+  corners: Corners | null;
+  persistent: boolean;
+  duplicated: boolean;
+}
 
 export interface EditorStore {
   engine: EngineClient | null;
@@ -25,6 +39,12 @@ export interface EditorStore {
   rendererKind: "gl" | "cpu" | null;
   renderTick: number;
   recentTick: number;
+  selectedLayerIds: string[];
+  maskSelected: boolean;
+  collapsed: Record<string, string[]>;
+  transformEdit: TransformEdit | null;
+  snapGuides: { xs: number[]; ys: number[] };
+  blendPreview: BlendMode | null;
   setEngine(engine: EngineClient): void;
   setBridge(bridge: ShellBridge): void;
   setBusy(busy: boolean): void;
@@ -44,11 +64,23 @@ export interface EditorStore {
   setError(error: string | null): void;
   setRendererKind(kind: "gl" | "cpu"): void;
   invalidate(): void;
+  selectLayers(ids: string[], primary: string | null): void;
+  setMaskSelected(v: boolean): void;
+  toggleCollapsed(id: string): void;
+  beginTransform(opts: { persistent: boolean; duplicate?: boolean }): boolean;
+  previewTransform(draft: LayerTransform, corners?: Corners | null): void;
+  beginDistort(): void;
+  commitTransform(): void;
+  cancelTransform(): void;
+  setSnapGuides(g: { xs: number[]; ys: number[] }): void;
+  setBlendPreview(m: BlendMode | null): void;
+  previewEdit(): PreviewEdit | null;
 }
 
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
+  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, blendPreview: null,
   setEngine: (engine) => set({ engine }),
   setBridge: (bridge) => set({ bridge }),
   setBusy: (busy) => set({ busy }),
@@ -58,7 +90,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const state = engine.state(id);
     const viewport = new Viewport();
     set((s) => ({ documents: { ...s.documents, [id]: state }, order: s.order.includes(id) ? s.order : [...s.order, id],
-      viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null }));
+      viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
+      selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null }));
   },
   closeDocument: (id) => {
     get().engine!.closeDocument(id);
@@ -67,15 +100,22 @@ export const useEditor = create<EditorStore>((set, get) => ({
       const { [id]: _v, ...viewports } = s.viewports;
       const order = s.order.filter((o) => o !== id);
       const activeId = s.activeId === id ? order[order.length - 1] ?? null : s.activeId;
-      return { documents, viewports, order, activeId, cropRect: null };
+      const active = activeId ? documents[activeId] : null;
+      return { documents, viewports, order, activeId, cropRect: null,
+        selectedLayerIds: active?.activeLayerId ? [active.activeLayerId] : [], maskSelected: false, transformEdit: null };
     });
   },
-  setActive: (id) => set({ activeId: id, cropRect: null }),
+  setActive: (id) => {
+    const state = get().documents[id];
+    set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null });
+  },
   refresh: (id) => {
     const target = id ?? get().activeId;
     if (!target) return;
     const state = get().engine!.state(target);
-    set((s) => ({ documents: { ...s.documents, [target]: state }, renderTick: s.renderTick + 1 }));
+    const keep = get().selectedLayerIds.filter((sid) => state.layers.some((l) => l.id === sid));
+    const selected = state.activeLayerId && !keep.includes(state.activeLayerId) ? [state.activeLayerId] : keep;
+    set((s) => ({ documents: { ...s.documents, [target]: state }, renderTick: s.renderTick + 1, selectedLayerIds: selected }));
   },
   run: (command) => {
     const { engine, activeId } = get();
@@ -85,7 +125,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   undo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
   redo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
-  setTool: (tool) => set({ tool, cropRect: tool === "crop" ? get().cropRect : null }),
+  setTool: (tool) => {
+    if (get().tool === "move" && tool !== get().tool) get().commitTransform();
+    set({ tool, cropRect: tool === "crop" ? get().cropRect : null });
+  },
   setCropRect: (cropRect) => set({ cropRect }),
   setCropRatio: (cropRatio) => set({ cropRatio }),
   openSheet: (sheet) => set({ sheet }),
@@ -93,4 +136,63 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setError: (error) => set({ error }),
   setRendererKind: (rendererKind) => set({ rendererKind }),
   invalidate: () => set((s) => ({ renderTick: s.renderTick + 1 })),
+  selectLayers: (ids, primary) => {
+    const { engine, activeId } = get(); if (!engine || !activeId) return;
+    const state = get().documents[activeId];
+    const valid = ids.filter((id) => state.layers.some((l) => l.id === id));
+    const active = primary && valid.includes(primary) ? primary : valid[0] ?? null;
+    get().commitTransform();
+    if (active !== state.activeLayerId) { engine.execute(activeId, { type: "SetActiveLayer", id: active }); }
+    set({ selectedLayerIds: valid, maskSelected: false });
+    get().refresh(activeId);
+  },
+  setMaskSelected: (v) => set({ maskSelected: v }),
+  toggleCollapsed: (id) => {
+    const { activeId, collapsed } = get(); if (!activeId) return;
+    const list = collapsed[activeId] ?? [];
+    const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+    set({ collapsed: { ...collapsed, [activeId]: next } });
+  },
+  beginTransform: ({ persistent, duplicate }) => {
+    const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;
+    const state = get().documents[activeId];
+    if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
+    if (transformsAsGroup(state, selectedLayerIds)) {
+      const box = groupBox(state, selectedLayerIds)!;
+      set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false } });
+      return true;
+    }
+    let layer = activeLayer(state)!;
+    if (duplicate) { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); get().refresh(activeId); layer = activeLayer(get().documents[activeId])!; set({ selectedLayerIds: [layer.id] }); }
+    const maskAlone = maskSelected && layer.hasMask && !layer.maskLinked;
+    const t = maskAlone ? layer.maskPlacement ?? layer.transform : layer.transform;
+    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: !!duplicate } });
+    return true;
+  },
+  previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; set({ transformEdit: { ...e, draft, corners: corners === undefined ? e.corners : corners } }); get().invalidate(); },
+  beginDistort: () => { const e = get().transformEdit; if (!e || e.corners || e.kind === "mask") return; set({ transformEdit: { ...e, corners: cornersToTuples(cornersOf(e.draft)), persistent: true } }); },
+  commitTransform: () => {
+    const e = get().transformEdit; const { engine, activeId } = get(); if (!e || !engine || !activeId) return;
+    set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
+    const draft = roundedTransform(e.draft);
+    const unchanged = JSON.stringify(draft) === JSON.stringify(roundedTransform(e.original)) && !e.corners;
+    if (unchanged) { if (e.duplicated) { /* keep the duplicate in place */ } get().invalidate(); return; }
+    if (e.kind === "mask") get().run({ type: "SetMaskPlacement", id: e.id, placement: draft });
+    else if (e.kind === "group") get().run(e.corners ? { type: "DistortLayers", ids: e.ids, box: e.box, draft: e.draft, corners: e.corners } : { type: "TransformLayers", ids: e.ids, box: e.box, draft });
+    else get().run(e.corners ? { type: "DistortLayer", id: e.id, transform: e.draft, corners: e.corners } : { type: "SetLayerTransform", id: e.id, transform: draft });
+  },
+  cancelTransform: () => {
+    const e = get().transformEdit; if (!e) return;
+    set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
+    if (e.duplicated) { get().undo(); }
+    get().invalidate();
+  },
+  setSnapGuides: (g) => set({ snapGuides: g }),
+  setBlendPreview: (m) => set({ blendPreview: m }),
+  previewEdit: () => {
+    const e = get().transformEdit; if (!e) return null;
+    if (e.kind === "group") return { kind: "group", ids: e.ids, box: e.box, draft: e.draft, corners: e.corners };
+    if (e.kind === "mask") return { kind: "mask", id: e.id, draft: e.draft };
+    return { kind: "layer", id: e.id, draft: e.draft, corners: e.corners };
+  },
 }));
