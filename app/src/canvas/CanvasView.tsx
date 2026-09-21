@@ -95,7 +95,7 @@ export function CanvasView() {
       const shape = editedShape(state, transformEdit, selectedLayerIds, maskSelected);
       if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, viewport, { width: state.width, height: state.height });
     }
-    drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? (cropRect ?? { x: 0, y: 0, width: state.width, height: state.height }) : null, guides: snapGuides, transform: transformGeometry });
+    drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? cropRect : null, guides: snapGuides, transform: transformGeometry });
   }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected]);
 
   // Wheel: zoom with Ctrl, otherwise pan.

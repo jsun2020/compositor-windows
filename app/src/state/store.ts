@@ -178,7 +178,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
   redo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
-    set({ tool, cropRect: tool === "crop" ? get().cropRect : null });
+    // Entering the crop tool seeds a full-canvas rectangle, as macOS does (EditorSession.selectTool);
+    // the frame, the size readout and the Apply/Cancel buttons follow that rectangle, so once Apply
+    // or Cancel clears it nothing is drawn until the user drags a new one. Leaving the tool clears it.
+    const { activeId, documents, cropRect } = get();
+    const doc = activeId ? documents[activeId] : null;
+    const seeded = tool === "crop" ? (cropRect ?? (doc ? { x: 0, y: 0, width: doc.width, height: doc.height } : null)) : null;
+    set({ tool, cropRect: seeded });
   },
   setCropRect: (cropRect) => set({ cropRect }),
   setCropRatio: (cropRatio) => set({ cropRatio }),

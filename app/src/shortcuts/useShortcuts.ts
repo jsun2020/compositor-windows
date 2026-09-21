@@ -68,7 +68,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-zoom": s.setTool("zoom"); break;
     case "tool-crop": s.setTool("crop"); break;
     case "apply":
-      if (doc && s.tool === "crop") { const r = s.cropRect ?? { x: 0, y: 0, width: doc.width, height: doc.height }; s.run({ type: "Crop", ...r }); s.setCropRect(null); }
+      if (doc && s.tool === "crop") { const r = s.cropRect; if (r) { s.run({ type: "Crop", ...r }); s.setCropRect(null); } }
       else if (s.transformEdit) s.commitTransform();
       break;
     case "cancel":
