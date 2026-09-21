@@ -172,3 +172,28 @@ fn plan_serialises_camel_case_with_uppercase_ids() {
     let edit: PreviewEdit = serde_json::from_str(&format!(r#"{{"kind":"group","ids":["{upper}"],"box":{{"origin":[0,0],"size":[4,4]}},"draft":{{"origin":[1,1],"size":[4,4]}}}}"#)).unwrap();
     assert!(matches!(edit, PreviewEdit::Group { .. }));
 }
+
+/// A Stack plan node (a base layer plus siblings clipped to it) inside a masked folder must
+/// still serialize its `folder_coverages` field as `folderCoverages`: serde's `rename_all` on
+/// the `PlanNode` enum only renames variant tags ("stack"), not the fields of a struct variant,
+/// so this field needs its own `#[serde(rename = ...)]` -- regression coverage for that fix.
+#[test]
+fn stack_plan_nodes_serialize_folder_coverages_in_camel_case() {
+    let mut d = Document::new(10, 10);
+    let mut folder = Layer::blank("Folder", d.size());
+    folder.is_group = true;
+    folder.set_mask(Some(mask(2, 2, 128)));
+    let mut base = px("Base");
+    base.parent_id = Some(folder.id);
+    let mut clipped = px("Clipped");
+    clipped.parent_id = Some(folder.id);
+    clipped.mask_source_id = Some(base.id);
+    d.layers = vec![folder, base, clipped];
+    let plan = render_plan(&d, None);
+    let PlanNode::Stack { folder_coverages, .. } = &plan.nodes[0] else { panic!("expected a stack node: {:?}", plan.nodes[0]) };
+    assert!(!folder_coverages.is_empty(), "the folder's mask should produce a folder coverage");
+    let json = serde_json::to_string(&plan).unwrap();
+    assert!(json.contains("\"kind\":\"stack\""), "{json}");
+    assert!(json.contains("\"folderCoverages\""), "{json}");
+    assert!(!json.contains("folder_coverages"), "{json}");
+}
