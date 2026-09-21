@@ -32,13 +32,15 @@ pub struct Layer {
     pub mask: Option<Mask>,
     pub mask_source_id: Option<Uuid>,
     pub extra: LayerExtra,
+    /// Bumped whenever `mask` is replaced or mutated, so a renderer knows to re-upload.
+    pub mask_revision: u64,
 }
 
 impl Layer {
     fn base(name: &str, transform: LayerTransform, pixels: Option<Raster>) -> Layer {
         Layer { id: Uuid::new_v4(), name: name.to_string(), visible: true, transform, pixels, pixels_revision: 1,
             parent_id: None, is_group: false, opacity: 1.0, blend_mode: BlendMode::Normal, mask: None,
-            mask_source_id: None, extra: LayerExtra::default() }
+            mask_source_id: None, extra: LayerExtra::default(), mask_revision: 1 }
     }
     /// A blank layer covers the canvas and owns no pixels until painted.
     pub fn blank(name: &str, canvas: Size) -> Layer {
@@ -80,6 +82,7 @@ impl Layer {
                 placement: record.mask_placement, linked: record.mask_linked }),
             mask_source_id: record.mask_source_id,
             extra: LayerExtra { adjustment: record.adjustment.clone(), shape: record.shape.clone() },
+            mask_revision: 1,
         }
     }
 }
@@ -114,4 +117,62 @@ impl Document {
     pub fn index_of(&self, id: Uuid) -> Option<usize> { self.layers.iter().position(|l| l.id == id) }
     pub fn layer(&self, id: Uuid) -> Option<&Layer> { self.layers.iter().find(|l| l.id == id) }
     pub fn layer_mut(&mut self, id: Uuid) -> Option<&mut Layer> { self.layers.iter_mut().find(|l| l.id == id) }
+}
+
+impl Mask {
+    pub fn is_linked(&self) -> bool { self.linked != Some(false) }
+    pub fn is_uniform(&self) -> bool { self.pixels.width == 1 && self.pixels.height == 1 }
+    /// What the mask shows beyond its pixels: white or black, whichever most of its edge is.
+    pub fn background(&self) -> u8 {
+        let (w, h) = (self.pixels.width as usize, self.pixels.height as usize);
+        let d = self.pixels.bytes();
+        let (mut total, mut count) = (0u64, 0u64);
+        for y in 0..h { for x in 0..w {
+            if y == 0 || y == h - 1 || x == 0 || x == w - 1 { total += d[y * w + x] as u64; count += 1; }
+        }}
+        if count == 0 || total * 2 >= count * 255 { 255 } else { 0 }
+    }
+    /// Where the mask sits once its layer moves from `old` to `new` (the macOS placement rule).
+    pub fn follow(&self, old: &LayerTransform, new: &LayerTransform) -> Option<LayerTransform> {
+        if self.is_uniform() { return None; }
+        let moved = if self.is_linked() { self.placement.map(|p| p.following(old, new)) } else { Some(self.placement.unwrap_or(*old)) };
+        moved.filter(|m| !m.same_placement(new))
+    }
+}
+
+impl Layer {
+    pub fn set_mask(&mut self, mask: Option<Mask>) { self.mask = mask; self.mask_revision += 1; }
+    pub fn mask_mut(&mut self) -> Option<&mut Mask> { self.mask_revision += 1; self.mask.as_mut() }
+    pub fn has_pixels(&self) -> bool { self.pixels.is_some() }
+}
+
+impl Document {
+    pub fn descendants(&self, id: Uuid) -> Vec<Uuid> {
+        let mut result = Vec::new();
+        let mut pending = vec![id];
+        while let Some(parent) = pending.pop() {
+            for l in &self.layers {
+                if l.parent_id == Some(parent) && !result.contains(&l.id) { result.push(l.id); pending.push(l.id); }
+            }
+        }
+        // Array order, so callers can rely on bottom-to-top.
+        self.layers.iter().filter(|l| result.contains(&l.id)).map(|l| l.id).collect()
+    }
+    pub fn siblings(&self, parent: Option<Uuid>) -> Vec<Uuid> {
+        self.layers.iter().filter(|l| l.parent_id == parent).map(|l| l.id).collect()
+    }
+    /// Layers whose every ancestor is visible (groups included).
+    pub fn visible_ids(&self) -> std::collections::HashSet<Uuid> {
+        let by_id: std::collections::HashMap<Uuid, &Layer> = self.layers.iter().map(|l| (l.id, l)).collect();
+        self.layers.iter().filter(|layer| {
+            let mut node = Some(*layer); let mut steps = 0;
+            while let Some(n) = node { if !n.visible || steps > crate::MAX_NESTING { return false; } steps += 1; node = n.parent_id.and_then(|p| by_id.get(&p).copied()); }
+            true
+        }).map(|l| l.id).collect()
+    }
+    /// Visible pixel layers in array order, groups excluded: what the compositor draws.
+    pub fn render_ids(&self) -> Vec<Uuid> {
+        let visible = self.visible_ids();
+        self.layers.iter().filter(|l| !l.is_group && visible.contains(&l.id)).map(|l| l.id).collect()
+    }
 }
