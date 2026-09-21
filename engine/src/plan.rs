@@ -181,3 +181,18 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
     }
     RenderPlan { nodes, sources }
 }
+
+/// Appends draws for `id` and its clipping chain to `plan.sources` when they are missing.
+pub fn ensure_source(doc: &Document, plan: &mut RenderPlan, id: Uuid) {
+    let by_id: HashMap<Uuid, &Layer> = doc.layers.iter().map(|l| (l.id, l)).collect();
+    let mut next = Some(id); let mut depth = 0;
+    while let (Some(sid), true) = (next, depth < 256) {
+        depth += 1;
+        if plan.sources.iter().any(|s| s.id == sid) { break; }
+        let Some(layer) = by_id.get(&sid) else { break; };
+        if layer.is_group { break; }
+        let draw = draw_for(doc, &by_id, layer, None, false);
+        next = draw.clip;
+        plan.sources.push(draw);
+    }
+}
