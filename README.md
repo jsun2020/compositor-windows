@@ -16,6 +16,40 @@ Photoshop.
 - Multiple projects in tabs
 - Keyboard shortcuts and drag-and-drop import
 
+## Phase 2: layers
+
+- Layer stack with folders, drag reorder and nest
+- Opacity and 13 blend modes (Normal, Multiply, Screen, Overlay, Darken, Lighten,
+  Difference, Color Dodge, Color Burn, Hue, Saturation, Color, Luminosity)
+- Layer and folder masks: invert, fill (white or black), blur/feather, link/unlink
+- Clipping masks
+- Non-destructive move, scale, rotate, flip and free distort, with snapping
+- Transform several layers or a whole folder together
+- Merge down, merge layers, merge group
+- Duplicate
+- Note: mask painting arrives with the brush tool in Phase 4; today masks are edited
+  through fill, invert and blur only.
+- Note: Alt-dragging a layer on the canvas to duplicate it is two undo steps
+  (duplicate, then move), not one.
+
+### Layer menu shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| New Layer | Ctrl+Shift+N |
+| Duplicate | Ctrl+J |
+| Group | Ctrl+G |
+| Merge | Ctrl+E |
+| Clipping Mask | Ctrl+Alt+G |
+| Bring Forward | Ctrl+] |
+| Send Backward | Ctrl+[ |
+| Cycle blend mode forward | Shift+= |
+| Cycle blend mode backward | Shift+- |
+| Set layer opacity (move tool) | 0-9 (10% steps; two digits combine, e.g. 2 then 5 for 25%) |
+| Nudge selection | Arrow keys (Shift = 10 px) |
+| Apply transform | Enter |
+| Cancel transform | Escape |
+
 ## Prerequisites
 
 - Rust 1.95 with the `wasm32-unknown-unknown` target

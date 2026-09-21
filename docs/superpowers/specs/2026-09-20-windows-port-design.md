@@ -14,7 +14,7 @@ The macOS app is 23k lines of Swift on AppKit, SwiftUI, Core Image, Metal and Vi
 Goals:
 
 - Feature parity with the macOS app for the four areas listed in section 3, delivered in usable phases.
-- Open and save the same `.comp` folder packages as the macOS app (format versions 1 to 6) so projects move between machines.
+- Open and save the same `.comp` folder packages as the macOS app (format versions 1 to 7) so projects move between machines.
 - Ship as a portable zip (no installer) built by a PowerShell script, matching the user's other Windows desktop apps.
 - Smooth interactive painting and live adjustment previews on canvases up to the macOS limits (30,000 px per side, 100 million source pixels).
 
@@ -66,7 +66,7 @@ A pure Rust library with no Tauri, browser or GPU dependency. It compiles native
 - Operations: every pixel and structural operation from section 3, implemented as a `Command` enum (serde-serialisable) executed by `Engine::execute`. The UI and the tests speak the same command vocabulary.
 - Kernels: the eight macOS C kernels (adjust, brush, content fill, heal, lens, levels, noise, wand) ported line-for-line to Rust modules under `engine/src/kernels/`. Porting rather than compiling C keeps one toolchain and identical native and wasm behaviour.
 - CPU compositor: composites any document region to RGBA8. It is the reference implementation used by export, by tests, and by the WebGL fallback.
-- Codecs: `.comp` manifest parsing and validation for versions 1 to 6 with the limits in `docs/project-format.md`; PNG and JPEG decode and encode with resolution metadata; TIFF, WebP and BMP decode via the `image` crate.
+- Codecs: `.comp` manifest parsing and validation for versions 1 to 7 with the limits in `docs/project-format.md`; PNG and JPEG decode and encode with resolution metadata; TIFF, WebP and BMP decode via the `image` crate.
 
 Public surface (sketch):
 
