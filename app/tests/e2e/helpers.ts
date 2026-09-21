@@ -71,6 +71,38 @@ export async function noisePngBase64(): Promise<string> {
 }
 
 /**
+ * A 64x64 PNG that is opaque only on every fourth pixel in each axis, transparent elsewhere.
+ *
+ * The alpha, not the colour, is what a clipping source contributes, so a fully opaque fixture
+ * cannot tell a reduced source from an unreduced one. Averaged down 4x this is a uniform
+ * sixteenth of coverage; sampled at full resolution the output pixel centres land two pixels
+ * away from every opaque column and read zero.
+ */
+export async function sparseAlphaPngBase64(): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(64, 64);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const i = (y * 64 + x) * 4;
+      const on = x % 4 === 0 && y % 4 === 0;
+      image.data[i] = 255; image.data[i + 1] = 255; image.data[i + 2] = 255;
+      image.data[i + 3] = on ? 255 : 0;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+/**
  * A 32x32 8-bit grayscale PNG with a horizontal ramp from 0 to 255, as base64.
  *
  * Masks in a `.comp` package must be grayscale with no alpha (`decode_package_mask` rejects

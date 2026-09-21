@@ -82,7 +82,16 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
       try {
         const bytes = await bridge.readFile(path);
         const id = engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
-        if (!target) { target = id; useEditor.getState().openDocument(id); } else { useEditor.getState().refresh(id); }
+        // Import does not go through `store.run`, so the reveal has to be called here: an
+        // import with a folder active lands inside it (`import_raster` sets parent_id), and a
+        // collapsed folder would otherwise leave the new layer active with no row.
+        if (!target) { target = id; useEditor.getState().openDocument(id); }
+        else {
+          useEditor.getState().refresh(id);
+          // Only for the document on screen, for the same reason `refresh` reconciles only
+          // that one: a background import must not reopen folders the user collapsed here.
+          if (id === useEditor.getState().activeId) useEditor.getState().revealActiveLayer();
+        }
       } catch (e) { failures.push(`${bridge.baseName(path)}: ${e instanceof Error ? e.message : String(e)}`); }
     }
     if (failures.length) throw new Error(failures.join("\n"));

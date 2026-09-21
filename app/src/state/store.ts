@@ -21,6 +21,11 @@ export interface TransformEdit {
   corners: Corners | null;
   persistent: boolean;
   duplicated: boolean;
+  /** For a duplicated edit, the engine's undo depth immediately before the DuplicateLayer that
+   * created the copy. `cancelTransform` reverts only when the depth is still exactly one past
+   * this, i.e. the entry on top of the stack is the duplicate's and nothing slipped in behind
+   * it. Null when the edit duplicated nothing. */
+  undoDepthBefore: number | null;
 }
 
 export interface EditorStore {
@@ -149,6 +154,18 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (next.length !== list.length) set({ collapsed: { ...collapsed, [activeId]: next } });
   },
   run: (command) => {
+    // A pending transform is closed before any other command records history. macOS refuses
+    // these outright while `transformEdit != nil` (canEditLayers); committing is the gentler
+    // equivalent and is what every action in actions/layers.ts already did individually.
+    //
+    // This is also what keeps `cancelTransform` honest: with no command able to interleave
+    // between the Alt-drag duplicate and the cancel, the entry `revert` pops is always the
+    // duplicate's. Shortcuts stay live during a drag (a captured pointer does not stop
+    // keydown), so before this a bare digit could slip a SetLayersOpacity entry in between.
+    //
+    // `commitTransform` clears `transformEdit` before issuing its own command, so the nested
+    // `run` below sees none and this does not recurse.
+    if (get().transformEdit) get().commitTransform();
     const { engine, activeId } = get();
     if (!engine || !activeId) return;
     try {
@@ -203,7 +220,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
     if (transformsAsGroup(state, selectedLayerIds)) {
       const box = groupBox(state, selectedLayerIds)!;
-      set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false } });
+      set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false, undoDepthBefore: null } });
       return true;
     }
     let layer = activeLayer(state);
@@ -212,7 +229,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // (computed before any duplication, from the layer this transform is actually about).
     const maskAlone = maskSelected && layer.hasMask && !layer.maskLinked;
     const willDuplicate = !!duplicate && !maskAlone;
+    let undoDepthBefore: number | null = null;
     if (willDuplicate) {
+      // The depth before the copy exists, so a later cancel can prove the entry it is about to
+      // drop is the one this command pushed.
+      undoDepthBefore = state.undoDepth;
       // Not `run`: the duplicate has to be observed here to seed the edit. Its failures
       // ("too many layers", "folders are not duplicated this way") still belong in the error
       // banner rather than thrown out of a pointerdown handler.
@@ -225,7 +246,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
       set({ selectedLayerIds: [layer.id] });
     }
     const t = maskAlone ? layer.maskPlacement ?? layer.transform : layer.transform;
-    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate } });
+    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate, undoDepthBefore } });
     return true;
   },
   previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; set({ transformEdit: { ...e, draft, corners: corners === undefined ? e.corners : corners } }); get().invalidate(); },
@@ -249,7 +270,15 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // The Alt-drag copy is dropped with `revert`, which removes the DuplicateLayer entry
     // outright. A plain `undo` here would leave it on the redo stack, and Ctrl+Shift+Z would
     // bring the cancelled copy back. macOS closes the transaction with nothing recorded.
-    if (e.duplicated && engine && activeId) { engine.revert(activeId); get().refresh(activeId); }
+    //
+    // Only when the entry on top is provably still the duplicate's: the depth must be exactly
+    // one past what it was before the copy was made. `run` commits any pending edit before it
+    // records, so nothing should be able to interleave, but reverting the wrong entry would
+    // silently discard a real edit and strand the copy, so this refuses rather than guesses.
+    if (e.duplicated && engine && activeId) {
+      const depth = engine.state(activeId).undoDepth;
+      if (e.undoDepthBefore !== null && depth === e.undoDepthBefore + 1) { engine.revert(activeId); get().refresh(activeId); }
+    }
     get().invalidate();
   },
   setSnapGuides: (g) => set({ snapGuides: g }),

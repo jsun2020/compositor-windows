@@ -13,8 +13,8 @@ function layer(id: string, over: Partial<LayerState> = {}): LayerState {
     maskEnabled: true, maskLinked: true, maskSourceId: null, maskPlacement: null, maskBackground: 255, ...over,
   };
 }
-function document(id: string, layers: LayerState[], activeLayerId: string | null): DocumentState {
-  return { id, documentId: id, width: 100, height: 100, resolution: 72, activeLayerId, canUndo: true, canRedo: true, isModified: false, path: null, layers };
+function document(id: string, layers: LayerState[], activeLayerId: string | null, undoDepth = 0): DocumentState {
+  return { id, documentId: id, width: 100, height: 100, resolution: 72, activeLayerId, canUndo: true, canRedo: true, isModified: false, undoDepth, path: null, layers };
 }
 
 /** Records every engine call. `state` serves whatever `docs` currently holds for that handle. */
@@ -33,7 +33,7 @@ function stubEngine(docs: Record<string, DocumentState>) {
   return { engine, calls, commands };
 }
 
-const pendingEdit = { kind: "layer" as const, id: "A", ids: ["A"], box, original: box, draft: { ...box, origin: [5, 5] as [number, number] }, corners: null, persistent: true, duplicated: false };
+const pendingEdit = { kind: "layer" as const, id: "A", ids: ["A"], box, original: box, draft: { ...box, origin: [5, 5] as [number, number] }, corners: null, persistent: true, duplicated: false, undoDepthBefore: null };
 
 beforeEach(() => {
   useEditor.setState({ engine: null, documents: {}, order: [], activeId: null, viewports: {}, collapsed: {}, transformEdit: null, selectedLayerIds: [], maskSelected: false, error: null, tool: "move", sheet: null });
@@ -61,12 +61,24 @@ describe("undo while a transform is pending", () => {
 
 describe("cancelling an Alt-drag duplicate", () => {
   it("reverts the duplicate instead of undoing it, so there is nothing to redo", () => {
-    const doc = document("D", [layer("A"), layer("A copy")], "A copy");
+    // The duplicate pushed one entry, so the depth is one past what it was beforehand.
+    const doc = document("D", [layer("A"), layer("A copy")], "A copy", 1);
     const { engine, calls } = stubEngine({ D: doc });
-    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A copy"], transformEdit: { ...pendingEdit, duplicated: true } });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A copy"], transformEdit: { ...pendingEdit, duplicated: true, undoDepthBefore: 0 } });
     useEditor.getState().cancelTransform();
     expect(calls).toContain("revert");
     expect(calls).not.toContain("undo");
+    expect(useEditor.getState().transformEdit).toBeNull();
+  });
+
+  it("leaves history alone when something else recorded an entry in the meantime", () => {
+    // Depth 2 where the cancel expects 1: the entry on top is no longer the duplicate's, so
+    // reverting would silently drop a real edit and strand the copy.
+    const doc = document("D", [layer("A"), layer("A copy")], "A copy", 2);
+    const { engine, calls } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A copy"], transformEdit: { ...pendingEdit, duplicated: true, undoDepthBefore: 0 } });
+    useEditor.getState().cancelTransform();
+    expect(calls).toEqual([]);
     expect(useEditor.getState().transformEdit).toBeNull();
   });
 
@@ -76,6 +88,30 @@ describe("cancelling an Alt-drag duplicate", () => {
     useEditor.setState({ engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A"], transformEdit: pendingEdit });
     useEditor.getState().cancelTransform();
     expect(calls).toEqual([]);
+  });
+});
+
+describe("a history-recording command closes a pending edit first", () => {
+  it("a bare opacity digit commits the drag rather than interleaving an entry", async () => {
+    const { runAction } = await import("../../src/shortcuts/useShortcuts");
+    const doc = document("D", [layer("A"), layer("A copy")], "A copy", 1);
+    const { engine, commands } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["A copy"], tool: "move",
+      transformEdit: { ...pendingEdit, id: "A copy", ids: ["A copy"], duplicated: true, undoDepthBefore: 0 } });
+    runAction("opacity-5");
+    // The transform commits before the opacity is recorded, so nothing can sit between the
+    // duplicate and its own entry.
+    expect(commands.map((c) => c.type)).toEqual(["SetLayerTransform", "SetLayersOpacity"]);
+    expect(useEditor.getState().transformEdit).toBeNull();
+  });
+
+  it("the same holds for a panel command issued straight through run", () => {
+    const doc = document("D", [layer("A")], "A", 0);
+    const { engine, commands } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["A"], transformEdit: pendingEdit });
+    useEditor.getState().run({ type: "SetLayerVisible", id: "A", visible: false });
+    expect(commands.map((c) => c.type)).toEqual(["SetLayerTransform", "SetLayerVisible"]);
+    expect(useEditor.getState().transformEdit).toBeNull();
   });
 });
 

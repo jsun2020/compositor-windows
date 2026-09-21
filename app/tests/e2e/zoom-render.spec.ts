@@ -1,5 +1,5 @@
 ﻿import { test, expect, type Page } from "@playwright/test";
-import { redSquarePngBase64, ringPngBase64, noisePngBase64 } from "./helpers";
+import { redSquarePngBase64, ringPngBase64, noisePngBase64, sparseAlphaPngBase64 } from "./helpers";
 
 // Same viewport pinning as blend.spec.ts: it keeps the document rect on an integer device
 // pixel, so the comparison exercises the renderer rather than a rasterization tie.
@@ -68,6 +68,39 @@ test("zoom 1 still matches, so the prefilter rule does not fire when it should n
     api.setCheckerboard(false);
   }, b64);
   await expectMatchesCpuAtZoom(page, "noise at zoom 1");
+});
+
+/**
+ * A clipping stack zoomed out. The GL renderer samples the clip source from the reduced
+ * texture; the CPU compositor now reduces it the same way, which is what macOS does - a
+ * clipping source is painted through the same `drawOwn` closure as any other layer, so it goes
+ * through `LayerRenderer.draw` and its sharp halvings.
+ *
+ * The base is hidden on purpose. A visible base and its clipped layer become a Stack node,
+ * which shares the base's alpha directly and never consults the source; hiding it routes the
+ * draw through the clip-source path on both renderers, where coverage uses the source's alpha
+ * regardless of visibility.
+ */
+test("a clipping stack zoomed out matches the CPU compositor", async ({ page }) => {
+  await ready(page);
+  const sparse = await page.evaluate(sparseAlphaPngBase64);
+  const noise = await page.evaluate(noisePngBase64);
+  await page.evaluate(async ({ sparse, noise }) => {
+    const api = (window as unknown as { __compositor: any }).__compositor;
+    const decode = (b: string) => Uint8Array.from(atob(b), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.newDocument(64, 64, false);
+    // The source's alpha is what becomes coverage, so it is the sparse fixture.
+    api.engine.importImage(doc, decode(sparse), "source", { x: 32, y: 32 });
+    const source = api.engine.state(doc).activeLayerId;
+    api.engine.importImage(doc, decode(noise), "clipped", { x: 32, y: 32 });
+    const clipped = api.engine.state(doc).activeLayerId;
+    api.engine.execute(doc, { type: "ToggleClipping", id: clipped });
+    api.engine.execute(doc, { type: "SetLayerVisible", id: source, visible: false });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(0.25);
+    api.setCheckerboard(false);
+  }, { sparse, noise });
+  await expectMatchesCpuAtZoom(page, "clipping stack at zoom 0.25");
 });
 
 /**

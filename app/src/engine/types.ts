@@ -26,6 +26,9 @@ export type PreviewEdit =
 export interface DocumentState {
   id: string; documentId: string; width: number; height: number; resolution: number; activeLayerId: string | null;
   canUndo: boolean; canRedo: boolean; isModified: boolean; path: string | null; layers: LayerState[];
+  /** Entries on the undo stack. A gesture that recorded one command compares this against the
+   * depth it saw beforehand to tell whether its own entry is still the one on top. */
+  undoDepth: number;
 }
 
 export type Command =

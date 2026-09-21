@@ -111,6 +111,34 @@ test("a layer dropped into a collapsed folder is revealed", async ({ page }) => 
   expect(await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.collapsed[s.activeId] ?? []; })).toEqual([]);
 });
 
+test("an image imported into a collapsed folder is revealed", async ({ page }) => {
+  await fresh(page);
+  await page.getByTestId("layer-add-folder").click();
+  const folder = (await state(page)).layers.find((l: any) => l.isGroup);
+  await page.getByTestId(`collapse-${folder.id}`).click();
+  // The folder is the active layer, so the import lands inside it.
+  expect((await names(page)).length).toBe(2);
+  await page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    const canvas = document.createElement("canvas");
+    canvas.width = 2; canvas.height = 2;
+    const c = canvas.getContext("2d")!;
+    c.fillStyle = "#ff0000"; c.fillRect(0, 0, 2, 2);
+    const blob: Blob = await new Promise((r) => canvas.toBlob((b) => r(b!), "image/png"));
+    await api.bridge.writeFile("C:/p/imported.png", new Uint8Array(await blob.arrayBuffer()));
+    api.bridge.setNextPick("C:/p/imported.png");
+  });
+  await clickMenu(page, "File", "import");
+  await expect(page.getByTestId("layer-row")).toHaveCount(3);
+  const d = await state(page);
+  const imported = d.layers.find((l: any) => l.name.startsWith("imported"));
+  expect(imported.parentId).toBe(folder.id);
+  expect(d.activeLayerId).toBe(imported.id);
+  // The row exists, so Delete can no longer remove a layer the user cannot see.
+  await expect(page.locator(`[data-layer-id="${imported.id}"]`)).toBeVisible();
+  expect(await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.collapsed[s.activeId] ?? []; })).toEqual([]);
+});
+
 test("typing an opacity is one undo entry and an empty field is not zero", async ({ page }) => {
   await fresh(page);
   const field = page.getByLabel("Opacity");
