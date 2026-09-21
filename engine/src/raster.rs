@@ -106,6 +106,19 @@ impl Raster {
         *cache = Some(result.clone());
         result
     }
+    /// A copy of the `w` x `h` rectangle at (x, y); clamped to the raster.
+    pub fn cropped(&self, x: u32, y: u32, w: u32, h: u32) -> Raster {
+        let x1 = (x + w).min(self.width); let y1 = (y + h).min(self.height);
+        let (w, h) = (x1.saturating_sub(x).max(1), y1.saturating_sub(y).max(1));
+        let mut out = vec![0u8; (w * h * 4) as usize];
+        for row in 0..h {
+            let sy = y + row; if sy >= self.height { break; }
+            let src = ((sy * self.width + x) * 4) as usize;
+            let n = (w.min(self.width - x) * 4) as usize;
+            out[(row * w * 4) as usize..(row * w * 4) as usize + n].copy_from_slice(&self.inner.data[src..src + n]);
+        }
+        Raster::from_premultiplied(w, h, out)
+    }
 }
 
 /// 8-bit coverage, no alpha (white reveals, black hides).

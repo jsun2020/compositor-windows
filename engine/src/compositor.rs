@@ -40,42 +40,147 @@ fn prefiltered(raster: &Raster, pixels_per_output: f64) -> (Raster, f64) {
     (current, scale)
 }
 
-/// Draws one layer into `target` (premultiplied RGBA8, `tw` x `th`) covering document `region`.
-pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &Layer) {
-    let Some(raster) = &layer.pixels else { return; };
-    let out_per_doc_x = tw as f64 / region.width;
-    let out_per_doc_y = th as f64 / region.height;
-    let nearest = layer.transform.sampling == Sampling::Nearest;
-    // Source pixels per output pixel along the layer's width, for prefiltering.
-    let source_per_output = raster.width as f64 / (layer.transform.size.width * out_per_doc_x);
-    let (source, scale) = if layer.transform.sampling == Sampling::High && source_per_output > 2.0 {
-        prefiltered(raster, source_per_output)
-    } else { (raster.clone(), 1.0) };
-    let Some(inverse) = layer.transform.pixel_to_document(raster.width, raster.height).invert() else { return; };
-    let opacity = layer.opacity.clamp(0.0, 1.0) as f32;
-    // Bounding box of the layer in output pixels.
-    let b = layer.transform.bounds();
-    let x0 = (((b.x - region.x) * out_per_doc_x).floor() as i64 - 1).max(0) as u32;
-    let y0 = (((b.y - region.y) * out_per_doc_y).floor() as i64 - 1).max(0) as u32;
-    let x1 = (((b.max_x() - region.x) * out_per_doc_x).ceil() as i64 + 1).min(tw as i64).max(0) as u32;
-    let y1 = (((b.max_y() - region.y) * out_per_doc_y).ceil() as i64 + 1).min(th as i64).max(0) as u32;
-    for oy in y0..y1 {
-        for ox in x0..x1 {
-            let doc = Point { x: region.x + (ox as f64 + 0.5) / out_per_doc_x, y: region.y + (oy as f64 + 0.5) / out_per_doc_y };
-            let p = inverse.apply(doc);
-            if p.x < 0.0 || p.y < 0.0 || p.x >= raster.width as f64 || p.y >= raster.height as f64 { continue; }
-            let s = sample(&source, p.x * scale, p.y * scale, nearest);
-            if s[3] <= 0.0 { continue; }
-            let i = ((oy * tw + ox) * 4) as usize;
-            let src_a = s[3] * opacity;
-            for c in 0..3 {
-                let dst = target[i + c] as f32 / 255.0;
-                target[i + c] = ((s[c] * opacity + dst * (1.0 - src_a)) * 255.0).round().clamp(0.0, 255.0) as u8;
-            }
-            let dst_a = target[i + 3] as f32 / 255.0;
-            target[i + 3] = ((src_a + dst_a * (1.0 - src_a)) * 255.0).round().clamp(0.0, 255.0) as u8;
-        }
+/// (x0, y0, x1, y1) of the pixels with alpha > 0, x1/y1 exclusive; None when fully transparent.
+pub fn alpha_bounds(r: &Raster) -> Option<(u32, u32, u32, u32)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    for y in 0..r.height { for x in 0..r.width {
+        if r.pixel(x, y)[3] > 0 { x0 = x0.min(x); y0 = y0.min(y); x1 = x1.max(x + 1); y1 = y1.max(y + 1); }
+    }}
+    if x1 == 0 { None } else { Some((x0, y0, x1, y1)) }
+}
+
+/// Maps a document point into a layer's pixel grid: through the distortion when there is one, else the affine inverse.
+fn to_pixels(transform: &LayerTransform, corners: Option<&[Point; 4]>, w: u32, h: u32, p: Point) -> Option<Point> {
+    if let Some(c) = corners {
+        let inv = Homography::unit_to(c).invert()?;
+        let u = inv.apply(p);
+        let ux = if transform.flip_x { 1.0 - u.x } else { u.x };
+        let uy = if transform.flip_y { 1.0 - u.y } else { u.y };
+        Some(Point { x: ux * w as f64, y: uy * h as f64 })
+    } else {
+        transform.pixel_to_document(w, h).invert().map(|inv| inv.apply(p))
     }
+}
+
+/// The layer's premultiplied colour at a document point (no opacity, no coverage); transparent outside.
+pub fn sample_draw(doc: &Document, draw: &LayerDraw, p: Point) -> [f32; 4] {
+    let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return [0.0; 4]; };
+    let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { return [0.0; 4]; };
+    if px.x < 0.0 || px.y < 0.0 || px.x >= raster.width as f64 || px.y >= raster.height as f64 { return [0.0; 4]; }
+    sample(raster, px.x, px.y, draw.transform.sampling == Sampling::Nearest)
+}
+
+fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f32 {
+    let w = mask.width as i64; let h = mask.height as i64;
+    let fetch = |px: i64, py: i64| mask.bytes()[(py.clamp(0, h - 1) * w + px.clamp(0, w - 1)) as usize] as f32 / 255.0;
+    if nearest { return fetch(x.floor() as i64, y.floor() as i64); }
+    let fx = x - 0.5; let fy = y - 0.5;
+    let xu = fx.floor() as i64; let yu = fy.floor() as i64;
+    let tx = (fx - xu as f64) as f32; let ty = (fy - yu as f64) as f32;
+    let a = fetch(xu, yu); let b = fetch(xu + 1, yu); let c = fetch(xu, yu + 1); let d = fetch(xu + 1, yu + 1);
+    (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty
+}
+
+/// One coverage mask's value at a document point: its pixels inside, its background outside.
+pub fn coverage_at(doc: &Document, cov: &Coverage, p: Point) -> f32 {
+    let Some(mask) = doc.layer(cov.layer_id).and_then(|l| l.mask.as_ref()) else { return 1.0; };
+    let Some(px) = to_pixels(&cov.placement, cov.corners.as_ref(), cov.width, cov.height, p) else { return 1.0; };
+    if px.x < 0.0 || px.y < 0.0 || px.x >= cov.width as f64 || px.y >= cov.height as f64 { return cov.background as f32 / 255.0; }
+    gray_sample(&mask.pixels, px.x, px.y, cov.nearest)
+}
+
+fn coverages_at(doc: &Document, covs: &[Coverage], p: Point) -> f32 {
+    covs.iter().fold(1.0, |k, c| k * coverage_at(doc, c, p))
+}
+
+/// A clipping source's coverage at a document point: its alpha times opacity, own mask and its own clipping chain.
+pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point) -> f32 {
+    fn inner(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, depth: u32) -> f32 {
+        if depth > 256 { return 1.0; }
+        let Some(draw) = plan.sources.iter().find(|s| s.id == source) else { return 1.0; };
+        let a = sample_draw(doc, draw, p)[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        match draw.clip { Some(c) => a * inner(doc, plan, c, p, depth + 1), None => a }
+    }
+    inner(doc, plan, source, p, 0)
+}
+
+struct Target<'a> { data: &'a mut [u8], w: u32, h: u32, region: Rect }
+
+impl<'a> Target<'a> {
+    fn doc_point(&self, ox: u32, oy: u32) -> Point {
+        Point { x: self.region.x + (ox as f64 + 0.5) * self.region.width / self.w as f64, y: self.region.y + (oy as f64 + 0.5) * self.region.height / self.h as f64 }
+    }
+    /// Output-pixel bounding box of a draw, padded by one.
+    fn bbox(&self, draw: &LayerDraw) -> (u32, u32, u32, u32) {
+        let b = match draw.corners { Some(c) => { let xs = c.iter().map(|p| p.x); let ys = c.iter().map(|p| p.y);
+            let (x0, x1) = (xs.clone().fold(f64::INFINITY, f64::min), xs.fold(f64::NEG_INFINITY, f64::max));
+            let (y0, y1) = (ys.clone().fold(f64::INFINITY, f64::min), ys.fold(f64::NEG_INFINITY, f64::max));
+            Rect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } } None => draw.transform.bounds() };
+        let sx = self.w as f64 / self.region.width; let sy = self.h as f64 / self.region.height;
+        let x0 = (((b.x - self.region.x) * sx).floor() as i64 - 1).clamp(0, self.w as i64) as u32;
+        let y0 = (((b.y - self.region.y) * sy).floor() as i64 - 1).clamp(0, self.h as i64) as u32;
+        let x1 = (((b.max_x() - self.region.x) * sx).ceil() as i64 + 1).clamp(0, self.w as i64) as u32;
+        let y1 = (((b.max_y() - self.region.y) * sy).ceil() as i64 + 1).clamp(0, self.h as i64) as u32;
+        (x0, y0, x1, y1)
+    }
+}
+
+/// Draws one layer with its opacity, coverages and clip, blended with its mode.
+fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
+    let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
+    // Prefilter large affine reductions with High sampling (never for distortions).
+    let out_per_doc = target.w as f64 / target.region.width;
+    let source_per_output = raster.width as f64 / (draw.transform.size.width * out_per_doc);
+    let (source, scale) = if draw.corners.is_none() && draw.transform.sampling == Sampling::High && source_per_output > 2.0 { prefiltered(raster, source_per_output) } else { (raster.clone(), 1.0) };
+    let nearest = draw.transform.sampling == Sampling::Nearest;
+    let (x0, y0, x1, y1) = target.bbox(draw);
+    for oy in y0..y1 { for ox in x0..x1 {
+        let p = target.doc_point(ox, oy);
+        let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { continue; };
+        if px.x < 0.0 || px.y < 0.0 || px.x >= raster.width as f64 || px.y >= raster.height as f64 { continue; }
+        let mut s = sample(&source, px.x * scale, px.y * scale, nearest);
+        if s[3] <= 0.0 { continue; }
+        let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p); } }
+        if k <= 0.0 { continue; }
+        for v in &mut s { *v *= k; }
+        let i = ((oy * target.w + ox) * 4) as usize;
+        compose_u8(&mut target.data[i..i + 4], s, blend);
+    }}
+}
+
+fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &LayerDraw, children: &[LayerDraw], folder: &[Coverage]) {
+    let (w, h) = (target.w, target.h);
+    let mut temp = vec![0u8; (w * h * 4) as usize];
+    {
+        let mut t = Target { data: &mut temp, w, h, region: target.region };
+        draw_layer(doc, plan, &mut t, base, BlendMode::Normal, true);
+    }
+    let base_alpha: Vec<u8> = temp.chunks_exact(4).map(|p| p[3]).collect();
+    // Opaque where the base has any coverage, so children blend against its colours.
+    for px in temp.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a > 0 { for c in 0..3 { px[c] = ((px[c] as u32 * 255 + a / 2) / a).min(255) as u8; } px[3] = 255; }
+    }
+    {
+        let mut t = Target { data: &mut temp, w, h, region: target.region };
+        for child in children { draw_layer(doc, plan, &mut t, child, child.blend, false); }
+    }
+    // Restore the base alpha, then composite with the base's blend mode under its folder masks.
+    for (i, px) in temp.chunks_exact_mut(4).enumerate() {
+        let a = base_alpha[i] as u32;
+        for c in 0..3 { px[c] = ((px[c] as u32 * a + 127) / 255) as u8; }
+        px[3] = a as u8;
+    }
+    for oy in 0..h { for ox in 0..w {
+        let i = ((oy * w + ox) * 4) as usize;
+        if temp[i + 3] == 0 { continue; }
+        let p = target.doc_point(ox, oy);
+        let k = coverages_at(doc, folder, p);
+        if k <= 0.0 { continue; }
+        let s = [temp[i] as f32 / 255.0 * k, temp[i + 1] as f32 / 255.0 * k, temp[i + 2] as f32 / 255.0 * k, temp[i + 3] as f32 / 255.0 * k];
+        compose_u8(&mut target.data[i..i + 4], s, base.blend);
+    }}
 }
 
 /// Layers to draw, bottom to top: visible, with every ancestor visible, groups excluded.
@@ -94,12 +199,35 @@ pub fn render_layers(doc: &Document) -> Vec<&Layer> {
     }).collect()
 }
 
-pub fn composite(doc: &Document, region: Rect, out_width: u32, out_height: u32) -> Raster {
-    let mut target = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
-    for layer in render_layers(doc) {
-        render_layer(&mut target, out_width, out_height, region, layer);
+pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
+    let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
+    {
+        let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
+        for node in &plan.nodes {
+            match node {
+                PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true),
+                PlanNode::Stack { base, children, folder_coverages } => draw_stack(doc, plan, &mut target, base, children, folder_coverages),
+            }
+        }
     }
-    Raster::from_premultiplied(out_width, out_height, target)
+    Raster::from_premultiplied(out_width, out_height, data)
+}
+
+pub fn composite_edit(doc: &Document, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Raster {
+    composite_plan(doc, &render_plan(doc, edit), region, w, h)
+}
+
+pub fn composite(doc: &Document, region: Rect, w: u32, h: u32) -> Raster { composite_edit(doc, None, region, w, h) }
+
+/// Draws a single layer with Normal blend and its opacity, ignoring masks and clipping (Image Size resampling).
+pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &Layer) {
+    let doc = Document { id: Uuid::nil(), width: 1, height: 1, resolution: 72.0, layers: vec![layer.clone()], active_layer_id: None };
+    let plan = RenderPlan { nodes: vec![], sources: vec![] };
+    let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
+    let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
+        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, coverages: vec![], clip: None };
+    let mut t = Target { data: target, w: tw, h: th, region };
+    draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false);
 }
 
 fn check_export_size(doc: &Document) -> Result<(), ExportError> {
