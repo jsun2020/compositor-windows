@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { redSquarePngBase64 } from "./helpers";
+import { grayRampMaskPngBase64, redSquarePngBase64 } from "./helpers";
 
 async function setup(page: Page): Promise<{ doc: string; a: string; b: string }> {
   // Pin the viewport so the document rect (centred in the CanvasView element) lands on an
@@ -50,7 +50,10 @@ async function expectMatchesCpu(page: Page, label: string, edit: unknown = null)
 test("blend modes, opacity, masks, folder masks and clipping match the CPU compositor", async ({ page }) => {
   const { a, b } = await setup(page);
   const run = (cmd: unknown) => page.evaluate(({ cmd }) => { const api = (window as any).__compositor; api.engine.execute(api.store.getState().activeId, cmd); api.store.getState().refresh(); }, { cmd });
-  for (const mode of ["Multiply", "Screen", "Overlay", "Difference", "Color Dodge", "Color Burn", "Hue", "Luminosity"]) {
+  // All thirteen modes are compared. Darken and Lighten are separable; Saturation and Color are
+  // the two non-separable HSL modes that had no coverage, where a setSat/setLum mistake in the
+  // shader would not show up through Hue or Luminosity alone.
+  for (const mode of ["Multiply", "Screen", "Overlay", "Darken", "Lighten", "Difference", "Color Dodge", "Color Burn", "Hue", "Saturation", "Color", "Luminosity"]) {
     await run({ type: "SetLayerBlendMode", id: b, mode });
     await expectMatchesCpu(page, mode);
   }
@@ -71,6 +74,61 @@ test("blend modes, opacity, masks, folder masks and clipping match the CPU compo
   await run({ type: "SetLayerVisible", id: a, visible: false });
   await expectMatchesCpu(page, "clipped to a hidden base");
 });
+
+/**
+ * A partially transparent mask, placed so it covers only part of its layer. Every mask
+ * comparison until now used a uniform 1x1 mask, where the expected image is "the layer
+ * vanished" - a wrong mask transform, a wrong `background`, or an all-zero coverage texture all
+ * pass that. A gray ramp under a placement smaller than the layer makes all three visible: the
+ * interior varies, and the area outside the placement falls back to the mask's background.
+ *
+ * The mask arrives through a package, because no Phase 2 command produces a non-uniform mask;
+ * they come from a `.comp` file, which is also how one would arrive from macOS.
+ */
+for (const sampling of ["Nearest", "High quality"] as const) {
+  test(`a placed gray-ramp mask matches the CPU compositor (${sampling} mask sampling)`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/");
+    await expect(page.getByTestId("engine-ready")).toBeVisible();
+    const red = await page.evaluate(redSquarePngBase64);
+    const mask = await page.evaluate(grayRampMaskPngBase64);
+    const state = await page.evaluate(async ({ red, mask, sampling }) => {
+      const api = (window as unknown as { __compositor: any }).__compositor;
+      const decode = (b: string) => Uint8Array.from(atob(b), (c: string) => c.charCodeAt(0));
+      const id = "B1000000-0000-4000-8000-0000000000A1";
+      const manifest = {
+        format: "com.compositor.project", version: 7, colorSpace: "sRGB", resolution: 72,
+        documentID: "B1000000-0000-4000-8000-0000000000D1", width: 32, height: 32,
+        // Selected on open, so the Transform inspector occupies the tool-options row. That is
+        // the chrome height the pinned viewport above is tuned for; without it the CanvasView
+        // is one CSS px taller and centres the document on a half device pixel, which makes
+        // every document row straddle two device rows (see `setup`).
+        activeLayerID: id,
+        layers: [{
+          id, name: "masked", isVisible: true,
+          imageFile: `${id}.png`, maskFile: `${id}.mask.png`, maskEnabled: true, maskLinked: false,
+          // Smaller than the layer and rotated, so the placement matrix matters and part of the
+          // layer falls outside the mask onto its background.
+          maskPlacement: { origin: [6, 4], size: [18, 22], rotation: 12, flipX: false, flipY: false, sampling: "High quality" },
+          transform: { origin: [0, 0], size: [32, 32], rotation: 0, flipX: false, flipY: false, sampling },
+        }],
+      };
+      const doc = api.engine.openPackage({
+        manifest: JSON.stringify(manifest),
+        images: [{ name: `${id}.png`, bytes: decode(red) }, { name: `${id}.mask.png`, bytes: decode(mask) }],
+      }, null);
+      api.store.getState().openDocument(doc);
+      await api.setZoom(1);
+      api.setCheckerboard(false);
+      return api.engine.state(doc).layers[0];
+    }, { red, mask, sampling });
+    // The package really carried a 32x32 mask, not a uniform one silently substituted.
+    expect(state.hasMask).toBe(true);
+    expect([state.maskWidth, state.maskHeight]).toEqual([32, 32]);
+    expect(state.maskLinked).toBe(false);
+    await expectMatchesCpu(page, `gray ramp mask (${sampling})`);
+  });
+}
 
 test("distortion preview and group transform preview match the CPU compositor", async ({ page }) => {
   const { a, b } = await setup(page);

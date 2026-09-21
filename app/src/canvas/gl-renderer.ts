@@ -129,7 +129,10 @@ export class GlRenderer implements Renderer {
     const p = this.programs.coverage; gl.useProgram(p.program);
     const d2d = this.deviceToDoc(ctx.viewport, ctx.state, ctx.dpr);
     for (const c of coverages) {
-      const tex = this.masks.sync(ctx.state.id, c.layerId, c.maskRevision, c.width, c.height, new Uint8Array(0)); // already synced; returns the cached texture
+      // syncMasks uploaded every coverage in the plan before this ran, so a miss means the
+      // layer's mask went away between the two; skip it rather than uploading an empty buffer.
+      const tex = this.masks.get(ctx.state.id, c.layerId);
+      if (!tex) continue;
       this.masks.setFilter(tex, c.nearest);
       let maskFromDoc: Mat3 | null;
       if (c.corners) {

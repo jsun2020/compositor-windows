@@ -4,7 +4,7 @@ import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
-  addMaskToActive, blurMaskOfActive, canClipActive, deleteMaskOfActive, deleteSelected,
+  addMaskToActive, blurMaskOfActive, canClipActive, canMoveActiveBy, deleteMaskOfActive, deleteSelected,
   fillMaskOfActive, flipSelected, invertMaskOfActive, mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
 
@@ -67,8 +67,8 @@ export function MenuBar() {
       "separator",
       { id: "layer-flip-h", label: "Flip Layer Horizontal", run: () => flipSelected(true), enabled: hasDoc },
       { id: "layer-flip-v", label: "Flip Layer Vertical", run: () => flipSelected(false), enabled: hasDoc },
-      { id: "layer-up", label: "Bring Forward", run: () => runAction("layer-up"), enabled: hasDoc },
-      { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: hasDoc },
+      { id: "layer-up", label: "Bring Forward", run: () => runAction("layer-up"), enabled: hasDoc && canMoveActiveBy(1) },
+      { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: hasDoc && canMoveActiveBy(-1) },
       "separator",
       { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: hasDoc },
     ] },

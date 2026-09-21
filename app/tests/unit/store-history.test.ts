@@ -139,6 +139,50 @@ describe("a layer placed inside a collapsed folder", () => {
   });
 });
 
+describe("benign no-ops raise no error banner", () => {
+  it("Bring Forward at the top of the stack does nothing", async () => {
+    const { canMoveActiveBy, moveActiveBy } = await import("../../src/actions/layers");
+    const doc = document("D", [layer("low"), layer("high")], "high");
+    const { engine, commands } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["high"] });
+    expect(canMoveActiveBy(1)).toBe(false);
+    moveActiveBy(1);
+    expect(commands).toEqual([]);
+    expect(useEditor.getState().error).toBeNull();
+    // Downwards there is a sibling, so it still runs.
+    expect(canMoveActiveBy(-1)).toBe(true);
+    moveActiveBy(-1);
+    expect(commands.map((c) => c.type)).toEqual(["MoveLayerBy"]);
+  });
+
+  it("siblings are counted within the parent folder, not the whole document", async () => {
+    const { canMoveActiveBy } = await import("../../src/actions/layers");
+    const layers = [layer("F", { isGroup: true }), layer("root"), layer("inner", { parentId: "F" })];
+    const doc = document("D", layers, "inner");
+    const { engine } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["inner"] });
+    // "inner" is the only child of F, so it cannot move in either direction even though the
+    // document has layers above and below it in the array.
+    expect(canMoveActiveBy(1)).toBe(false);
+    expect(canMoveActiveBy(-1)).toBe(false);
+  });
+
+  it("the clipping shortcut with nothing below to clip to does nothing", async () => {
+    const { toggleClippingOfActive } = await import("../../src/actions/layers");
+    const doc = document("D", [layer("only")], "only");
+    const engine = {
+      state: () => doc,
+      execute: (_id: string, cmd: Command) => { calls.push(cmd); return { structure: true, canvas: false, layers: [] }; },
+      canToggleClipping: () => false,
+    } as unknown as EngineClient;
+    const calls: Command[] = [];
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["only"] });
+    toggleClippingOfActive();
+    expect(calls).toEqual([]);
+    expect(useEditor.getState().error).toBeNull();
+  });
+});
+
 describe("mask actions commit a pending edit first", () => {
   it("Delete Mask commits the pending mask move before removing the mask", async () => {
     const { addMaskToActive, deleteMaskOfActive } = await import("../../src/actions/layers");

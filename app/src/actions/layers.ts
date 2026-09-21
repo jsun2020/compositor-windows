@@ -36,10 +36,24 @@ export function blurMaskOfActive(): void {
   const radius = Number(text); if (!Number.isFinite(radius) || radius <= 0) { c.s.setError("Enter a radius greater than 0."); return; }
   c.s.run({ type: "BlurMask", id: c.active.id, radius });
 }
-export function toggleClippingOfActive(): void { const c = ctx(); if (!c?.active || c.active.isGroup) return; c.s.run({ type: "ToggleClipping", id: c.active.id }); }
+// Guarded here rather than at each call site, so the Ctrl+Alt+G shortcut, the Layer menu item
+// and the context menu all behave alike. macOS guards inside `toggleClippingMask` the same way
+// and returns silently; nothing below to clip to is a no-op, not an error worth a banner.
+export function toggleClippingOfActive(): void { const c = ctx(); if (!c?.active || c.active.isGroup || !canClipActive()) return; c.s.run({ type: "ToggleClipping", id: c.active.id }); }
 export function canClipActive(): boolean { const c = ctx(); return !!c?.active && !c.active.isGroup && c.engine.canToggleClipping(c.doc.id, c.active.id); }
 export function flipSelected(horizontal: boolean): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "FlipLayers", ids: c.selected, horizontal }); }
-export function moveActiveBy(offset: number): void { const c = ctx(); if (!c?.active) return; c.s.run({ type: "MoveLayerBy", id: c.active.id, offset }); }
+/** Whether the active layer has a sibling `offset` steps away to swap with. Mirrors macOS's
+ * `canMoveActiveLayer(by:)`: siblings are the layers sharing its parent, in array order. */
+export function canMoveActiveBy(offset: number): boolean {
+  const c = ctx(); if (!c?.active) return false;
+  const siblings = c.doc.layers.filter((l) => l.parentId === c.active!.parentId);
+  const index = siblings.findIndex((l) => l.id === c.active!.id);
+  return index >= 0 && index + offset >= 0 && index + offset < siblings.length;
+}
+// Already at the top or bottom of its stack is a no-op, not an error: macOS's
+// `moveActiveLayer(by:)` guards on the same predicate and returns without opening a
+// transaction. The engine op keeps returning Err for a programmatic caller.
+export function moveActiveBy(offset: number): void { const c = ctx(); if (!c?.active || !canMoveActiveBy(offset)) return; c.s.run({ type: "MoveLayerBy", id: c.active.id, offset }); }
 export function placeDropped(id: string, target: DropTarget, copy: boolean): void {
   const c = ctx(); if (!c) return;
   if (!c.engine.canPlace(c.doc.id, id, target.parent)) return;

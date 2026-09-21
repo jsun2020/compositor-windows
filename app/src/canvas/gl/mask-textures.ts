@@ -3,6 +3,10 @@ export class MaskTextures {
   private masks = new Map<string, Entry>();
   constructor(private readonly gl: WebGL2RenderingContext) {}
   private key(docId: string, layerId: string): string { return `${docId}:${layerId}`; }
+  /** The cached texture, or undefined. Callers that only want what is already uploaded must use
+   * this rather than re-entering `sync` with an empty buffer: on a cache miss `sync` would call
+   * texImage2D with an undersized buffer, raise INVALID_OPERATION and cache a garbage mask. */
+  get(docId: string, layerId: string): WebGLTexture | undefined { return this.masks.get(this.key(docId, layerId))?.tex; }
   sync(docId: string, layerId: string, revision: number, width: number, height: number, pixels: Uint8Array): WebGLTexture {
     const k = this.key(docId, layerId); const e = this.masks.get(k);
     if (e && e.revision === revision) return e.tex;

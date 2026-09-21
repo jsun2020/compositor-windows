@@ -147,6 +147,28 @@ test("a drop the engine would refuse is not highlighted", async ({ page }) => {
   expect((await state(page)).layers.find((l: any) => l.isGroup).parentId).toBeNull();
 });
 
+test("benign no-ops raise no error banner", async ({ page }) => {
+  await fresh(page);
+  // A single layer: nothing below to clip to, and no sibling in either direction.
+  await page.getByTestId("layer-row").nth(0).click();
+  await page.keyboard.press("Control+Alt+g");
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+  await page.keyboard.press("Control+]");
+  await page.keyboard.press("Control+[");
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+  expect((await state(page)).layers[0].maskSourceId).toBeNull();
+  // The Layer menu greys both reorder items out rather than offering a command that fails.
+  await page.getByRole("button", { name: "Layer", exact: true }).click();
+  await expect(page.getByTestId("menu-layer-up")).toBeDisabled();
+  await expect(page.getByTestId("menu-layer-down")).toBeDisabled();
+  await page.keyboard.press("Escape");
+  // With a second layer above, Send Backward is available again.
+  await page.getByTestId("layer-add").click();
+  await page.getByRole("button", { name: "Layer", exact: true }).click();
+  await expect(page.getByTestId("menu-layer-down")).toBeEnabled();
+  await expect(page.getByTestId("menu-layer-up")).toBeDisabled();
+});
+
 test("Escape closes a context menu without cancelling the crop rectangle", async ({ page }) => {
   await fresh(page);
   await page.getByTestId("tool-crop").click();

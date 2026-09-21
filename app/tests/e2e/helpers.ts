@@ -71,6 +71,62 @@ export async function noisePngBase64(): Promise<string> {
 }
 
 /**
+ * A 32x32 8-bit grayscale PNG with a horizontal ramp from 0 to 255, as base64.
+ *
+ * Masks in a `.comp` package must be grayscale with no alpha (`decode_package_mask` rejects
+ * anything else) and a canvas always encodes RGB or RGBA, so this writes the PNG by hand. The
+ * zlib stream uses stored (uncompressed) deflate blocks, which needs no compression library and
+ * is still a valid zlib stream. The ramp is the point: a mask whose interior differs from its
+ * edges is what makes a wrong mask transform, a wrong background, or an all-zero coverage
+ * texture visible in a comparison - a uniform mask hides all three.
+ */
+export async function grayRampMaskPngBase64(): Promise<string> {
+  const W = 32, H = 32;
+  const crcTable: number[] = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crcTable[n] = c >>> 0;
+  }
+  const crc32 = (bytes: number[]) => {
+    let c = 0xffffffff;
+    for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const be32 = (v: number) => [(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff];
+  const chunk = (type: string, data: number[]) => {
+    const name = [...type].map((ch) => ch.charCodeAt(0));
+    return [...be32(data.length), ...name, ...data, ...be32(crc32([...name, ...data]))];
+  };
+  // Raw scanlines: one filter byte (0 = none) then W samples.
+  const raw: number[] = [];
+  for (let y = 0; y < H; y++) {
+    raw.push(0);
+    for (let x = 0; x < W; x++) raw.push(Math.round((x / (W - 1)) * 255));
+  }
+  // zlib: 0x78 0x01 header, stored deflate blocks, adler32 of the raw bytes.
+  const z: number[] = [0x78, 0x01];
+  for (let i = 0; i < raw.length; i += 0xffff) {
+    const part = raw.slice(i, i + 0xffff);
+    const last = i + 0xffff >= raw.length ? 1 : 0;
+    z.push(last, part.length & 0xff, (part.length >> 8) & 0xff, ~part.length & 0xff, (~part.length >> 8) & 0xff, ...part);
+  }
+  let a = 1, b = 0;
+  for (const v of raw) { a = (a + v) % 65521; b = (b + a) % 65521; }
+  z.push(...be32(((b << 16) | a) >>> 0));
+  // Colour type 0 (grayscale), bit depth 8.
+  const png = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk("IHDR", [...be32(W), ...be32(H), 8, 0, 0, 0, 0]),
+    ...chunk("IDAT", z),
+    ...chunk("IEND", []),
+  ];
+  let binary = "";
+  for (const v of png) binary += String.fromCharCode(v);
+  return btoa(binary);
+}
+
+/**
  * A 16x16 PNG that is opaque green except for a fully transparent 8x8 hole in the middle: a
  * clipping source whose interior is transparent, which is the fragment the layer shader used
  * to read an out-of-bounds backdrop texel for.
