@@ -41,8 +41,10 @@ pub fn add_group(doc: &mut Document) -> Result<Uuid, CommandError> {
     group.parent_id = match &active { Some(a) if a.is_group => Some(a.id), Some(a) => a.parent_id, None => None };
     let insertion = doc.active_layer_id.and_then(|id| doc.index_of(id)).map(|i| i + 1).unwrap_or(doc.layers.len());
     let id = group.id;
-    doc.layers.insert(insertion, group);
-    validate(doc)?;
+    let mut layers = doc.layers.clone();
+    layers.insert(insertion, group);
+    let previous = std::mem::replace(&mut doc.layers, layers);
+    if let Err(e) = validate(doc) { doc.layers = previous; return Err(e); }
     doc.active_layer_id = Some(id);
     Ok(id)
 }
@@ -146,6 +148,8 @@ pub fn move_layer_by(doc: &mut Document, id: Uuid, offset: i32) -> Result<(), Co
     if other < 0 || other >= siblings.len() as i32 { return Err(CommandError::Argument("no sibling in that direction".into())); }
     let a = doc.index_of(id).unwrap(); let b = doc.index_of(siblings[other as usize]).unwrap();
     doc.layers.swap(a, b);
+    adopt_clipping(&mut doc.layers, id);
+    release_detached_clipping(&mut doc.layers);
     Ok(())
 }
 

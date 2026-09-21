@@ -159,3 +159,46 @@ fn deleting_a_folder_removes_its_contents_and_picks_a_neighbour() {
     assert_eq!(d.active_layer_id, Some(keep));
     let _ = child;
 }
+
+#[test]
+fn add_group_rolls_back_when_nesting_is_too_deep() {
+    let mut d = doc();
+    let mut created = 0;
+    for _ in 0..65 {
+        let before = d.layers.len();
+        match hierarchy::add_group(&mut d) {
+            Ok(_) => { created += 1; }
+            Err(_) => {
+                assert_eq!(d.layers.len(), before, "a failed add_group must not modify the document");
+                break;
+            }
+        }
+    }
+    assert!(created >= 60, "expected at least 60 nested groups before validation rejected the next one, got {created}");
+}
+
+#[test]
+fn move_by_releases_a_clip_when_the_child_crosses_its_base() {
+    let mut d = doc();
+    let l0 = Layer::with_pixels("L0", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let l1 = Layer::with_pixels("L1", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let l2 = Layer::with_pixels("L2", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let (id0, id1) = (l0.id, l1.id);
+    d.layers = vec![l0, l1, l2];
+    hierarchy::toggle_clipping(&mut d, id1).unwrap();
+    assert_eq!(d.layer(id1).unwrap().mask_source_id, Some(id0));
+    hierarchy::move_layer_by(&mut d, id1, -1).unwrap();
+    assert_eq!(d.layer(id1).unwrap().mask_source_id, None, "moved below its base, the clip is released");
+
+    let mut d = doc();
+    let l0 = Layer::with_pixels("L0", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let mut l1 = Layer::with_pixels("L1", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let l2 = Layer::with_pixels("L2", red(2, 2, &[255; 4]), Point { x: 0.0, y: 0.0 });
+    let (id0, id1, id2) = (l0.id, l1.id, l2.id);
+    l1.mask_source_id = Some(id0);
+    d.layers = vec![l0, l1, l2];
+    hierarchy::move_layer_by(&mut d, id2, -1).unwrap();
+    assert_eq!(d.layers.iter().map(|l| l.id).collect::<Vec<_>>(), vec![id0, id2, id1]);
+    assert_eq!(d.layer(id2).unwrap().mask_source_id, Some(id0), "dropped between the base and its clipped child, it adopts the clip");
+    assert_eq!(d.layer(id1).unwrap().mask_source_id, Some(id0), "the original clip is kept");
+}
