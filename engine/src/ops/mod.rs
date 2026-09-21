@@ -7,3 +7,4 @@ pub mod hierarchy;
 pub mod transform;
 pub mod distort;
 pub mod masks;
+pub mod merge;
