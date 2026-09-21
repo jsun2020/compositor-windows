@@ -1,4 +1,4 @@
-import type { DocumentState } from "../engine/types";
+import type { DocumentState, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import type { RenderOptions, Renderer } from "./renderer";
@@ -7,11 +7,11 @@ import type { RenderOptions, Renderer } from "./renderer";
 export class CpuRenderer implements Renderer {
   readonly kind = "cpu" as const;
   private ctx: CanvasRenderingContext2D;
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly engine: EngineClient) {
+  constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
   }
   sync(): void {}
-  render(state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions): void {
+  render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void {
     const W = Math.max(1, Math.round(viewport.viewSize.width * dpr)), H = Math.max(1, Math.round(viewport.viewSize.height * dpr));
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
     const ctx = this.ctx;
@@ -36,7 +36,7 @@ export class CpuRenderer implements Renderer {
         ctx.fillRect(vx0 + cx, vy0 + cy, 8 * dpr, 8 * dpr);
       }
     } else { ctx.clearRect(vx0, vy0, outW, outH); }
-    const premultiplied = this.engine.composite(state.id, region, outW, outH);
+    const premultiplied = engine.compositeEdit(state.id, edit, region, outW, outH);
     const straight = new Uint8ClampedArray(premultiplied.length);
     for (let i = 0; i < premultiplied.length; i += 4) {
       const a = premultiplied[i + 3];

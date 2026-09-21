@@ -23,11 +23,12 @@ export function CanvasView() {
   const cropRect = useEditor((s) => s.cropRect);
   const tool = useEditor((s) => s.tool);
   const renderTick = useEditor((s) => s.renderTick);
+  const transformEdit = useEditor((s) => s.transformEdit);
 
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
     if (!engine || !glRef.current) return;
-    const renderer = createRenderer(glRef.current, engine);
+    const renderer = createRenderer(glRef.current);
     rendererRef.current = renderer;
     useEditor.getState().setRendererKind(renderer.kind);
     installTestApi({
@@ -73,10 +74,10 @@ export function CanvasView() {
     if (!renderer || !gl || !overlay || !state || !viewport || !engine) return;
     const dpr = window.devicePixelRatio || 1;
     renderer.sync(engine, state);
-    renderer.render(state, viewport, dpr, { checkerboard: checkerboardRef.current });
+    renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
     overlay.width = gl.width; overlay.height = gl.height;
     drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? (cropRect ?? { x: 0, y: 0, width: state.width, height: state.height }) : null, guides: guidesRef.current });
-  }, [state, viewport, cropRect, tool, renderTick, engine]);
+  }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit]);
 
   // Wheel: zoom with Ctrl, otherwise pan.
   useEffect(() => {

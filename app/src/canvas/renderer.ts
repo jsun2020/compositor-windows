@@ -1,4 +1,4 @@
-import type { DocumentState } from "../engine/types";
+import type { DocumentState, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { GlRenderer } from "./gl-renderer";
@@ -8,16 +8,16 @@ export interface RenderOptions { checkerboard: boolean; }
 export interface Renderer {
   readonly kind: "gl" | "cpu";
   sync(engine: EngineClient, state: DocumentState): void;
-  render(state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions): void;
+  render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void;
   /** RGBA, top-down, the whole canvas element. */
   readPixels(): Uint8Array;
   dispose(): void;
 }
 
-export function createRenderer(canvas: HTMLCanvasElement, engine: EngineClient): Renderer {
+export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false });
   if (gl) return new GlRenderer(canvas, gl);
-  return new CpuRenderer(canvas, engine);
+  return new CpuRenderer(canvas);
 }
 
 /** Layers to draw bottom to top: visible with visible ancestors, groups excluded. */
