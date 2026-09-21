@@ -63,3 +63,24 @@ fn distort_layer_resamples_pixels_and_linked_mask_as_an_axis_aligned_layer() {
     distort_layer(&mut d2, id2, &t(10.0, 10.0, 20.0, 20.0), &SHAPE).unwrap();
     assert_eq!(d2.layer(id2).unwrap().mask.as_ref().unwrap().placement, Some(t(10.0, 10.0, 20.0, 20.0)));
 }
+
+#[test]
+fn distort_layer_rejects_folders_and_distort_group_rejects_an_invalid_draft() {
+    let mut d = Document::new(100, 60);
+    let mut g = Layer::blank("G", d.size()); g.is_group = true; let gid = g.id;
+    // Not by id: `blank` gives group ids too, so this stays a folder even without a parent link.
+    d.layers.push(g);
+    let err = distort_layer(&mut d, gid, &t(10.0, 10.0, 20.0, 20.0), &SHAPE).unwrap_err();
+    assert!(matches!(err, CommandError::Argument(_)), "a folder should be Argument, not NoLayer: {err:?}");
+    assert!(distort_layer(&mut d, uuid::Uuid::new_v4(), &t(10.0, 10.0, 20.0, 20.0), &SHAPE).is_err());
+
+    let mut d2 = Document::new(100, 60);
+    let l = Layer::with_pixels("Red", red(20, 20), Point { x: 10.0, y: 10.0 });
+    let id = l.id; d2.layers.push(l);
+    let before = d2.layer(id).unwrap().pixels_revision;
+    let bounds = d2.layer(id).unwrap().transform;
+    let mut draft = bounds; draft.size = Size { width: 0.0, height: 0.0 };
+    let err = distort_group(&mut d2, &[id], &bounds, &draft, &SHAPE).unwrap_err();
+    assert!(matches!(err, CommandError::Argument(_)), "{err:?}");
+    assert_eq!(d2.layer(id).unwrap().pixels_revision, before, "an invalid draft leaves the document untouched");
+}

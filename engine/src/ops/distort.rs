@@ -118,15 +118,18 @@ fn distort_at(doc: &mut Document, id: Uuid, transform: &LayerTransform, corners:
 }
 
 pub fn distort_layer(doc: &mut Document, id: Uuid, transform: &LayerTransform, corners: &[Point; 4]) -> Result<(), CommandError> {
-    if doc.layer(id).map_or(true, |l| l.is_group) { return Err(CommandError::NoLayer); }
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    if layer.is_group { return Err(CommandError::Argument("folders are not distorted directly".into())); }
     if !Homography::is_usable(corners) { return Err(CommandError::Argument("twisted or collapsed shape".into())); }
     distort_at(doc, id, transform, corners)
 }
 
 pub fn distort_group(doc: &mut Document, ids: &[Uuid], bounds: &LayerTransform, draft: &LayerTransform, corners: &[Point; 4]) -> Result<(), CommandError> {
     if !Homography::is_usable(corners) { return Err(CommandError::Argument("twisted or collapsed shape".into())); }
+    if !draft.is_valid() { return Err(CommandError::Argument("transform out of range".into())); }
     for id in super::transform::members(doc, ids) {
         let moved = doc.layer(id).unwrap().transform.following(bounds, draft);
+        if !moved.is_valid() { continue; }
         let carried = Homography::carried(&moved, draft, corners);
         if Homography::is_usable(&carried) { distort_at(doc, id, &moved, &carried)?; }
     }
