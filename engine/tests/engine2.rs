@@ -59,3 +59,25 @@ fn render_plan_and_composite_edit_through_the_facade() {
     let json = serde_json::to_string(&plan).unwrap();
     assert!(json.contains("\"coverages\":[]"));
 }
+
+#[test]
+fn dirty_layers_report_baked_clip_dependants_and_distorted_group_members() {
+    let mut e = Engine::new();
+    let doc = e.new_document(20, 20, false).unwrap();
+    let a = seed(&mut e, doc, "A", 0.0, 0.0);
+    let b = seed(&mut e, doc, "B", 8.0, 8.0);
+    e.execute(doc, Command::ToggleClipping { id: b }).unwrap();
+    let dirty = e.execute(doc, Command::DeleteLayers { ids: vec![a], bake: true }).unwrap();
+    assert_eq!(dirty.layers, vec![b]);
+
+    let mut e2 = Engine::new();
+    let doc2 = e2.new_document(20, 20, false).unwrap();
+    let x = seed(&mut e2, doc2, "X", 0.0, 0.0);
+    let y = seed(&mut e2, doc2, "Y", 8.0, 8.0);
+    e2.execute(doc2, Command::GroupLayers { ids: vec![x, y] }).unwrap();
+    let folder = e2.state(doc2).unwrap().layers.iter().find(|l| l.is_group).unwrap().id;
+    let bounds = e2.group_box(doc2, &[folder]).unwrap().unwrap();
+    let corners = Homography::corners_of(&bounds);
+    let dirty2 = e2.execute(doc2, Command::DistortLayers { ids: vec![folder], bounds, draft: bounds, corners }).unwrap();
+    assert!(dirty2.layers.contains(&x) && dirty2.layers.contains(&y) && !dirty2.layers.contains(&folder));
+}

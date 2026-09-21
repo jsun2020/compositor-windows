@@ -184,13 +184,23 @@ impl Engine {
             Command::MoveLayerBy { id, offset } => { ops::hierarchy::move_layer_by(doc, id, offset)?; Ok(Dirty::structure()) }
             Command::DuplicateLayer { id } => { ops::hierarchy::duplicate_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::DuplicateLayerTo { id, parent, above, at_bottom } => { ops::hierarchy::duplicate_layer_to(doc, id, parent, above, at_bottom)?; Ok(Dirty::structure()) }
-            Command::DeleteLayers { ids, bake } => { ops::hierarchy::delete_layers(doc, &ids, bake)?; Ok(Dirty::structure()) }
+            Command::DeleteLayers { ids, bake } => {
+                let baked: Vec<Uuid> = if bake {
+                    ops::hierarchy::clip_dependents(doc, &ids).into_iter().filter(|d| doc.layer(*d).map_or(false, |l| l.has_pixels())).collect()
+                } else { Vec::new() };
+                ops::hierarchy::delete_layers(doc, &ids, bake)?;
+                Ok(Dirty { structure: true, canvas: false, layers: baked })
+            }
             Command::SetLayerTransform { id, transform } => { ops::transform::set_transform(doc, id, transform)?; Ok(Dirty::structure()) }
             Command::TransformLayers { ids, bounds, draft } => { ops::transform::transform_group(doc, &ids, &bounds, &draft)?; Ok(Dirty::structure()) }
             Command::FlipLayers { ids, horizontal } => { ops::transform::flip_layers(doc, &ids, horizontal)?; Ok(Dirty::structure()) }
             Command::NudgeLayers { ids, dx, dy } => { ops::transform::nudge(doc, &ids, dx, dy)?; Ok(Dirty::structure()) }
             Command::DistortLayer { id, transform, corners } => { ops::distort::distort_layer(doc, id, &transform, &corners)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
-            Command::DistortLayers { ids, bounds, draft, corners } => { ops::distort::distort_group(doc, &ids, &bounds, &draft, &corners)?; Ok(Dirty { structure: true, canvas: false, layers: ids }) }
+            Command::DistortLayers { ids, bounds, draft, corners } => {
+                let touched = ops::transform::members(doc, &ids);
+                ops::distort::distort_group(doc, &ids, &bounds, &draft, &corners)?;
+                Ok(Dirty { structure: true, canvas: false, layers: touched })
+            }
             Command::SetMaskPlacement { id, placement } => { ops::transform::set_mask_placement(doc, id, placement)?; Ok(Dirty::structure()) }
             Command::AddMask { id, revealing } => { ops::masks::add_mask(doc, id, revealing)?; Ok(Dirty::structure()) }
             Command::DeleteMask { id } => { ops::masks::delete_mask(doc, id)?; Ok(Dirty::structure()) }
