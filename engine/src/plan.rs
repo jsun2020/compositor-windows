@@ -35,7 +35,7 @@ pub struct LayerDraw {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PlanNode {
     Layer { draw: LayerDraw },
-    Stack { base: LayerDraw, children: Vec<LayerDraw>, folder_coverages: Vec<Coverage> },
+    Stack { base: LayerDraw, children: Vec<LayerDraw>, #[serde(rename = "folderCoverages")] folder_coverages: Vec<Coverage> },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
