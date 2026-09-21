@@ -29,11 +29,19 @@ fn following_a_scale_and_rotation_keeps_relative_placement() {
 
 #[test]
 fn placing_keeps_horizontal_flip_and_nearest_turn() {
+    // Flipped base is represented as flipX + flipY + 180 degrees rotation
     let mut base = t(0.0, 0.0, 10.0, 10.0, 350.0);
     base.flip_x = true;
     let map = LayerTransform::axis_aligned(Point { x: 0.0, y: 0.0 }, Size { width: 10.0, height: 10.0 }).unit_to_document();
     let placed = base.placing(map);
-    assert!(placed.flip_x && near(placed.rotation, 360.0), "{}", placed.rotation);
+    assert!(placed.flip_x && placed.flip_y && near(placed.rotation, 180.0), "rotation: {}", placed.rotation);
+    assert!(near(placed.size.width, 10.0) && near(placed.size.height, 10.0));
+
+    // Base with rotation 10, no flip: nearest turn should be 0
+    let base2 = t(0.0, 0.0, 10.0, 10.0, 10.0);
+    let placed2 = base2.placing(map);
+    assert!(near(placed2.rotation, 0.0), "rotation: {}", placed2.rotation);
+    assert!(!placed2.flip_y);
 }
 
 #[test]
