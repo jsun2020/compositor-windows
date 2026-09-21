@@ -47,3 +47,23 @@ fn compose_is_source_over_for_normal_and_respects_alpha() {
     compose_u8(&mut bytes, [0.25, 0.25, 0.25, 0.5], BlendMode::Multiply);
     assert!((bytes[0] as i32 - 96).abs() <= 1 && bytes[3] == 255);
 }
+
+#[test]
+fn boundary_conditions_of_dodge_burn_and_compose() {
+    // ColorDodge boundary: backdrop 0 should give 0, source 1.0 should give 1.0
+    assert!(near(separable(BlendMode::ColorDodge, 0.0, 0.5), 0.0));
+    assert!(near(separable(BlendMode::ColorDodge, 0.3, 1.0), 1.0));
+    // ColorBurn boundary: backdrop 1.0 should give 1.0, source 0.0 should give 0.0
+    assert!(near(separable(BlendMode::ColorBurn, 1.0, 0.5), 1.0));
+    assert!(near(separable(BlendMode::ColorBurn, 0.3, 0.0), 0.0));
+    // Transparent source should return unchanged destination
+    let dst = [0.2, 0.3, 0.4, 0.9];
+    let out = compose(dst, [0.0, 0.0, 0.0, 0.0], BlendMode::Multiply);
+    assert!(near(out[0], dst[0]) && near(out[1], dst[1]) && near(out[2], dst[2]) && near(out[3], dst[3]));
+    // Source-over onto transparent backdrop is just the source
+    let out = compose([0.0; 4], [0.1, 0.2, 0.3, 0.5], BlendMode::ColorBurn);
+    assert!(near(out[0], 0.1) && near(out[1], 0.2) && near(out[2], 0.3) && near(out[3], 0.5));
+    // Saturation on a grey backdrop should stay grey (exercises set_sat's zero-range guard)
+    let sat = blend_rgb(BlendMode::Saturation, [0.5, 0.5, 0.5], [0.9, 0.1, 0.1]);
+    assert!(near(sat[0], sat[1]) && near(sat[1], sat[2]));
+}

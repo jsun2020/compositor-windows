@@ -8,6 +8,7 @@ pub fn separable(mode: BlendMode, cb: f32, cs: f32) -> f32 {
         BlendMode::Normal => cs,
         BlendMode::Multiply => cb * cs,
         BlendMode::Screen => cb + cs - cb * cs,
+        // Overlay is HardLight with the arguments swapped (PDF spec); Task 11 mirrors this in GLSL.
         BlendMode::Overlay => hard_light(cs, cb),
         BlendMode::Darken => cb.min(cs),
         BlendMode::Lighten => cb.max(cs),
@@ -23,8 +24,10 @@ fn hard_light(cb: f32, cs: f32) -> f32 {
     if cs <= 0.5 { cb * 2.0 * cs } else { let s = 2.0 * cs - 1.0; cb + s - cb * s }
 }
 
+/// Luminance from PDF spec: Lum(C) = 0.3 * R + 0.59 * G + 0.11 * B
 fn lum(c: [f32; 3]) -> f32 { 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2] }
 
+/// ClipColor from PDF spec: clips channels to [0, 1] while preserving luminance
 fn clip_color(c: [f32; 3]) -> [f32; 3] {
     let l = lum(c);
     let n = c[0].min(c[1]).min(c[2]);
@@ -35,13 +38,16 @@ fn clip_color(c: [f32; 3]) -> [f32; 3] {
     out
 }
 
+/// SetLum from PDF spec: sets luminance while preserving hue and saturation
 fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
     let d = l - lum(c);
     clip_color([c[0] + d, c[1] + d, c[2] + d])
 }
 
+/// Saturation from PDF spec: Sat(C) = max(C) - min(C)
 fn sat(c: [f32; 3]) -> f32 { c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]) }
 
+/// SetSat from PDF spec: sets saturation while preserving luminance and hue
 fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
     let mut idx = [0usize, 1, 2];
     idx.sort_by(|&a, &b| c[a].partial_cmp(&c[b]).unwrap_or(std::cmp::Ordering::Equal));
