@@ -143,4 +143,10 @@ test("layer menu and shortcuts: duplicate, blend cycling, opacity digits, merge,
   expect((await names(page)).length).toBe(1);
   await page.keyboard.press("Control+z");
   expect((await names(page)).length).toBe(2);
+  // The physical Delete key is now handled in exactly one place (delete-layer in the
+  // keymap), since LayersList's own window keydown listener for it was removed: select a
+  // row and confirm the keymap-routed path alone deletes it.
+  await page.getByTestId("layer-row").first().click();
+  await page.keyboard.press("Delete");
+  expect((await names(page)).length).toBe(1);
 });

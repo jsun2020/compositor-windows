@@ -4,7 +4,7 @@ import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
-  addFolder, addMaskToActive, blurMaskOfActive, canClipActive, deleteMaskOfActive, deleteSelected,
+  addMaskToActive, blurMaskOfActive, canClipActive, deleteMaskOfActive, deleteSelected,
   fillMaskOfActive, flipSelected, invertMaskOfActive, mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
 
@@ -46,7 +46,7 @@ export function MenuBar() {
     ] },
     { title: "Layer", items: [
       { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: hasDoc },
-      { id: "layer-new-folder", label: "New Folder", run: () => addFolder(), enabled: hasDoc },
+      { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: hasDoc },
       { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: hasDoc },
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: hasDoc },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: hasDoc },

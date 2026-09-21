@@ -97,10 +97,26 @@ export function typeOpacityDigit(digit: number, now = Date.now(), apply = setOpa
   apply(Math.min(100, percent) / 100);
 }
 
+/**
+ * True when this keydown must be left alone rather than routed to a shortcut. A focused
+ * <button> (a tool-rail button, a menu item, a panel footer button, ...) is the common
+ * case: `isEditableTarget` treats every HTMLButtonElement as editable so Enter/Space
+ * don't double-fire it while it also owns an app-level shortcut, but that guard used to
+ * block *every* key while any button had focus - after a mouse click on any panel
+ * button, Ctrl+Z, Ctrl+S, the opacity digits and Delete all went dead until focus moved
+ * elsewhere. A focused button now only blocks the two keys that activate it (Enter and
+ * Space); every other editable target (inputs, selects, textareas, contentEditable)
+ * still blocks all keys, via the unchanged `isEditableTarget`.
+ */
+export function isShortcutBlocked(e: KeyboardEvent): boolean {
+  const t = e.target;
+  return t instanceof HTMLButtonElement ? (e.key === "Enter" || e.key === " ") : isEditableTarget(t);
+}
+
 export function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return;
+      if (isShortcutBlocked(e)) return;
       // A sheet owns interaction while it is open; Enter/Escape for it are handled by the
       // sheet's own key listener (see Sheet.tsx), not here.
       if (useEditor.getState().sheet) return;
