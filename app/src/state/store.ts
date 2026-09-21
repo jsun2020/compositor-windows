@@ -173,10 +173,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
       return true;
     }
     let layer = activeLayer(state)!;
-    if (duplicate) { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); get().refresh(activeId); layer = activeLayer(get().documents[activeId])!; set({ selectedLayerIds: [layer.id] }); }
+    // An unlinked mask alone has no pixel layer of its own to duplicate: ignore `duplicate`
+    // (computed before any duplication, from the layer this transform is actually about).
     const maskAlone = maskSelected && layer.hasMask && !layer.maskLinked;
+    const willDuplicate = !!duplicate && !maskAlone;
+    if (willDuplicate) { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); get().refresh(activeId); layer = activeLayer(get().documents[activeId])!; set({ selectedLayerIds: [layer.id] }); }
     const t = maskAlone ? layer.maskPlacement ?? layer.transform : layer.transform;
-    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: !!duplicate } });
+    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate } });
     return true;
   },
   previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; set({ transformEdit: { ...e, draft, corners: corners === undefined ? e.corners : corners } }); get().invalidate(); },

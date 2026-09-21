@@ -56,6 +56,11 @@ export function TransformInspector() {
   const shape = editedShape(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
   if (!shape) return null;
   const pixel = pixelSizeFor(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
+  // Mask-editing state doesn't wait for a pending edit: it's true as soon as the mask chip
+  // alone is selected, just like the move tool's own Ctrl-corner and Alt-drag handling.
+  const activeLayerForTitle = activeLayer(doc);
+  const maskAlone = s.maskSelected && !!activeLayerForTitle && activeLayerForTitle.hasMask && !activeLayerForTitle.maskLinked;
+  const isMaskEdit = s.transformEdit ? s.transformEdit.kind === "mask" : maskAlone;
   const apply = (mutate: (t: LayerTransform) => LayerTransform) => {
     const st = useEditor.getState();
     const had = !!st.transformEdit;
@@ -70,7 +75,7 @@ export function TransformInspector() {
   const t = shape.transform;
   return (
     <div className="tool-options" data-testid="transform-inspector">
-      <span>{s.maskSelected && s.transformEdit?.kind === "mask" ? "Transform Mask" : "Transform"}</span>
+      <span>{isMaskEdit ? "Transform Mask" : "Transform"}</span>
       {field("X", t.origin[0], (v, t) => ({ ...t, origin: [v, t.origin[1]] }))}
       {field("Y", t.origin[1], (v, t) => ({ ...t, origin: [t.origin[0], v] }))}
       {pixel && field("Scale", scalePercent(t, pixel), (v, t) => scaledToPercent(t, v, pixel))}

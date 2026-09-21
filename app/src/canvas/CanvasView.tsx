@@ -6,7 +6,7 @@ import { installTestApi } from "../test-api";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
-import { canTransform, editedShape, transformsAsGroup } from "../state/selection";
+import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -210,11 +210,17 @@ export function CanvasView() {
       if (!canTransform(d, s0.selectedLayerIds, s0.maskSelected) && !s0.transformEdit) return;
       const edited = editedShape(d, s0.transformEdit, s0.selectedLayerIds, s0.maskSelected);
       if (!edited) return;
+      // An unlinked mask alone, either already mid-edit or about to start one: Alt should not
+      // duplicate the layer (it should move the mask), and Ctrl on a corner should not start a
+      // distortion (masks never carry corners, so that drag would silently do nothing).
+      const activeLayerForEdit = activeLayer(d);
+      const maskAlone = s0.maskSelected && !!activeLayerForEdit && activeLayerForEdit.hasMask && !activeLayerForEdit.maskLinked;
+      const isMaskEdit = s0.transformEdit ? s0.transformEdit.kind === "mask" : maskAlone;
       const geometry = overlayGeometry(edited.corners ?? edited.transform, vp, { width: d.width, height: d.height });
       const r = el.getBoundingClientRect(); const view = { x: e.clientX - r.left, y: e.clientY - r.top };
-      const mode = startMode(hitOverlay(geometry, view), containsPoint(edited.transform, docPoint(e)), e.ctrlKey, !!edited.corners);
+      const mode = startMode(hitOverlay(geometry, view), containsPoint(edited.transform, docPoint(e)), e.ctrlKey && !isMaskEdit, !!edited.corners);
       if (!s0.transformEdit) {
-        const started = s0.beginTransform({ persistent: false, duplicate: e.altKey && mode.kind === "move" && !transformsAsGroup(d, s0.selectedLayerIds) });
+        const started = s0.beginTransform({ persistent: false, duplicate: e.altKey && mode.kind === "move" && !transformsAsGroup(d, s0.selectedLayerIds) && !maskAlone });
         if (!started) return;
       }
       const te = useEditor.getState().transformEdit!;

@@ -5,6 +5,7 @@ import { closeActive, exportPng, openProject, saveProject, saveProjectAs } from 
 import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
+import { activeLayer } from "../state/selection";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
@@ -24,7 +25,19 @@ export function runAction(id: ActionId, shift = false): void {
       const corners = e.corners ? (e.corners.map(([x, y]) => [x + delta.dx, y + delta.dy]) as Corners) : null;
       s.previewTransform(draft, corners);
     } else if (s.selectedLayerIds.length) {
-      s.run({ type: "NudgeLayers", ids: s.selectedLayerIds, dx: delta.dx, dy: delta.dy });
+      const layer = activeLayer(doc);
+      const maskAlone = s.maskSelected && !!layer && layer.hasMask && !layer.maskLinked;
+      if (maskAlone) {
+        // Nudge the mask's own placement, not the layer: one SetMaskPlacement per key press.
+        if (s.beginTransform({ persistent: false })) {
+          const e = useEditor.getState().transformEdit!;
+          const draft = { ...e.draft, origin: [e.draft.origin[0] + delta.dx, e.draft.origin[1] + delta.dy] as PointTuple };
+          s.previewTransform(draft, e.corners);
+          s.commitTransform();
+        }
+      } else {
+        s.run({ type: "NudgeLayers", ids: s.selectedLayerIds, dx: delta.dx, dy: delta.dy });
+      }
     }
     return;
   }

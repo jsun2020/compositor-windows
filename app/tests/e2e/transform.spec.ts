@@ -78,3 +78,29 @@ test("ctrl-drag on a corner distorts; Enter applies; the inspector edits values"
   await page.keyboard.press("Enter");
   expect((await layer(page)).transform.rotation).toBe(45);
 });
+
+test("an unlinked mask alone: arrow nudges and Alt-drag move the mask, not the layer", async ({ page }) => {
+  await setup(page);
+  const id = (await layer(page)).id;
+  await page.evaluate((id) => {
+    const api = (window as any).__compositor;
+    const s = api.store.getState(); const docId = s.activeId;
+    api.engine.execute(docId, { type: "AddMask", id, revealing: true });
+    api.engine.execute(docId, { type: "SetMaskLinked", id, linked: false });
+    s.refresh();
+    s.setMaskSelected(true);
+  }, id);
+  // "Transform Mask" shows as soon as the unlinked mask chip is selected, before any drag.
+  await expect(page.getByText("Transform Mask")).toBeVisible();
+  const before = await layer(page);
+  expect(before.maskPlacement).toBeNull(); // unmoved: still following the layer's own transform
+  await page.keyboard.press("ArrowRight");
+  const afterNudge = await layer(page);
+  expect(afterNudge.maskPlacement.origin).toEqual([before.transform.origin[0] + 1, before.transform.origin[1]]);
+  expect(afterNudge.transform.origin).toEqual(before.transform.origin); // the layer itself didn't move
+  await drag(page, { x: 20, y: 20 }, { x: 60, y: 20 }, ["Alt"]); // outside the layer, Alt held
+  const d = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
+  expect(d.layers.length).toBe(1); // no duplicate: Alt-drag on an unlinked mask moves it instead
+  expect(d.layers[0].maskPlacement.origin).not.toEqual(afterNudge.maskPlacement.origin);
+  expect(d.layers[0].transform.origin).toEqual(before.transform.origin);
+});
