@@ -1,8 +1,9 @@
 import type { Viewport } from "./viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
+import type { OverlayGeometry } from "../tools/transform-geometry";
 
-export interface OverlayState { docWidth: number; docHeight: number; cropRect: Rect | null; guides: { xs: number[]; ys: number[] }; }
+export interface OverlayState { docWidth: number; docHeight: number; cropRect: Rect | null; guides: { xs: number[]; ys: number[] }; transform: OverlayGeometry | null; }
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, dpr: number, state: OverlayState): void {
   const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -38,6 +39,33 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
     }
     ctx.fillStyle = "white";
     for (const h of HANDLES) { const hx = tl.x + (br.x - tl.x) * h.x, hy = tl.y + (br.y - tl.y) * h.y; ctx.fillRect(hx - 4, hy - 4, 8, 8); }
+  }
+  if (state.transform) {
+    const g = state.transform;
+    const corners = [g.handles[0], g.handles[2], g.handles[4], g.handles[6]];
+    ctx.strokeStyle = "#3a6ea5"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x + 0.5, corners[0].y + 0.5);
+    for (const c of corners.slice(1)) ctx.lineTo(c.x + 0.5, c.y + 0.5);
+    ctx.closePath();
+    ctx.stroke();
+    if (g.showsRotation) {
+      ctx.beginPath();
+      ctx.moveTo(g.handles[1].x + 0.5, g.handles[1].y + 0.5);
+      ctx.lineTo(g.rotationHandle.x + 0.5, g.rotationHandle.y + 0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(g.rotationHandle.x, g.rotationHandle.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "white";
+      ctx.fill();
+      ctx.stroke();
+    }
+    for (const h of g.handles) {
+      ctx.fillStyle = "white";
+      ctx.fillRect(h.x - 3.5, h.y - 3.5, 7, 7);
+      ctx.strokeStyle = "#3a6ea5"; ctx.lineWidth = 1;
+      ctx.strokeRect(h.x - 3.5, h.y - 3.5, 7, 7);
+    }
   }
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
   for (const x of state.guides.xs) { const v = viewport.viewPoint({ x, y: 0 }, size).x; ctx.beginPath(); ctx.moveTo(v + 0.5, 0); ctx.lineTo(v + 0.5, viewport.viewSize.height); ctx.stroke(); }

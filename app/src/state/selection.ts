@@ -1,5 +1,6 @@
 import type { DocumentState, LayerState, LayerTransform } from "../engine/types";
-import { boundsOfPoints, cornersOf } from "../tools/transform-geometry";
+import { boundsOfPoints, cornersOf, fromTuple, type P } from "../tools/transform-geometry";
+import type { TransformEdit } from "./store";
 
 export function activeLayer(state: DocumentState): LayerState | null { return state.layers.find((l) => l.id === state.activeLayerId) ?? null; }
 export function visibleIds(state: DocumentState): Set<string> {
@@ -37,4 +38,23 @@ export function canTransform(state: DocumentState, selected: string[], maskSelec
   if (!layer || layer.isGroup) return false;
   if (maskSelected && layer.hasMask && !layer.maskLinked) return visibleIds(state).has(layer.id);
   return layer.hasPixels && visibleIds(state).has(layer.id);
+}
+
+export interface EditedShape { transform: LayerTransform; corners: P[] | null; }
+/**
+ * The shape currently being transformed: a pending edit's draft (and its corners, once a
+ * distortion is in progress), otherwise the group box for a multi-layer/group selection,
+ * otherwise the active layer's transform, or its mask placement when the mask alone is
+ * selected and unlinked from the layer.
+ */
+export function editedShape(state: DocumentState, transformEdit: TransformEdit | null, selected: string[], maskSelected: boolean): EditedShape | null {
+  if (transformEdit) return { transform: transformEdit.draft, corners: transformEdit.corners ? transformEdit.corners.map(fromTuple) : null };
+  if (transformsAsGroup(state, selected)) {
+    const box = groupBox(state, selected);
+    return box ? { transform: box, corners: null } : null;
+  }
+  const layer = activeLayer(state);
+  if (!layer || layer.isGroup) return null;
+  if (maskSelected && layer.hasMask && !layer.maskLinked) return { transform: layer.maskPlacement ?? layer.transform, corners: null };
+  return { transform: layer.transform, corners: null };
 }

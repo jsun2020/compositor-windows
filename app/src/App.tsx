@@ -17,6 +17,7 @@ import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
 import { JpegExportSheet } from "./sheets/JpegExportSheet";
 import { CropOptions } from "./panels/CropOptions";
+import { TransformInspector } from "./panels/TransformInspector";
 import "./styles.css";
 
 export function App() {
@@ -82,6 +83,7 @@ export function App() {
       <MenuBar />
       <ProjectTabs />
       <CropOptions />
+      <TransformInspector />
       <div className="workspace">
         <ToolRail />
         <CanvasView />

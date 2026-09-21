@@ -10,7 +10,10 @@ async function setup(page: Page): Promise<{ doc: string; a: string; b: string }>
   // compositor's own point sampling) for any edge that isn't axis-aligned, e.g. a
   // distorted quad's diagonal side. A pinned, chrome-parity-matched viewport keeps the
   // rect integer so the comparison exercises the renderer, not this unrelated tie.
-  await page.setViewportSize({ width: 1280, height: 721 });
+  // (Height 720, not 721: the move tool's Transform inspector now occupies the
+  // tool-options row by default, one CSS px taller than the chrome this was tuned
+  // against, which flips the parity that keeps the rect on an integer pixel.)
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
   const b64 = await page.evaluate(redSquarePngBase64);

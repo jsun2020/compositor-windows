@@ -18,9 +18,13 @@ describe("keymap", () => {
     expect(matchShortcut(ev("=", { ctrlKey: true }))).toBe("zoom-in");
     expect(matchShortcut(ev("+", { ctrlKey: true, shiftKey: true }))).toBe("zoom-in");
     expect(matchShortcut(ev("=", { ctrlKey: true, shiftKey: true }))).toBe("zoom-in");
-    expect(matchShortcut(ev("Enter"))).toBe("crop-apply");
-    expect(matchShortcut(ev("Escape"))).toBe("crop-cancel");
+    expect(matchShortcut(ev("Enter"))).toBe("apply");
+    expect(matchShortcut(ev("Escape"))).toBe("cancel");
     expect(matchShortcut(ev("Enter", { ctrlKey: true }))).toBeNull();
     expect(matchShortcut(ev("x"))).toBeNull();
+    expect(matchShortcut(ev("ArrowLeft"))).toBe("nudge-left");
+    expect(matchShortcut(ev("ArrowRight", { shiftKey: true }))).toBe("nudge-right");
+    expect(matchShortcut(ev("ArrowUp"))).toBe("nudge-up");
+    expect(matchShortcut(ev("ArrowDown", { shiftKey: true }))).toBe("nudge-down");
   });
 });

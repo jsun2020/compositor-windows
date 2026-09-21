@@ -72,7 +72,10 @@ export function LayersList() {
               {l.isGroup ? <button data-testid={`collapse-${l.id}`} className="disclosure" onClick={(e) => { e.stopPropagation(); s.toggleCollapsed(l.id); }}>{row.collapsed ? ">" : "v"}</button> : <span className="disclosure-space" />}
               <input type="checkbox" aria-label={`Visible ${l.name}`} checked={l.visible} onClick={(e) => e.stopPropagation()} onChange={(e) => s.run({ type: "SetLayerVisible", id: l.id, visible: e.target.checked })} />
               {l.maskSourceId && <span className="clip-arrow" title="Clipped to the layer below">{">"}</span>}
-              <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} pixels`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />
+              {/* "content", not "pixels": the latter's letters collide with the Transform inspector's
+                  single-letter "X" field under Playwright's substring accessible-name matching
+                  (getByLabel("X") would otherwise also match "... pixels"). */}
+              <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} content`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />
               {l.hasMask && <button data-testid={`target-mask-${l.id}`} className={"chip chip-mask" + (l.maskEnabled ? "" : " disabled")} aria-label={`${l.name} mask`} aria-pressed={l.id === doc.activeLayerId && s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(true); }} />}
               {renaming?.id === l.id ? (
                 <input autoFocus value={renaming.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setRenaming({ id: l.id, name: e.target.value })}

@@ -3,12 +3,31 @@ import { matchShortcut, type ActionId } from "./keymap";
 import { useEditor } from "../state/store";
 import { closeActive, exportPng, openProject, saveProject, saveProjectAs } from "../actions/files";
 import { isEditableTarget } from "./target";
+import { nudgeDelta } from "../tools/transform-session";
+import type { Corners, PointTuple } from "../engine/types";
 
-export function runAction(id: ActionId): void {
+const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
+
+export function runAction(id: ActionId, shift = false): void {
   const s = useEditor.getState();
   const doc = s.activeId ? s.documents[s.activeId] : null;
   const vp = s.activeId ? s.viewports[s.activeId] : null;
   const zoomBy = (f: number) => { if (doc && vp) { vp.setZoom(vp.zoom * f, vp.center, { width: doc.width, height: doc.height }); s.invalidate(); } };
+  const nudgeKey = NUDGE_KEYS[id];
+  if (nudgeKey) {
+    if (!doc || s.tool !== "move") return;
+    const delta = nudgeDelta(nudgeKey, shift);
+    if (!delta) return;
+    if (s.transformEdit) {
+      const e = s.transformEdit;
+      const draft = { ...e.draft, origin: [e.draft.origin[0] + delta.dx, e.draft.origin[1] + delta.dy] as PointTuple };
+      const corners = e.corners ? (e.corners.map(([x, y]) => [x + delta.dx, y + delta.dy]) as Corners) : null;
+      s.previewTransform(draft, corners);
+    } else if (s.selectedLayerIds.length) {
+      s.run({ type: "NudgeLayers", ids: s.selectedLayerIds, dx: delta.dx, dy: delta.dy });
+    }
+    return;
+  }
   switch (id) {
     case "new": s.openSheet({ kind: "new" }); break;
     case "open": void openProject(); break;
@@ -30,8 +49,14 @@ export function runAction(id: ActionId): void {
     case "tool-hand": s.setTool("hand"); break;
     case "tool-zoom": s.setTool("zoom"); break;
     case "tool-crop": s.setTool("crop"); break;
-    case "crop-apply": if (doc && s.tool === "crop") { const r = s.cropRect ?? { x: 0, y: 0, width: doc.width, height: doc.height }; s.run({ type: "Crop", ...r }); s.setCropRect(null); } break;
-    case "crop-cancel": if (s.tool === "crop") s.setCropRect(null); break;
+    case "apply":
+      if (doc && s.tool === "crop") { const r = s.cropRect ?? { x: 0, y: 0, width: doc.width, height: doc.height }; s.run({ type: "Crop", ...r }); s.setCropRect(null); }
+      else if (s.transformEdit) s.commitTransform();
+      break;
+    case "cancel":
+      if (s.tool === "crop") s.setCropRect(null);
+      else if (s.transformEdit) s.cancelTransform();
+      break;
   }
 }
 
@@ -45,7 +70,7 @@ export function useShortcuts(): void {
       const id = matchShortcut(e);
       if (!id) return;
       e.preventDefault();
-      runAction(id);
+      runAction(id, e.shiftKey);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

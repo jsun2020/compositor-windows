@@ -4,6 +4,9 @@ import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay } from "./overlay";
 import { installTestApi } from "../test-api";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
+import { TransformSession, startMode } from "../tools/transform-session";
+import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
+import { canTransform, editedShape, transformsAsGroup } from "../state/selection";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -12,7 +15,6 @@ export function CanvasView() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const checkerboardRef = useRef(true);
-  const guidesRef = useRef<{ xs: number[]; ys: number[] }>({ xs: [], ys: [] });
   // Whether the space bar is currently held, shared by the pan and crop pointer
   // handlers below (both treat space-held as "temporarily pan" regardless of tool).
   const spaceRef = useRef(false);
@@ -24,6 +26,9 @@ export function CanvasView() {
   const tool = useEditor((s) => s.tool);
   const renderTick = useEditor((s) => s.renderTick);
   const transformEdit = useEditor((s) => s.transformEdit);
+  const snapGuides = useEditor((s) => s.snapGuides);
+  const selectedLayerIds = useEditor((s) => s.selectedLayerIds);
+  const maskSelected = useEditor((s) => s.maskSelected);
 
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
@@ -52,6 +57,16 @@ export function CanvasView() {
         for (let y = 0; y < h; y++) out.set(all.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x0 + w) * 4), y * w * 4);
         return out;
       },
+      // Exposed for e2e tests to compute where the on-screen transform handles (including the
+      // rotation handle, offset above the shape) currently sit, rather than hard-coding an
+      // assumed screen offset that would break if the handle geometry ever changes.
+      transformGeometry: (): OverlayGeometry | null => {
+        const s = useEditor.getState(); if (!s.activeId) return null;
+        const d = s.documents[s.activeId]; const vp = s.viewports[s.activeId];
+        const shape = editedShape(d, s.transformEdit, s.selectedLayerIds, s.maskSelected);
+        if (!shape) return null;
+        return overlayGeometry(shape.corners ?? shape.transform, vp, { width: d.width, height: d.height });
+      },
     });
     return () => { renderer.dispose(); rendererRef.current = null; };
   }, [engine]);
@@ -76,8 +91,13 @@ export function CanvasView() {
     renderer.sync(engine, state);
     renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
     overlay.width = gl.width; overlay.height = gl.height;
-    drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? (cropRect ?? { x: 0, y: 0, width: state.width, height: state.height }) : null, guides: guidesRef.current });
-  }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit]);
+    let transformGeometry: OverlayGeometry | null = null;
+    if (tool === "move" && (transformEdit || canTransform(state, selectedLayerIds, maskSelected))) {
+      const shape = editedShape(state, transformEdit, selectedLayerIds, maskSelected);
+      if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, viewport, { width: state.width, height: state.height });
+    }
+    drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? (cropRect ?? { x: 0, y: 0, width: state.width, height: state.height }) : null, guides: snapGuides, transform: transformGeometry });
+  }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected]);
 
   // Wheel: zoom with Ctrl, otherwise pan.
   useEffect(() => {
@@ -163,11 +183,65 @@ export function CanvasView() {
       const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
       const docPoint = vp.documentPoint(point(e), { width: d.width, height: d.height });
       const { rect, guides } = session.update(docPoint, e.altKey);
-      guidesRef.current = guides;
+      s.setSnapGuides(guides);
       s.setCropRect(rect);
       s.invalidate();
     };
-    const up = () => { if (!session) return; session = null; guidesRef.current = { xs: [], ys: [] }; useEditor.getState().invalidate(); };
+    const up = () => { if (!session) return; session = null; useEditor.getState().setSnapGuides({ xs: [], ys: [] }); useEditor.getState().invalidate(); };
+    el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
+    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+  }, []);
+
+  // Move tool: drag to move (a press outside the shape still moves it, as macOS does),
+  // drag a handle to resize or rotate, Ctrl-drag a corner to distort, Alt-drag to
+  // duplicate; snaps to the canvas edges/centre and other layers' bounds while moving.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    let session: TransformSession | null = null;
+    const docPoint = (e: PointerEvent): P => {
+      const s = useEditor.getState(); const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!];
+      const r = el.getBoundingClientRect();
+      return vp.documentPoint({ x: e.clientX - r.left, y: e.clientY - r.top }, { width: d.width, height: d.height });
+    };
+    const down = (e: PointerEvent) => {
+      const s0 = useEditor.getState();
+      if (s0.tool !== "move" || e.button !== 0 || spaceRef.current || !s0.activeId) return;
+      const d = s0.documents[s0.activeId]; const vp = s0.viewports[s0.activeId];
+      if (!canTransform(d, s0.selectedLayerIds, s0.maskSelected) && !s0.transformEdit) return;
+      const edited = editedShape(d, s0.transformEdit, s0.selectedLayerIds, s0.maskSelected);
+      if (!edited) return;
+      const geometry = overlayGeometry(edited.corners ?? edited.transform, vp, { width: d.width, height: d.height });
+      const r = el.getBoundingClientRect(); const view = { x: e.clientX - r.left, y: e.clientY - r.top };
+      const mode = startMode(hitOverlay(geometry, view), containsPoint(edited.transform, docPoint(e)), e.ctrlKey, !!edited.corners);
+      if (!s0.transformEdit) {
+        const started = s0.beginTransform({ persistent: false, duplicate: e.altKey && mode.kind === "move" && !transformsAsGroup(d, s0.selectedLayerIds) });
+        if (!started) return;
+      }
+      const te = useEditor.getState().transformEdit!;
+      if (mode.kind === "distort" && !te.corners) useEditor.getState().beginDistort();
+      const after = useEditor.getState().transformEdit!;
+      const tolerance = 10 / vp.pointsPerPixel;
+      // Re-read the document: beginTransform may have just duplicated the layer, adding it
+      // to the layers array snapTargets scans (and excludes by movingIds).
+      const targets = snapTargets(useEditor.getState().documents[s0.activeId!], after.ids);
+      session = new TransformSession({ mode, startDoc: docPoint(e), original: after.draft, originalCorners: after.corners ? after.corners.map(fromTuple) : null, snap: mode.kind === "move" ? { ...targets, tolerance } : null });
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (!session) return;
+      const r = session.update(docPoint(e), { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey });
+      const s = useEditor.getState();
+      s.previewTransform(r.draft, r.corners ? cornersToTuples(r.corners) : null);
+      s.setSnapGuides(r.guides);
+    };
+    const up = () => {
+      if (!session) return;
+      session = null;
+      const s = useEditor.getState();
+      s.setSnapGuides({ xs: [], ys: [] });
+      if (!s.transformEdit?.corners) s.commitTransform();
+      else s.invalidate();
+    };
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
   }, []);
