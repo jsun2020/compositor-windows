@@ -1,4 +1,4 @@
-﻿import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { redSquarePngBase64, ringPngBase64, noisePngBase64, sparseAlphaPngBase64 } from "./helpers";
 
 // Same viewport pinning as blend.spec.ts: it keeps the document rect on an integer device

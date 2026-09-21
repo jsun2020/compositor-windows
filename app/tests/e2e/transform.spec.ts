@@ -41,6 +41,36 @@ test("dragging moves the layer, even from outside it, with snapping to the canva
   expect((await layer(page)).transform.origin[0]).toBe(0);
 });
 
+/**
+ * Keyboard shortcuts stay live while the pointer is captured, so a bare opacity digit can
+ * commit the drag from under the pointer handler. The drag must then end: the session is
+ * dropped and the snap guides cleared, instead of guides being recomputed and redrawn for a
+ * gesture that is already over.
+ */
+test("a command that commits mid-drag ends the drag and clears the snap guides", async ({ page }) => {
+  await setup(page);
+  const guides = () => page.evaluate(() => (window as any).__compositor.store.getState().snapGuides);
+  const a = await viewPoint(page, 200, 150);
+  // Drag towards the canvas centre, which is where a guide appears.
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(a.x - 100, a.y);
+  await page.mouse.move(a.x - 168, a.y);
+  expect(await page.evaluate(() => !!(window as any).__compositor.store.getState().transformEdit)).toBe(true);
+  const during = await guides();
+  expect(during.xs.length + during.ys.length).toBeGreaterThan(0);
+  // The digit commits the pending transform through `run`.
+  await page.keyboard.press("5");
+  expect(await page.evaluate(() => !!(window as any).__compositor.store.getState().transformEdit)).toBe(false);
+  // Moving again must not resurrect the guides.
+  await page.mouse.move(a.x - 160, a.y + 20);
+  await page.mouse.move(a.x - 150, a.y + 40);
+  expect(await guides()).toEqual({ xs: [], ys: [] });
+  await page.mouse.up();
+  expect(await guides()).toEqual({ xs: [], ys: [] });
+  expect((await layer(page)).opacity).toBeCloseTo(0.5, 5);
+});
+
 test("handles resize and rotate; alt-drag duplicates; arrows nudge", async ({ page }) => {
   await setup(page);
   await drag(page, { x: 250, y: 200 }, { x: 300, y: 250 }); // bottom-right handle

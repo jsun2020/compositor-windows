@@ -74,6 +74,10 @@ export async function saveProjectAs(): Promise<void> {
 
 export async function importImages(paths?: string[], at?: { x: number; y: number }): Promise<void> {
   await guarded(async () => {
+    // Import records history through `Engine::edit` without going through `store.run`, so the
+    // commit that every other recording path gets has to happen here. Otherwise an import
+    // during a pending distortion leaves the edit open across a structural change.
+    useEditor.getState().commitTransform();
     const { s, engine, bridge } = ctx();
     const files = paths ?? (await bridge.pickImportImages());
     const failures: string[] = [];

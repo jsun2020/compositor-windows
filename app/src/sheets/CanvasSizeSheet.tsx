@@ -29,7 +29,7 @@ export function CanvasSizeSheet() {
       <label>Unit <select value={draft.unit} onChange={(e) => { draft.unit = e.target.value as CanvasUnit; rerender(); }}>{CANVAS_UNITS.map((u) => <option key={u}>{u}</option>)}</select></label>
       <label><input type="checkbox" checked={draft.relative} onChange={(e) => { draft.relative = e.target.checked; rerender(); }} /> Relative</label>
       <label><input type="checkbox" checked={draft.locked} onChange={(e) => { draft.locked = e.target.checked; rerender(); }} /> Constrain proportions</label>
-      <div className="anchor-grid">{Array.from({ length: 9 }, (_, i) => <button key={i} data-testid={`anchor-${i}`} className={anchor === i ? "active" : ""} onClick={() => setAnchor(i)}>{i === anchor ? "●" : "·"}</button>)}</div>
+      <div className="anchor-grid">{Array.from({ length: 9 }, (_, i) => <button key={i} data-testid={`anchor-${i}`} className={anchor === i ? "active" : ""} onClick={() => setAnchor(i)}>{i === anchor ? "*" : "."}</button>)}</div>
       <label><input type="checkbox" checked={fill} onChange={(e) => setFill(e.target.checked)} /> Fill extension with color <input type="color" value={color} onChange={(e) => setColor(e.target.value)} disabled={!fill} /></label>
     </Sheet>
   );

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useEditor } from "../../src/state/store";
+import { useEditor, type EditorStore } from "../../src/state/store";
 import { runAction } from "../../src/shortcuts/useShortcuts";
 import type { Command, DocumentState, LayerState, LayerTransform } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
@@ -172,6 +172,32 @@ describe("a layer placed inside a collapsed folder", () => {
     useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], collapsed: { D: ["F"] }, selectedLayerIds: ["Root"] });
     useEditor.getState().run({ type: "AddBlankLayer" });
     expect(useEditor.getState().collapsed.D).toEqual(["F"]);
+  });
+});
+
+describe("import closes a pending edit", () => {
+  it("commits a pending distortion before importing", async () => {
+    const { importImages } = await import("../../src/actions/files");
+    const doc = document("D", [layer("A")], "A", 1);
+    const { engine, commands, calls } = stubEngine({ D: doc });
+    const imported: string[] = [];
+    (engine as unknown as { importImage: unknown }).importImage = (_d: string, _b: Uint8Array, name: string) => { imported.push(name); return "D"; };
+    const bridge = {
+      pickImportImages: async () => ["C:/p/one.png"],
+      readFile: async () => new Uint8Array([1, 2, 3]),
+      baseName: (p: string) => p.split("/").pop()!,
+    } as unknown as EditorStore["bridge"];
+    // A persistent distortion: the kind that survives pointerup and can still be open when a
+    // menu action runs.
+    const corners: [number, number][] = [[0, 0], [10, 1], [9, 9], [0, 10]];
+    useEditor.setState({ engine, bridge, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["A"],
+      transformEdit: { ...pendingEdit, corners: corners as never, persistent: true } });
+    await importImages();
+    // The distortion is recorded first, then the import runs.
+    expect(commands.map((c) => c.type)).toEqual(["DistortLayer"]);
+    expect(imported).toEqual(["one.png"]);
+    expect(useEditor.getState().transformEdit).toBeNull();
+    expect(calls).not.toContain("revert");
   });
 });
 

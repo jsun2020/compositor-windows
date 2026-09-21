@@ -234,6 +234,15 @@ export function CanvasView() {
     };
     const move = (e: PointerEvent) => {
       if (!session) return;
+      // Something closed the edit under us: a history-recording command (a bare opacity digit,
+      // say) commits the pending transform, and shortcuts stay live while the pointer is
+      // captured. `previewTransform` would already be a no-op, but the guides would keep being
+      // recomputed and redrawn for a drag that is over, until pointerup. End the drag instead.
+      if (!useEditor.getState().transformEdit) {
+        session = null;
+        useEditor.getState().setSnapGuides({ xs: [], ys: [] });
+        return;
+      }
       const r = session.update(docPoint(e), { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey });
       const s = useEditor.getState();
       s.previewTransform(r.draft, r.corners ? cornersToTuples(r.corners) : null);
