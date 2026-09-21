@@ -126,7 +126,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   undo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
   redo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
-    if (get().tool === "move" && tool !== get().tool) get().commitTransform();
+    if (get().tool === "move" && tool !== "move") get().commitTransform();
     set({ tool, cropRect: tool === "crop" ? get().cropRect : null });
   },
   setCropRect: (cropRect) => set({ cropRect }),
@@ -175,8 +175,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const e = get().transformEdit; const { engine, activeId } = get(); if (!e || !engine || !activeId) return;
     set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
     const draft = roundedTransform(e.draft);
-    const unchanged = JSON.stringify(draft) === JSON.stringify(roundedTransform(e.original)) && !e.corners;
-    if (unchanged) { if (e.duplicated) { /* keep the duplicate in place */ } get().invalidate(); return; }
+    const unchanged = e.corners
+      ? JSON.stringify(e.corners) === JSON.stringify(cornersToTuples(cornersOf(e.original)))
+      : JSON.stringify(draft) === JSON.stringify(roundedTransform(e.original));
+    // A no-op edit (including a duplicate that was never moved) commits nothing; the duplicate stays in place.
+    if (unchanged) { get().invalidate(); return; }
     if (e.kind === "mask") get().run({ type: "SetMaskPlacement", id: e.id, placement: draft });
     else if (e.kind === "group") get().run(e.corners ? { type: "DistortLayers", ids: e.ids, box: e.box, draft: e.draft, corners: e.corners } : { type: "TransformLayers", ids: e.ids, box: e.box, draft });
     else get().run(e.corners ? { type: "DistortLayer", id: e.id, transform: e.draft, corners: e.corners } : { type: "SetLayerTransform", id: e.id, transform: draft });
