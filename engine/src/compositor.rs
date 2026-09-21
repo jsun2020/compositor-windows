@@ -1,5 +1,4 @@
 use crate::*;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Bilinear or nearest sample in premultiplied float RGBA (0..1). Outside the raster clamps to the edge; coverage is decided by the caller.
@@ -27,15 +26,33 @@ pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
     out
 }
 
+/// A 30000-pixel side reaches 1 pixel in 15 halvings; the cap only bounds a bad caller.
+pub const MAX_PREFILTER_LEVEL: u32 = 16;
+
+/// How many sharp halvings a raster of this size takes before its final resample: halve until
+/// one output pixel covers at most 2 source pixels. The GL renderer uploads the raster at this
+/// same level, so the two renderers prefilter identically (`prefilterLevel` in the app mirrors
+/// this loop).
+pub fn prefilter_level(width: u32, height: u32, pixels_per_output: f64) -> u32 {
+    let (mut w, mut h) = (width, height);
+    let mut factor = pixels_per_output;
+    let mut level = 0;
+    while factor > 2.0 && w > 1 && h > 1 { w = (w / 2).max(1); h = (h / 2).max(1); level += 1; factor /= 2.0; }
+    level
+}
+
+/// Whether a draw prefilters at all: never for Nearest, and never through a distortion (the
+/// homography resamples the full raster). macOS applies the same rule in `LayerRenderer.reduced`,
+/// which prefilters for Smooth as well as High quality.
+pub fn prefilters(sampling: Sampling, distorted: bool) -> bool { sampling != Sampling::Nearest && !distorted }
+
 /// Sharp halvings for large reductions: reduce until one output pixel covers at most 2 source pixels.
 fn prefiltered(raster: &Raster, pixels_per_output: f64) -> (Raster, f64) {
     let mut current = raster.clone();
     let mut scale = 1.0;
-    let mut factor = pixels_per_output;
-    while factor > 2.0 && current.width > 1 && current.height > 1 {
+    for _ in 0..prefilter_level(raster.width, raster.height, pixels_per_output) {
         current = current.halved();
         scale *= 0.5;
-        factor /= 2.0;
     }
     (current, scale)
 }
@@ -128,10 +145,10 @@ impl<'a> Target<'a> {
 /// Draws one layer with its opacity, coverages and clip, blended with its mode.
 fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
     let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
-    // Prefilter large affine reductions with High sampling (never for distortions).
+    // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
     let source_per_output = raster.width as f64 / (draw.transform.size.width * out_per_doc);
-    let (source, scale) = if draw.corners.is_none() && draw.transform.sampling == Sampling::High && source_per_output > 2.0 { prefiltered(raster, source_per_output) } else { (raster.clone(), 1.0) };
+    let (source, scale) = if prefilters(draw.transform.sampling, draw.corners.is_some()) { prefiltered(raster, source_per_output) } else { (raster.clone(), 1.0) };
     let nearest = draw.transform.sampling == Sampling::Nearest;
     let (x0, y0, x1, y1) = target.bbox(draw);
     for oy in y0..y1 { for ox in x0..x1 {
@@ -184,19 +201,9 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
 }
 
 /// Layers to draw, bottom to top: visible, with every ancestor visible, groups excluded.
+/// Hierarchy order, like `render_ids`, which it resolves to layers.
 pub fn render_layers(doc: &Document) -> Vec<&Layer> {
-    let by_id: HashMap<Uuid, &Layer> = doc.layers.iter().map(|l| (l.id, l)).collect();
-    doc.layers.iter().filter(|layer| {
-        if layer.is_group { return false; }
-        let mut node = Some(*layer);
-        let mut steps = 0;
-        while let Some(n) = node {
-            if !n.visible || steps > MAX_NESTING { return false; }
-            steps += 1;
-            node = n.parent_id.and_then(|p| by_id.get(&p).copied());
-        }
-        true
-    }).collect()
+    doc.render_ids().into_iter().filter_map(|id| doc.layer(id)).collect()
 }
 
 pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {

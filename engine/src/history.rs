@@ -28,6 +28,13 @@ impl History {
         self.undo.push(current.clone());
         Some(after)
     }
+    /// Returns to the state before the last entry and drops that entry entirely, offering no
+    /// redo. This is how macOS closes a transaction the user cancelled: `cancelTransform`
+    /// removes the Alt-drag copy and calls `endEdit`, whose `before.document != document` guard
+    /// then records nothing, so neither undo nor redo gains an entry (EditorSession.swift).
+    /// The popped entry is the one `push` added for the cancelled gesture, so `saved_depth` is
+    /// back where it was before that push and needs no adjustment.
+    pub fn revert(&mut self) -> Option<Document> { self.undo.pop() }
     pub fn can_undo(&self) -> bool { !self.undo.is_empty() }
     pub fn can_redo(&self) -> bool { !self.redo.is_empty() }
     pub fn mark_saved(&mut self) { self.saved_depth = self.undo.len(); }

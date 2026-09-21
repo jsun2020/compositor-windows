@@ -50,9 +50,14 @@ impl Layer {
         let size = Size { width: raster.width as f64, height: raster.height as f64 };
         Layer::base(name, LayerTransform::axis_aligned(origin, size), Some(raster))
     }
+    /// Replaces the layer's pixels. A shape record describes the pixels it drew, so rewriting
+    /// them drops it: macOS treats `liveShape` as nil once the asset is no longer the image the
+    /// shape produced (ShapeTool.swift), and would otherwise redraw the shape over the new
+    /// pixels on the next handle drag.
     pub fn set_pixels(&mut self, pixels: Option<Raster>) {
         self.pixels = pixels;
         self.pixels_revision += 1;
+        self.extra.shape = None;
     }
     pub fn record(&self) -> LayerRecord {
         let mut r = LayerRecord::new(self.id, &self.name, self.transform,
@@ -170,9 +175,24 @@ impl Document {
             true
         }).map(|l| l.id).collect()
     }
-    /// Visible pixel layers in array order, groups excluded: what the compositor draws.
+    /// Visible pixel layers bottom to top in hierarchy order, groups excluded: what the
+    /// compositor draws. Hierarchy order, not array order, is the z-order on both platforms -
+    /// macOS composites `renderLayers`, the same depth-first walk filtered the same way
+    /// (LayerGroups.swift), and the layers panel shows that walk reversed. The array is free to
+    /// hold a folder's children anywhere (grouping appends them, as macOS does); only the walk
+    /// decides what draws over what.
     pub fn render_ids(&self) -> Vec<Uuid> {
         let visible = self.visible_ids();
-        self.layers.iter().filter(|l| !l.is_group && visible.contains(&l.id)).map(|l| l.id).collect()
+        crate::ops::hierarchy::hierarchy_order(self).into_iter()
+            .filter(|id| visible.contains(id) && self.layer(*id).map_or(false, |l| !l.is_group))
+            .collect()
+    }
+    /// Document equality for undo purposes: everything but the active layer, which is selection
+    /// state rather than content. macOS keeps `activeLayerID` beside the document in a history
+    /// snapshot and returns early from `end` unless the document itself changed
+    /// (DocumentHistory.swift), so selecting a layer records nothing and preserves redo.
+    pub fn same_content(&self, other: &Document) -> bool {
+        self.id == other.id && self.width == other.width && self.height == other.height
+            && self.resolution == other.resolution && self.layers == other.layers
     }
 }

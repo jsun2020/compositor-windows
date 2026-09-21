@@ -70,6 +70,9 @@ impl WasmEngine {
     pub fn redo(&mut self, doc: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.engine.redo(parse_id(doc)?).map_err(js_err)?).map_err(js_err)
     }
+    pub fn revert(&mut self, doc: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.engine.revert(parse_id(doc)?).map_err(js_err)?).map_err(js_err)
+    }
     pub fn import_image(&mut self, doc: Option<String>, bytes: &[u8], name: &str, x: Option<f64>, y: Option<f64>) -> Result<String, JsError> {
         let id = match doc { Some(d) => Some(parse_id(&d)?), None => None };
         let at = match (x, y) { (Some(x), Some(y)) => Some(Point { x, y }), _ => None };
@@ -88,15 +91,25 @@ impl WasmEngine {
         let raster = self.engine.composite(parse_id(doc)?, Rect { x, y, width: w, height: h }, out_w, out_h).map_err(js_err)?;
         Ok(Uint8Array::from(raster.bytes()))
     }
-    pub fn layer_pixels_ptr(&self, doc: &str, layer: &str) -> Result<*const u8, JsError> {
+    /// The layer's raster after `level` sharp halvings, the reduction the CPU compositor applies
+    /// for the same zoom. `Raster::halved` memoizes into the parent raster, so the returned
+    /// buffer outlives this call (the document holds the whole chain) and repeat frames at the
+    /// same level recompute nothing.
+    fn level_raster(&self, doc: &str, layer: &str, level: u32) -> Result<Option<Raster>, JsError> {
         let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
         let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
-        Ok(l.pixels.as_ref().map_or(std::ptr::null(), |p| p.bytes().as_ptr()))
+        let Some(mut r) = l.pixels.clone() else { return Ok(None); };
+        for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
+            if r.width <= 1 || r.height <= 1 { break; }
+            r = r.halved();
+        }
+        Ok(Some(r))
     }
-    pub fn layer_pixels_len(&self, doc: &str, layer: &str) -> Result<usize, JsError> {
-        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
-        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
-        Ok(l.pixels.as_ref().map_or(0, |p| p.bytes().len()))
+    pub fn layer_pixels_ptr(&self, doc: &str, layer: &str, level: u32) -> Result<*const u8, JsError> {
+        Ok(self.level_raster(doc, layer, level)?.map_or(std::ptr::null(), |r| r.bytes().as_ptr()))
+    }
+    pub fn layer_pixels_len(&self, doc: &str, layer: &str, level: u32) -> Result<usize, JsError> {
+        Ok(self.level_raster(doc, layer, level)?.map_or(0, |r| r.bytes().len()))
     }
 
     fn parse_edit(json: Option<String>) -> Result<Option<PreviewEdit>, JsError> {

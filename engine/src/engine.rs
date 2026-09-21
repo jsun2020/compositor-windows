@@ -138,10 +138,11 @@ impl Engine {
         let s = self.session_mut(id)?;
         let mut next = s.document.clone();
         let dirty = f(&mut next)?;
-        if next != s.document {
-            let before = std::mem::replace(&mut s.document, next);
-            s.history.push(before);
-        }
+        // The active layer is selection, not content: a command that only moves it (SetActiveLayer)
+        // still applies, but records no history entry and so leaves redo intact, as macOS does.
+        let content_changed = !next.same_content(&s.document);
+        let before = std::mem::replace(&mut s.document, next);
+        if content_changed { s.history.push(before); }
         Ok(dirty)
     }
 
@@ -226,6 +227,13 @@ impl Engine {
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         let s = self.session_mut(id)?;
         if let Some(after) = s.history.redo(&s.document) { s.document = after; }
+        Ok(Dirty::everything())
+    }
+    /// Drops the last history entry and returns to the state before it, leaving no redo: for a
+    /// gesture the user cancelled, such as Escape during an Alt-drag duplicate.
+    pub fn revert(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        let s = self.session_mut(id)?;
+        if let Some(before) = s.history.revert() { s.document = before; }
         Ok(Dirty::everything())
     }
 
