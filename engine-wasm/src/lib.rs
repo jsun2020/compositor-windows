@@ -98,4 +98,46 @@ impl WasmEngine {
         let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
         Ok(l.pixels.as_ref().map_or(0, |p| p.bytes().len()))
     }
+
+    fn parse_edit(json: Option<String>) -> Result<Option<PreviewEdit>, JsError> {
+        match json { Some(j) => Ok(Some(serde_json::from_str(&j).map_err(js_err)?)), None => Ok(None) }
+    }
+    fn parse_ids(json: &str) -> Result<Vec<Uuid>, JsError> {
+        let v: Vec<String> = serde_json::from_str(json).map_err(js_err)?;
+        v.iter().map(|s| Uuid::parse_str(s).map_err(js_err)).collect()
+    }
+    pub fn render_plan(&self, doc: &str, edit_json: Option<String>) -> Result<String, JsError> {
+        let edit = Self::parse_edit(edit_json)?;
+        serde_json::to_string(&self.engine.render_plan(parse_id(doc)?, edit.as_ref()).map_err(js_err)?).map_err(js_err)
+    }
+    pub fn composite_edit(&self, doc: &str, edit_json: Option<String>, x: f64, y: f64, w: f64, h: f64, out_w: u32, out_h: u32) -> Result<Uint8Array, JsError> {
+        let edit = Self::parse_edit(edit_json)?;
+        let raster = self.engine.composite_edit(parse_id(doc)?, edit.as_ref(), Rect { x, y, width: w, height: h }, out_w, out_h).map_err(js_err)?;
+        Ok(Uint8Array::from(raster.bytes()))
+    }
+    pub fn mask_pixels_ptr(&self, doc: &str, layer: &str) -> Result<*const u8, JsError> {
+        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
+        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
+        Ok(l.mask.as_ref().map_or(std::ptr::null(), |m| m.pixels.bytes().as_ptr()))
+    }
+    pub fn mask_pixels_len(&self, doc: &str, layer: &str) -> Result<usize, JsError> {
+        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
+        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
+        Ok(l.mask.as_ref().map_or(0, |m| m.pixels.bytes().len()))
+    }
+    pub fn clip_dependents(&self, doc: &str, ids_json: &str) -> Result<String, JsError> {
+        let ids = self.engine.clip_dependents(parse_id(doc)?, &Self::parse_ids(ids_json)?).map_err(js_err)?;
+        serde_json::to_string(&ids.iter().map(ids::upper_string).collect::<Vec<_>>()).map_err(js_err)
+    }
+    pub fn merge_action(&self, doc: &str, ids_json: &str) -> Result<Option<String>, JsError> {
+        Ok(self.engine.merge_action(parse_id(doc)?, &Self::parse_ids(ids_json)?).map_err(js_err)?.map(|s| s.to_string()))
+    }
+    pub fn group_box(&self, doc: &str, ids_json: &str) -> Result<Option<String>, JsError> {
+        match self.engine.group_box(parse_id(doc)?, &Self::parse_ids(ids_json)?).map_err(js_err)? { Some(t) => Ok(Some(serde_json::to_string(&t).map_err(js_err)?)), None => Ok(None) }
+    }
+    pub fn can_toggle_clipping(&self, doc: &str, id: &str) -> Result<bool, JsError> { self.engine.can_toggle_clipping(parse_id(doc)?, parse_id(id)?).map_err(js_err) }
+    pub fn can_place(&self, doc: &str, id: &str, parent: Option<String>) -> Result<bool, JsError> {
+        let p = match parent { Some(p) => Some(parse_id(&p)?), None => None };
+        self.engine.can_place(parse_id(doc)?, parse_id(id)?, p).map_err(js_err)
+    }
 }

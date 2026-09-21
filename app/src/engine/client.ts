@@ -1,5 +1,5 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
-import type { Command, Dirty, DocumentState, PackageFiles } from "./types";
+import type { Command, Dirty, DocumentState, LayerTransform, PackageFiles, PreviewEdit, RenderPlan } from "./types";
 
 export class EngineClient {
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
@@ -49,4 +49,20 @@ export class EngineClient {
     const ptr = this.wasm.layer_pixels_ptr(doc, layer);
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
+
+  renderPlan(doc: string, edit: PreviewEdit | null): RenderPlan { return JSON.parse(this.wasm.render_plan(doc, edit ? JSON.stringify(edit) : undefined)) as RenderPlan; }
+  compositeEdit(doc: string, edit: PreviewEdit | null, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
+    return this.wasm.composite_edit(doc, edit ? JSON.stringify(edit) : undefined, region.x, region.y, region.width, region.height, outWidth, outHeight);
+  }
+  /** A view on wasm memory; valid only until the next engine call. */
+  maskPixels(doc: string, layer: string): Uint8Array | null {
+    const len = this.wasm.mask_pixels_len(doc, layer);
+    if (len === 0) return null;
+    return new Uint8Array(this.memory.buffer, this.wasm.mask_pixels_ptr(doc, layer), len);
+  }
+  clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }
+  mergeAction(doc: string, ids: string[]): string | null { return this.wasm.merge_action(doc, JSON.stringify(ids)) ?? null; }
+  groupBox(doc: string, ids: string[]): LayerTransform | null { const t = this.wasm.group_box(doc, JSON.stringify(ids)); return t ? (JSON.parse(t) as LayerTransform) : null; }
+  canToggleClipping(doc: string, id: string): boolean { return this.wasm.can_toggle_clipping(doc, id); }
+  canPlace(doc: string, id: string, parent: string | null): boolean { return this.wasm.can_place(doc, id, parent ?? undefined); }
 }

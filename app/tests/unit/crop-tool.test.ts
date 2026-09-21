@@ -6,7 +6,8 @@ import type { DocumentState } from "../../src/engine/types";
 const doc: DocumentState = {
   id: "D", documentId: "D", width: 400, height: 300, resolution: 72, activeLayerId: null, canUndo: false, canRedo: false, isModified: false, path: null,
   layers: [{ id: "L", name: "Red", visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal",
-    transform: { origin: [150, 120], size: [100, 60], rotation: 0, flipX: false, flipY: false, sampling: "High quality" }, pixelsWidth: 100, pixelsHeight: 60, pixelsRevision: 1, hasMask: false }],
+    transform: { origin: [150, 120], size: [100, 60], rotation: 0, flipX: false, flipY: false, sampling: "High quality" }, pixelsWidth: 100, pixelsHeight: 60, pixelsRevision: 1, hasMask: false,
+    hasPixels: true, maskWidth: 0, maskHeight: 0, maskRevision: 1, maskEnabled: true, maskLinked: true, maskSourceId: null, maskPlacement: null, maskBackground: 255 }],
 };
 
 describe("crop tool", () => {
