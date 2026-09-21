@@ -1,9 +1,8 @@
-import { useEffect, useState, type DragEvent } from "react";
+import { useState, type DragEvent } from "react";
 import { useEditor } from "../state/store";
 import { layerRows, dropTarget, type Row } from "./layer-rows";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, flipSelected, groupSelected, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
-import { isEditableTarget } from "../shortcuts/target";
 
 type Zone = "above" | "below" | "into";
 function zoneFor(e: DragEvent, row: Row): Zone {
@@ -20,10 +19,9 @@ export function LayersList() {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<{ id: string } | null>(null);
   const [over, setOver] = useState<{ index: number; zone: Zone } | null>(null);
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if ((e.key === "Delete" || e.key === "Backspace") && doc?.activeLayerId && !isEditableTarget(e.target) && !s.sheet) deleteSelected(); };
-    window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
-  }, [doc?.activeLayerId, s.sheet]);
+  // The Delete/Backspace key is handled by the global shortcut hook (delete-layer in
+  // keymap.ts / useShortcuts.ts) so it is routed through exactly one place; this panel
+  // no longer has its own window key listener for it.
   if (!doc) return <div className="layers" />;
   const rows = layerRows(doc, collapsed);
   const select = (e: React.MouseEvent, row: Row) => {

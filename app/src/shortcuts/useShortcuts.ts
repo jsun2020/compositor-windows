@@ -6,6 +6,7 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
+import { addFolder, cycleBlendMode, deleteSelected, duplicateSelected, groupSelected, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
@@ -70,7 +71,30 @@ export function runAction(id: ActionId, shift = false): void {
       if (s.tool === "crop") s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
       break;
+    case "new-folder": addFolder(); break;
+    case "duplicate": duplicateSelected(); break;
+    case "group": groupSelected(); break;
+    case "merge": mergeSelected(); break;
+    case "clip": toggleClippingOfActive(); break;
+    case "layer-up": moveActiveBy(1); break;
+    case "layer-down": moveActiveBy(-1); break;
+    case "blend-next": cycleBlendMode(true); break;
+    case "blend-prev": cycleBlendMode(false); break;
+    case "delete-layer": if (doc && !s.sheet) deleteSelected(); break;
+    default:
+      if (id.startsWith("opacity-")) { if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8))); }
   }
+}
+
+// Module-level: a second digit pressed within 600ms of the first combines with it
+// (2 then 5 -> 25%), matching the macOS app's typeOpacityDigit. `apply` is injectable
+// so unit tests can assert on the computed opacity without a store.
+let digitBuffer: { digit: number; at: number } | null = null;
+export function typeOpacityDigit(digit: number, now = Date.now(), apply = setOpacityOfSelected): void {
+  let percent: number;
+  if (digitBuffer && now - digitBuffer.at < 600) { percent = digitBuffer.digit * 10 + digit; digitBuffer = null; }
+  else { percent = digit === 0 ? 100 : digit * 10; digitBuffer = { digit, at: now }; }
+  apply(Math.min(100, percent) / 100);
 }
 
 export function useShortcuts(): void {

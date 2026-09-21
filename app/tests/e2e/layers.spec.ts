@@ -1,11 +1,32 @@
 import { test, expect, type Page } from "@playwright/test";
-import { clickMenu } from "./helpers";
+import { clickMenu, redSquarePngBase64 } from "./helpers";
 
 async function fresh(page: Page) {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
   await clickMenu(page, "File", "new");
   await page.getByRole("button", { name: "Create" }).click();
+}
+
+/**
+ * Like `fresh`, but the base layer has real pixel content (the "New Canvas" sheet's
+ * layer never does - it is created with emptyLayer: true, i.e. no pixel buffer at all -
+ * so per-layer geometry commands such as FlipLayers, which skip any layer with no
+ * pixels, would have nothing to act on). Follows the same engine.newDocument(w, h,
+ * false) + importImage + openDocument pattern already used by blend.spec.ts and
+ * transform.spec.ts to get a document with actual pixels without going through the UI.
+ */
+async function freshWithPixels(page: Page) {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(redSquarePngBase64);
+  await page.evaluate((b64) => {
+    const api = (window as any).__compositor;
+    const png = Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.newDocument(8, 8, false);
+    api.engine.importImage(doc, png, "Layer 1", null);
+    api.store.getState().openDocument(doc);
+  }, b64);
 }
 const names = (page: Page) => page.getByTestId("layer-row").allInnerTexts();
 const state = (page: Page) => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
@@ -95,4 +116,31 @@ test("clipping via the context menu asks before deleting a source", async ({ pag
   d = await state(page);
   expect(d.layers.length).toBe(1);
   expect(d.layers[0].maskSourceId).toBeNull();
+});
+
+test("layer menu and shortcuts: duplicate, blend cycling, opacity digits, merge, flip", async ({ page }) => {
+  await freshWithPixels(page);
+  await page.keyboard.press("Control+j");
+  expect((await names(page)).length).toBe(2);
+  await page.keyboard.press("Shift+=");
+  expect((await state(page)).layers[1].blendMode).toBe("Multiply");
+  await page.keyboard.press("Shift+-");
+  await page.keyboard.press("Shift+-");
+  expect((await state(page)).layers[1].blendMode).toBe("Luminosity");
+  await page.getByTestId("tool-move").click();
+  await page.keyboard.press("5");
+  expect((await state(page)).layers[1].opacity).toBeCloseTo(0.5, 5);
+  // Real gap here must exceed the 600ms digit-combine window: an automated keypress
+  // lands only tens of ms after the previous one, which would otherwise still combine
+  // with this unrelated "5" press's own buffer (5 then 2 -> 52%) instead of starting
+  // the fresh two-digit sequence below (measured gap without this wait: ~34ms).
+  await page.waitForTimeout(650);
+  await page.keyboard.press("2"); await page.keyboard.press("5");
+  expect((await state(page)).layers[1].opacity).toBeCloseTo(0.25, 5);
+  await clickMenu(page, "Layer", "layer-flip-h");
+  expect((await state(page)).layers[1].transform.flipX).toBe(true);
+  await page.keyboard.press("Control+e");
+  expect((await names(page)).length).toBe(1);
+  await page.keyboard.press("Control+z");
+  expect((await names(page)).length).toBe(2);
 });

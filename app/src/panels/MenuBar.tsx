@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { useEditor } from "../state/store";
 import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
+import { activeLayer } from "../state/selection";
+import {
+  addFolder, addMaskToActive, blurMaskOfActive, canClipActive, deleteMaskOfActive, deleteSelected,
+  fillMaskOfActive, flipSelected, invertMaskOfActive, mergeTitle, toggleMaskEnabled, toggleMaskLink,
+} from "../actions/layers";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -11,6 +16,8 @@ export function MenuBar() {
   // Computed once, guarded, and reused below so an item's `enabled` flag never has to
   // index `s.documents` with a possibly-null activeId (which threw when no document was open).
   const activeDoc = s.activeId ? s.documents[s.activeId] : null;
+  const active = activeDoc ? activeLayer(activeDoc) : null;
+  const hasMask = !!active?.hasMask;
   const [recent, setRecent] = useState<string[]>([]);
   // Refetch only when the bridge changes, the open-document list changes, or a file
   // action explicitly records a new recent package (`recentTick`) - not on every store
@@ -36,6 +43,32 @@ export function MenuBar() {
     { title: "Edit", items: [
       { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: hasDoc && !!activeDoc?.canUndo },
       { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: hasDoc && !!activeDoc?.canRedo },
+    ] },
+    { title: "Layer", items: [
+      { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: hasDoc },
+      { id: "layer-new-folder", label: "New Folder", run: () => addFolder(), enabled: hasDoc },
+      { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: hasDoc },
+      { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: hasDoc },
+      { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: hasDoc },
+      "separator",
+      { id: "layer-mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true), enabled: hasDoc && !!active && !hasMask },
+      { id: "layer-mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false), enabled: hasDoc && !!active && !hasMask },
+      { id: "layer-mask-delete", label: "Delete Mask", run: () => deleteMaskOfActive(), enabled: hasMask },
+      { id: "layer-mask-toggle", label: active?.maskEnabled === false ? "Enable Mask" : "Disable Mask", run: () => toggleMaskEnabled(), enabled: hasMask },
+      { id: "layer-mask-link", label: active?.maskLinked === false ? "Link Mask" : "Unlink Mask", run: () => toggleMaskLink(), enabled: hasMask },
+      { id: "layer-mask-invert", label: "Invert Mask", run: () => invertMaskOfActive(), enabled: hasMask },
+      { id: "layer-mask-fill-white", label: "Fill Mask White", run: () => fillMaskOfActive(true), enabled: hasMask },
+      { id: "layer-mask-fill-black", label: "Fill Mask Black", run: () => fillMaskOfActive(false), enabled: hasMask },
+      { id: "layer-mask-blur", label: "Blur/Feather Mask...", run: () => blurMaskOfActive(), enabled: hasMask },
+      "separator",
+      { id: "layer-clip", label: "Create/Release Clipping Mask", run: () => runAction("clip"), enabled: hasDoc && canClipActive() },
+      "separator",
+      { id: "layer-flip-h", label: "Flip Layer Horizontal", run: () => flipSelected(true), enabled: hasDoc },
+      { id: "layer-flip-v", label: "Flip Layer Vertical", run: () => flipSelected(false), enabled: hasDoc },
+      { id: "layer-up", label: "Bring Forward", run: () => runAction("layer-up"), enabled: hasDoc },
+      { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: hasDoc },
+      "separator",
+      { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: hasDoc },
     ] },
     { title: "Image", items: [
       { id: "canvas-size", label: "Canvas Size...", run: () => runAction("canvas-size"), enabled: hasDoc },
