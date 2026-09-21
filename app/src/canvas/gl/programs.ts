@@ -70,6 +70,7 @@ uniform sampler2D tex;
 uniform sampler2D backdrop;
 uniform sampler2D coverage;
 uniform bool useCoverage;
+uniform bool useBackdrop;
 uniform float opacity;
 uniform int mode;
 out vec4 color;
@@ -78,7 +79,11 @@ void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
   vec4 s = texture(tex, uv) * k;
-  vec4 d = texelFetch(backdrop, at, 0);
+  // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
+  // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
+  // undefined; the value feeds compose() and would corrupt clipping coverage on any backend
+  // that does not happen to return zero.
+  vec4 d = useBackdrop ? texelFetch(backdrop, at, 0) : vec4(0.0);
   color = compose(d, s, mode);
 }`;
 const FRAG_COVERAGE = `#version 300 es
@@ -141,7 +146,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "opacity", "mode"]),
+    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),

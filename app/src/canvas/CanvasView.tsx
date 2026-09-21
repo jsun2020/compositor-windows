@@ -88,7 +88,6 @@ export function CanvasView() {
     const renderer = rendererRef.current; const gl = glRef.current; const overlay = overlayRef.current;
     if (!renderer || !gl || !overlay || !state || !viewport || !engine) return;
     const dpr = window.devicePixelRatio || 1;
-    renderer.sync(engine, state);
     renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
     overlay.width = gl.width; overlay.height = gl.height;
     let transformGeometry: OverlayGeometry | null = null;

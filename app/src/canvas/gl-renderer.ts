@@ -1,7 +1,7 @@
 import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
-import { LayerTextures } from "./layer-textures";
+import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderOptions, Renderer } from "./renderer";
 import { BLEND_INDEX, createPrograms, disposePrograms, type Programs } from "./gl/programs";
 import { FboPool } from "./gl/framebuffers";
@@ -30,9 +30,39 @@ export class GlRenderer implements Renderer {
     return t;
   }
 
-  sync(engine: EngineClient, state: DocumentState): void {
+  /**
+   * Uploads each layer at the prefilter level the plan's draw calls for, so the texture is the
+   * same reduction the CPU compositor samples at this zoom. A layer drawn more than once (a
+   * plan node and a clipping source) takes the smallest level, i.e. the most detail.
+   *
+   * This runs with the plan and viewport in hand rather than ahead of them, because the level
+   * depends on both: it needs the displayed transform (a pending scale drag moves it) and the
+   * device pixels per document unit.
+   */
+  private syncTextures(engine: EngineClient, state: DocumentState, plan: RenderPlan, viewport: Viewport, dpr: number): void {
+    const outPerDoc = viewport.pointsPerPixel * dpr;
+    const levels = new Map<string, number>();
+    const note = (d: LayerDraw) => {
+      if (d.pixelsWidth === 0) return;
+      const layer = state.layers.find((l) => l.id === d.id);
+      const nearest = layer?.transform.sampling === "Nearest";
+      // Nearest never prefilters, and neither does a distortion: the homography resamples the
+      // full raster. Both match `compositor::prefilters` in the engine.
+      const level = nearest || d.corners ? 0 : prefilterLevel(d.pixelsWidth, d.pixelsHeight, d.pixelsWidth / Math.max(1e-9, d.transform.size[0] * outPerDoc));
+      const seen = levels.get(d.id);
+      levels.set(d.id, seen === undefined ? level : Math.min(seen, level));
+    };
+    for (const n of plan.nodes) { if (n.kind === "layer") note(n.draw); else { note(n.base); n.children.forEach(note); } }
+    for (const s of plan.sources) note(s);
     const keep = new Set<string>();
-    for (const layer of state.layers) { keep.add(layer.id); const pixels = layer.pixelsWidth > 0 ? engine.layerPixels(state.id, layer.id) : null; this.textures.sync(state.id, layer, pixels); }
+    for (const layer of state.layers) {
+      keep.add(layer.id);
+      const level = levels.get(layer.id) ?? 0;
+      if (!this.textures.needsUpload(state.id, layer, level)) continue;
+      const size = sizeAtLevel(layer.pixelsWidth, layer.pixelsHeight, level);
+      const pixels = layer.pixelsWidth > 0 ? engine.layerPixels(state.id, layer.id, level) : null;
+      this.textures.sync(state.id, layer, pixels, level, size);
+    }
     this.textures.retainOnly(state.id, keep);
   }
 
@@ -42,6 +72,7 @@ export class GlRenderer implements Renderer {
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
     this.W = W; this.H = H; this.fbos.resize(W, H);
     const plan = engine.renderPlan(state.id, edit);
+    this.syncTextures(engine, state, plan, viewport, dpr);
     this.syncMasks(engine, state, plan);
     gl.bindVertexArray(this.programs.vao);
     gl.viewport(0, 0, W, H);
@@ -125,7 +156,8 @@ export class GlRenderer implements Renderer {
     this.fbos.clear(`clip${level}`, "rgba", 0);
     this.buildCoverage(ctx, source.coverages, level + 1);
     if (source.clip) this.applyClip(ctx, source.clip, level + 1);
-    this.drawLayer(ctx, `clip${level}`, this.transparent, source, 0, source.coverages.length > 0 || !!source.clip ? level + 1 : null);
+    // No backdrop: clip{level} was just cleared, so the destination is zero everywhere.
+    this.drawLayer(ctx, `clip${level}`, null, source, 0, source.coverages.length > 0 || !!source.clip ? level + 1 : null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`coverage${level}`, "r8").fbo);
     gl.enable(gl.BLEND); gl.blendFunc(gl.DST_COLOR, gl.ZERO);
     const p = this.programs.alphaOf; gl.useProgram(p.program);
@@ -145,8 +177,9 @@ export class GlRenderer implements Renderer {
     this.fbos.swap(`${pair}A`, `${pair}B`);
   }
 
-  /** Draws every chunk of a layer texture into `target` reading `backdrop`. */
-  private drawLayer(ctx: Ctx, target: string, backdrop: WebGLTexture, draw: LayerDraw, mode: number, coverageLevel: number | null): void {
+  /** Draws every chunk of a layer texture into `target` reading `backdrop`, or onto a cleared
+   * target when `backdrop` is null. */
+  private drawLayer(ctx: Ctx, target: string, backdrop: WebGLTexture | null, draw: LayerDraw, mode: number, coverageLevel: number | null): void {
     const t = this.textures.get(ctx.state.id, draw.id); if (!t) return;
     const d2v = this.docToView(ctx.viewport, ctx.state);
     const cornersDoc = draw.corners ? draw.corners.map(fromTuple) : cornersOf(draw.transform);
@@ -158,7 +191,7 @@ export class GlRenderer implements Renderer {
   }
 
   /** Composes `tex` into `target`, reading `backdrop`. Never blits or swaps -- the caller owns that. */
-  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture): void {
+  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
     const p = this.programs.layer; gl.useProgram(p.program);
@@ -171,6 +204,7 @@ export class GlRenderer implements Renderer {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, backdrop ?? this.transparent); gl.uniform1i(p.uniforms.backdrop, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, coverageLevel === null ? this.white : this.fbos.get(`coverage${coverageLevel}`, "r8").tex); gl.uniform1i(p.uniforms.coverage, 2);
     gl.uniform1i(p.uniforms.useCoverage, coverageLevel === null ? 0 : 1);
+    gl.uniform1i(p.uniforms.useBackdrop, backdrop ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 

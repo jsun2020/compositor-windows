@@ -7,7 +7,8 @@ import { CpuRenderer } from "./cpu-renderer";
 export interface RenderOptions { checkerboard: boolean; }
 export interface Renderer {
   readonly kind: "gl" | "cpu";
-  sync(engine: EngineClient, state: DocumentState): void;
+  /** Uploads whatever it needs and draws. There is no separate sync step: the GL renderer's
+   * texture upload depends on the render plan and the zoom, so it happens inside `render`. */
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void;
   /** RGBA, top-down, the whole canvas element. */
   readPixels(): Uint8Array;
@@ -20,14 +21,24 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   return new CpuRenderer(canvas);
 }
 
-/** Layers to draw bottom to top: visible with visible ancestors, groups excluded. */
+/**
+ * Layers to draw bottom to top: visible with visible ancestors, groups excluded, in hierarchy
+ * order. The array order is not the z-order - a folder's children can sit anywhere in the array
+ * and still draw at the folder's place - so this walks the tree, exactly as the engine's
+ * `render_ids` and macOS's `renderLayers` do.
+ */
 export function renderOrder(state: DocumentState): DocumentState["layers"] {
-  const byId = new Map(state.layers.map((l) => [l.id, l]));
-  return state.layers.filter((layer) => {
-    if (layer.isGroup) return false;
-    let node: typeof layer | undefined = layer;
-    let steps = 0;
-    while (node) { if (!node.visible || steps++ > 64) return false; node = node.parentId ? byId.get(node.parentId) : undefined; }
-    return true;
-  });
+  const children = new Map<string | null, DocumentState["layers"]>();
+  for (const l of state.layers) { const list = children.get(l.parentId) ?? []; list.push(l); children.set(l.parentId, list); }
+  const out: DocumentState["layers"] = [];
+  const visit = (parent: string | null, depth: number, visible: boolean) => {
+    if (depth > 64) return;
+    for (const layer of children.get(parent) ?? []) {
+      const effective = visible && layer.visible;
+      if (layer.isGroup) visit(layer.id, depth + 1, effective);
+      else if (effective) out.push(layer);
+    }
+  };
+  visit(null, 0, true);
+  return out;
 }
