@@ -139,6 +139,24 @@ describe("a layer placed inside a collapsed folder", () => {
   });
 });
 
+describe("mask actions commit a pending edit first", () => {
+  it("Delete Mask commits the pending mask move before removing the mask", async () => {
+    const { addMaskToActive, deleteMaskOfActive } = await import("../../src/actions/layers");
+    const doc = document("D", [layer("A", { hasMask: true, maskWidth: 10, maskHeight: 10, maskLinked: false })], "A");
+    const { engine, commands } = stubEngine({ D: doc });
+    useEditor.setState({ engine, activeId: "D", documents: { D: doc }, order: ["D"], selectedLayerIds: ["A"], maskSelected: true, transformEdit: { ...pendingEdit, kind: "mask" } });
+    deleteMaskOfActive();
+    expect(commands.map((c) => c.type)).toEqual(["SetMaskPlacement", "DeleteMask"]);
+    expect(useEditor.getState().transformEdit).toBeNull();
+
+    const bare = document("D", [layer("A")], "A");
+    const second = stubEngine({ D: bare });
+    useEditor.setState({ engine: second.engine, activeId: "D", documents: { D: bare }, order: ["D"], selectedLayerIds: ["A"], maskSelected: false, transformEdit: pendingEdit });
+    addMaskToActive(true);
+    expect(second.commands.map((c) => c.type)).toEqual(["SetLayerTransform", "AddMask"]);
+  });
+});
+
 describe("beginTransform with a duplicate", () => {
   it("routes a rejected duplicate to the error banner instead of throwing", () => {
     const doc = document("D", [layer("A")], "A");
