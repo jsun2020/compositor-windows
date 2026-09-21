@@ -50,8 +50,12 @@ export function runAction(id: ActionId, shift = false): void {
     case "export-png": void exportPng(); break;
     case "export-jpeg": if (doc) s.openSheet({ kind: "jpeg" }); break;
     case "close": void closeActive(); break;
-    case "undo": s.undo(); break;
-    case "redo": s.redo(); break;
+    // Undo is inert while a transform is pending, as macOS's `canUseHistory` makes it
+    // (EditorSession: it requires `transformEdit == nil`). Without this an undo can move or
+    // delete the layer the pending edit points at, and Enter then commits corners derived
+    // from geometry that no longer exists, or fails with "no layer".
+    case "undo": if (!s.transformEdit) s.undo(); break;
+    case "redo": if (!s.transformEdit) s.redo(); break;
     case "new-layer": if (doc) s.run({ type: "AddBlankLayer" }); break;
     case "canvas-size": if (doc) s.openSheet({ kind: "canvasSize" }); break;
     case "image-size": if (doc) s.openSheet({ kind: "imageSize" }); break;

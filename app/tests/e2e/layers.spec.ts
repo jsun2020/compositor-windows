@@ -83,7 +83,10 @@ test("drag reorders and nests, alt-drag copies", async ({ page }) => {
 
 test("layer properties and masks", async ({ page }) => {
   await fresh(page);
+  // The Opacity field commits on Enter or blur, not on every keystroke, so that typing
+  // "40" over the selected text is one undo entry rather than two.
   await page.getByLabel("Opacity").fill("40");
+  await page.getByLabel("Opacity").press("Enter");
   await page.getByLabel("Blend mode").selectOption("Multiply");
   let d = await state(page);
   expect(d.layers[0].opacity).toBeCloseTo(0.4, 5);

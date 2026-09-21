@@ -41,8 +41,10 @@ export function MenuBar() {
       { id: "close", label: "Close", run: () => runAction("close"), enabled: hasDoc },
     ] },
     { title: "Edit", items: [
-      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: hasDoc && !!activeDoc?.canUndo },
-      { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: hasDoc && !!activeDoc?.canRedo },
+      // A pending transform owns the gesture: macOS's `canUseHistory` requires
+      // `transformEdit == nil`, so both items grey out until it commits or cancels.
+      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: hasDoc && !s.transformEdit && !!activeDoc?.canUndo },
+      { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: hasDoc && !s.transformEdit && !!activeDoc?.canRedo },
     ] },
     { title: "Layer", items: [
       { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: hasDoc },

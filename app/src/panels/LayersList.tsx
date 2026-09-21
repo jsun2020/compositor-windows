@@ -24,6 +24,15 @@ export function LayersList() {
   // no longer has its own window key listener for it.
   if (!doc) return <div className="layers" />;
   const rows = layerRows(doc, collapsed);
+  // The highlight must promise only drops the engine will accept: dragging a folder into its
+  // own subtree, or onto the row it already sits above, is refused by `place_layer` and used
+  // to light up anyway, so the row moved back after the drop with no explanation.
+  const canDropOn = (id: string, index: number, zone: Zone): boolean => {
+    if (!s.engine) return false;
+    const target = dropTarget(rows, index, zone);
+    if (target.above === id) return false;
+    return s.engine.canPlace(doc.id, id, target.parent);
+  };
   const select = (e: React.MouseEvent, row: Row) => {
     const id = row.layer.id;
     if (e.shiftKey && doc.activeLayerId) {
@@ -64,7 +73,12 @@ export function LayersList() {
               onDoubleClick={() => setRenaming({ id: l.id, name: l.name })}
               onContextMenu={(e) => { e.preventDefault(); if (!selected) s.selectLayers([l.id], l.id); setMenu({ x: e.clientX, y: e.clientY }); }}
               onDragStart={(e) => { setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
-              onDragOver={(e) => { if (!drag || drag.id === l.id) return; e.preventDefault(); setOver({ index, zone: zoneFor(e, row) }); }}
+              onDragOver={(e) => {
+                if (!drag || drag.id === l.id) return;
+                const zone = zoneFor(e, row);
+                if (!canDropOn(drag.id, index, zone)) { e.dataTransfer.dropEffect = "none"; setOver(null); return; }
+                e.preventDefault(); setOver({ index, zone });
+              }}
               onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, dropTarget(rows, index, zone), e.altKey); setDrag(null); setOver(null); }}
               onDragEnd={() => { setDrag(null); setOver(null); }}>
               {l.isGroup ? <button data-testid={`collapse-${l.id}`} className="disclosure" onClick={(e) => { e.stopPropagation(); s.toggleCollapsed(l.id); }}>{row.collapsed ? ">" : "v"}</button> : <span className="disclosure-space" />}

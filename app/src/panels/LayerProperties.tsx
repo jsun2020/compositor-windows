@@ -7,14 +7,30 @@ import type { BlendMode } from "../engine/types";
 export function LayerProperties() {
   const doc = useEditor((s) => (s.activeId ? s.documents[s.activeId] : null));
   const layer = doc ? activeLayer(doc) : null;
-  const [opacity, setOpacity] = useState(100);
-  useEffect(() => { setOpacity(Math.round((layer?.opacity ?? 1) * 100)); }, [layer?.id, layer?.opacity]);
+  const percent = Math.round((layer?.opacity ?? 1) * 100);
+  // Text, not a number: typing "35" over a selected "100" passes through "3", and backspacing
+  // passes through "". Committing on every keystroke would write an undo entry per character
+  // and land on 0% for the empty string. macOS brackets the whole gesture into one "Layer
+  // Opacity" entry (beginOpacityEdit / finishOpacityEdit), so this commits on blur and Enter,
+  // the way TransformInspector's NumberField already does, and ignores an empty field.
+  const [text, setText] = useState(() => String(percent));
+  const [committed, setCommitted] = useState(percent);
+  useEffect(() => { setText(String(percent)); setCommitted(percent); }, [layer?.id, percent]);
   if (!doc || !layer) return <div className="layer-properties" />;
   const folder = layer.isGroup;
+  const commitOpacity = () => {
+    const v = Number(text);
+    if (text.trim() === "" || !Number.isFinite(v)) { setText(String(committed)); return; }
+    const clamped = Math.min(100, Math.max(0, Math.round(v)));
+    setText(String(clamped));
+    if (clamped !== committed) { setCommitted(clamped); setOpacityOfSelected(clamped / 100); }
+  };
   return (
     <div className="layer-properties">
-      <label>Opacity <input aria-label="Opacity" type="number" min={0} max={100} value={opacity} disabled={folder}
-        onChange={(e) => { const v = Number(e.target.value); setOpacity(v); if (Number.isFinite(v)) setOpacityOfSelected(Math.min(100, Math.max(0, v)) / 100); }} /> %</label>
+      <label>Opacity <input aria-label="Opacity" type="number" min={0} max={100} value={text} disabled={folder}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commitOpacity}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOpacity(); } }} /> %</label>
       <label>Blend <select aria-label="Blend mode" value={layer.blendMode} disabled={folder} onChange={(e) => setBlendModeOfActive(e.target.value as BlendMode)}>
         {BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
       </select></label>

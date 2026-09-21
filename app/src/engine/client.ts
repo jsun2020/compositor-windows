@@ -29,6 +29,9 @@ export class EngineClient {
   execute(doc: string, command: Command): Dirty { return JSON.parse(this.wasm.execute(doc, JSON.stringify(command))) as Dirty; }
   undo(doc: string): Dirty { return JSON.parse(this.wasm.undo(doc)) as Dirty; }
   redo(doc: string): Dirty { return JSON.parse(this.wasm.redo(doc)) as Dirty; }
+  /** Drops the last history entry and returns to the state before it, with no redo: for a
+   * gesture the user cancelled, such as Escape during an Alt-drag duplicate. */
+  revert(doc: string): Dirty { return JSON.parse(this.wasm.revert(doc)) as Dirty; }
   importImage(doc: string | null, bytes: Uint8Array, name: string, at: { x: number; y: number } | null): string {
     return this.wasm.import_image(doc ?? undefined, bytes, name, at?.x, at?.y);
   }
@@ -42,11 +45,16 @@ export class EngineClient {
   composite(doc: string, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
     return this.wasm.composite(doc, region.x, region.y, region.width, region.height, outWidth, outHeight);
   }
-  /** A view on wasm memory; valid only until the next engine call. */
-  layerPixels(doc: string, layer: string): Uint8Array | null {
-    const len = this.wasm.layer_pixels_len(doc, layer);
+  /** A view on wasm memory; valid only until the next engine call. `level` is how many sharp
+   * halvings to apply first (see `prefilterLevel`), matching the CPU compositor's prefilter.
+   *
+   * The pointer call runs before `this.memory.buffer` is read on purpose: marshalling the two
+   * string arguments into wasm can grow linear memory, which detaches any buffer captured
+   * beforehand. */
+  layerPixels(doc: string, layer: string, level = 0): Uint8Array | null {
+    const len = this.wasm.layer_pixels_len(doc, layer, level);
     if (len === 0) return null;
-    const ptr = this.wasm.layer_pixels_ptr(doc, layer);
+    const ptr = this.wasm.layer_pixels_ptr(doc, layer, level);
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
 
@@ -54,11 +62,15 @@ export class EngineClient {
   compositeEdit(doc: string, edit: PreviewEdit | null, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
     return this.wasm.composite_edit(doc, edit ? JSON.stringify(edit) : undefined, region.x, region.y, region.width, region.height, outWidth, outHeight);
   }
-  /** A view on wasm memory; valid only until the next engine call. */
+  /** A view on wasm memory; valid only until the next engine call. The pointer is sequenced
+   * into a local before `this.memory.buffer` is read: argument evaluation is left to right, so
+   * reading the buffer first would capture it before `mask_pixels_ptr` marshals its two string
+   * arguments through `__wbindgen_malloc`, which can grow memory and detach that buffer. */
   maskPixels(doc: string, layer: string): Uint8Array | null {
     const len = this.wasm.mask_pixels_len(doc, layer);
     if (len === 0) return null;
-    return new Uint8Array(this.memory.buffer, this.wasm.mask_pixels_ptr(doc, layer), len);
+    const ptr = this.wasm.mask_pixels_ptr(doc, layer);
+    return new Uint8Array(this.memory.buffer, ptr, len);
   }
   clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }
   mergeAction(doc: string, ids: string[]): string | null { return this.wasm.merge_action(doc, JSON.stringify(ids)) ?? null; }

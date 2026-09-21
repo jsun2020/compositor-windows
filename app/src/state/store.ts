@@ -53,6 +53,7 @@ export interface EditorStore {
   closeDocument(id: string): void;
   setActive(id: string): void;
   refresh(id?: string): void;
+  revealActiveLayer(): void;
   run(command: Command): void;
   undo(): void;
   redo(): void;
@@ -77,6 +78,12 @@ export interface EditorStore {
   previewEdit(): PreviewEdit | null;
 }
 
+/** Commands that insert a layer or move one into a folder, and so make it active somewhere the
+ * panel may not be showing. Each is followed by `revealActiveLayer`. */
+const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]>([
+  "AddBlankLayer", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
+]);
+
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
@@ -86,6 +93,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setBusy: (busy) => set({ busy }),
   bumpRecent: () => set((s) => ({ recentTick: s.recentTick + 1 })),
   openDocument: (id) => {
+    // Leaving the current document commits its pending edit rather than dropping it, as
+    // ProjectWorkspace.select/newCanvas do on macOS.
+    get().commitTransform();
     const engine = get().engine!;
     const state = engine.state(id);
     const viewport = new Viewport();
@@ -94,6 +104,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
       selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null }));
   },
   closeDocument: (id) => {
+    get().commitTransform();
     get().engine!.closeDocument(id);
     set((s) => {
       const { [id]: _d, ...documents } = s.documents;
@@ -106,6 +117,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     });
   },
   setActive: (id) => {
+    get().commitTransform();
     const state = get().documents[id];
     set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null });
   },
@@ -113,15 +125,37 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const target = id ?? get().activeId;
     if (!target) return;
     const state = get().engine!.state(target);
+    // `selectedLayerIds` and `maskSelected` belong to the document on screen. A background
+    // document finishing a slow import must not rewrite them, or the visible panel loses its
+    // selection and Delete/opacity become silent no-ops on ids the active document never had.
+    if (target !== get().activeId) { set((s) => ({ documents: { ...s.documents, [target]: state }, renderTick: s.renderTick + 1 })); return; }
     const keep = get().selectedLayerIds.filter((sid) => state.layers.some((l) => l.id === sid));
     const selected = state.activeLayerId && !keep.includes(state.activeLayerId) ? [state.activeLayerId] : keep;
     set((s) => ({ documents: { ...s.documents, [target]: state }, renderTick: s.renderTick + 1, selectedLayerIds: selected }));
   },
+  /** Expands every collapsed folder between the root and the active layer, so a layer that was
+   * just inserted or reparented is actually on screen. macOS expands the destination on each of
+   * these paths (LayerGroups.placeLayer/addGroup/groupSelectedLayers, EditorSession.addBlankLayer). */
+  revealActiveLayer: () => {
+    const { activeId, collapsed, documents } = get(); if (!activeId) return;
+    const state = documents[activeId]; const list = collapsed[activeId] ?? [];
+    if (!state || list.length === 0) return;
+    const byId = new Map(state.layers.map((l) => [l.id, l]));
+    const ancestors = new Set<string>();
+    let node = state.activeLayerId ? byId.get(state.activeLayerId) : undefined;
+    let steps = 0;
+    while (node?.parentId && steps++ < 65) { ancestors.add(node.parentId); node = byId.get(node.parentId); }
+    const next = list.filter((x) => !ancestors.has(x));
+    if (next.length !== list.length) set({ collapsed: { ...collapsed, [activeId]: next } });
+  },
   run: (command) => {
     const { engine, activeId } = get();
     if (!engine || !activeId) return;
-    try { engine.execute(activeId, command); get().refresh(activeId); }
-    catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); }
+    try {
+      engine.execute(activeId, command);
+      get().refresh(activeId);
+      if (REVEALING_COMMANDS.has(command.type)) get().revealActiveLayer();
+    } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); }
   },
   undo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
   redo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
@@ -172,12 +206,24 @@ export const useEditor = create<EditorStore>((set, get) => ({
       set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false } });
       return true;
     }
-    let layer = activeLayer(state)!;
+    let layer = activeLayer(state);
+    if (!layer) return false;
     // An unlinked mask alone has no pixel layer of its own to duplicate: ignore `duplicate`
     // (computed before any duplication, from the layer this transform is actually about).
     const maskAlone = maskSelected && layer.hasMask && !layer.maskLinked;
     const willDuplicate = !!duplicate && !maskAlone;
-    if (willDuplicate) { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); get().refresh(activeId); layer = activeLayer(get().documents[activeId])!; set({ selectedLayerIds: [layer.id] }); }
+    if (willDuplicate) {
+      // Not `run`: the duplicate has to be observed here to seed the edit. Its failures
+      // ("too many layers", "folders are not duplicated this way") still belong in the error
+      // banner rather than thrown out of a pointerdown handler.
+      try { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); }
+      catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
+      get().refresh(activeId);
+      const copy = activeLayer(get().documents[activeId]);
+      if (!copy) return false;
+      layer = copy;
+      set({ selectedLayerIds: [layer.id] });
+    }
     const t = maskAlone ? layer.maskPlacement ?? layer.transform : layer.transform;
     set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate } });
     return true;
@@ -198,9 +244,12 @@ export const useEditor = create<EditorStore>((set, get) => ({
     else get().run(e.corners ? { type: "DistortLayer", id: e.id, transform: e.draft, corners: e.corners } : { type: "SetLayerTransform", id: e.id, transform: draft });
   },
   cancelTransform: () => {
-    const e = get().transformEdit; if (!e) return;
+    const e = get().transformEdit; const { engine, activeId } = get(); if (!e) return;
     set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
-    if (e.duplicated) { get().undo(); }
+    // The Alt-drag copy is dropped with `revert`, which removes the DuplicateLayer entry
+    // outright. A plain `undo` here would leave it on the redo stack, and Ctrl+Shift+Z would
+    // bring the cancelled copy back. macOS closes the transaction with nothing recorded.
+    if (e.duplicated && engine && activeId) { engine.revert(activeId); get().refresh(activeId); }
     get().invalidate();
   },
   setSnapGuides: (g) => set({ snapGuides: g }),

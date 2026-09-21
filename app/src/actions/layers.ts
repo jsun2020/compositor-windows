@@ -20,8 +20,12 @@ export function groupSelected(): void { const c = ctx(); if (!c) return; c.s.com
 export function mergeSelected(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); if (c.engine.mergeAction(c.doc.id, c.selected)) c.s.run({ type: "MergeLayers", ids: c.selected }); }
 export function mergeTitle(): string { const c = ctx(); return (c && c.engine.mergeAction(c.doc.id, c.selected)) || "Merge Down"; }
 export function addFolder(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "AddGroup" }); }
-export function addMaskToActive(revealing: boolean): void { const c = ctx(); if (!c?.active || c.active.hasMask) return; c.s.run({ type: "AddMask", id: c.active.id, revealing }); c.s.setMaskSelected(true); }
-export function deleteMaskOfActive(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.run({ type: "DeleteMask", id: c.active.id }); c.s.setMaskSelected(false); }
+// Adding or deleting a mask is a structural change, so it commits any pending edit first,
+// like every other action here. Without that, a pending mask move survives the mask it moves
+// and Enter later fails with "the layer has no mask"; macOS disables both menu items while a
+// transform is pending (canEditLayers requires transformEdit == nil).
+export function addMaskToActive(revealing: boolean): void { const c = ctx(); if (!c?.active || c.active.hasMask) return; c.s.commitTransform(); c.s.run({ type: "AddMask", id: c.active.id, revealing }); c.s.setMaskSelected(true); }
+export function deleteMaskOfActive(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.commitTransform(); c.s.run({ type: "DeleteMask", id: c.active.id }); c.s.setMaskSelected(false); }
 export function toggleMaskEnabled(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.run({ type: "SetMaskEnabled", id: c.active.id, enabled: !c.active.maskEnabled }); }
 export function toggleMaskLink(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.commitTransform(); c.s.run({ type: "SetMaskLinked", id: c.active.id, linked: !c.active.maskLinked }); }
 export function invertMaskOfActive(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.run({ type: "InvertMask", id: c.active.id }); }
