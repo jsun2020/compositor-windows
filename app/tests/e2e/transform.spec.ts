@@ -33,8 +33,10 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
 
 test("dragging moves the layer, even from outside it, with snapping to the canvas edge", async ({ page }) => {
   await setup(page);
-  await drag(page, { x: 20, y: 20 }, { x: 40, y: 30 });
-  expect((await layer(page)).transform.origin).toEqual([170, 110]);
+  // dy 15, not 10: keeps the moved centre (y 165) 15px from the canvas centre (150),
+  // clear of the inclusive 10px snap radius, so this move should not snap.
+  await drag(page, { x: 20, y: 20 }, { x: 40, y: 35 });
+  expect((await layer(page)).transform.origin).toEqual([170, 115]);
   await drag(page, { x: 200, y: 150 }, { x: 32, y: 150 }); // origin would be 2: snaps to 0
   expect((await layer(page)).transform.origin[0]).toBe(0);
 });

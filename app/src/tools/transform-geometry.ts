@@ -206,9 +206,9 @@ export function snapTargets(state: DocumentState, movingIds: string[]): { xs: nu
  * target inside tolerance wins, using its smallest move; later edges are not considered. */
 function shift(guides: number[], targets: number[], tolerance: number): { move: number; target: number | null } {
   let best: { move: number; target: number } | null = null;
-  // Strictly inside the tolerance radius: a move sitting exactly on the boundary is
-  // "just barely too far" and does not snap (matches the move tool's edge-of-range e2e case).
-  for (const g of guides) for (const t of targets) { const move = t - g; if (Math.abs(move) >= tolerance) continue; if (best && Math.abs(best.move) <= Math.abs(move)) continue; best = { move, target: t }; }
+  // Inclusive: a move sitting exactly on the tolerance boundary still snaps, matching the
+  // Mac app's TransformSnap.shift (LayerTransform.swift), which uses `abs(move) <= tolerance`.
+  for (const g of guides) for (const t of targets) { const move = t - g; if (Math.abs(move) > tolerance) continue; if (best && Math.abs(best.move) <= Math.abs(move)) continue; best = { move, target: t }; }
   return { move: best?.move ?? 0, target: best?.target ?? null };
 }
 export function snapOffset(box: RectLike, xs: number[], ys: number[], tolerance: number): { dx: number; dy: number; x: number | null; y: number | null } {
