@@ -10,6 +10,7 @@ import { CanvasView } from "./canvas/CanvasView";
 import { MenuBar } from "./panels/MenuBar";
 import { ProjectTabs } from "./panels/ProjectTabs";
 import { LayersList } from "./panels/LayersList";
+import { LayerProperties } from "./panels/LayerProperties";
 import { ToolRail } from "./panels/ToolRail";
 import { NewCanvasSheet } from "./sheets/NewCanvasSheet";
 import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
@@ -84,7 +85,10 @@ export function App() {
       <div className="workspace">
         <ToolRail />
         <CanvasView />
-        <LayersList />
+        <div className="right-column">
+          <LayerProperties />
+          <LayersList />
+        </div>
       </div>
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER})</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}

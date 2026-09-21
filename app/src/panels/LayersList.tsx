@@ -1,43 +1,95 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import { useEditor } from "../state/store";
-import type { LayerState } from "../engine/types";
+import { layerRows, dropTarget, type Row } from "./layer-rows";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, flipSelected, groupSelected, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
+import { isEditableTarget } from "../shortcuts/target";
 
-const GROUP_MARKER = String.fromCharCode(0x25b8) + " ";
-
-function depth(layer: LayerState, all: LayerState[]): number {
-  let d = 0; let p = layer.parentId;
-  while (p && d < 64) { d++; p = all.find((l) => l.id === p)?.parentId ?? null; }
-  return d;
+type Zone = "above" | "below" | "into";
+function zoneFor(e: DragEvent, row: Row): Zone {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); const y = (e.clientY - r.top) / r.height;
+  if (row.layer.isGroup && y > 0.25 && y < 0.75) return "into";
+  return y < 0.5 ? "above" : "below";
 }
 
 export function LayersList() {
   const s = useEditor();
   const doc = s.activeId ? s.documents[s.activeId] : null;
+  const collapsed = s.activeId ? s.collapsed[s.activeId] ?? [] : [];
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string } | null>(null);
+  const [over, setOver] = useState<{ index: number; zone: Zone } | null>(null);
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if ((e.key === "Delete" || e.key === "Backspace") && doc?.activeLayerId && !(e.target instanceof HTMLInputElement) && !s.sheet) s.run({ type: "DeleteLayer", id: doc.activeLayerId });
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [doc, s]);
+    const key = (e: KeyboardEvent) => { if ((e.key === "Delete" || e.key === "Backspace") && doc?.activeLayerId && !isEditableTarget(e.target) && !s.sheet) deleteSelected(); };
+    window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
+  }, [doc?.activeLayerId, s.sheet]);
   if (!doc) return <div className="layers" />;
+  const rows = layerRows(doc, collapsed);
+  const select = (e: React.MouseEvent, row: Row) => {
+    const id = row.layer.id;
+    if (e.shiftKey && doc.activeLayerId) {
+      const a = rows.findIndex((r) => r.layer.id === doc.activeLayerId), b = rows.findIndex((r) => r.layer.id === id);
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      s.selectLayers(rows.slice(lo, hi + 1).map((r) => r.layer.id), doc.activeLayerId);
+    } else if (e.ctrlKey || e.metaKey) {
+      const next = s.selectedLayerIds.includes(id) ? s.selectedLayerIds.filter((x) => x !== id) : [...s.selectedLayerIds, id];
+      s.selectLayers(next, next.includes(id) ? id : next[0] ?? null);
+    } else if (!s.selectedLayerIds.includes(id) || s.selectedLayerIds.length !== 1) s.selectLayers([id], id);
+  };
+  const menuItems = (): MenuItem[] => [
+    { id: "duplicate", label: "Duplicate Layer", run: duplicateSelected },
+    { id: "group", label: "Group Layers", run: groupSelected },
+    { id: "merge", label: mergeTitle(), run: mergeSelected },
+    "separator",
+    { id: "mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true) },
+    { id: "mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false) },
+    { id: "clip", label: "Create/Release Clipping Mask", run: toggleClippingOfActive, disabled: !canClipActive() },
+    "separator",
+    { id: "flip-h", label: "Flip Horizontal", run: () => flipSelected(true) },
+    { id: "flip-v", label: "Flip Vertical", run: () => flipSelected(false) },
+    "separator",
+    { id: "delete", label: "Delete", run: deleteSelected },
+  ];
   return (
     <div className="layers">
-      <div className="layers-header"><span>Layers</span><button data-testid="layer-add" onClick={() => s.run({ type: "AddBlankLayer" })}>+</button></div>
-      {[...doc.layers].reverse().map((l) => (
-        <div key={l.id} data-testid="layer-row" className={"layer-row" + (l.id === doc.activeLayerId ? " active" : "")}
-          style={{ paddingLeft: 8 + depth(l, doc.layers) * 14 }}
-          onClick={() => s.run({ type: "SetActiveLayer", id: l.id })}
-          onDoubleClick={() => setRenaming({ id: l.id, name: l.name })}>
-          <input type="checkbox" aria-label={`Visible ${l.name}`} checked={l.visible} onClick={(e) => e.stopPropagation()} onChange={(e) => s.run({ type: "SetLayerVisible", id: l.id, visible: e.target.checked })} />
-          {renaming?.id === l.id ? (
-            <input autoFocus value={renaming.name} onChange={(e) => setRenaming({ id: l.id, name: e.target.value })}
-              onBlur={() => { if (renaming.name.trim()) s.run({ type: "RenameLayer", id: l.id, name: renaming.name }); setRenaming(null); }}
-              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setRenaming(null); }} />
-          ) : <span>{l.isGroup ? GROUP_MARKER : ""}{l.name}</span>}
-        </div>
-      ))}
+      <div className="layers-header"><span>Layers</span></div>
+      <div className="layer-rows" onDragLeave={() => setOver(null)}>
+        {rows.map((row, index) => {
+          const l = row.layer; const selected = s.selectedLayerIds.includes(l.id);
+          return (
+            <div key={l.id} data-testid="layer-row" data-layer-id={l.id} data-depth={row.depth} aria-selected={selected}
+              data-drop-zone={over?.index === index ? over.zone : undefined}
+              className={"layer-row" + (selected ? " selected" : "") + (l.id === doc.activeLayerId ? " active" : "") + (row.visible ? "" : " dimmed")}
+              style={{ paddingLeft: 8 + row.depth * 14 }} draggable
+              onClick={(e) => select(e, row)}
+              onDoubleClick={() => setRenaming({ id: l.id, name: l.name })}
+              onContextMenu={(e) => { e.preventDefault(); if (!selected) s.selectLayers([l.id], l.id); setMenu({ x: e.clientX, y: e.clientY }); }}
+              onDragStart={(e) => { setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
+              onDragOver={(e) => { if (!drag || drag.id === l.id) return; e.preventDefault(); setOver({ index, zone: zoneFor(e, row) }); }}
+              onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, dropTarget(rows, index, zone), e.altKey); setDrag(null); setOver(null); }}
+              onDragEnd={() => { setDrag(null); setOver(null); }}>
+              {l.isGroup ? <button data-testid={`collapse-${l.id}`} className="disclosure" onClick={(e) => { e.stopPropagation(); s.toggleCollapsed(l.id); }}>{row.collapsed ? ">" : "v"}</button> : <span className="disclosure-space" />}
+              <input type="checkbox" aria-label={`Visible ${l.name}`} checked={l.visible} onClick={(e) => e.stopPropagation()} onChange={(e) => s.run({ type: "SetLayerVisible", id: l.id, visible: e.target.checked })} />
+              {l.maskSourceId && <span className="clip-arrow" title="Clipped to the layer below">{">"}</span>}
+              <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} pixels`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />
+              {l.hasMask && <button data-testid={`target-mask-${l.id}`} className={"chip chip-mask" + (l.maskEnabled ? "" : " disabled")} aria-label={`${l.name} mask`} aria-pressed={l.id === doc.activeLayerId && s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(true); }} />}
+              {renaming?.id === l.id ? (
+                <input autoFocus value={renaming.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setRenaming({ id: l.id, name: e.target.value })}
+                  onBlur={() => { if (renaming.name.trim()) s.run({ type: "RenameLayer", id: l.id, name: renaming.name.trim() }); setRenaming(null); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setRenaming(null); }} />
+              ) : <span className="layer-name">{l.name}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="layers-footer">
+        <button data-testid="layer-add" title="New layer" onClick={() => s.run({ type: "AddBlankLayer" })}>+</button>
+        <button data-testid="layer-add-folder" title="New folder" onClick={addFolder}>[ ]</button>
+        <button data-testid="layer-add-mask" title="Add mask" onClick={() => addMaskToActive(true)}>M</button>
+        <button data-testid="layer-delete" title="Delete" onClick={deleteSelected}>x</button>
+      </div>
+      {menu && <ContextMenu at={menu} items={menuItems()} onClose={() => setMenu(null)} />}
     </div>
   );
 }

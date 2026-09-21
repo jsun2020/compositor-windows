@@ -125,7 +125,14 @@ pub fn place_layer(doc: &mut Document, id: Uuid, parent: Option<Uuid>, above: Op
     let index = layers.iter().position(|l| l.id == id).ok_or(CommandError::NoLayer)?;
     let mut layer = layers.remove(index);
     layer.parent_id = parent;
-    let mut insertion = if at_bottom { 0 } else { layers.len() };
+    let mut insertion = if at_bottom {
+        match parent {
+            Some(p) => layers.iter().position(|l| l.id == p).map(|i| i + 1).unwrap_or(0),
+            None => 0,
+        }
+    } else {
+        layers.len()
+    };
     if let Some(target) = above {
         let t = layers.iter().position(|l| l.id == target && l.parent_id == parent).ok_or(CommandError::Argument("drop target is not in that folder".into()))?;
         insertion = t + 1;

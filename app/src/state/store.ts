@@ -150,8 +150,18 @@ export const useEditor = create<EditorStore>((set, get) => ({
   toggleCollapsed: (id) => {
     const { activeId, collapsed } = get(); if (!activeId) return;
     const list = collapsed[activeId] ?? [];
-    const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+    const collapsing = !list.includes(id);
+    const next = collapsing ? [...list, id] : list.filter((x) => x !== id);
     set({ collapsed: { ...collapsed, [activeId]: next } });
+    // Collapsing a folder whose descendant is active selects the folder itself, as macOS does.
+    if (collapsing) {
+      const state = get().documents[activeId];
+      const byId = new Map(state.layers.map((l) => [l.id, l]));
+      let node = state.activeLayerId ? byId.get(state.activeLayerId) : undefined;
+      let steps = 0; let insideFolder = false;
+      while (node?.parentId && steps++ < 65) { if (node.parentId === id) { insideFolder = true; break; } node = byId.get(node.parentId); }
+      if (insideFolder) get().selectLayers([id], id);
+    }
   },
   beginTransform: ({ persistent, duplicate }) => {
     const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;

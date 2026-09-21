@@ -40,6 +40,8 @@ fn nested_groups_place_and_move_out() {
     assert_eq!(names(&d), ["Folder 1", "Folder 2", "Layer 1"]);
     hierarchy::place_layer(&mut d, child, None, None, true).unwrap();
     assert_eq!((parent(&d, child), d.layers[0].id), (None, child));
+    hierarchy::place_layer(&mut d, child, Some(outer), None, true).unwrap();
+    assert_eq!(d.index_of(child).unwrap(), d.index_of(outer).unwrap() + 1, "the bottom of a folder is right above the folder record");
 }
 
 #[test]
