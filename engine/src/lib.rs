@@ -27,3 +27,4 @@ pub use command::*;
 pub use engine::*;
 pub use blend::*;
 pub use plan::*;
+pub use ops::masks::blur_gray;
