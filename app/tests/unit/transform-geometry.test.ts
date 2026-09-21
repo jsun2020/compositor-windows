@@ -64,7 +64,7 @@ describe("transform geometry", () => {
   });
   it("snap offset picks the smallest move per axis", () => {
     const r = snapOffset({ x: 3, y: 96, width: 10, height: 10 }, [0, 20], [100], 5);
-    expect(r).toEqual({ dx: -3, dy: 4, x: 0, y: 100 });
+    expect(r).toEqual({ dx: -3, dy: -1, x: 0, y: 100 });
     expect(snapOffset({ x: 50, y: 50, width: 10, height: 10 }, [0], [0], 5)).toEqual({ dx: 0, dy: 0, x: null, y: null });
   });
 });

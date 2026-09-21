@@ -205,17 +205,9 @@ export function snapTargets(state: DocumentState, movingIds: string[]): { xs: nu
 /** Edges are tried in priority order (left/top, centre, right/bottom); the first edge with any
  * target inside tolerance wins, using its smallest move; later edges are not considered. */
 function shift(guides: number[], targets: number[], tolerance: number): { move: number; target: number | null } {
-  for (const g of guides) {
-    let best: { move: number; target: number } | null = null;
-    for (const t of targets) {
-      const move = t - g;
-      if (Math.abs(move) > tolerance) continue;
-      if (best && Math.abs(best.move) <= Math.abs(move)) continue;
-      best = { move, target: t };
-    }
-    if (best) return best;
-  }
-  return { move: 0, target: null };
+  let best: { move: number; target: number } | null = null;
+  for (const g of guides) for (const t of targets) { const move = t - g; if (Math.abs(move) > tolerance) continue; if (best && Math.abs(best.move) <= Math.abs(move)) continue; best = { move, target: t }; }
+  return { move: best?.move ?? 0, target: best?.target ?? null };
 }
 export function snapOffset(box: RectLike, xs: number[], ys: number[], tolerance: number): { dx: number; dy: number; x: number | null; y: number | null } {
   const h = shift([box.x, box.x + box.width / 2, box.x + box.width], xs, tolerance);
