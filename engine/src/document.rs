@@ -191,8 +191,13 @@ impl Document {
     /// state rather than content. macOS keeps `activeLayerID` beside the document in a history
     /// snapshot and returns early from `end` unless the document itself changed
     /// (DocumentHistory.swift), so selecting a layer records nothing and preserves redo.
+    ///
+    /// Destructured without `..` on purpose: a field added to `Document` later is then a compile
+    /// error here rather than a field silently left out of the undo comparison, which would make
+    /// edits to it quietly un-undoable.
     pub fn same_content(&self, other: &Document) -> bool {
-        self.id == other.id && self.width == other.width && self.height == other.height
-            && self.resolution == other.resolution && self.layers == other.layers
+        let Document { id, width, height, resolution, layers, active_layer_id: _ } = self;
+        *id == other.id && *width == other.width && *height == other.height
+            && *resolution == other.resolution && *layers == other.layers
     }
 }

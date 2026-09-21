@@ -48,6 +48,9 @@ pub struct DocumentState {
     #[serde(with = "ids::upper_opt")] pub active_layer_id: Option<Uuid>,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// Entries on the undo stack. A gesture that records one command can compare this against the
+    /// depth it saw beforehand to tell whether its own entry is still the one on top.
+    pub undo_depth: usize,
     pub is_modified: bool,
     pub path: Option<String>,
     pub layers: Vec<LayerState>,
@@ -117,7 +120,7 @@ impl Engine {
         let d = &s.document;
         Ok(DocumentState {
             id, document_id: d.id, width: d.width, height: d.height, resolution: d.resolution, active_layer_id: d.active_layer_id,
-            can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), is_modified: s.history.is_modified(),
+            can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), undo_depth: s.history.depth(), is_modified: s.history.is_modified(),
             path: s.path.clone(),
             layers: d.layers.iter().map(|l| LayerState {
                 id: l.id, name: l.name.clone(), visible: l.visible, is_group: l.is_group, parent_id: l.parent_id,

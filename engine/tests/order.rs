@@ -130,6 +130,56 @@ fn replacing_a_layers_pixels_drops_its_shape_record() {
 }
 
 #[test]
+fn undo_depth_counts_the_entries_a_gesture_can_take_back() {
+    let mut e = Engine::new();
+    let doc = e.new_document(20, 20, true).unwrap();
+    let first = e.state(doc).unwrap().active_layer_id.unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 0);
+    e.execute(doc, Command::DuplicateLayer { id: first }).unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 1);
+    // A selection records nothing, so the depth does not move.
+    e.execute(doc, Command::SetActiveLayer { id: Some(first) }).unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 1);
+    // An interleaved edit does move it: this is what tells a cancelled gesture that the entry
+    // on top is no longer its own.
+    e.execute(doc, Command::SetLayersOpacity { ids: vec![first], opacity: 0.5 }).unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 2);
+    e.revert(doc).unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 1);
+    e.undo(doc).unwrap();
+    assert_eq!(e.state(doc).unwrap().undo_depth, 0);
+}
+
+#[test]
+fn a_clipping_source_prefilters_like_any_other_draw() {
+    // A 64x64 source that is opaque only on every fourth pixel in each axis, so one sixteenth
+    // of it is covered. Averaged down 4x that is a uniform ~16/255; sampled at full resolution
+    // the output pixel centres all land two pixels away from the opaque columns and read zero.
+    let mut data = Vec::with_capacity(64 * 64 * 4);
+    for y in 0..64u32 { for x in 0..64u32 {
+        let v = if x % 4 == 0 && y % 4 == 0 { 255u8 } else { 0 };
+        data.extend_from_slice(&[v, v, v, v]);
+    }}
+    let mut d = Document::new(64, 64);
+    let base = layers::import_raster(&mut d, Raster::from_premultiplied(64, 64, data), "base", Some(Point { x: 32.0, y: 32.0 })).unwrap();
+    let top = layers::import_raster(&mut d, square([0, 0, 255]), "top", Some(Point { x: 32.0, y: 32.0 })).unwrap();
+    // Stretch the clipped layer over the whole canvas so every output pixel asks the source.
+    let t = d.layer(top).unwrap().transform;
+    ops::transform::set_transform(&mut d, top, LayerTransform { origin: Point { x: 0.0, y: 0.0 }, size: Size { width: 64.0, height: 64.0 }, ..t }).unwrap();
+    hierarchy::link_mask(&mut d, base, top).unwrap();
+    // A visible base and its clipped layer become a Stack node, which shares the base's alpha
+    // directly and never consults the source. Hiding the base is what routes the draw through
+    // `source_coverage_at`, the path the GL renderer's `applyClip` mirrors; coverage uses the
+    // source's alpha regardless of its visibility, on both platforms.
+    d.layer_mut(base).unwrap().visible = false;
+    // One output pixel per four source pixels in each axis: one halving.
+    let out = compositor::composite(&d, Rect { x: 0.0, y: 0.0, width: 64.0, height: 64.0 }, 16, 16);
+    let alphas: Vec<u8> = (0..16).map(|x| out.pixel(x, 8)[3]).collect();
+    // Prefiltered, the coverage carries the block average; unreduced it is zero everywhere.
+    assert!(alphas.iter().all(|a| (8..=32).contains(a)), "clip coverage is not prefiltered: {alphas:?}");
+}
+
+#[test]
 fn prefilter_level_matches_the_halving_rule() {
     // At most two source pixels per output pixel after the halvings.
     assert_eq!(compositor::prefilter_level(1024, 1024, 1.0), 0);

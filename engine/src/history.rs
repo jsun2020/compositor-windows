@@ -35,6 +35,9 @@ impl History {
     /// The popped entry is the one `push` added for the cancelled gesture, so `saved_depth` is
     /// back where it was before that push and needs no adjustment.
     pub fn revert(&mut self) -> Option<Document> { self.undo.pop() }
+    /// How many entries deep the undo stack is. A caller that recorded this before starting a
+    /// gesture can tell whether the entry on top is still the one its own command pushed.
+    pub fn depth(&self) -> usize { self.undo.len() }
     pub fn can_undo(&self) -> bool { !self.undo.is_empty() }
     pub fn can_redo(&self) -> bool { !self.redo.is_empty() }
     pub fn mark_saved(&mut self) { self.saved_depth = self.undo.len(); }

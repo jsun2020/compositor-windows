@@ -79,12 +79,53 @@ fn to_pixels(transform: &LayerTransform, corners: Option<&[Point; 4]>, w: u32, h
     }
 }
 
-/// The layer's premultiplied colour at a document point (no opacity, no coverage); transparent outside.
+/// A draw's raster reduced for the output scale, and the factor mapping full-resolution pixel
+/// coordinates onto it. One entry per clipping source, built once per `draw_layer` rather than
+/// per pixel.
+pub type SourceRasters = std::collections::HashMap<Uuid, (Raster, f64)>;
+
+/// The reduced rasters for `source` and everything up its clipping chain, at `out_per_doc`
+/// output pixels per document unit. macOS reduces a clipping source exactly like any other
+/// draw: `LiveMaskRenderer` paints it through the same `drawOwn` closure the canvas uses, which
+/// goes through `LayerRenderer.draw` and its sharp halvings (EditorCanvas.swift).
+pub fn clip_source_rasters(doc: &Document, plan: &RenderPlan, source: Uuid, out_per_doc: f64) -> SourceRasters {
+    let mut out = SourceRasters::new();
+    let mut next = Some(source);
+    let mut depth = 0;
+    while let Some(id) = next {
+        if depth > 256 || out.contains_key(&id) { break; }
+        depth += 1;
+        let Some(draw) = plan.sources.iter().find(|s| s.id == id) else { break; };
+        if let Some(raster) = doc.layer(id).and_then(|l| l.pixels.as_ref()) {
+            out.insert(id, reduced_for(raster, draw, out_per_doc));
+        }
+        next = draw.clip;
+    }
+    out
+}
+
+/// The raster a draw samples at this output scale, and the coordinate factor onto it.
+fn reduced_for(raster: &Raster, draw: &LayerDraw, out_per_doc: f64) -> (Raster, f64) {
+    if !prefilters(draw.transform.sampling, draw.corners.is_some()) { return (raster.clone(), 1.0); }
+    let source_per_output = raster.width as f64 / (draw.transform.size.width * out_per_doc);
+    prefiltered(raster, source_per_output)
+}
+
+/// The layer's premultiplied colour at a document point (no opacity, no coverage); transparent
+/// outside. Samples the full-resolution raster; `sample_draw_reduced` takes a prefiltered one.
 pub fn sample_draw(doc: &Document, draw: &LayerDraw, p: Point) -> [f32; 4] {
+    sample_draw_reduced(doc, draw, p, None)
+}
+
+fn sample_draw_reduced(doc: &Document, draw: &LayerDraw, p: Point, reduced: Option<&(Raster, f64)>) -> [f32; 4] {
     let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return [0.0; 4]; };
     let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { return [0.0; 4]; };
     if px.x < 0.0 || px.y < 0.0 || px.x >= raster.width as f64 || px.y >= raster.height as f64 { return [0.0; 4]; }
-    sample(raster, px.x, px.y, draw.transform.sampling == Sampling::Nearest)
+    let nearest = draw.transform.sampling == Sampling::Nearest;
+    match reduced {
+        Some((source, scale)) => sample(source, px.x * scale, px.y * scale, nearest),
+        None => sample(raster, px.x, px.y, nearest),
+    }
 }
 
 fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f32 {
@@ -110,15 +151,17 @@ fn coverages_at(doc: &Document, covs: &[Coverage], p: Point) -> f32 {
     covs.iter().fold(1.0, |k, c| k * coverage_at(doc, c, p))
 }
 
-/// A clipping source's coverage at a document point: its alpha times opacity, own mask and its own clipping chain.
-pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point) -> f32 {
-    fn inner(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, depth: u32) -> f32 {
+/// A clipping source's coverage at a document point: its alpha times opacity, own mask and its own
+/// clipping chain. `reduced` carries the prefiltered raster per source (see `source_rasters`);
+/// pass an empty map to sample every source at full resolution.
+pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, reduced: &SourceRasters) -> f32 {
+    fn inner(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, depth: u32, reduced: &SourceRasters) -> f32 {
         if depth > 256 { return 1.0; }
         let Some(draw) = plan.sources.iter().find(|s| s.id == source) else { return 1.0; };
-        let a = sample_draw(doc, draw, p)[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
-        match draw.clip { Some(c) => a * inner(doc, plan, c, p, depth + 1), None => a }
+        let a = sample_draw_reduced(doc, draw, p, reduced.get(&source))[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        match draw.clip { Some(c) => a * inner(doc, plan, c, p, depth + 1, reduced), None => a }
     }
-    inner(doc, plan, source, p, 0)
+    inner(doc, plan, source, p, 0, reduced)
 }
 
 struct Target<'a> { data: &'a mut [u8], w: u32, h: u32, region: Rect }
@@ -147,8 +190,12 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
     let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
     // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
-    let source_per_output = raster.width as f64 / (draw.transform.size.width * out_per_doc);
-    let (source, scale) = if prefilters(draw.transform.sampling, draw.corners.is_some()) { prefiltered(raster, source_per_output) } else { (raster.clone(), 1.0) };
+    let (source, scale) = reduced_for(raster, draw, out_per_doc);
+    // The clipping chain reduces at the same scale, built once here rather than per pixel.
+    let clip_sources = match (use_clip, draw.clip) {
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc),
+        _ => SourceRasters::new(),
+    };
     let nearest = draw.transform.sampling == Sampling::Nearest;
     let (x0, y0, x1, y1) = target.bbox(draw);
     for oy in y0..y1 { for ox in x0..x1 {
@@ -158,7 +205,7 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         let mut s = sample(&source, px.x * scale, px.y * scale, nearest);
         if s[3] <= 0.0 { continue; }
         let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
-        if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p); } }
+        if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
         if k <= 0.0 { continue; }
         for v in &mut s { *v *= k; }
         let i = ((oy * target.w + ox) * 4) as usize;

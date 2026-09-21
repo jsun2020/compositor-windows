@@ -195,10 +195,13 @@ pub fn bake_clip(doc: &Document, target: Uuid) -> Option<Raster> {
     let mut plan = render_plan(doc, None);
     ensure_source(doc, &mut plan, source);
     let to_doc = layer.transform.pixel_to_document(raster.width, raster.height);
+    // Baking writes the target's own pixel grid, so the output scale is that grid's density.
+    let out_per_doc = raster.width as f64 / layer.transform.size.width.max(1e-9);
+    let sources = crate::compositor::clip_source_rasters(doc, &plan, source, out_per_doc);
     let mut data = raster.bytes().to_vec();
     for y in 0..raster.height { for x in 0..raster.width {
         let p = to_doc.apply(Point { x: x as f64 + 0.5, y: y as f64 + 0.5 });
-        let k = source_coverage_at(doc, &plan, source, p).clamp(0.0, 1.0);
+        let k = source_coverage_at(doc, &plan, source, p, &sources).clamp(0.0, 1.0);
         let i = ((y * raster.width + x) * 4) as usize;
         for c in 0..4 { data[i + c] = (data[i + c] as f32 * k).round() as u8; }
     }}
