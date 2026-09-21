@@ -12,6 +12,7 @@ pub mod command;
 pub mod engine;
 pub mod ops;
 pub mod blend;
+pub mod plan;
 
 pub use error::*;
 pub use geometry::*;
@@ -25,3 +26,4 @@ pub use history::*;
 pub use command::*;
 pub use engine::*;
 pub use blend::*;
+pub use plan::*;
