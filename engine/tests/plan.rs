@@ -132,6 +132,34 @@ fn preview_edits_change_displayed_transforms_and_masks() {
 }
 
 #[test]
+fn group_distortion_carries_linked_covering_masks_and_leaves_placed_masks() {
+    let mut d = Document::new(100, 100);
+    let mut a = px("A");
+    a.set_mask(Some(mask(4, 4, 255)));
+    let mut b = px("B");
+    b.transform.origin = Point { x: 10.0, y: 0.0 };
+    let mut b_mask_placement = b.transform;
+    b_mask_placement.origin.x += 2.0;
+    b.set_mask(Some(Mask { placement: Some(b_mask_placement), ..mask(4, 4, 128) }));
+    let (aid, bid) = (a.id, b.id);
+    d.layers = vec![a, b];
+    let bounds = LayerTransform::axis_aligned(Point { x: 0.0, y: 0.0 }, Size { width: 14.0, height: 4.0 });
+    let corners = [Point { x: 0.0, y: 0.0 }, Point { x: 14.0, y: 0.0 }, Point { x: 12.0, y: 4.0 }, Point { x: 0.0, y: 4.0 }];
+    let plan = render_plan(&d, Some(&PreviewEdit::Group { ids: vec![aid, bid], bounds, draft: bounds, corners: Some(corners) }));
+    assert_eq!(plan.nodes.len(), 2);
+    let PlanNode::Layer { draw: da } = &plan.nodes[0] else { panic!() };
+    assert_eq!(da.id, aid);
+    assert!(da.corners.is_some(), "A's own draw carries the distortion");
+    assert_eq!(da.coverages[0].corners, da.corners, "a linked covering mask carries the same corners as its layer");
+    assert_eq!(da.coverages[0].placement, da.transform, "its placement is the layer's own displayed transform");
+    let PlanNode::Layer { draw: db } = &plan.nodes[1] else { panic!() };
+    assert_eq!(db.id, bid);
+    assert!(db.corners.is_some(), "B's own draw carries the distortion");
+    assert_eq!(db.coverages[0].corners, None, "a placed mask keeps its affine placement, no distortion");
+    assert_eq!(db.coverages[0].placement, b_mask_placement);
+}
+
+#[test]
 fn plan_serialises_camel_case_with_uppercase_ids() {
     let mut d = Document::new(10, 10);
     let a = px("A");

@@ -68,6 +68,12 @@ pub fn displayed_transform(layer: &Layer, edit: Option<&PreviewEdit>) -> (LayerT
     }
 }
 
+/// Where a mask sits while its layer is being distorted (a corners edit pending): a mask with
+/// an explicit placement stays put; a covering, linked mask has no separate placement to report.
+fn placement_under_distortion(layer: &Layer, mask: &Mask) -> Option<LayerTransform> {
+    if mask.is_linked() && mask.placement.is_none() { None } else { Some(mask.placement.unwrap_or(layer.transform)) }
+}
+
 /// Where the layer's mask shows: nil while it covers the (displayed) layer rectangle.
 pub fn displayed_mask_placement(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<LayerTransform> {
     let mask = layer.mask.as_ref()?;
@@ -76,11 +82,11 @@ pub fn displayed_mask_placement(layer: &Layer, edit: Option<&PreviewEdit>) -> Op
             if draft.same_placement(&layer.transform) { None } else { Some(*draft) }
         }
         Some(PreviewEdit::Layer { id, draft, corners }) if *id == layer.id => {
-            if corners.is_some() { if mask.is_linked() && mask.placement.is_none() { None } else { Some(mask.placement.unwrap_or(layer.transform)) } }
+            if corners.is_some() { placement_under_distortion(layer, mask) }
             else { mask.follow(&layer.transform, draft) }
         }
         Some(PreviewEdit::Group { ids, bounds, draft, corners }) if ids.contains(&layer.id) => {
-            if corners.is_some() { if mask.is_linked() && mask.placement.is_none() { None } else { Some(mask.placement.unwrap_or(layer.transform)) } }
+            if corners.is_some() { placement_under_distortion(layer, mask) }
             else { mask.follow(&layer.transform, &layer.transform.following(bounds, draft)) }
         }
         _ => mask.placement,
@@ -102,7 +108,7 @@ fn own_coverage(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<Coverage> {
     })
 }
 
-fn folder_coverages(doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>) -> Vec<Coverage> {
+fn folder_coverages(by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>) -> Vec<Coverage> {
     let mut result = Vec::new();
     let mut parent = layer.parent_id; let mut depth = 0;
     while let Some(pid) = parent {
@@ -111,14 +117,13 @@ fn folder_coverages(doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer
         if let Some(c) = own_coverage(folder, edit) { result.push(c); }
         parent = folder.parent_id; depth += 1;
     }
-    let _ = doc;
     result
 }
 
-pub(crate) fn draw_for(doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>, with_folders: bool) -> LayerDraw {
+pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>, with_folders: bool) -> LayerDraw {
     let (transform, corners) = displayed_transform(layer, edit);
     let mut coverages: Vec<Coverage> = own_coverage(layer, edit).into_iter().collect();
-    if with_folders { coverages.extend(folder_coverages(doc, by_id, layer, edit)); }
+    if with_folders { coverages.extend(folder_coverages(by_id, layer, edit)); }
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     LayerDraw {
         id: layer.id, transform, corners, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
@@ -150,7 +155,7 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
         let layer = by_id[id];
         if let Some(children) = stacks.get(id) {
             let base = draw_for(doc, &by_id, layer, edit, false);
-            let folder = folder_coverages(doc, &by_id, layer, edit);
+            let folder = folder_coverages(&by_id, layer, edit);
             let kids: Vec<LayerDraw> = children.iter().map(|c| { let mut d = draw_for(doc, &by_id, by_id[c], edit, false); d.clip = None; d }).collect();
             note_source(&base, &mut needed_sources);
             nodes.push(PlanNode::Stack { base, children: kids, folder_coverages: folder });
