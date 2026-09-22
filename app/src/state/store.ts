@@ -1,11 +1,13 @@
 import { create } from "zustand";
-import type { BlendMode, Command, Corners, DocumentState, LayerTransform, PreviewEdit } from "../engine/types";
+import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { ShellBridge } from "../shell/bridge";
 import { Viewport } from "../canvas/viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "../tools/transform-geometry";
-import { activeLayer, canTransform, groupBox, transformsAsGroup } from "./selection";
+import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } from "./selection";
+import type { AdjustEdit, SampleMode } from "./adjust-edit";
+import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 
 export type Tool = "move" | "hand" | "zoom" | "crop";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
@@ -50,6 +52,7 @@ export interface EditorStore {
   transformEdit: TransformEdit | null;
   snapGuides: { xs: number[]; ys: number[] };
   blendPreview: BlendMode | null;
+  adjustEdit: AdjustEdit | null;
   setEngine(engine: EngineClient): void;
   setBridge(bridge: ShellBridge): void;
   setBusy(busy: boolean): void;
@@ -81,6 +84,18 @@ export interface EditorStore {
   setSnapGuides(g: { xs: number[]; ys: number[] }): void;
   setBlendPreview(m: BlendMode | null): void;
   previewEdit(): PreviewEdit | null;
+  canAdjust(): boolean;
+  beginAdjust(opts: { kind: AdjustmentKind | FilterKind; layerId?: string; target?: "layer" | "adjustmentLayer" }): boolean;
+  updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"] }): void;
+  setAdjustPreview(on: boolean): void;
+  setAdjustSample(mode: SampleMode | null): void;
+  /** Pushes the open panel's current settings to the engine as a preview. Not part of the
+   * Task 12 brief's public action list, but needed by beginAdjust/updateAdjust/setAdjustPreview,
+   * which all share it rather than duplicating the branch between a pixel-layer preview (through
+   * `engine.setPreview`) and an adjustment-layer preview (through the render plan). */
+  applyAdjustPreview(): void;
+  commitAdjust(): void;
+  cancelAdjust(): void;
 }
 
 /** Commands that insert a layer or move one into a folder, and so make it active somewhere the
@@ -93,6 +108,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, blendPreview: null,
+  adjustEdit: null,
   setEngine: (engine) => set({ engine }),
   setBridge: (bridge) => set({ bridge }),
   setBusy: (busy) => set({ busy }),
@@ -101,8 +117,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // Leaving the current document commits its pending edit rather than dropping it, as
     // ProjectWorkspace.select/newCanvas do on macOS.
     get().commitTransform();
-    const engine = get().engine!;
-    const state = engine.state(id);
+    const { engine, activeId } = get();
+    if (get().adjustEdit) { set({ adjustEdit: null }); if (activeId) engine!.setPreview(activeId, null); }
+    const state = engine!.state(id);
     const viewport = new Viewport();
     set((s) => ({ documents: { ...s.documents, [id]: state }, order: s.order.includes(id) ? s.order : [...s.order, id],
       viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
@@ -110,6 +127,12 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   closeDocument: (id) => {
     get().commitTransform();
+    // `adjustEdit`, like `transformEdit`, names no document of its own: it always belongs to
+    // whatever is `activeId` at the time. Closing some other, background tab must not touch it,
+    // so this clears the engine-side preview on `activeId` (not the possibly-different `id`
+    // being closed) and only when a panel could actually be open on it.
+    const closingActive = get().activeId === id;
+    if (closingActive && get().adjustEdit) { set({ adjustEdit: null }); get().engine!.setPreview(id, null); }
     get().engine!.closeDocument(id);
     set((s) => {
       const { [id]: _d, ...documents } = s.documents;
@@ -123,6 +146,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setActive: (id) => {
     get().commitTransform();
+    const { engine, activeId: leavingId } = get();
+    if (get().adjustEdit) { set({ adjustEdit: null }); if (leavingId) engine!.setPreview(leavingId, null); }
     const state = get().documents[id];
     set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null });
   },
@@ -154,6 +179,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (next.length !== list.length) set({ collapsed: { ...collapsed, [activeId]: next } });
   },
   run: (command) => {
+    // A panel owns the document while it is open, as macOS's canEditLayers does. Its own commit
+    // clears `adjustEdit` before calling this, so OK is never refused.
+    if (get().adjustEdit) { set({ error: "Apply or cancel the open adjustment first" }); return; }
     // A pending transform is closed before any other command records history. macOS refuses
     // these outright while `transformEdit != nil` (canEditLayers); committing is the gentler
     // equivalent and is what every action in actions/layers.ts already did individually.
@@ -174,8 +202,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
       if (REVEALING_COMMANDS.has(command.type)) get().revealActiveLayer();
     } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); }
   },
-  undo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
-  redo: () => { const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
+  // A panel owns the document while it is open, as macOS's canEditLayers does; the menu items
+  // for these are already disabled, so this stays quiet rather than raising the error banner.
+  undo: () => { if (get().adjustEdit) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
+  redo: () => { if (get().adjustEdit) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
     // Entering the crop tool seeds a full-canvas rectangle, as macOS does (EditorSession.selectTool);
@@ -290,9 +320,71 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setSnapGuides: (g) => set({ snapGuides: g }),
   setBlendPreview: (m) => set({ blendPreview: m }),
   previewEdit: () => {
+    const a = get().adjustEdit;
+    if (a && a.target === "adjustmentLayer" && a.preview && a.adjustment) return { kind: "adjustment", id: a.layerId, adjustment: a.adjustment };
     const e = get().transformEdit; if (!e) return null;
     if (e.kind === "group") return { kind: "group", ids: e.ids, box: e.box, draft: e.draft, corners: e.corners };
     if (e.kind === "mask") return { kind: "mask", id: e.id, draft: e.draft };
     return { kind: "layer", id: e.id, draft: e.draft, corners: e.corners };
+  },
+  canAdjust: () => {
+    const { activeId, documents, selectedLayerIds, maskSelected, adjustEdit } = get();
+    if (!activeId || adjustEdit) return false;
+    const state = documents[activeId];
+    const layer = activeLayer(state);
+    return !!layer && !layer.isGroup && layer.hasPixels && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id);
+  },
+  beginAdjust: ({ kind, layerId, target }) => {
+    const { engine, activeId } = get(); if (!engine || !activeId) return false;
+    get().commitTransform();
+    const state = get().documents[activeId];
+    const id = layerId ?? state.activeLayerId;
+    const layer = id ? state.layers.find((l) => l.id === id) : null;
+    if (!layer || get().adjustEdit) return false;
+    const editing = target === "adjustmentLayer";
+    if (editing ? !layer.adjustment : !get().canAdjust()) return false;
+    const filter = isFilterKind(kind as string);
+    const adjustment = filter ? null : (editing ? layer.adjustment! : defaultAdjustment(kind as AdjustmentKind));
+    const edit: AdjustEdit = {
+      kind, target: editing ? "adjustmentLayer" : "layer", layerId: layer.id,
+      adjustment, params: filter ? defaultFilterParams(kind as FilterKind) : null,
+      original: editing ? layer.adjustment! : null, preview: true, sampleMode: null,
+      // Levels and Curves draw a histogram of what they are about to change.
+      histogram: kind === "Levels" || kind === "Curves" ? engine.histogram(activeId, layer.id) : null,
+    };
+    set({ adjustEdit: edit });
+    get().applyAdjustPreview();
+    return true;
+  },
+  updateAdjust: (patch) => {
+    const edit = get().adjustEdit; if (!edit) return;
+    set({ adjustEdit: { ...edit, ...patch } });
+    get().applyAdjustPreview();
+  },
+  setAdjustPreview: (preview) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, preview } }); get().applyAdjustPreview(); },
+  setAdjustSample: (sampleMode) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, sampleMode } }); },
+  /** Pushes the panel's settings to the engine: a pixel preview for a destructive edit, or a
+   * plan-level preview (through `previewEdit`) when an adjustment layer is being edited. */
+  applyAdjustPreview: () => {
+    const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId) return;
+    if (!adjustEdit || adjustEdit.target === "adjustmentLayer") { if (!adjustEdit) engine.setPreview(activeId, null); get().invalidate(); return; }
+    engine.setPreview(activeId, previewRequestFor(adjustEdit));
+    get().refresh(activeId);
+  },
+  commitAdjust: () => {
+    const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
+    set({ adjustEdit: null });
+    engine.setPreview(activeId, null);
+    if (isAdjustIdentity(edit)) { get().refresh(activeId); get().invalidate(); return; }
+    if (edit.target === "adjustmentLayer") { get().run({ type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }); return; }
+    if (edit.params) get().run({ type: "ApplyFilter", id: edit.layerId, params: edit.params });
+    else get().run({ type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! });
+  },
+  cancelAdjust: () => {
+    const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
+    set({ adjustEdit: null });
+    engine.setPreview(activeId, null);
+    get().refresh(activeId);
+    get().invalidate();
   },
 }));
