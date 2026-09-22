@@ -22,6 +22,8 @@ pub use adjust::tonal::*;
 pub use adjust::hsv::*;
 pub use adjust::grain::*;
 pub use adjust::filters::*;
+pub use adjust::prepared::*;
+pub use adjust::apply::*;
 pub use error::*;
 pub use geometry::*;
 pub use manifest::*;
