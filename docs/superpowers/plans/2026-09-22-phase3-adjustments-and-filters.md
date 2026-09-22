@@ -23,7 +23,7 @@
 - Blur growth: before a blur the layer's raster is padded on every side by `margin = ceil(radius*3 + 2)` (Gaussian) or `ceil(distance/2 + 2)` (Motion), the transform enlarged in place (size scaled by the grid ratio, centre kept), capped at 30,000 per side and 100 million pixels; after the blur the result is trimmed to `alpha_bounds` and the transform recomputed the same way; a covering (placement `None`), non-uniform mask is carried onto the final grid with its background beyond the old edge. Ruling: the Mac's `FilterTests.gaussianBlur...` asserts `alpha(0) == 255` on the committed layer, which predates edge spreading; the Windows test asserts the trimmed layer extends past the old left edge with a soft edge on both sides.
 - Selection limiting: every whole-raster kernel takes `selection: Option<&GrayRaster>` (coverage on the layer's pixel grid) and blends `coverage * adjusted + (1 - coverage) * original`; Phase 3 always passes `None` (selections arrive in Phase 4), and the panels show no selection note.
 - Previews never mutate the document. A destructive preview (`Engine::set_preview`) computes the kernel on a preview source: the raster halved until its longest side is at most 4096 for Levels, Curves, Hue/Saturation, Exposure, Gradient Map and Invert, at most 2048 for Gaussian Blur, Motion Blur and Lens Correction (radius and distance scale with the halving), and at full size for Add Noise and Grain (as on the Mac, where grain made small looks coarse). The preview raster replaces the layer's pixels and transform in a session-level `render_document` that `render_plan`, `composite_edit`, `layer_pixels_*` and `histogram` all read; `execute`, `undo`, `redo` and `revert` clear it. An adjustment layer previews through `PreviewEdit::Adjustment { id, adjustment }`, which substitutes the layer's settings in `render_plan`.
-- Adjustment layers render as the Mac's `LiveMaskRenderer.adjust`: the adjustment maps the composite beneath it (within its folder) where its coverage (own mask, folder masks, times opacity) applies; with a blend mode other than Normal the adjusted colour is `blend(original, adjusted)` on opaque colours with the original alpha restored; an adjustment layer clipped to a base renders only as a member of that base's clipping stack (it maps the stack's buffer) and is otherwise not drawn; an adjustment layer is never a stack base and never a clipping source. Undo names: "Levels", "Curves", "Hue/Saturation", "Exposure", "Gradient Map", "Grain", "Invert", "Gaussian Blur", "Motion Blur", "Add Noise", "Lens Correction", "New <kind> Adjustment", "Edit <kind> Adjustment".
+- Adjustment layers render as the Mac's `LiveMaskRenderer.adjust`: the adjustment maps the composite beneath it in render order, everywhere its coverage (own mask, folder masks, times opacity) reaches. Ruling (Task 9): a folder does NOT isolate its contents from an adjustment inside it - `LiveMaskRenderer.adjust` takes `context.makeImage()` for the whole context, and the only limits are `adjustmentClip` (the adjustment's own mask) and the enclosing folders' masks that `FolderMaskClip.draw` wraps around every `drawComposite` call. An adjustment inside an unmasked folder reaches layers outside it; a folder mask is what scopes one. Earlier wording here said "within its folder" and was wrong; with a blend mode other than Normal the adjusted colour is `blend(original, adjusted)` on opaque colours with the original alpha restored; an adjustment layer clipped to a base renders only as a member of that base's clipping stack (it maps the stack's buffer) and is otherwise not drawn; an adjustment layer is never a stack base and never a clipping source. Undo names: "Levels", "Curves", "Hue/Saturation", "Exposure", "Gradient Map", "Grain", "Invert", "Gaussian Blur", "Motion Blur", "Add Noise", "Lens Correction", "New <kind> Adjustment", "Edit <kind> Adjustment".
 - Panels are non-modal floating panels (`data-testid="adjust-panel"`), not sheets, because the eyedroppers click the canvas. While a panel is open, `store.run` refuses other history-recording commands with the banner "Apply or cancel the open adjustment first", undo and redo are inert, and the Layer/Image/Filter menu items grey out (the Mac's `canEditLayers`/`canUseHistory`). Enter applies, Escape cancels, an unchanged (identity) commit records nothing.
 - CPU/GPU parity: the WebGL2 `adjust` pass and the CPU compositor apply identical float maths; e2e compares them within 2/255 (3/255 for Grain, whose f32 hash path may round differently on the GPU) using fixtures whose hues stay clear of half-degree boundaries.
 - Every commit compiles and passes `cargo test`, `pnpm test`, `pnpm build` and `pnpm e2e`. After any engine or engine-wasm change, `pnpm wasm:dev` runs before `pnpm build`/`pnpm e2e`.
@@ -2321,7 +2321,9 @@ fn a_clipped_adjustment_changes_only_its_base() {
 }
 
 #[test]
-fn a_folder_scopes_an_adjustment_to_its_own_contents() {
+fn an_adjustment_in_a_folder_reaches_beneath_it_and_a_folder_mask_limits_it() {
+    // macOS's FolderMaskClip behaviour: a folder limits an adjustment through its mask,
+    // it does not isolate its contents from one.
     let mut d = Document::new(2, 1);
     let outside = Layer::with_pixels("Outside", Raster::from_premultiplied(1, 1, vec![255, 255, 255, 255]), Point { x: 1.0, y: 0.0 });
     let outside_id = outside.id;
@@ -2337,7 +2339,15 @@ fn a_folder_scopes_an_adjustment_to_its_own_contents() {
     adjust::set_adjustment(&mut d, a, &settings).unwrap();
     let out = full(&d);
     assert_eq!(out.pixel(0, 0), [0, 0, 0, 255], "the layer in the folder is adjusted");
-    assert_eq!(out.pixel(1, 0), [255, 255, 255, 255], "the layer outside is not");
+    assert_eq!(out.pixel(1, 0), [0, 0, 0, 255], "an unmasked folder does not hold the adjustment in");
+    // A folder mask is what scopes it: white over the left half, black over the right.
+    d.layer_mut(folder).unwrap().mask = Some(Mask {
+        pixels: GrayRaster::from_bytes(2, 1, vec![255, 0]),
+        enabled: true, placement: None, linked: None,
+    });
+    let out = full(&d);
+    assert_eq!(out.pixel(0, 0), [0, 0, 0, 255], "still adjusted where the folder mask is white");
+    assert_eq!(out.pixel(1, 0), [255, 255, 255, 255], "the adjustment does not reach past the folder mask");
     let _ = outside_id;
 }
 
@@ -4866,7 +4876,7 @@ git commit -m "feat(app): adjustment layers in the layers panel and the Layer me
 
 - [ ] **Step 1: Update the docs**
 
-README: a "Phase 3: adjustments and filters" section listing Levels (with Auto and the three eyedroppers), Curves, Hue/Saturation (seven colour ranges, colorize, band eyedroppers), Exposure, Gradient Map, Grain, Invert, Gaussian Blur, Motion Blur (both spreading past the layer's edges), Add Noise, Lens Correction, live previews that leave the document untouched until OK, and adjustment layers for the six kinds (masked, clipped, folder-scoped, reopened by double-clicking the row). Add the shortcuts (Ctrl+L, Ctrl+M, Ctrl+U, Ctrl+I) and two notes: selection-limited adjustments arrive with selections in Phase 4, and an adjustment layer is never a clipping source.
+README: a "Phase 3: adjustments and filters" section listing Levels (with Auto and the three eyedroppers), Curves, Hue/Saturation (seven colour ranges, colorize, band eyedroppers), Exposure, Gradient Map, Grain, Invert, Gaussian Blur, Motion Blur (both spreading past the layer's edges), Add Noise, Lens Correction, live previews that leave the document untouched until OK, and adjustment layers for the six kinds (masked, clipped, limited by an enclosing folder's mask, reopened by double-clicking the row). Add the shortcuts (Ctrl+L, Ctrl+M, Ctrl+U, Ctrl+I) and two notes: selection-limited adjustments arrive with selections in Phase 4, and an adjustment layer is never a clipping source.
 
 Spec: section 3's Phase 3 paragraph already matches what shipped; add to section 4 a short "Adjustments" subsection naming `engine/src/adjust/` as the port of the macOS kernels and recording that Hue/Saturation is evaluated per pixel rather than through a 33-point colour cube, and that Motion Blur is an even streak rather than Core Image's tapered one. Both are rulings from this plan's Global Constraints, so the spec should carry them.
 
