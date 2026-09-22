@@ -4461,12 +4461,12 @@ test("hue/saturation edits one range at a time and the eyedropper retargets a ba
   await setup(page);
   const depthBefore = (await state(page)).undoDepth;
   await open(page, "Hue/Saturation");
-  await page.getByLabel("Hue").fill("120");
+  await page.getByLabel("Hue", { exact: true }).fill("120");
   let settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.adjustments.Master.hue).toBe(120);
   await page.getByTestId("hue-range").selectOption("Reds");
-  expect(await page.getByLabel("Hue").inputValue()).toBe("0"); // each range keeps its own values
-  await page.getByLabel("Saturation").fill("-100");
+  expect(await page.getByLabel("Hue", { exact: true }).inputValue()).toBe("0"); // each range keeps its own values
+  await page.getByLabel("Saturation", { exact: true }).fill("-100");
   settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.adjustments.Reds.saturation).toBe(-100);
   expect(settings.adjustments.Master.hue).toBe(120);
