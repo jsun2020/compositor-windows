@@ -3978,16 +3978,16 @@ describe("curves editor", () => {
   it("adds, moves and removes points under the editor's rules", () => {
     const three = insertPoint(identity, { x: 128, y: 190 });
     expect(three.map((p) => p.x)).toEqual([0, 128, 255]);
-    expect(insertPoint(three, { x: 128, y: 10 })).toEqual(three, "a point already sits on that input");
+    expect(insertPoint(three, { x: 128, y: 10 })).toEqual(three); // a point already sits on that input
     expect(nearestPoint(three, { x: 130, y: 188 }, 8)).toBe(1);
     expect(nearestPoint(three, { x: 60, y: 60 }, 8)).toBeNull();
     expect(movePoint(three, 1, { x: 200, y: 20 })[1]).toEqual({ x: 200, y: 20 });
-    expect(movePoint(three, 1, { x: 300, y: 300 })[1]).toEqual({ x: 254, y: 255 }, "kept inside its neighbours and the box");
-    expect(movePoint(three, 0, { x: 40, y: 30 })[0]).toEqual({ x: 0, y: 30 }, "an endpoint keeps its input");
+    expect(movePoint(three, 1, { x: 300, y: 300 })[1]).toEqual({ x: 254, y: 255 }); // kept inside its neighbours and the box
+    expect(movePoint(three, 0, { x: 40, y: 30 })[0]).toEqual({ x: 0, y: 30 }); // an endpoint keeps its input
     expect(removePoint(three, 1).map((p) => p.x)).toEqual([0, 255]);
-    expect(removePoint(identity, 0)).toEqual(identity, "the endpoints stay");
+    expect(removePoint(identity, 0)).toEqual(identity); // the endpoints stay
     const full = Array.from({ length: 32 }, (_, i) => ({ x: Math.round((i * 255) / 31), y: 0 }));
-    expect(insertPoint(full, { x: 3, y: 3 })).toEqual(full, "32 points is the limit");
+    expect(insertPoint(full, { x: 3, y: 3 })).toEqual(full); // 32 points is the limit
   });
 });
 ```
@@ -4034,34 +4034,47 @@ test("the levels panel previews, applies once, and leaves the pixels alone until
   expect(d.canUndo).toBe(true);
   expect(d.layers[0].pixelsRevision).toBeGreaterThan(before);
   await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  // Ruling (Task 14): undoDepth, not canUndo. setup() imports into an existing document, which
+  // records a real undo entry, so canUndo is already true before any panel opens and an absolute
+  // `toBe(false)` can never pass. Same defect as the Task 10 preview assertion; it did not
+  // propagate here when that one was fixed.
+  const depthBeforeUndo = (await state(page)).undoDepth;
   await page.keyboard.press("Control+z");
-  expect((await state(page)).canUndo).toBe(false);
+  expect((await state(page)).undoDepth).toBe(depthBeforeUndo - 1); // the applied adjustment is undone
 });
 
 test("cancel and escape record nothing", async ({ page }) => {
   await setup(page);
+  // undoDepth, not canUndo: setup() imports into an existing document, so canUndo is already true.
+  const base = (await state(page)).undoDepth;
   await open(page, "Levels");
   await page.getByLabel("Gamma").fill("2");
   await page.getByLabel("Gamma").press("Enter");
   await page.getByTestId("adjust-cancel").click();
-  expect((await state(page)).canUndo).toBe(false);
+  expect((await state(page)).undoDepth).toBe(base); // cancel records nothing
   await open(page, "Curves");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
-  expect((await state(page)).canUndo).toBe(false);
+  expect((await state(page)).undoDepth).toBe(base); // escape records nothing
 });
 
 test("auto levels and the reset button", async ({ page }) => {
   await setup(page);
   await open(page, "Levels");
+  // Ruling (Task 14): this test needs its OWN narrow-range fixture, not the shared uniform-noise
+  // one. Uniform noise already populates the 0 and 255 bins, which clears the 0.1 percent
+  // auto-levels clip threshold, so Auto Contrast computes an identity stretch on it no matter how
+  // the implementation behaves - the assertion below could not fail. Use a fixture whose tones
+  // span roughly 60 to 179 so there is genuinely something to stretch.
   await page.getByTestId("levels-auto").selectOption("Contrast");
   const stretched = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.levels.ranges[0]);
   expect(stretched.black > 0 || stretched.white < 255).toBe(true);
   await page.getByTestId("adjust-reset").click();
   const reset = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.levels.ranges[0]);
   expect(reset).toEqual({ black: 0, gamma: 1, white: 255, outputBlack: 0, outputWhite: 255 });
+  const depthBeforeOk = (await state(page)).undoDepth;
   await page.getByTestId("adjust-ok").click();
-  expect((await state(page)).canUndo).toBe(false, "an identity adjustment records nothing");
+  expect((await state(page)).undoDepth).toBe(depthBeforeOk); // an identity adjustment records nothing
 });
 
 test("the curves editor adds a point by clicking and applies it", async ({ page }) => {
@@ -4449,7 +4462,7 @@ test("hue/saturation edits one range at a time and the eyedropper retargets a ba
   let settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.adjustments.Master.hue).toBe(120);
   await page.getByTestId("hue-range").selectOption("Reds");
-  expect(await page.getByLabel("Hue").inputValue()).toBe("0", "each range keeps its own values");
+  expect(await page.getByLabel("Hue").inputValue()).toBe("0"); // each range keeps its own values
   await page.getByLabel("Saturation").fill("-100");
   settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.adjustments.Reds.saturation).toBe(-100);
@@ -4471,7 +4484,7 @@ test("colorize gives everything one hue", async ({ page }) => {
   await page.getByTestId("hue-colorize").check();
   const settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.colorize).toBe(true);
-  expect(settings.adjustments.Master.saturation).toBe(25, "Photoshop's starting point");
+  expect(settings.adjustments.Master.saturation).toBe(25); // Photoshop's starting point
   await page.getByTestId("adjust-ok").click();
   expect((await state(page)).canUndo).toBe(true);
 });
@@ -4549,7 +4562,7 @@ Add to `app/tests/unit/keymap.test.ts`:
     expect(matchShortcut(ev("m", { ctrlKey: true }))).toBe("curves");
     expect(matchShortcut(ev("u", { ctrlKey: true }))).toBe("hue-saturation");
     expect(matchShortcut(ev("i", { ctrlKey: true }))).toBe("invert");
-    expect(matchShortcut(ev("i", { ctrlKey: true, altKey: true }))).toBe("image-size", "still its own binding");
+    expect(matchShortcut(ev("i", { ctrlKey: true, altKey: true }))).toBe("image-size"); // still its own binding
   });
 ```
 
@@ -4616,7 +4629,7 @@ test("the image menu opens every adjustment and Invert applies at once", async (
   }
   const before = (await layer(page)).pixelsRevision;
   await clickMenu(page, "Image", "image-invert");
-  await expect(page.getByTestId("adjust-panel")).toHaveCount(0, "Invert has no panel");
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0); // Invert has no panel
   expect((await layer(page)).pixelsRevision).toBeGreaterThan(before);
 });
 
@@ -4841,7 +4854,7 @@ test("double-clicking an adjustment row edits it live and OK records one step", 
   const box = (await editor.boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.2);
   // The live preview goes through the plan: the document has no new undo step yet.
-  expect((await state(page)).canUndo).toBe(true, "only the New Curves Adjustment step so far");
+  expect((await state(page)).canUndo).toBe(true); // only the New Curves Adjustment step so far
   const depthBefore = (await state(page)).undoDepth;
   await page.getByTestId("adjust-ok").click();
   expect((await state(page)).undoDepth).toBe(depthBefore + 1);
