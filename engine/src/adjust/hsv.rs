@@ -1,4 +1,4 @@
-use crate::{ColorRange, HueSaturationSettings, Raster};
+use crate::{HueSaturationSettings, Raster};
 
 pub fn rgb_to_hsl(rgb: [f64; 3]) -> [f64; 3] {
     let (r, g, b) = (rgb[0], rgb[1], rgb[2]);
@@ -60,11 +60,10 @@ pub fn adjust_rgb(rgb: [f64; 3], settings: &HueSaturationSettings, response: &[[
     let [mut hue, mut saturation, lightness] = rgb_to_hsl(rgb);
     let lightness_amount;
     if settings.colorize {
-        let master = settings.adjustment(ColorRange::Master);
-        hue = master.hue % 360.0;
-        if hue < 0.0 { hue += 360.0; }
-        saturation = (master.saturation / 100.0).clamp(0.0, 1.0);
-        lightness_amount = master.lightness / 100.0;
+        let selected = settings.adjustment(settings.range);
+        hue = selected.hue % 360.0;
+        saturation = (selected.saturation / 100.0).clamp(0.0, 1.0);
+        lightness_amount = selected.lightness / 100.0;
     } else {
         let sampled = response[(hue.round() as usize).min(response.len() - 1)];
         lightness_amount = sampled[2] / 100.0;

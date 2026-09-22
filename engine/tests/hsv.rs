@@ -69,3 +69,29 @@ fn hsl_round_trips() {
         for c in 0..3 { assert!((back[c] - rgb[c]).abs() < 1e-9, "{rgb:?} -> {back:?}"); }
     }
 }
+
+fn expected_bytes(hsl: [f64; 3]) -> [i64; 4] {
+    let rgb = hsl_to_rgb(hsl);
+    [(rgb[0] * 255.0).round() as i64, (rgb[1] * 255.0).round() as i64, (rgb[2] * 255.0).round() as i64, 255]
+}
+
+#[test]
+fn colorize_reads_the_selected_range_not_master() {
+    // Master is left at its default (no entry in `adjustments`), so if colorize wrongly read
+    // Master's zero saturation, every pixel would come out grey instead of taking on the Reds hue.
+    let s = HueSaturationSettings::new(200.0, 60.0, 0.0, true, ColorRange::Reds);
+    let out = apply_hsv(&fixture(), &s);
+    let px = straight(&out, 0);
+    assert!(!(px[0] == px[1] && px[1] == px[2]), "colorize must read the selected range, not the neutral Master default: {px:?}");
+    // Red's own lightness (0.5) is kept; hue/saturation come from the Reds adjustment.
+    assert!(near(px, expected_bytes([200.0, 0.6, 0.5])), "{px:?}");
+}
+
+#[test]
+fn colorize_matches_the_macs_raw_negative_hue_wrap() {
+    // Swift only truncates by 360 (no re-adding 360 for negative results) before calling toRGB.
+    let s = HueSaturationSettings::new(-30.0, 100.0, 0.0, true, ColorRange::Master);
+    let out = apply_hsv(&fixture(), &s);
+    let px = straight(&out, 0);
+    assert!(near(px, expected_bytes([-30.0_f64 % 360.0, 1.0, 0.5])), "{px:?}");
+}
