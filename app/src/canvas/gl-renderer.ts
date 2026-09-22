@@ -6,6 +6,7 @@ import type { RenderOptions, Renderer } from "./renderer";
 import { BLEND_INDEX, createPrograms, disposePrograms, type Programs } from "./gl/programs";
 import { FboPool } from "./gl/framebuffers";
 import { MaskTextures } from "./gl/mask-textures";
+import { AdjustTextures } from "./gl/adjust-textures";
 import { cornersOf, fromTuple, homographyUnitTo, mat3Invert, mat3Mul, pixelToDocument, type Mat3, type P } from "../tools/transform-geometry";
 
 const MAX_CLIP_LEVELS = 3;
@@ -16,11 +17,13 @@ export class GlRenderer implements Renderer {
   private masks: MaskTextures;
   private fbos: FboPool;
   private programs: Programs;
+  private adjustTextures: AdjustTextures;
   private white: WebGLTexture;
   private transparent: WebGLTexture;
   private W = 0; private H = 0;
   constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext) {
     this.textures = new LayerTextures(gl); this.masks = new MaskTextures(gl); this.fbos = new FboPool(gl); this.programs = createPrograms(gl);
+    this.adjustTextures = new AdjustTextures(gl);
     this.white = this.solid(gl.R8, gl.RED, [255]); this.transparent = this.solid(gl.RGBA8, gl.RGBA, [0, 0, 0, 0]);
   }
   private solid(internal: number, format: number, bytes: number[]): WebGLTexture {
@@ -42,7 +45,9 @@ export class GlRenderer implements Renderer {
   private syncTextures(engine: EngineClient, state: DocumentState, plan: RenderPlan, viewport: Viewport, dpr: number): void {
     const outPerDoc = viewport.pointsPerPixel * dpr;
     const levels = new Map<string, number>();
+    const adjustKeys = new Set<string>();
     const note = (d: LayerDraw) => {
+      if (d.adjustment) adjustKeys.add(AdjustTextures.key(d.adjustment));
       if (d.pixelsWidth === 0) return;
       const layer = state.layers.find((l) => l.id === d.id);
       const nearest = layer?.transform.sampling === "Nearest";
@@ -54,6 +59,7 @@ export class GlRenderer implements Renderer {
     };
     for (const n of plan.nodes) { if (n.kind === "layer") note(n.draw); else { note(n.base); n.children.forEach(note); } }
     for (const s of plan.sources) note(s);
+    this.adjustTextures.retain(adjustKeys);
     const keep = new Set<string>();
     for (const layer of state.layers) {
       keep.add(layer.id);
@@ -77,7 +83,7 @@ export class GlRenderer implements Renderer {
     gl.bindVertexArray(this.programs.vao);
     gl.viewport(0, 0, W, H);
     gl.disable(gl.BLEND);
-    const ctx: Ctx = { state, plan, viewport, dpr };
+    const ctx: Ctx = { state, plan, viewport, dpr, engine };
     this.fbos.clear("mainA", "rgba", 0);
     for (const node of plan.nodes) {
       if (node.kind === "layer") this.drawInto(ctx, "main", node.draw, node.draw.blend, true, 0);
@@ -170,14 +176,54 @@ export class GlRenderer implements Renderer {
   }
 
   private drawInto(ctx: Ctx, pair: "main" | "stack", draw: LayerDraw, blend: string, useClip: boolean, level: number): void {
+    const hasCoverage = draw.coverages.length > 0 || (useClip && !!draw.clip);
+    if (draw.adjustment) {
+      if (hasCoverage) { this.buildCoverage(ctx, draw.coverages, level); if (useClip && draw.clip) this.applyClip(ctx, draw.clip, level); }
+      this.adjustPass(ctx, pair, draw, blend, hasCoverage ? level : null);
+      this.fbos.swap(`${pair}A`, `${pair}B`);
+      return;
+    }
     const t = this.textures.get(ctx.state.id, draw.id);
     if (!t) return;
-    const hasCoverage = draw.coverages.length > 0 || (useClip && !!draw.clip);
     if (hasCoverage) { this.buildCoverage(ctx, draw.coverages, level); if (useClip && draw.clip) this.applyClip(ctx, draw.clip, level); }
     this.fbos.blit(`${pair}A`, `${pair}B`);
     const backdrop = this.fbos.get(`${pair}A`, "rgba").tex;
     this.drawLayer(ctx, `${pair}B`, backdrop, draw, BLEND_INDEX[blend as keyof typeof BLEND_INDEX], hasCoverage ? level : null);
     this.fbos.swap(`${pair}A`, `${pair}B`);
+  }
+
+  /** Maps what is already in the pair's A buffer through the adjustment, into B. Nothing is
+   * sampled from the layer: an adjustment layer has no pixels of its own. */
+  private adjustPass(ctx: Ctx, pair: "main" | "stack", draw: LayerDraw, blend: string, coverageLevel: number | null): void {
+    const gl = this.gl; const adjustment = draw.adjustment!;
+    const p = this.programs.adjust;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`${pair}B`, "rgba").fbo);
+    gl.useProgram(p.program);
+    const kind = adjustment.kind === "Hue/Saturation" ? 3 : adjustment.kind === "Grain" ? 4 : adjustment.kind === "Gradient Map" ? 2 : 1;
+    gl.uniform1i(p.uniforms.kind, kind);
+    gl.uniform1f(p.uniforms.opacity, draw.opacity);
+    gl.uniform1i(p.uniforms.mode, BLEND_INDEX[blend as keyof typeof BLEND_INDEX]);
+    gl.uniform1i(p.uniforms.useCoverage, coverageLevel === null ? 0 : 1);
+    gl.uniformMatrix3fv(p.uniforms.deviceToDoc, true, new Float32Array(this.deviceToDoc(ctx.viewport, ctx.state, ctx.dpr)));
+    const hsv = adjustment.hsvSettings;
+    // Colorize reads the SELECTED range's adjustment, not Master, mirroring hsv.rs::adjust_rgb,
+    // whose colorize branch is settings.adjustment(settings.range). The finished panel cannot
+    // produce colorize with a non-Master range (the Colorize toggle resets the whole settings
+    // object to Master), but a .comp file or a SetAdjustment command can, and the parity
+    // constraint covers every adjustment layer, not only UI-reachable ones.
+    const selected = hsv?.adjustments?.[hsv.range] ?? hsv?.adjustments?.Master
+        ?? { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
+    gl.uniform1i(p.uniforms.colorize, (hsv?.colorize ?? adjustment.colorize) ? 1 : 0);
+    gl.uniform3f(p.uniforms.colorizeAmounts, selected.hue, selected.saturation, selected.lightness);
+    const grain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
+    // strength mirrors `grain_strength` in engine/src/adjust/grain.rs.
+    gl.uniform3f(p.uniforms.grain, grain.size, grain.roughness, Math.min(1, grain.amount / 100) * 0.35 * 255);
+    gl.uniform1ui(p.uniforms.grainSeed, grain.seed >>> 0);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.fbos.get(`${pair}A`, "rgba").tex); gl.uniform1i(p.uniforms.src, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, coverageLevel === null ? this.white : this.fbos.get(`coverage${coverageLevel}`, "r8").tex); gl.uniform1i(p.uniforms.coverage, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.adjustTextures.lut(ctx.engine, adjustment) ?? this.white); gl.uniform1i(p.uniforms.lut, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.adjustTextures.response(ctx.engine, adjustment) ?? this.white); gl.uniform1i(p.uniforms.response, 3);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
   /** Draws every chunk of a layer texture into `target` reading `backdrop`, or onto a cleared
@@ -247,7 +293,7 @@ export class GlRenderer implements Renderer {
     for (let y = 0; y < H; y++) flipped.set(out.subarray(y * row, (y + 1) * row), (H - 1 - y) * row);
     return flipped;
   }
-  dispose(): void { this.textures.dispose(); this.masks.dispose(); this.fbos.dispose(); disposePrograms(this.gl, this.programs); this.gl.deleteTexture(this.white); this.gl.deleteTexture(this.transparent); }
+  dispose(): void { this.textures.dispose(); this.masks.dispose(); this.fbos.dispose(); this.adjustTextures.dispose(); disposePrograms(this.gl, this.programs); this.gl.deleteTexture(this.white); this.gl.deleteTexture(this.transparent); }
 }
 
-interface Ctx { state: DocumentState; plan: RenderPlan; viewport: Viewport; dpr: number; }
+interface Ctx { state: DocumentState; plan: RenderPlan; viewport: Viewport; dpr: number; engine: EngineClient; }

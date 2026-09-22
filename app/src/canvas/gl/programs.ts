@@ -1,6 +1,7 @@
 import type { BlendMode } from "../../engine/types";
 
 export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12 };
+export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4 };
 
 const VERT_UNIT = `#version 300 es
 in vec2 unit;
@@ -128,8 +129,140 @@ uniform float cell;
 out vec4 color;
 void main() { vec2 p = floor(uv * sizePx / cell); float c = mod(p.x + p.y, 2.0) < 1.0 ? 0.80 : 0.95; color = vec4(c, c, c, 1.0); }`;
 
+// Ports rgb_to_hsl/hsl_to_rgb/adjust_rgb from engine/src/adjust/hsv.rs and mix32/lattice from
+// engine/src/adjust/grain.rs. Every constant here must match those files exactly: the CPU
+// compositor is the single definition of the maths, and this is the shader's mirror of it.
+const ADJUST_GLSL = `
+vec3 rgbToHsl(vec3 c) {
+  float high = max(c.r, max(c.g, c.b)), low = min(c.r, min(c.g, c.b));
+  float lightness = (high + low) * 0.5, delta = high - low;
+  if (delta <= 0.0) return vec3(0.0, 0.0, lightness);
+  float saturation = min(1.0, delta / (1.0 - abs(2.0 * lightness - 1.0)));
+  float hue = high == c.r ? (c.g - c.b) / delta : (high == c.g ? (c.b - c.r) / delta + 2.0 : (c.r - c.g) / delta + 4.0);
+  hue *= 60.0;
+  if (hue < 0.0) hue += 360.0;
+  return vec3(hue, saturation, lightness);
+}
+// Rust's '%' truncates toward zero, GLSL's mod() floors. They agree for non-negative values and
+// disagree for negative ones, and the colorize branch below CAN produce a negative hue (Task 4
+// deliberately dropped its negative wrap to match the Mac's truncatingRemainder). The parity
+// constraint makes the CPU the reference, so this mirrors Rust's operator, not GLSL's. Used
+// wherever hsv.rs uses '%' on a value that can be negative; the non-colorize path wraps negatives
+// itself, which makes it equal to a floored mod, so mod() stays correct there.
+float rem(float x, float y) { return x - y * trunc(x / y); }
+vec3 hslToRgb(vec3 hsl) {
+  if (hsl.y <= 0.0) return vec3(hsl.z);
+  float chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
+  float sector = hsl.x / 60.0;
+  float second = chroma * (1.0 - abs(rem(sector, 2.0) - 1.0));
+  float base = hsl.z - chroma * 0.5;
+  // Dispatch on the TRUNCATED INTEGER, mirroring hsv.rs's 'match sector as i64 { 0..=4, _ }'. A
+  // 'sector < 1.0' comparison chain would send every negative sector to arm 0, while Rust sends
+  // anything at or below -1 to the catch-all arm; for a colorize hue of -300 that is (chroma,
+  // second, 0) against (chroma, 0, second), two different colours. int(trunc(x)) truncates toward
+  // zero exactly as 'as i64' does.
+  int s = int(trunc(sector));
+  vec3 rgb = s == 0 ? vec3(chroma, second, 0.0) : s == 1 ? vec3(second, chroma, 0.0)
+    : s == 2 ? vec3(0.0, chroma, second) : s == 3 ? vec3(0.0, second, chroma)
+    : s == 4 ? vec3(second, 0.0, chroma) : vec3(chroma, 0.0, second);
+  return clamp(rgb + base, 0.0, 1.0);
+}
+uint mix32(uint x) {
+  x ^= x >> 16; x *= 0x7feb352du;
+  x ^= x >> 15; x *= 0x846ca68bu;
+  x ^= x >> 16;
+  return x;
+}
+float lattice(int ix, int iy, uint seed) {
+  uint h = mix32(uint(ix) * 0x9E3779B1u ^ mix32(uint(iy) * 0x85EBCA77u ^ seed));
+  return float(h & 0xFFFFu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
+}`;
+
+const FRAG_ADJUST = `#version 300 es
+precision highp float;
+uniform sampler2D src;
+uniform sampler2D coverage;
+uniform sampler2D lut;
+uniform sampler2D response;
+uniform bool useCoverage;
+uniform bool colorize;
+uniform float opacity;
+uniform int mode;
+uniform int kind;
+uniform mat3 deviceToDoc;
+uniform vec3 colorizeAmounts;   // hue, saturation, lightness of the SELECTED range (not Master)
+uniform vec3 grain;             // size, roughness, strength
+uniform uint grainSeed;
+out vec4 color;
+${BLEND_GLSL}
+${ADJUST_GLSL}
+vec3 throughTables(vec3 c) {
+  return vec3(texture(lut, vec2((c.r * 255.0 + 0.5) / 256.0, 0.5)).r,
+              texture(lut, vec2((c.g * 255.0 + 0.5) / 256.0, 0.5)).g,
+              texture(lut, vec2((c.b * 255.0 + 0.5) / 256.0, 0.5)).b);
+}
+vec3 throughGradientMap(vec3 c) {
+  int level = (2126 * int(floor(c.r * 255.0 + 0.5)) + 7152 * int(floor(c.g * 255.0 + 0.5)) + 722 * int(floor(c.b * 255.0 + 0.5)) + 5000) / 10000;
+  return texture(lut, vec2((float(min(level, 255)) + 0.5) / 256.0, 0.5)).rgb;
+}
+vec3 throughHsl(vec3 c) {
+  vec3 hsl = rgbToHsl(c);
+  float lightnessAmount;
+  if (colorize) {
+    // rem(), not mod(): hsv.rs's colorize branch is a bare 'selected.hue % 360.0' with no
+    // subsequent positive wrap (unlike the non-colorize branch below), so a negative hue must
+    // stay negative here and reach hslToRgb's catch-all arm exactly as Rust's does.
+    hsl.x = rem(colorizeAmounts.x, 360.0);
+    hsl.y = clamp(colorizeAmounts.y / 100.0, 0.0, 1.0);
+    lightnessAmount = colorizeAmounts.z / 100.0;
+  } else {
+    vec4 sampled = texelFetch(response, ivec2(clamp(int(floor(hsl.x + 0.5)), 0, 360), 0), 0);
+    lightnessAmount = sampled.z / 100.0;
+    hsl.x = mod(hsl.x + sampled.x, 360.0);
+    if (hsl.x < 0.0) hsl.x += 360.0;
+    hsl.y = clamp(hsl.y * (1.0 + sampled.y / 100.0), 0.0, 1.0);
+  }
+  float amount = clamp(lightnessAmount, -1.0, 1.0);
+  hsl.z = amount >= 0.0 ? hsl.z + (1.0 - hsl.z) * amount : hsl.z * (1.0 + amount);
+  return hslToRgb(vec3(hsl.x, hsl.y, clamp(hsl.z, 0.0, 1.0)));
+}
+vec3 throughGrain(vec3 c, vec2 at) {
+  float size = grain.x > 0.0 ? grain.x : 1.0;
+  float rough = clamp(grain.y / 100.0, 0.0, 1.0);
+  uint fineSeed = mix32(grainSeed ^ 0xA511E9B3u);
+  vec2 cell = floor(at / size);
+  vec2 t = at / size - cell;
+  t = t * t * (3.0 - 2.0 * t);
+  int ix = int(cell.x), iy = int(cell.y);
+  float n00 = lattice(ix, iy, grainSeed), n10 = lattice(ix + 1, iy, grainSeed);
+  float n01 = lattice(ix, iy + 1, grainSeed), n11 = lattice(ix + 1, iy + 1, grainSeed);
+  float top = n00 + (n10 - n00) * t.x, bottom = n01 + (n11 - n01) * t.x;
+  float smoothNoise = (top + (bottom - top) * t.y) * 1.6;
+  float fine = lattice(int(floor(at.x)), int(floor(at.y)), fineSeed);
+  float noise = smoothNoise + (fine - smoothNoise) * rough;
+  float level = min(1.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
+  float delta = noise * grain.z * (0.4 + 2.4 * level * (1.0 - level)) / 255.0;
+  return clamp(c + delta, 0.0, 1.0);
+}
+void main() {
+  ivec2 at = ivec2(gl_FragCoord.xy);
+  vec4 d = texelFetch(src, at, 0);
+  if (d.a <= 0.0) { color = d; return; }
+  float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
+  if (k <= 0.0) { color = d; return; }
+  vec3 original = clamp(d.rgb / d.a, 0.0, 1.0);
+  vec3 adjusted = original;
+  if (kind == 1) adjusted = throughTables(original);
+  else if (kind == 2) adjusted = throughGradientMap(original);
+  else if (kind == 3) adjusted = throughHsl(original);
+  else if (kind == 4) { vec3 p = deviceToDoc * vec3(gl_FragCoord.xy, 1.0); adjusted = throughGrain(original, p.xy / p.z); }
+  if (mode != 0) adjusted = clamp(blendRgb(mode, original, adjusted), 0.0, 1.0);
+  vec3 mixed = mix(original, clamp(adjusted, 0.0, 1.0), k);
+  color = vec4(mixed * d.a, d.a);
+}`;
+
 export interface Program { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null>; }
-export interface Programs { layer: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
+export interface Programs { layer: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
 
 function compile(gl: WebGL2RenderingContext, vert: string, frag: string, uniforms: string[]): Program {
   const make = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader"); return s; };
@@ -153,14 +286,15 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
     restore: compile(gl, VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
     blit: compile(gl, VERT_SCREEN, FRAG_BLIT, ["src"]),
     checker: compile(gl, VERT_UNIT, FRAG_CHECKER, ["unitToClip", "uvRect", "flipX", "flipY", "sizePx", "cell"]),
+    adjust: compile(gl, VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed"]),
     vao, buffer,
   };
-  for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker]) {
+  for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust]) {
     const loc = gl.getAttribLocation(p.program, "unit"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   }
   return programs;
 }
 export function disposePrograms(gl: WebGL2RenderingContext, p: Programs): void {
-  for (const q of [p.layer, p.coverage, p.alphaOf, p.opaque, p.restore, p.blit, p.checker]) gl.deleteProgram(q.program);
+  for (const q of [p.layer, p.coverage, p.alphaOf, p.opaque, p.restore, p.blit, p.checker, p.adjust]) gl.deleteProgram(q.program);
   gl.deleteVertexArray(p.vao); gl.deleteBuffer(p.buffer);
 }

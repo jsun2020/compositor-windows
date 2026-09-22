@@ -125,6 +125,29 @@ impl WasmEngine {
             Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),
         }
     }
+    /// 256 RGBA rows for the kinds that map colour through a table; empty for the others.
+    pub fn adjustment_lut(&self, adjustment_json: &str) -> Result<Uint8Array, JsError> {
+        let a: LayerAdjustment = serde_json::from_str(adjustment_json).map_err(js_err)?;
+        let mut out = Vec::new();
+        match PreparedAdjustment::prepare(&a) {
+            PreparedAdjustment::Tables(tables) => {
+                for i in 0..256 { for c in 0..3 { out.push((tables[c * 256 + i] * 255.0).round().clamp(0.0, 255.0) as u8); } out.push(255); }
+            }
+            PreparedAdjustment::GradientMap(table) => {
+                for i in 0..256 { out.extend_from_slice(&table[i * 3..i * 3 + 3]); out.push(255); }
+            }
+            _ => {}
+        }
+        Ok(Uint8Array::from(out.as_slice()))
+    }
+    /// 361 entries of (hue shift, saturation, lightness, 0); empty unless this is a Hue/Saturation adjustment.
+    pub fn hue_response_table(&self, adjustment_json: &str) -> Result<js_sys::Float32Array, JsError> {
+        let a: LayerAdjustment = serde_json::from_str(adjustment_json).map_err(js_err)?;
+        if a.kind != AdjustmentKind::Hsv { return Ok(js_sys::Float32Array::new_with_length(0)); }
+        let mut out = Vec::with_capacity(361 * 4);
+        for entry in hue_response(&a.resolved_hsv()) { out.extend_from_slice(&[entry[0] as f32, entry[1] as f32, entry[2] as f32, 0.0]); }
+        Ok(js_sys::Float32Array::from(out.as_slice()))
+    }
     pub fn layer_pixels_ptr(&self, doc: &str, layer: &str, level: u32) -> Result<*const u8, JsError> {
         Ok(self.level_raster(doc, layer, level)?.map_or(std::ptr::null(), |r| r.bytes().as_ptr()))
     }
