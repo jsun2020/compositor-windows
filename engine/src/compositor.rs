@@ -187,6 +187,7 @@ impl<'a> Target<'a> {
 
 /// Draws one layer with its opacity, coverages and clip, blended with its mode.
 fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
+    if draw.adjustment.is_some() { return adjust_target(doc, plan, target, draw, blend, use_clip); }
     let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
     // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
@@ -210,6 +211,35 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         for v in &mut s { *v *= k; }
         let i = ((oy * target.w + ox) * 4) as usize;
         compose_u8(&mut target.data[i..i + 4], s, blend);
+    }}
+}
+
+/// An adjustment layer: the colours already in the target, mapped where this layer's coverage
+/// reaches. Nothing is sampled from the layer itself - it has no pixels - and the target's alpha
+/// is kept, so a soft edge below stays exactly as soft (macOS's LiveMaskRenderer.adjust).
+fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
+    let Some(adjustment) = &draw.adjustment else { return; };
+    let prepared = PreparedAdjustment::prepare(adjustment);
+    let out_per_doc = target.w as f64 / target.region.width;
+    let clip_sources = match (use_clip, draw.clip) {
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc),
+        _ => SourceRasters::new(),
+    };
+    for oy in 0..target.h { for ox in 0..target.w {
+        let i = ((oy * target.w + ox) * 4) as usize;
+        let alpha = target.data[i + 3] as f32;
+        if alpha <= 0.0 { continue; }
+        let p = target.doc_point(ox, oy);
+        let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
+        if k <= 0.0 { continue; }
+        let original = [target.data[i] as f32 / alpha, target.data[i + 1] as f32 / alpha, target.data[i + 2] as f32 / alpha];
+        let mut adjusted = prepared.color(original, p);
+        if blend != BlendMode::Normal { adjusted = blend_rgb(blend, original, adjusted); }
+        for c in 0..3 {
+            let mixed = original[c] + (adjusted[c].clamp(0.0, 1.0) - original[c]) * k;
+            target.data[i + c] = (mixed * alpha).round().clamp(0.0, alpha) as u8;
+        }
     }}
 }
 
@@ -253,12 +283,59 @@ pub fn render_layers(doc: &Document) -> Vec<&Layer> {
     doc.render_ids().into_iter().filter_map(|id| doc.layer(id)).collect()
 }
 
+/// Whether `id`'s document layer has `ancestor` somewhere up its parent chain.
+fn is_descendant_of(doc: &Document, id: Uuid, ancestor: Uuid) -> bool {
+    let mut parent = doc.layer(id).and_then(|l| l.parent_id);
+    let mut depth = 0;
+    while let Some(p) = parent {
+        if p == ancestor { return true; }
+        if depth >= MAX_NESTING { break; }
+        parent = doc.layer(p).and_then(|l| l.parent_id);
+        depth += 1;
+    }
+    false
+}
+
+/// An unclipped adjustment layer inside a folder reaches only that folder's own contents, not
+/// the whole canvas: replay the plan's prior draws that belong to the same folder into an
+/// isolated buffer, run the adjustment there, then patch just those pixels into the shared
+/// target. A root-level adjustment has no enclosing folder and maps the whole target directly,
+/// as it always did. This is the CPU mirror of macOS compositing a group as its own isolated
+/// unit before an adjustment inside it applies.
+fn draw_scoped_adjustment(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, prior: &[PlanNode]) {
+    let Some(pid) = doc.layer(draw.id).and_then(|l| l.parent_id) else {
+        return adjust_target(doc, plan, target, draw, draw.blend, true);
+    };
+    let (w, h, region) = (target.w, target.h, target.region);
+    let mut scope_data = vec![0u8; (w as usize) * (h as usize) * 4];
+    {
+        let mut scope = Target { data: &mut scope_data, w, h, region };
+        for node in prior {
+            match node {
+                PlanNode::Layer { draw: d } if is_descendant_of(doc, d.id, pid) => draw_layer(doc, plan, &mut scope, d, d.blend, true),
+                PlanNode::Stack { base, children, folder_coverages } if is_descendant_of(doc, base.id, pid) => {
+                    draw_stack(doc, plan, &mut scope, base, children, folder_coverages);
+                }
+                _ => {}
+            }
+        }
+        adjust_target(doc, plan, &mut scope, draw, draw.blend, true);
+    }
+    // Patch the shared target with the scope's adjusted colours wherever the scope has coverage;
+    // the target's own alpha is left as is, since it already reflects everything drawn so far.
+    for i in (0..scope_data.len()).step_by(4) {
+        if scope_data[i + 3] == 0 { continue; }
+        target.data[i] = scope_data[i]; target.data[i + 1] = scope_data[i + 1]; target.data[i + 2] = scope_data[i + 2];
+    }
+}
+
 pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
         let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
-        for node in &plan.nodes {
-            match node {
+        for index in 0..plan.nodes.len() {
+            match &plan.nodes[index] {
+                PlanNode::Layer { draw } if draw.adjustment.is_some() => draw_scoped_adjustment(doc, plan, &mut target, draw, &plan.nodes[..index]),
                 PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true),
                 PlanNode::Stack { base, children, folder_coverages } => draw_stack(doc, plan, &mut target, base, children, folder_coverages),
             }
@@ -279,7 +356,7 @@ pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &L
     let plan = RenderPlan { nodes: vec![], sources: vec![] };
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
-        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, coverages: vec![], clip: None };
+        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, coverages: vec![], clip: None, adjustment: None };
     let mut t = Target { data: target, w: tw, h: th, region };
     draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false);
 }

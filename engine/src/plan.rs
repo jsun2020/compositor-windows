@@ -29,6 +29,7 @@ pub struct LayerDraw {
     pub blend: BlendMode,
     pub coverages: Vec<Coverage>,
     #[serde(with = "ids::upper_opt")] pub clip: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -48,6 +49,7 @@ pub enum PreviewEdit {
     Layer { #[serde(with = "ids::upper")] id: Uuid, draft: LayerTransform, #[serde(default)] corners: Option<[Point; 4]> },
     Group { #[serde(deserialize_with = "deserialize_ids")] ids: Vec<Uuid>, #[serde(rename = "box")] bounds: LayerTransform, draft: LayerTransform, #[serde(default)] corners: Option<[Point; 4]> },
     Mask { #[serde(with = "ids::upper")] id: Uuid, draft: LayerTransform },
+    Adjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
 }
 
 fn deserialize_ids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Uuid>, D::Error> {
@@ -93,6 +95,14 @@ pub fn displayed_mask_placement(layer: &Layer, edit: Option<&PreviewEdit>) -> Op
     }
 }
 
+/// The layer's adjustment as the pending edit shows it.
+pub fn displayed_adjustment(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<LayerAdjustment> {
+    match edit {
+        Some(PreviewEdit::Adjustment { id, adjustment }) if *id == layer.id => Some(adjustment.clone()),
+        _ => layer.extra.adjustment.clone(),
+    }
+}
+
 fn own_coverage(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<Coverage> {
     let mask = layer.mask.as_ref()?;
     if !mask.enabled { return None; }
@@ -128,6 +138,7 @@ pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &L
     LayerDraw {
         id: layer.id, transform, corners, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
         opacity: layer.opacity.clamp(0.0, 1.0), blend: layer.blend_mode, coverages, clip: layer.mask_source_id,
+        adjustment: displayed_adjustment(layer, edit),
     }
 }
 
@@ -140,7 +151,8 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
     let mut stacked: HashSet<Uuid> = HashSet::new();
     let mut stacks: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
     for (index, base) in ids.iter().enumerate() {
-        if source_of(*base).is_some() { continue; }
+        // An adjustment layer is never a stack base (it has no alpha of its own to share).
+        if source_of(*base).is_some() || by_id[base].is_adjustment() { continue; }
         let mut children = Vec::new();
         for child in &ids[index + 1..] {
             if source_of(*child) == Some(*base) && parent_of(*child) == parent_of(*base) { children.push(*child); } else { break; }
@@ -153,6 +165,9 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
     for id in &ids {
         if stacked.contains(id) { continue; }
         let layer = by_id[id];
+        // A clipped adjustment renders only as part of its base's stack: with the base hidden or
+        // out of reach there is nothing beneath it to adjust, as macOS's drawComposite does.
+        if layer.is_adjustment() && layer.mask_source_id.is_some() { continue; }
         if let Some(children) = stacks.get(id) {
             let base = draw_for(doc, &by_id, layer, edit, false);
             let folder = folder_coverages(&by_id, layer, edit);
@@ -173,7 +188,7 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
         let id = needed_sources[i]; i += 1;
         if !seen.insert(id) { continue; }
         if let Some(layer) = by_id.get(&id) {
-            if layer.is_group { continue; }
+            if layer.is_group || layer.is_adjustment() { continue; }   // never a clipping source
             let draw = draw_for(doc, &by_id, layer, edit, false);
             if let Some(s) = draw.clip { if !needed_sources.contains(&s) { needed_sources.push(s); } }
             sources.push(draw);
@@ -190,7 +205,7 @@ pub fn ensure_source(doc: &Document, plan: &mut RenderPlan, id: Uuid) {
         depth += 1;
         if plan.sources.iter().any(|s| s.id == sid) { break; }
         let Some(layer) = by_id.get(&sid) else { break; };
-        if layer.is_group { break; }
+        if layer.is_group || layer.is_adjustment() { break; }
         let draw = draw_for(doc, &by_id, layer, None, false);
         next = draw.clip;
         plan.sources.push(draw);
