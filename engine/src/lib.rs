@@ -16,6 +16,7 @@ pub mod blend;
 pub mod plan;
 
 pub use adjust::settings::*;
+pub use adjust::levels::*;
 pub use error::*;
 pub use geometry::*;
 pub use manifest::*;
