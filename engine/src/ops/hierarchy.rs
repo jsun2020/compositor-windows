@@ -269,7 +269,7 @@ pub fn can_toggle_clipping(doc: &Document, id: Uuid) -> bool {
     let Some(index) = siblings.iter().position(|s| *s == id) else { return false; };
     if index == 0 { return false; }
     let below = doc.layer(siblings[index - 1]).unwrap();
-    if below.is_group { return false; }
+    if below.is_group || below.is_adjustment() { return false; }
     can_link_mask(doc, below.mask_source_id.unwrap_or(below.id), id)
 }
 
