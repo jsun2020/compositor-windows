@@ -2533,9 +2533,12 @@ fn middle(e: &Engine, doc: uuid::Uuid) -> [u8; 4] {
 fn a_preview_shows_through_every_render_path_without_touching_the_document() {
     let (mut e, doc, layer) = seeded();
     let before = middle(&e, doc);
-    let (was_modified, could_undo, could_redo) = {
+    // undo_depth is the term that carries this assertion. The three booleans are already saturated
+    // in this fixture (modified true, can_undo true, can_redo false), so a spurious content-free
+    // history push would move none of them; only the depth moves.
+    let (was_modified, could_undo, could_redo, depth) = {
         let s = e.state(doc).unwrap();
-        (s.is_modified, s.can_undo, s.can_redo)
+        (s.is_modified, s.can_undo, s.can_redo, s.undo_depth)
     };
     let mut a = LayerAdjustment::new(AdjustmentKind::Levels);
     a.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
@@ -2547,7 +2550,8 @@ fn a_preview_shows_through_every_render_path_without_touching_the_document() {
     assert!(l.pixels_revision > 1_000_000, "a preview revision, so the renderer re-uploads");
     // Ruling (Task 10): a delta, not an absolute. seeded() imports into an existing document
     // through Engine::edit, so both flags are legitimately true before any preview exists.
-    assert!(state.is_modified == was_modified && state.can_undo == could_undo && state.can_redo == could_redo,
+    assert!(state.is_modified == was_modified && state.can_undo == could_undo
+        && state.can_redo == could_redo && state.undo_depth == depth,
         "a preview records nothing");
     // The stored document still holds the original pixels.
     assert_eq!(e.document(doc).unwrap().layer(layer).unwrap().pixels.as_ref().unwrap().pixel(0, 0), [128, 128, 128, 255]);
@@ -2576,9 +2580,14 @@ fn a_command_undo_and_redo_all_end_a_preview() {
 #[test]
 fn a_blur_preview_grows_the_layer_and_previews_from_a_reduced_copy() {
     let mut e = Engine::new();
-    let doc = e.new_document(400, 400, false).unwrap();
-    let bytes = encode_png(&Raster::from_premultiplied(300, 300, [255u8, 255, 255, 255].repeat(90_000)), 72.0).unwrap();
-    e.import_image(Some(doc), &bytes, "Big", Some(Point { x: 200.0, y: 200.0 })).unwrap();
+    // Ruling (Task 10): oblong and just over the 2048 filter limit on its long side, so exactly one
+    // halving runs and factor is 0.5. The old 400x400 / 300x300 fixture never crossed the limit at
+    // all, so reduced() never looped, factor stayed 1.0, and neither the halving nor the
+    // FilterParams::scaled call was exercised by anything in the suite. Staying under a megabyte
+    // matters: a square fixture large enough to cross 2048 on both axes would slow every run.
+    let doc = e.new_document(2200, 200, false).unwrap();
+    let bytes = encode_png(&Raster::from_premultiplied(2100, 100, [255u8, 255, 255, 255].repeat(210_000)), 72.0).unwrap();
+    e.import_image(Some(doc), &bytes, "Big", Some(Point { x: 1100.0, y: 100.0 })).unwrap();
     let layer = e.state(doc).unwrap().active_layer_id.unwrap();
     let before = e.state(doc).unwrap().layers[0].transform;
     e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: FilterParams::GaussianBlur { radius: 6.0 } })).unwrap();
@@ -2586,7 +2595,14 @@ fn a_blur_preview_grows_the_layer_and_previews_from_a_reduced_copy() {
     let l = &state.layers[0];
     assert!(l.transform.size.width > before.size.width, "the preview shows the grown layer");
     assert!(l.pixels_width <= 2048, "previewed from a reduced copy: {}", l.pixels_width);
-    assert!((l.transform.size.width / before.size.width - l.transform.size.height / before.size.height).abs() < 0.01);
+    // Ruling (Task 10): the old aspect-ratio assertion was vacuous and is replaced. grown() pads a
+    // fixed pixel margin m on every side, so the per-axis growth ratios (w+2m)/w and (h+2m)/h are
+    // equal only when w == h; on the old square fixture it held for ANY margin, zero included.
+    // "Centre kept" is the clause of the blur growth constraint that nothing else tests, and it is
+    // shape-independent. A layer grown from a corner instead of in place is caught here and nowhere else.
+    let c0 = Point { x: before.origin.x + before.size.width / 2.0, y: before.origin.y + before.size.height / 2.0 };
+    let c1 = Point { x: l.transform.origin.x + l.transform.size.width / 2.0, y: l.transform.origin.y + l.transform.size.height / 2.0 };
+    assert!((c0.x - c1.x).abs() < 1e-6 && (c0.y - c1.y).abs() < 1e-6, "a blur grows the layer in place, keeping its centre");
     e.set_preview(doc, None).unwrap();
     assert_eq!(e.state(doc).unwrap().layers[0].transform, before);
 }
