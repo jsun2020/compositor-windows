@@ -1,4 +1,4 @@
-use crate::{BlendMode, GrayRaster, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
+use crate::{BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -12,7 +12,7 @@ pub struct Mask {
 /// Fields owned by later phases, carried through untouched.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct LayerExtra {
-    pub adjustment: Option<serde_json::Value>,
+    pub adjustment: Option<LayerAdjustment>,
     pub shape: Option<serde_json::Value>,
 }
 
@@ -149,6 +149,7 @@ impl Layer {
     pub fn set_mask(&mut self, mask: Option<Mask>) { self.mask = mask; self.mask_revision += 1; }
     pub fn mask_mut(&mut self) -> Option<&mut Mask> { self.mask_revision += 1; self.mask.as_mut() }
     pub fn has_pixels(&self) -> bool { self.pixels.is_some() }
+    pub fn is_adjustment(&self) -> bool { self.extra.adjustment.is_some() }
 }
 
 impl Document {

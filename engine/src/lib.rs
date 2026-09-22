@@ -1,3 +1,4 @@
+pub mod adjust;
 pub mod error;
 pub mod geometry;
 pub mod ids;
@@ -14,6 +15,7 @@ pub mod ops;
 pub mod blend;
 pub mod plan;
 
+pub use adjust::settings::*;
 pub use error::*;
 pub use geometry::*;
 pub use manifest::*;

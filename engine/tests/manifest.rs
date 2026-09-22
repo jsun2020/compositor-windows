@@ -128,8 +128,8 @@ fn active_layer_must_exist_and_ids_unique() {
 #[test]
 fn unknown_later_phase_fields_survive() {
     let mut m = manifest();
-    m.layers[0].adjustment = Some(serde_json::json!({"kind": "Levels", "levels": {"black": 0}}));
+    m.layers[0].shape = Some(serde_json::json!({"kind": "Rectangle", "corner": 0}));
     let json = m.to_json_pretty().unwrap();
     let back = Manifest::parse(&json).unwrap();
-    assert_eq!(back.layers[0].adjustment, m.layers[0].adjustment);
+    assert_eq!(back.layers[0].shape, m.layers[0].shape);
 }

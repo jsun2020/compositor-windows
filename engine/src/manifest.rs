@@ -1,4 +1,4 @@
-use crate::{ids, LayerTransform, ProjectError};
+use crate::{ids, LayerAdjustment, LayerTransform, ProjectError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -45,7 +45,7 @@ pub struct LayerRecord {
     #[serde(rename = "maskFile", default, skip_serializing_if = "Option::is_none")] pub mask_file: Option<String>,
     #[serde(rename = "maskEnabled", default, skip_serializing_if = "Option::is_none")] pub mask_enabled: Option<bool>,
     #[serde(rename = "maskSourceID", default, with = "ids::upper_opt", skip_serializing_if = "Option::is_none")] pub mask_source_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub adjustment: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
     #[serde(rename = "maskPlacement", default, skip_serializing_if = "Option::is_none")] pub mask_placement: Option<LayerTransform>,
     #[serde(rename = "maskLinked", default, skip_serializing_if = "Option::is_none")] pub mask_linked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
@@ -116,8 +116,8 @@ impl Manifest {
             return Err(TooLarge);
         }
         for layer in &self.layers {
-            if let Some(adj) = &layer.adjustment {
-                if self.version < 7 || layer.is_group() || layer.image_file.is_some() || !adj.is_object() { return Err(Invalid); }
+            if let Some(adjustment) = &layer.adjustment {
+                if self.version < 7 || layer.is_group() || layer.image_file.is_some() || !adjustment.is_valid() { return Err(Invalid); }
             }
             if let Some(mask) = &layer.mask_file {
                 let needed = if layer.is_group() { 6 } else { 4 };

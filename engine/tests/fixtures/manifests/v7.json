@@ -13,8 +13,28 @@
       "isVisible": true,
       "adjustment": {
         "kind": "Levels",
-        "black": 0.05,
-        "white": 0.95
+        "hue": 0,
+        "saturation": 0,
+        "lightness": 0,
+        "colorize": false,
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {"black": 12, "gamma": 1.1, "white": 240, "outputBlack": 0, "outputWhite": 255},
+            {"black": 0, "gamma": 1, "white": 255, "outputBlack": 0, "outputWhite": 255},
+            {"black": 0, "gamma": 1, "white": 255, "outputBlack": 0, "outputWhite": 255},
+            {"black": 0, "gamma": 1, "white": 255, "outputBlack": 0, "outputWhite": 255}
+          ]
+        },
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [{"x": 0, "y": 0}, {"x": 255, "y": 255}],
+            [{"x": 0, "y": 0}, {"x": 255, "y": 255}],
+            [{"x": 0, "y": 0}, {"x": 255, "y": 255}],
+            [{"x": 0, "y": 0}, {"x": 255, "y": 255}]
+          ]
+        }
       },
       "transform": {
         "origin": [0, 0],
