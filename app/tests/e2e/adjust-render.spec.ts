@@ -46,6 +46,10 @@ async function expectMatchesCpu(page: Page, label: string) {
     const cpu = Array.from(api.engine.compositeEdit(d.id, s.previewEdit(), { x: 0, y: 0, width: d.width, height: d.height }, d.width, d.height)) as number[];
     return { gl, cpu, kind: s.rendererKind };
   });
+  // createRenderer silently falls back to the CPU renderer when WebGL2 is unavailable; without
+  // this, every assertion here would compare the CPU compositor against itself and pass. This
+  // spec is the only gate for the adjust shader, so it is the one that needs the guard.
+  expect(r.kind).toBe("gl");
   expect(r.gl.length).toBe(r.cpu.length);
   const worst = r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0);
   // Grain hashes in f32 on both sides but rounds at different points; 3 covers that one level.
@@ -120,6 +124,23 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
   // would send it to arm 0 instead and paint a different colour. -300 exercises both.
   await setColorize(true, "Reds", -300);
   await expectMatchesCpu(page, "colorize with a negative hue");
+  // Ruling (Task 13 review): -300 alone does NOT distinguish trunc from floor, because -300/60 is
+  // exactly -5.0 and the two agree on integers. Swapping int(trunc(sector)) for int(floor(sector))
+  // leaves all 46 e2e green. Only a hue in (-60, 0) separates them: -30 gives sector -0.5, which
+  // truncates to 0 and floors to -1, two different arms. Verified at 74/255 with floor.
+  await setColorize(true, "Reds", -30);
+  await expectMatchesCpu(page, "colorize with a hue between -60 and 0, which separates trunc from floor");
+  // The selected range ABSENT from the sparse map: the CPU falls back to zero, and an earlier
+  // fallback to Master measured 26/255 here.
+  await page.evaluate((id) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
+    const hsv = { ...layer.adjustment.hsvSettings, colorize: true, range: "Greens",
+      adjustments: { Master: { hue: 210, saturation: 80, lightness: 10 } } };
+    api.engine.execute(s.activeId, { type: "SetAdjustment", id, adjustment: { ...layer.adjustment, hsvSettings: hsv } });
+    s.refresh(); s.invalidate();
+  }, id);
+  await expectMatchesCpu(page, "colorize whose selected range is absent from the adjustments map");
   await setColorize(false, "Reds", 200);
   const run = (cmd: unknown) => page.evaluate((cmd) => { const api = (window as any).__compositor; const s = api.store.getState(); api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate(); }, cmd);
   await run({ type: "SetLayerOpacity", id, opacity: 0.45 });
@@ -134,6 +155,11 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
   await expectMatchesCpu(page, "clipped to the layer below");
 });
 
+// A destructive beginAdjust preview is applied by the engine into the layer's own raster: the
+// plan carries already-adjusted pixels and no adjustment draw, so adjustPass never runs here.
+// This is still a real GPU-vs-CPU comparison and worth keeping (proved by a control: a one-texel
+// LUT shift fails "every adjustment layer" and leaves this test green), but it gates the preview
+// plumbing, NOT this task's shader -- do not count it as adjustment-pass coverage.
 test("a live panel preview draws the same as the CPU", async ({ page }) => {
   await setup(page, HEIGHT_DESTRUCTIVE_PREVIEW);
   await page.evaluate(() => {

@@ -3,7 +3,7 @@ import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderOptions, Renderer } from "./renderer";
-import { BLEND_INDEX, createPrograms, disposePrograms, type Programs } from "./gl/programs";
+import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Programs } from "./gl/programs";
 import { FboPool } from "./gl/framebuffers";
 import { MaskTextures } from "./gl/mask-textures";
 import { AdjustTextures } from "./gl/adjust-textures";
@@ -199,7 +199,8 @@ export class GlRenderer implements Renderer {
     const p = this.programs.adjust;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`${pair}B`, "rgba").fbo);
     gl.useProgram(p.program);
-    const kind = adjustment.kind === "Hue/Saturation" ? 3 : adjustment.kind === "Grain" ? 4 : adjustment.kind === "Gradient Map" ? 2 : 1;
+    const kind = adjustment.kind === "Hue/Saturation" ? ADJUST_KIND.hsv : adjustment.kind === "Grain" ? ADJUST_KIND.grain
+      : adjustment.kind === "Gradient Map" ? ADJUST_KIND.gradientMap : ADJUST_KIND.tables;
     gl.uniform1i(p.uniforms.kind, kind);
     gl.uniform1f(p.uniforms.opacity, draw.opacity);
     gl.uniform1i(p.uniforms.mode, BLEND_INDEX[blend as keyof typeof BLEND_INDEX]);
@@ -211,11 +212,30 @@ export class GlRenderer implements Renderer {
     // produce colorize with a non-Master range (the Colorize toggle resets the whole settings
     // object to Master), but a .comp file or a SetAdjustment command can, and the parity
     // constraint covers every adjustment layer, not only UI-reachable ones.
-    const selected = hsv?.adjustments?.[hsv.range] ?? hsv?.adjustments?.Master
-        ?? { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
+    // When the selected range is ABSENT from the sparse adjustments map, fall back to ZERO, not
+    // to Master. Rust's HueSaturationSettings::adjustment is
+    // adjustments.get(&range).copied().unwrap_or_default() and the Mac is
+    // adjustments[range]?.hue ?? 0 (HueSaturation.swift:188) -- both zero. is_valid() never
+    // requires `range` to be a key, so {range:"Reds", colorize:true, adjustments:{Master:...}}
+    // passes set_adjustment and .comp load. Falling back to Master here measured 26/255 against
+    // the CPU. With no hsvSettings at all, resolved_hsv() builds one from the legacy scalars
+    // under Master with range defaulting to Master, so the scalars are correct in that case and
+    // only in that case.
+    const selected = hsv
+        ? (hsv.adjustments?.[hsv.range] ?? { hue: 0, saturation: 0, lightness: 0 })
+        : { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
     gl.uniform1i(p.uniforms.colorize, (hsv?.colorize ?? adjustment.colorize) ? 1 : 0);
     gl.uniform3f(p.uniforms.colorizeAmounts, selected.hue, selected.saturation, selected.lightness);
-    const grain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
+    const rawGrain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
+    // Mirrors GrainSettings::normalized() in engine/src/adjust/grain.rs, which prepare() always
+    // applies before use. is_valid() prevents a live divergence today, but the CPU normalizes
+    // defensively and the GPU should too -- that asymmetry is exactly what produced Fix 1 above.
+    const grain = {
+      amount: Math.min(100, Math.max(0, rawGrain.amount)),
+      size: Math.min(20, Math.max(0.5, rawGrain.size)),
+      roughness: Math.min(100, Math.max(0, rawGrain.roughness)),
+      seed: rawGrain.seed,
+    };
     // strength mirrors `grain_strength` in engine/src/adjust/grain.rs.
     gl.uniform3f(p.uniforms.grain, grain.size, grain.roughness, Math.min(1, grain.amount / 100) * 0.35 * 255);
     gl.uniform1ui(p.uniforms.grainSeed, grain.seed >>> 0);
