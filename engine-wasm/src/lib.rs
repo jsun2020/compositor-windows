@@ -96,14 +96,34 @@ impl WasmEngine {
     /// buffer outlives this call (the document holds the whole chain) and repeat frames at the
     /// same level recompute nothing.
     fn level_raster(&self, doc: &str, layer: &str, level: u32) -> Result<Option<Raster>, JsError> {
-        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
-        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
-        let Some(mut r) = l.pixels.clone() else { return Ok(None); };
-        for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
-            if r.width <= 1 || r.height <= 1 { break; }
-            r = r.halved();
+        self.engine.layer_raster(parse_id(doc)?, parse_id(layer)?, level).map_err(js_err)
+    }
+    pub fn set_preview(&mut self, doc: &str, request_json: Option<String>) -> Result<String, JsError> {
+        let request = match request_json { Some(j) => Some(serde_json::from_str::<PreviewRequest>(&j).map_err(js_err)?), None => None };
+        serde_json::to_string(&self.engine.set_preview(parse_id(doc)?, request).map_err(js_err)?).map_err(js_err)
+    }
+    pub fn histogram(&self, doc: &str, layer: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.engine.histogram(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?).map_err(js_err)
+    }
+    pub fn auto_levels(&self, doc: &str, layer: &str, mode: &str) -> Result<String, JsError> {
+        let mode: LevelsAuto = serde_json::from_str(&format!("\"{mode}\"")).map_err(js_err)?;
+        serde_json::to_string(&self.engine.auto_levels(parse_id(doc)?, parse_id(layer)?, mode).map_err(js_err)?).map_err(js_err)
+    }
+    pub fn levels_sampling(&self, doc: &str, layer: &str, settings_json: &str, x: f64, y: f64, mode: &str) -> Result<String, JsError> {
+        let settings: LevelsSettings = serde_json::from_str(settings_json).map_err(js_err)?;
+        let mode: LevelsSample = serde_json::from_str(&format!("\"{mode}\"")).map_err(js_err)?;
+        let out = self.engine.levels_sampling(parse_id(doc)?, parse_id(layer)?, &settings, Point { x, y }, mode).map_err(js_err)?;
+        serde_json::to_string(&out).map_err(js_err)
+    }
+    pub fn sample_layer_color(&self, doc: &str, layer: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
+        match self.engine.sample_layer_color(parse_id(doc)?, parse_id(layer)?, Point { x, y }).map_err(js_err)? {
+            Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),
         }
-        Ok(Some(r))
+    }
+    pub fn sample_color(&self, doc: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
+        match self.engine.sample_color(parse_id(doc)?, Point { x, y }).map_err(js_err)? {
+            Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),
+        }
     }
     pub fn layer_pixels_ptr(&self, doc: &str, layer: &str, level: u32) -> Result<*const u8, JsError> {
         Ok(self.level_raster(doc, layer, level)?.map_or(std::ptr::null(), |r| r.bytes().as_ptr()))

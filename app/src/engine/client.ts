@@ -1,5 +1,5 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
-import type { Command, Dirty, DocumentState, LayerTransform, PackageFiles, PreviewEdit, RenderPlan } from "./types";
+import type { Command, Dirty, DocumentState, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PreviewEdit, PreviewRequest, RenderPlan } from "./types";
 
 export class EngineClient {
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
@@ -77,4 +77,24 @@ export class EngineClient {
   groupBox(doc: string, ids: string[]): LayerTransform | null { const t = this.wasm.group_box(doc, JSON.stringify(ids)); return t ? (JSON.parse(t) as LayerTransform) : null; }
   canToggleClipping(doc: string, id: string): boolean { return this.wasm.can_toggle_clipping(doc, id); }
   canPlace(doc: string, id: string, parent: string | null): boolean { return this.wasm.can_place(doc, id, parent ?? undefined); }
+
+  /** Substitutes one layer's pixels with the open panel's result. Cleared by any command, undo
+   * or redo, and by passing null. */
+  setPreview(doc: string, request: PreviewRequest | null): Dirty {
+    return JSON.parse(this.wasm.set_preview(doc, request ? JSON.stringify(request) : undefined)) as Dirty;
+  }
+  /** Four arrays of 256 bins: the mean of the channels, then red, green and blue. */
+  histogram(doc: string, layer: string): number[][] { return JSON.parse(this.wasm.histogram(doc, layer)) as number[][]; }
+  autoLevels(doc: string, layer: string, mode: LevelsAuto): LevelsSettings { return JSON.parse(this.wasm.auto_levels(doc, layer, mode)) as LevelsSettings; }
+  levelsSampling(doc: string, layer: string, settings: LevelsSettings, at: { x: number; y: number }, mode: LevelsSample): LevelsSettings {
+    return JSON.parse(this.wasm.levels_sampling(doc, layer, JSON.stringify(settings), at.x, at.y, mode)) as LevelsSettings;
+  }
+  sampleLayerColor(doc: string, layer: string, at: { x: number; y: number }): [number, number, number] | null {
+    const json = this.wasm.sample_layer_color(doc, layer, at.x, at.y);
+    return json ? (JSON.parse(json) as [number, number, number]) : null;
+  }
+  sampleColor(doc: string, at: { x: number; y: number }): [number, number, number] | null {
+    const json = this.wasm.sample_color(doc, at.x, at.y);
+    return json ? (JSON.parse(json) as [number, number, number]) : null;
+  }
 }

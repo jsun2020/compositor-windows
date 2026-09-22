@@ -96,3 +96,23 @@ fn duplicate_transformed_is_one_undo_step() {
     e.undo(doc).unwrap();
     assert_eq!(e.state(doc).unwrap().layers.len(), 1);
 }
+
+#[test]
+fn phase3_commands_round_trip_json() {
+    let mut e = Engine::new();
+    let doc = e.new_document(8, 8, false).unwrap();
+    let a = seed(&mut e, doc, "A", 0.0, 0.0);
+    let ida = ids::upper_string(&a);
+    let run = |e: &mut Engine, json: String| { let c: Command = serde_json::from_str(&json).unwrap(); e.execute(doc, c).unwrap() };
+    run(&mut e, format!(r#"{{"type":"ApplyFilter","id":"{ida}","params":{{"filter":"AddNoise","amount":25,"gaussian":false,"monochromatic":true,"seed":5}}}}"#));
+    run(&mut e, format!(r#"{{"type":"InvertPixels","id":"{ida}","mask":false}}"#));
+    run(&mut e, r#"{"type":"AddAdjustmentLayer","kind":"Gradient Map","seed":0,"shadows":[1,0,0],"highlights":[0,0,1]}"#.to_string());
+    let state = e.state(doc).unwrap();
+    let adjustment = state.layers.iter().find(|l| l.adjustment.is_some()).unwrap();
+    assert_eq!(adjustment.adjustment.as_ref().unwrap().gradient_map().shadows.red, 1.0);
+    run(&mut e, format!(r#"{{"type":"ApplyAdjustment","id":"{ida}","adjustment":{}}}"#, serde_json::to_string(&LayerAdjustment::new(AdjustmentKind::Exposure)).unwrap()));
+    let request: PreviewRequest = serde_json::from_str(&format!(r#"{{"preview":"Filter","layer":"{ida}","params":{{"filter":"GaussianBlur","radius":2}}}}"#)).unwrap();
+    assert_eq!(request.layer(), a);
+    e.set_preview(doc, Some(request)).unwrap();
+    assert!(e.layer_raster(doc, a, 0).unwrap().is_some());
+}
