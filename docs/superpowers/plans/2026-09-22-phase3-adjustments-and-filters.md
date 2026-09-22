@@ -4016,6 +4016,7 @@ const open = (page: Page, kind: string) => page.evaluate((kind) => (window as an
 test("the levels panel previews, applies once, and leaves the pixels alone until OK", async ({ page }) => {
   await setup(page);
   const before = (await state(page)).layers[0].pixelsRevision;
+  const depthBefore = (await state(page)).undoDepth;
   await open(page, "Levels");
   await expect(page.getByTestId("adjust-panel")).toBeVisible();
   await expect(page.getByTestId("adjust-title")).toHaveText("Levels");
@@ -4024,14 +4025,14 @@ test("the levels panel previews, applies once, and leaves the pixels alone until
   await page.getByLabel("White point").press("Enter");
   // The preview is on screen, but the document has recorded nothing.
   let d = await state(page);
-  expect(d.canUndo).toBe(false);
+  expect(d.undoDepth).toBe(depthBefore); // preview alone records nothing
   expect(await page.evaluate(() => !!(window as any).__compositor.store.getState().adjustEdit)).toBe(true);
   // Preview off shows the original again.
   await page.getByTestId("adjust-preview").uncheck();
   await page.getByTestId("adjust-preview").check();
   await page.getByTestId("adjust-ok").click();
   d = await state(page);
-  expect(d.canUndo).toBe(true);
+  expect(d.undoDepth).toBe(depthBefore + 1); // OK commits exactly one step
   expect(d.layers[0].pixelsRevision).toBeGreaterThan(before);
   await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
   // Ruling (Task 14): undoDepth, not canUndo. setup() imports into an existing document, which
@@ -4079,16 +4080,17 @@ test("auto levels and the reset button", async ({ page }) => {
 
 test("the curves editor adds a point by clicking and applies it", async ({ page }) => {
   await setup(page);
+  const depthBefore = (await state(page)).undoDepth;
   await open(page, "Curves");
   const editor = page.getByTestId("curves-editor");
   const box = (await editor.boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.25);
   const points = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.curves.channels[0]);
   expect(points.length).toBe(3);
-  expect(points[1].y).toBeGreaterThan(points[1].x, "clicking above the diagonal brightens");
+  expect(points[1].y).toBeGreaterThan(points[1].x); // clicking above the diagonal brightens
   await page.getByTestId("adjust-ok").click();
   const d = await state(page);
-  expect(d.canUndo).toBe(true);
+  expect(d.undoDepth).toBe(depthBefore + 1); // OK commits exactly one step
   const _ = clickMenu;
 });
 
@@ -4457,6 +4459,7 @@ Add to `app/tests/e2e/adjust-panels.spec.ts`:
 ```ts
 test("hue/saturation edits one range at a time and the eyedropper retargets a band", async ({ page }) => {
   await setup(page);
+  const depthBefore = (await state(page)).undoDepth;
   await open(page, "Hue/Saturation");
   await page.getByLabel("Hue").fill("120");
   let settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
@@ -4475,18 +4478,19 @@ test("hue/saturation edits one range at a time and the eyedropper retargets a ba
   const band = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings.bands.Reds);
   expect(band).not.toEqual({ falloffStart: 315, rangeStart: 345, rangeEnd: 15, falloffEnd: 45 });
   await page.getByTestId("adjust-ok").click();
-  expect((await state(page)).canUndo).toBe(true);
+  expect((await state(page)).undoDepth).toBe(depthBefore + 1); // OK commits exactly one step
 });
 
 test("colorize gives everything one hue", async ({ page }) => {
   await setup(page);
+  const depthBefore = (await state(page)).undoDepth;
   await open(page, "Hue/Saturation");
   await page.getByTestId("hue-colorize").check();
   const settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.colorize).toBe(true);
   expect(settings.adjustments.Master.saturation).toBe(25); // Photoshop's starting point
   await page.getByTestId("adjust-ok").click();
-  expect((await state(page)).canUndo).toBe(true);
+  expect((await state(page)).undoDepth).toBe(depthBefore + 1); // OK commits exactly one step
 });
 ```
 
@@ -4589,13 +4593,14 @@ const layer = (page: Page) => page.evaluate(() => { const s = (window as any).__
 test("a gaussian blur grows the layer, previews, and applies as one undo step", async ({ page }) => {
   await setup(page);
   const before = await layer(page);
+  const depthBefore = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].undoDepth; });
   await clickMenu(page, "Filter", "filter-gaussian-blur");
   await expect(page.getByTestId("adjust-title")).toHaveText("Gaussian Blur");
   await page.getByLabel("Radius").fill("5");
   await page.getByLabel("Radius").press("Enter");
   const previewed = await layer(page);
   expect(previewed.transform.size[0]).toBeGreaterThan(before.transform.size[0]);
-  expect(await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].canUndo; })).toBe(false);
+  expect(await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].undoDepth; })).toBe(depthBefore); // preview alone records nothing
   await page.getByTestId("adjust-ok").click();
   const after = await layer(page);
   expect(after.transform.size[0]).toBeGreaterThan(before.transform.size[0]);
@@ -4608,6 +4613,7 @@ test("a gaussian blur grows the layer, previews, and applies as one undo step", 
 
 test("motion blur, add noise and lens correction each apply once", async ({ page }) => {
   await setup(page);
+  const depthBefore = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].undoDepth; });
   for (const [id, label, value] of [["filter-motion-blur", "Distance", "24"], ["filter-add-noise", "Amount", "30"], ["filter-lens-correction", "Remove distortion", "-60"]] as const) {
     const before = (await layer(page)).pixelsRevision;
     await clickMenu(page, "Filter", id);
@@ -4616,8 +4622,8 @@ test("motion blur, add noise and lens correction each apply once", async ({ page
     await page.getByTestId("adjust-ok").click();
     expect((await layer(page)).pixelsRevision).toBeGreaterThan(before);
   }
-  const d = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
-  expect(d.canUndo).toBe(true);
+  const depthAfter = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].undoDepth; });
+  expect(depthAfter).toBe(depthBefore + 3); // one undo step per filter
 });
 
 test("the image menu opens every adjustment and Invert applies at once", async ({ page }) => {
@@ -4852,10 +4858,10 @@ test("double-clicking an adjustment row edits it live and OK records one step", 
   await expect(page.getByTestId("adjust-title")).toHaveText("Curves");
   const editor = page.getByTestId("curves-editor");
   const box = (await editor.boundingBox())!;
+  const depthBefore = (await state(page)).undoDepth;
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.2);
   // The live preview goes through the plan: the document has no new undo step yet.
-  expect((await state(page)).canUndo).toBe(true); // only the New Curves Adjustment step so far
-  const depthBefore = (await state(page)).undoDepth;
+  expect((await state(page)).undoDepth).toBe(depthBefore); // only the New Curves Adjustment step so far
   await page.getByTestId("adjust-ok").click();
   expect((await state(page)).undoDepth).toBe(depthBefore + 1);
   const points = (await state(page)).layers.find((l: any) => l.id === id).adjustment.curves.channels[0];
