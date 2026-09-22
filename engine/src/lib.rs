@@ -19,6 +19,7 @@ pub use adjust::settings::*;
 pub use adjust::levels::*;
 pub use adjust::curves::*;
 pub use adjust::tonal::*;
+pub use adjust::hsv::*;
 pub use error::*;
 pub use geometry::*;
 pub use manifest::*;
