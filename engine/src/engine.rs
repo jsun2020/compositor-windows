@@ -7,6 +7,7 @@ pub struct Session {
     pub document: Document,
     pub history: History,
     pub path: Option<String>,
+    pub preview: Option<PixelPreview>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -33,6 +34,7 @@ pub struct LayerState {
     #[serde(with = "ids::upper_opt")] pub mask_source_id: Option<Uuid>,
     pub mask_placement: Option<LayerTransform>,
     pub mask_background: u8,
+    #[serde(skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,8 +58,12 @@ pub struct DocumentState {
     pub layers: Vec<LayerState>,
 }
 
+/// Preview revisions start here so they can never collide with a layer's own, which counts up
+/// from 1 as the document is edited.
+const PREVIEW_REVISION_BASE: u64 = 1 << 40;
+
 #[derive(Default)]
-pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid> }
+pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64 }
 
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
@@ -75,7 +81,7 @@ impl Engine {
     /// collisions with a live session never happen.
     fn insert(&mut self, document: Document, path: Option<String>) -> Uuid {
         let handle = Uuid::new_v4();
-        self.sessions.insert(handle, Session { document, history: History::default(), path });
+        self.sessions.insert(handle, Session { document, history: History::default(), path, preview: None });
         self.order.push(handle);
         handle
     }
@@ -117,7 +123,8 @@ impl Engine {
 
     pub fn state(&self, id: Uuid) -> Result<DocumentState, CommandError> {
         let s = self.session(id)?;
-        let d = &s.document;
+        let doc = self.render_document(id)?;
+        let d = &*doc;
         Ok(DocumentState {
             id, document_id: d.id, width: d.width, height: d.height, resolution: d.resolution, active_layer_id: d.active_layer_id,
             can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), undo_depth: s.history.depth(), is_modified: s.history.is_modified(),
@@ -131,9 +138,33 @@ impl Engine {
                 mask_revision: l.mask_revision, mask_enabled: l.mask.as_ref().map_or(true, |m| m.enabled),
                 mask_linked: l.mask.as_ref().map_or(true, |m| m.is_linked()), mask_source_id: l.mask_source_id,
                 mask_placement: l.mask.as_ref().and_then(|m| m.placement), mask_background: l.mask.as_ref().map_or(255, |m| m.background()),
+                adjustment: l.extra.adjustment.clone(),
             }).collect(),
         })
     }
+
+    /// The document as the canvas should show it: the stored one, or a copy with the open
+    /// panel's preview substituted for one layer. Every render path reads this; `export_*` and
+    /// the ops do not, because a preview is not committed.
+    fn render_document(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> {
+        let s = self.session(id)?;
+        let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
+        let mut doc = s.document.clone();
+        if let Some(layer) = doc.layer_mut(preview.layer) {
+            layer.pixels = Some(preview.raster.clone());
+            layer.pixels_revision = preview.revision;
+            layer.transform = preview.transform;
+        }
+        Ok(std::borrow::Cow::Owned(doc))
+    }
+    pub fn set_preview(&mut self, id: Uuid, request: Option<PreviewRequest>) -> Result<Dirty, CommandError> {
+        let revision = { self.preview_revision += 1; PREVIEW_REVISION_BASE + self.preview_revision };
+        let s = self.session_mut(id)?;
+        let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
+        s.preview = request.as_ref().and_then(|r| preview::compute_preview(&s.document, r, revision));
+        Ok(Dirty { structure: true, canvas: false, layers })
+    }
+    fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
 
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
     fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
@@ -150,6 +181,7 @@ impl Engine {
     }
 
     pub fn execute(&mut self, handle: Uuid, command: Command) -> Result<Dirty, CommandError> {
+        self.clear_preview(handle);
         self.edit(handle, |doc| match command {
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
             Command::RenameLayer { id, name } => { ops::layers::rename_layer(doc, id, &name)?; Ok(Dirty::structure()) }
@@ -219,22 +251,43 @@ impl Engine {
             Command::ReleaseClipping { id } => { ops::hierarchy::release_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::LinkMask { source, target } => { ops::hierarchy::link_mask(doc, source, target)?; Ok(Dirty::structure()) }
             Command::MergeLayers { ids } => { let m = ops::merge::merge(doc, &ids)?; Ok(Dirty { structure: true, canvas: false, layers: vec![m] }) }
+            Command::ApplyAdjustment { id, adjustment } => { ops::adjust::apply_adjustment_to_layer(doc, id, &adjustment)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::InvertPixels { id, mask } => { ops::adjust::invert_layer(doc, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
+            Command::ApplyFilter { id, params } => { ops::adjust::apply_filter(doc, id, &params)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::AddAdjustmentLayer { kind, seed, shadows, highlights } => {
+                let gradient = match (shadows, highlights) { (Some(s), Some(h)) => Some((s, h)), _ => None };
+                ops::adjust::add_adjustment_layer(doc, kind, seed, gradient)?; Ok(Dirty::structure())
+            }
+            Command::SetAdjustment { id, adjustment } => { ops::adjust::set_adjustment(doc, id, &adjustment)?; Ok(Dirty::structure()) }
         })
     }
 
+    /// A preview is a live, uncommitted gesture: when one is showing, undo and redo spend
+    /// themselves cancelling it rather than reaching past it into real history, or the keystroke
+    /// that dismisses an open panel would also silently rewind an unrelated earlier edit.
+    fn drop_preview(&mut self, id: Uuid) -> bool {
+        let had = self.session(id).map_or(false, |s| s.preview.is_some());
+        self.clear_preview(id);
+        had
+    }
     pub fn undo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.session_mut(id)?;
         if let Some(before) = s.history.undo(&s.document) { s.document = before; }
         Ok(Dirty::everything())
     }
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.session_mut(id)?;
         if let Some(after) = s.history.redo(&s.document) { s.document = after; }
         Ok(Dirty::everything())
     }
     /// Drops the last history entry and returns to the state before it, leaving no redo: for a
-    /// gesture the user cancelled, such as Escape during an Alt-drag duplicate.
+    /// gesture the user cancelled, such as Escape during an Alt-drag duplicate. Unlike undo/redo,
+    /// an explicit revert always runs even while a preview is showing: it is an unambiguous
+    /// request to discard changes, and a no-op here would be a silent failure of that request.
     pub fn revert(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        self.clear_preview(id);
         let s = self.session_mut(id)?;
         if let Some(before) = s.history.revert() { s.document = before; }
         Ok(Dirty::everything())
@@ -267,14 +320,75 @@ impl Engine {
         Ok(compositor::export_jpeg_preview(&self.session(id)?.document, quality, matte, max_side)?)
     }
     pub fn composite(&self, id: Uuid, region: Rect, width: u32, height: u32) -> Result<Raster, CommandError> {
-        Ok(compositor::composite(&self.session(id)?.document, region, width, height))
+        Ok(compositor::composite(&*self.render_document(id)?, region, width, height))
     }
 
-    pub fn render_plan(&self, id: Uuid, edit: Option<&PreviewEdit>) -> Result<RenderPlan, CommandError> { Ok(plan::render_plan(&self.session(id)?.document, edit)) }
-    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit(&self.session(id)?.document, edit, region, w, h)) }
+    pub fn render_plan(&self, id: Uuid, edit: Option<&PreviewEdit>) -> Result<RenderPlan, CommandError> { Ok(plan::render_plan(&*self.render_document(id)?, edit)) }
+    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit(&*self.render_document(id)?, edit, region, w, h)) }
     pub fn clip_dependents(&self, id: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, CommandError> { Ok(ops::hierarchy::clip_dependents(&self.session(id)?.document, ids)) }
     pub fn merge_action(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<&'static str>, CommandError> { Ok(ops::merge::merge_plan(&self.session(id)?.document, ids).map(|p| p.action)) }
     pub fn group_box(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<LayerTransform>, CommandError> { Ok(ops::transform::group_box(&self.session(id)?.document, ids)) }
     pub fn can_toggle_clipping(&self, id: Uuid, layer: Uuid) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_toggle_clipping(&self.session(id)?.document, layer)) }
     pub fn can_place(&self, id: Uuid, layer: Uuid, parent: Option<Uuid>) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_place(&self.session(id)?.document, layer, parent)) }
+
+    /// The layer's raster after `level` sharp halvings, through any open preview.
+    pub fn layer_raster(&self, id: Uuid, layer: Uuid, level: u32) -> Result<Option<Raster>, CommandError> {
+        let doc = self.render_document(id)?;
+        let Some(mut raster) = doc.layer(layer).ok_or(CommandError::NoLayer)?.pixels.clone() else { return Ok(None); };
+        for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
+            if raster.width <= 1 || raster.height <= 1 { break; }
+            raster = raster.halved();
+        }
+        Ok(Some(raster))
+    }
+    /// Everything that renders beneath an adjustment layer, composited at canvas size: what its
+    /// histogram and eyedroppers read, as macOS renders the layers underneath.
+    pub fn adjustment_source(&self, id: Uuid, layer: Uuid) -> Result<Raster, CommandError> {
+        let doc = &self.session(id)?.document;
+        let order = ops::hierarchy::hierarchy_order(doc);
+        let position = order.iter().position(|o| *o == layer).ok_or(CommandError::NoLayer)?;
+        let beneath: std::collections::HashSet<Uuid> = order[..position].iter().copied().collect();
+        let mut below = doc.clone();
+        for l in &mut below.layers { if !l.is_group && !beneath.contains(&l.id) { l.visible = false; } }
+        Ok(compositor::composite(&below, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height))
+    }
+    /// A panel's histogram: an adjustment layer reads what lies beneath it, any other layer its
+    /// own stored pixels (never the preview, or the graph would chase itself).
+    pub fn histogram(&self, id: Uuid, layer: Uuid) -> Result<Vec<Vec<f64>>, CommandError> {
+        let doc = &self.session(id)?.document;
+        let target = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        if target.is_adjustment() { return Ok(adjust::levels::histogram(&self.adjustment_source(id, layer)?, None)); }
+        let raster = target.pixels.as_ref().ok_or(CommandError::Argument("the layer has no pixels".into()))?;
+        Ok(adjust::levels::histogram(raster, None))
+    }
+    pub fn auto_levels(&self, id: Uuid, layer: Uuid, mode: LevelsAuto) -> Result<LevelsSettings, CommandError> {
+        Ok(mode.settings(&self.histogram(id, layer)?))
+    }
+    /// The straight colour of one layer at a document point; None where it is transparent.
+    pub fn sample_layer_color(&self, id: Uuid, layer: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
+        let doc = &self.session(id)?.document;
+        let target = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        let (raster, source) = match (target.pixels.as_ref(), target.is_adjustment()) {
+            (Some(r), _) => (r.clone(), target.transform),
+            (None, true) => (self.adjustment_source(id, layer)?, LayerTransform::axis_aligned(Point { x: 0.0, y: 0.0 }, doc.size())),
+            _ => return Err(CommandError::Argument("the layer has no pixels".into())),
+        };
+        let Some(inverse) = source.pixel_to_document(raster.width, raster.height).invert() else { return Ok(None); };
+        let p = inverse.apply(at);
+        if p.x < 0.0 || p.y < 0.0 || p.x >= raster.width as f64 || p.y >= raster.height as f64 { return Ok(None); }
+        let pixel = raster.pixel(p.x as u32, p.y as u32);
+        if pixel[3] == 0 { return Ok(None); }
+        Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
+    }
+    /// The straight colour of the visible composite at a document point (the Hue/Saturation eyedroppers).
+    pub fn sample_color(&self, id: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
+        let doc = self.render_document(id)?;
+        let region = Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 };
+        let pixel = compositor::composite(&*doc, region, 1, 1).pixel(0, 0);
+        if pixel[3] == 0 { return Ok(None); }
+        Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
+    }
+    pub fn levels_sampling(&self, id: Uuid, layer: Uuid, settings: &LevelsSettings, at: Point, mode: LevelsSample) -> Result<LevelsSettings, CommandError> {
+        match self.sample_layer_color(id, layer, at)? { Some(rgb) => Ok(settings.sampling(rgb, mode)), None => Ok(settings.clone()) }
+    }
 }

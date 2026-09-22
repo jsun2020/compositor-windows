@@ -1,4 +1,4 @@
-use crate::{ids, BlendMode, LayerTransform, Point, Sampling};
+use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -44,6 +44,11 @@ pub enum Command {
     ReleaseClipping { #[serde(with = "ids::upper")] id: Uuid },
     LinkMask { #[serde(with = "ids::upper")] source: Uuid, #[serde(with = "ids::upper")] target: Uuid },
     MergeLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid> },
+    ApplyAdjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    InvertPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
+    ApplyFilter { #[serde(with = "ids::upper")] id: Uuid, params: FilterParams },
+    AddAdjustmentLayer { kind: AdjustmentKind, #[serde(default)] seed: u32, #[serde(default)] shadows: Option<[f64; 3]>, #[serde(default)] highlights: Option<[f64; 3]> },
+    SetAdjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
 }
 
 impl Command {
@@ -89,6 +94,12 @@ impl Command {
             Command::ReleaseClipping { .. } => "Release Clipping Mask",
             Command::LinkMask { .. } => "Create Clipping Mask",
             Command::MergeLayers { .. } => "Merge Layers",
+            Command::ApplyAdjustment { adjustment, .. } => adjustment.kind.name(),
+            Command::InvertPixels { mask: false, .. } => "Invert",
+            Command::InvertPixels { mask: true, .. } => "Invert Mask",
+            Command::ApplyFilter { params, .. } => params.name(),
+            Command::AddAdjustmentLayer { kind, .. } => kind.new_action_name(),
+            Command::SetAdjustment { adjustment, .. } => adjustment.kind.edit_action_name(),
         }
     }
 }

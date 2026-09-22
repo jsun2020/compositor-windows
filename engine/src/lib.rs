@@ -14,6 +14,7 @@ pub mod engine;
 pub mod ops;
 pub mod blend;
 pub mod plan;
+pub mod preview;
 
 pub use adjust::settings::*;
 pub use adjust::levels::*;
@@ -37,4 +38,5 @@ pub use command::*;
 pub use engine::*;
 pub use blend::*;
 pub use plan::*;
+pub use preview::*;
 pub use ops::masks::blur_gray;
