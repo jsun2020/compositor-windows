@@ -283,59 +283,12 @@ pub fn render_layers(doc: &Document) -> Vec<&Layer> {
     doc.render_ids().into_iter().filter_map(|id| doc.layer(id)).collect()
 }
 
-/// Whether `id`'s document layer has `ancestor` somewhere up its parent chain.
-fn is_descendant_of(doc: &Document, id: Uuid, ancestor: Uuid) -> bool {
-    let mut parent = doc.layer(id).and_then(|l| l.parent_id);
-    let mut depth = 0;
-    while let Some(p) = parent {
-        if p == ancestor { return true; }
-        if depth >= MAX_NESTING { break; }
-        parent = doc.layer(p).and_then(|l| l.parent_id);
-        depth += 1;
-    }
-    false
-}
-
-/// An unclipped adjustment layer inside a folder reaches only that folder's own contents, not
-/// the whole canvas: replay the plan's prior draws that belong to the same folder into an
-/// isolated buffer, run the adjustment there, then patch just those pixels into the shared
-/// target. A root-level adjustment has no enclosing folder and maps the whole target directly,
-/// as it always did. This is the CPU mirror of macOS compositing a group as its own isolated
-/// unit before an adjustment inside it applies.
-fn draw_scoped_adjustment(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, prior: &[PlanNode]) {
-    let Some(pid) = doc.layer(draw.id).and_then(|l| l.parent_id) else {
-        return adjust_target(doc, plan, target, draw, draw.blend, true);
-    };
-    let (w, h, region) = (target.w, target.h, target.region);
-    let mut scope_data = vec![0u8; (w as usize) * (h as usize) * 4];
-    {
-        let mut scope = Target { data: &mut scope_data, w, h, region };
-        for node in prior {
-            match node {
-                PlanNode::Layer { draw: d } if is_descendant_of(doc, d.id, pid) => draw_layer(doc, plan, &mut scope, d, d.blend, true),
-                PlanNode::Stack { base, children, folder_coverages } if is_descendant_of(doc, base.id, pid) => {
-                    draw_stack(doc, plan, &mut scope, base, children, folder_coverages);
-                }
-                _ => {}
-            }
-        }
-        adjust_target(doc, plan, &mut scope, draw, draw.blend, true);
-    }
-    // Patch the shared target with the scope's adjusted colours wherever the scope has coverage;
-    // the target's own alpha is left as is, since it already reflects everything drawn so far.
-    for i in (0..scope_data.len()).step_by(4) {
-        if scope_data[i + 3] == 0 { continue; }
-        target.data[i] = scope_data[i]; target.data[i + 1] = scope_data[i + 1]; target.data[i + 2] = scope_data[i + 2];
-    }
-}
-
 pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
         let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
-        for index in 0..plan.nodes.len() {
-            match &plan.nodes[index] {
-                PlanNode::Layer { draw } if draw.adjustment.is_some() => draw_scoped_adjustment(doc, plan, &mut target, draw, &plan.nodes[..index]),
+        for node in &plan.nodes {
+            match node {
                 PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true),
                 PlanNode::Stack { base, children, folder_coverages } => draw_stack(doc, plan, &mut target, base, children, folder_coverages),
             }

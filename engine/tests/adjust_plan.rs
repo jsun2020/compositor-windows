@@ -71,7 +71,7 @@ fn a_clipped_adjustment_changes_only_its_base() {
 }
 
 #[test]
-fn a_folder_scopes_an_adjustment_to_its_own_contents() {
+fn an_adjustment_in_a_folder_reaches_beneath_it_and_a_folder_mask_limits_it() {
     let mut d = Document::new(2, 1);
     let outside = Layer::with_pixels("Outside", Raster::from_premultiplied(1, 1, vec![255, 255, 255, 255]), Point { x: 1.0, y: 0.0 });
     let outside_id = outside.id;
@@ -85,9 +85,17 @@ fn a_folder_scopes_an_adjustment_to_its_own_contents() {
     let mut settings = LayerAdjustment::new(AdjustmentKind::Levels);
     settings.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
     adjust::set_adjustment(&mut d, a, &settings).unwrap();
+    // With no folder mask, the adjustment reaches beneath it just like the Mac's
+    // LiveMaskRenderer: nothing isolates a folder's contents from what is below it.
     let out = full(&d);
     assert_eq!(out.pixel(0, 0), [0, 0, 0, 255], "the layer in the folder is adjusted");
-    assert_eq!(out.pixel(1, 0), [255, 255, 255, 255], "the layer outside is not");
+    assert_eq!(out.pixel(1, 0), [0, 0, 0, 255], "the adjustment reaches beneath the folder too");
+    // A folder limits an adjustment through its own mask (FolderMaskClip on the Mac), not by
+    // isolating its contents: white over the left half lets the adjustment through, black blocks it.
+    d.layer_mut(folder).unwrap().set_mask(Some(Mask { pixels: GrayRaster::from_bytes(2, 1, vec![255, 0]), enabled: true, placement: None, linked: None }));
+    let out = full(&d);
+    assert_eq!(out.pixel(0, 0), [0, 0, 0, 255], "the mask is white here: the adjustment still reaches");
+    assert_eq!(out.pixel(1, 0), [255, 255, 255, 255], "the mask is black here: the adjustment does not reach");
     let _ = outside_id;
 }
 
