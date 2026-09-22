@@ -18,6 +18,7 @@ import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
 import { JpegExportSheet } from "./sheets/JpegExportSheet";
 import { CropOptions } from "./panels/CropOptions";
 import { TransformInspector } from "./panels/TransformInspector";
+import { AdjustPanel } from "./panels/AdjustPanel";
 import "./styles.css";
 
 export function App() {
@@ -92,6 +93,7 @@ export function App() {
           <LayersList />
         </div>
       </div>
+      <AdjustPanel />
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER})</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}

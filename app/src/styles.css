@@ -92,6 +92,25 @@ body { margin: 0; }
 .sheet-buttons button.primary { background: #3a6ea5; border-color: #3a6ea5; color: #fff; }
 .sheet-buttons button:disabled { opacity: 0.5; cursor: default; }
 
+/* Adjustment panel: floating, not in the document flow (`position: fixed`), so opening it
+   never changes the canvas chrome height and the eyedroppers can still click the canvas
+   underneath. Sits above the menu dropdowns (z-index 20) but below a modal sheet (100),
+   which must still be able to cover it. */
+.adjust-panel { position: fixed; top: 64px; right: 12px; z-index: 50; width: 280px; background: #2a2a2a; border: 1px solid #000; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; }
+.adjust-header { padding: 8px 10px; font-weight: 600; border-bottom: 1px solid #000; }
+.adjust-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.adjust-body label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.adjust-body select { flex: 1 1 auto; background: #1e1e1e; border: 1px solid #555; color: #ddd; padding: 2px 4px; }
+.adjust-body input[type="number"] { width: 64px; background: #1e1e1e; border: 1px solid #555; color: #ddd; padding: 2px 4px; }
+.adjust-body canvas.histogram, .adjust-body canvas.curves { width: 100%; background: #1a1a1a; border: 1px solid #444; }
+.adjust-body .eyedroppers { display: flex; gap: 4px; }
+.adjust-body .eyedroppers button { flex: 1 1 auto; background: none; border: 1px solid #555; color: #ddd; border-radius: 3px; cursor: pointer; padding: 3px 6px; font: inherit; }
+.adjust-body .eyedroppers button[aria-pressed="true"] { border-color: #3a6ea5; background: #3a6ea5; color: #fff; }
+.adjust-footer { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #000; }
+.adjust-footer label { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; }
+.adjust-footer button { padding: 4px 10px; border: 1px solid #555; background: #333; color: #ddd; border-radius: 4px; cursor: pointer; }
+.adjust-footer button.primary { background: #3a6ea5; border-color: #3a6ea5; color: #fff; }
+
 /* Error banner */
 .error-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 200; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; background: #5a1f1f; color: #fff; }
 .error-banner button { background: none; border: 1px solid #fff; color: #fff; border-radius: 4px; padding: 2px 10px; cursor: pointer; }

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, PreviewEdit } from "../engine/types";
+import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { ShellBridge } from "../shell/bridge";
 import { Viewport } from "../canvas/viewport";
@@ -89,6 +89,7 @@ export interface EditorStore {
   updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"] }): void;
   setAdjustPreview(on: boolean): void;
   setAdjustSample(mode: SampleMode | null): void;
+  autoLevels(mode: LevelsAuto): void;
   /** Pushes the open panel's current settings to the engine as a preview. Not part of the
    * Task 12 brief's public action list, but needed by beginAdjust/updateAdjust/setAdjustPreview,
    * which all share it rather than duplicating the branch between a pixel-layer preview (through
@@ -368,6 +369,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setAdjustPreview: (preview) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, preview } }); get().applyAdjustPreview(); },
   setAdjustSample: (sampleMode) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, sampleMode } }); },
+  /** Replaces the panel's Levels settings with the engine's auto-stretch for `mode`, read from
+   * the same histogram the panel already opened with (never the live preview -- see the
+   * histogram note on `beginAdjust`). */
+  autoLevels: (mode) => {
+    const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId || !adjustEdit?.adjustment) return;
+    const levels = engine.autoLevels(activeId, adjustEdit.layerId, mode);
+    get().updateAdjust({ adjustment: { ...adjustEdit.adjustment, levels } });
+  },
   /** Pushes the panel's settings to the engine: a pixel preview for a destructive edit, or a
    * plan-level preview (through `previewEdit`) when an adjustment layer is being edited. */
   applyAdjustPreview: () => {
