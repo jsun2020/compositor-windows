@@ -3752,8 +3752,11 @@ vec3 throughHsl(vec3 c) {
   float lightnessAmount;
   if (colorize) {
     // rem(), not mod(): hsv.rs uses `%`, which truncates, and this value can be negative.
+    // NO re-wrap here. hsv.rs's colorize branch applies truncatingRemainder and stops, leaving a
+    // negative hue for hslToRgb to handle through its truncated-integer sector dispatch. An
+    // `if (hsl.x < 0.0) hsl.x += 360.0;` line used to sit here and silently undid the rem(),
+    // making it identical to mod() again and defeating the negative-hue parity test below.
     hsl.x = rem(colorizeAmounts.x, 360.0);
-    if (hsl.x < 0.0) hsl.x += 360.0;
     hsl.y = clamp(colorizeAmounts.y / 100.0, 0.0, 1.0);
     lightnessAmount = colorizeAmounts.z / 100.0;
   } else {
