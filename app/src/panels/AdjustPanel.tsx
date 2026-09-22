@@ -14,15 +14,21 @@ import { CurvesPanel } from "./CurvesPanel";
  * belong to later tasks in this plan and are not part of this one's file list, so an
  * unrecognised kind falls back to a plain placeholder instead of importing a module that does
  * not exist yet. */
+// Form controls with their own Enter semantics: a field commits its own value, a `<select>`
+// leaves the dropdown's native handling alone (or has no meaningful behaviour to preempt), and a
+// focused button's Enter is already a click on that button, not on OK. The panel's own Enter
+// answers everything else.
+const OWN_ENTER = new Set(["INPUT", "SELECT", "TEXTAREA", "BUTTON"]);
+
 export function AdjustPanel() {
   const s = useEditor();
   const edit = s.adjustEdit;
   useEffect(() => {
     if (!edit) return;
     const key = (e: KeyboardEvent) => {
-      // A field keeps its own Enter (committing the value); the panel answers the second one.
+      const ownsEnter = e.target instanceof HTMLElement && OWN_ENTER.has(e.target.tagName);
       if (e.key === "Escape") { e.preventDefault(); useEditor.getState().cancelAdjust(); }
-      if (e.key === "Enter" && !(e.target instanceof HTMLInputElement)) { e.preventDefault(); useEditor.getState().commitAdjust(); }
+      if (e.key === "Enter" && !ownsEnter) { e.preventDefault(); useEditor.getState().commitAdjust(); }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);

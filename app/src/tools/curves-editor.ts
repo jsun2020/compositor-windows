@@ -24,7 +24,9 @@ export function curveValue(points: CurvePoint[], x: number): number {
 export function curveSamples(points: CurvePoint[], count = 256): number[] {
   return Array.from({ length: count }, (_, i) => curveValue(points, (i * 255) / (count - 1)));
 }
-/** The index of a handle within `tolerance` of a point in curve space, or null. */
+/** The index of a handle within `tolerance` of a point in curve space, or null. Ties (two points
+ * exactly equidistant) resolve to the LATER point, i.e. the higher index: the `<=` below only
+ * replaces the current best when the new candidate is at least as close, not strictly closer. */
 export function nearestPoint(points: CurvePoint[], at: CurvePoint, tolerance: number): number | null {
   let best: number | null = null; let bestDistance = tolerance;
   points.forEach((p, i) => { const distance = Math.hypot(p.x - at.x, p.y - at.y); if (distance <= bestDistance) { best = i; bestDistance = distance; } });
