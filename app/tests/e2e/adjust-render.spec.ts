@@ -18,8 +18,13 @@ import { hueSafeNoisePngBase64 } from "./helpers";
 // whole pixels. The two chrome heights are 81 and 102, and they differ by 21 -- an odd number,
 // so no single viewport height can put both states on an even canvas. Swap the two and the
 // origins land on 287.5 and 277.5, which is the half-pixel case this pinning exists to avoid.
-// Note the direction: it is the OPEN PANEL that adds the extra 21px (chrome 102), not the
-// selected adjustment layer (chrome 81).
+// Note the direction, which took three attempts to get right and is now MEASURED rather than
+// reasoned: the 21px comes from WHICH KIND OF LAYER IS SELECTED, not from any panel. At a fixed
+// 1280x720 with no panel open, a pixel layer selected gives canvas height 618 and an adjustment
+// layer gives 639 -- so a pixel layer shows 21px MORE inspector chrome than an adjustment layer.
+// The adjustment panel itself is position: fixed and contributes nothing; this spec passed before
+// any panel existed and still passes now. Earlier revisions of this comment blamed the open panel,
+// and before that the adjustment layer's extra controls. Both were wrong.
 const HEIGHT_ADJUSTMENT_LAYER = 721;
 const HEIGHT_DESTRUCTIVE_PREVIEW = 720;
 
