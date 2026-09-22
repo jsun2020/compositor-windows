@@ -71,6 +71,60 @@ export async function noisePngBase64(): Promise<string> {
 }
 
 /**
+ * The same deterministic noise as `noisePngBase64`, with every pixel nudged (blue channel, up
+ * to 255 tries) until its RGB-to-HSL hue is at least 0.1 degrees from an exact half-degree.
+ *
+ * A pixel whose true hue lands on n + 0.5 exactly can round to an adjacent bucket of the
+ * 361-entry hue-response table under the GPU's float32 arithmetic versus the CPU's float64
+ * (see the CPU/GPU parity constraint in
+ * docs/superpowers/plans/2026-09-22-phase3-adjustments-and-filters.md): both sides are correct
+ * for their own precision, they just pick different discrete buckets right at the boundary.
+ * That is a property of the fixture landing exactly on a knife edge, not a rendering bug, so
+ * the Hue/Saturation parity fixture keeps every pixel clear of it instead.
+ *
+ * Same standalone-page-function rule as `redSquarePngBase64`.
+ */
+export async function hueSafeNoisePngBase64(): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(64, 64);
+  let seed = 12345;
+  const next = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed >> 16) & 0xff; };
+  // Mirrors engine/src/adjust/hsv.rs::rgb_to_hsl's hue formula exactly, so this can tell how
+  // close a candidate pixel's hue lands to a half-integer degree.
+  const hueDegrees = (r: number, g: number, b: number): number => {
+    const rf = r / 255, gf = g / 255, bf = b / 255;
+    const high = Math.max(rf, gf, bf), low = Math.min(rf, gf, bf);
+    const delta = high - low;
+    if (delta <= 0) return 0;
+    let hue = high === rf ? (gf - bf) / delta : high === gf ? (bf - rf) / delta + 2 : (rf - gf) / delta + 4;
+    hue *= 60;
+    if (hue < 0) hue += 360;
+    return hue;
+  };
+  const nearHalfDegree = (hue: number): boolean => Math.abs(hue - Math.floor(hue) - 0.5) < 0.1;
+  for (let i = 0; i < 64 * 64; i++) {
+    const r = next(), g = next();
+    let b = next();
+    for (let tries = 0; tries < 256 && nearHalfDegree(hueDegrees(r, g, b)); tries++) b = (b + 1) & 0xff;
+    image.data[i * 4] = r;
+    image.data[i * 4 + 1] = g;
+    image.data[i * 4 + 2] = b;
+    image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+/**
  * A 64x64 PNG that is opaque only on every fourth pixel in each axis, transparent elsewhere.
  *
  * The alpha, not the colour, is what a clipping source contributes, so a fully opaque fixture

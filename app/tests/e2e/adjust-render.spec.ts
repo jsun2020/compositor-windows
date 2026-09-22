@@ -1,14 +1,30 @@
 import { test, expect, type Page } from "@playwright/test";
-import { noisePngBase64 } from "./helpers";
+import { hueSafeNoisePngBase64 } from "./helpers";
 
 // The canvas and the CPU compositor must agree on every adjustment. The fixture is per-pixel
 // noise: flat colour would hide a wrong LUT index, and a smooth ramp would hide a wrong hue.
-test.use({ viewport: { width: 900, height: 720 } });
+//
+// Same viewport pinning as blend.spec.ts: it keeps the document rect on an integer device
+// pixel, so the comparison exercises the renderer rather than a rasterization tie -- an
+// odd-height CanvasView chrome centres an even-sized document at a y ending in .5
+// (Viewport.documentRect, a known Phase 2 issue). Confirmed unrelated to adjustments: a plain
+// layer with no adjustment at all shows the same corruption at an unpinned viewport and is
+// bit-exact once pinned.
+//
+// Two heights, not one: an adjustment LAYER selected (AddAdjustmentLayer) shows extra controls
+// this app doesn't show for an ordinary image layer, which shifts the chrome by a further odd
+// number of device pixels on top of the baseline shift blend.spec.ts already pins for -- so the
+// height that aligns the two AddAdjustmentLayer tests below misaligns the destructive-preview
+// test's beginAdjust panel, and vice versa. Each test pins the height its own on-screen state
+// needs.
+const HEIGHT_ADJUSTMENT_LAYER = 721;
+const HEIGHT_DESTRUCTIVE_PREVIEW = 720;
 
-async function setup(page: Page): Promise<string> {
+async function setup(page: Page, height: number): Promise<string> {
+  await page.setViewportSize({ width: 1280, height });
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  const b64 = await page.evaluate(noisePngBase64);
+  const b64 = await page.evaluate(hueSafeNoisePngBase64);
   return page.evaluate(async (data) => {
     const api = (window as unknown as { __compositor: any }).__compositor;
     const png = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -37,7 +53,7 @@ async function expectMatchesCpu(page: Page, label: string) {
 }
 
 test("every adjustment layer renders the same on the GPU and the CPU", async ({ page }) => {
-  await setup(page);
+  await setup(page, HEIGHT_ADJUSTMENT_LAYER);
   const add = (kind: string, settings: unknown) => page.evaluate(({ kind, settings }) => {
     const api = (window as any).__compositor; const s = api.store.getState();
     api.engine.execute(s.activeId, { type: "AddAdjustmentLayer", kind, seed: 7, shadows: [0.9, 0.1, 0.2], highlights: [0.1, 0.4, 1] });
@@ -68,7 +84,7 @@ test("every adjustment layer renders the same on the GPU and the CPU", async ({ 
 });
 
 test("hue/saturation ranges, opacity, masks, blend modes and clipping match the CPU", async ({ page }) => {
-  await setup(page);
+  await setup(page, HEIGHT_ADJUSTMENT_LAYER);
   const id = await page.evaluate(() => {
     const api = (window as any).__compositor; const s = api.store.getState();
     api.engine.execute(s.activeId, { type: "AddAdjustmentLayer", kind: "Hue/Saturation", seed: 0, shadows: null, highlights: null });
@@ -119,7 +135,7 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
 });
 
 test("a live panel preview draws the same as the CPU", async ({ page }) => {
-  await setup(page);
+  await setup(page, HEIGHT_DESTRUCTIVE_PREVIEW);
   await page.evaluate(() => {
     const api = (window as any).__compositor; const s = api.store.getState();
     s.beginAdjust({ kind: "Curves" });
