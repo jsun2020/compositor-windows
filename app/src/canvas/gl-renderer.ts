@@ -227,13 +227,18 @@ export class GlRenderer implements Renderer {
     gl.uniform1i(p.uniforms.colorize, (hsv?.colorize ?? adjustment.colorize) ? 1 : 0);
     gl.uniform3f(p.uniforms.colorizeAmounts, selected.hue, selected.saturation, selected.lightness);
     const rawGrain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
-    // Mirrors GrainSettings::normalized() in engine/src/adjust/grain.rs, which prepare() always
+    // Mirrors GrainSettings::normalized() in engine/src/adjust/settings.rs, which prepare() always
     // applies before use. is_valid() prevents a live divergence today, but the CPU normalizes
     // defensively and the GPU should too -- that asymmetry is exactly what produced Fix 1 above.
+    // clampOr mirrors settings.rs's own clamp_or: a non-finite input falls back to the field's
+    // default rather than clamping (every comparison with NaN is false, so Math.min/Math.max
+    // alone would let a non-finite value through untouched).
+    const clampOr = (n: number, lo: number, hi: number, fallback: number): number =>
+      Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
     const grain = {
-      amount: Math.min(100, Math.max(0, rawGrain.amount)),
-      size: Math.min(20, Math.max(0.5, rawGrain.size)),
-      roughness: Math.min(100, Math.max(0, rawGrain.roughness)),
+      amount: clampOr(rawGrain.amount, 0, 100, 25),
+      size: clampOr(rawGrain.size, 0.5, 20, 1.5),
+      roughness: clampOr(rawGrain.roughness, 0, 100, 50),
       seed: rawGrain.seed,
     };
     // strength mirrors `grain_strength` in engine/src/adjust/grain.rs.
