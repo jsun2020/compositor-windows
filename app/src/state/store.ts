@@ -8,6 +8,7 @@ import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "
 import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } from "./selection";
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
+import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
 
 export type Tool = "move" | "hand" | "zoom" | "crop";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
@@ -89,6 +90,7 @@ export interface EditorStore {
   updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"] }): void;
   setAdjustPreview(on: boolean): void;
   setAdjustSample(mode: SampleMode | null): void;
+  sampleAt(at: { x: number; y: number }): void;
   autoLevels(mode: LevelsAuto): void;
   /** Pushes the open panel's current settings to the engine as a preview. Not part of the
    * Task 12 brief's public action list, but needed by beginAdjust/updateAdjust/setAdjustPreview,
@@ -369,6 +371,25 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setAdjustPreview: (preview) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, preview } }); get().applyAdjustPreview(); },
   setAdjustSample: (sampleMode) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, sampleMode } }); },
+  /** A click on the canvas while an eyedropper is armed. Levels calibrates from the layer's own
+   * pixels (as macOS's sampleLevels does); the Hue/Saturation tools read the visible composite. */
+  sampleAt: (at) => {
+    const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId || !adjustEdit?.sampleMode) return;
+    const mode = adjustEdit.sampleMode;
+    if (mode === "Black" || mode === "Gray" || mode === "White") {
+      const levels = engine.levelsSampling(activeId, adjustEdit.layerId, adjustEdit.adjustment!.levels, at, mode);
+      get().updateAdjust({ adjustment: { ...adjustEdit.adjustment!, levels } });
+      return;
+    }
+    const rgb = engine.sampleColor(activeId, at);
+    const hue = rgb ? hueOf(rgb) : null;
+    if (hue === null) return;
+    const settings = adjustEdit.adjustment!.hsvSettings ?? defaultHsv();
+    if (settings.range === "Master" || settings.colorize) return;
+    const band = settings.bands[settings.range] ?? DEFAULT_BANDS[settings.range];
+    const next = mode === "replace" ? centeredOn(band, hue) : mode === "add" ? includeHue(band, hue) : excludeHue(band, hue);
+    get().updateAdjust({ adjustment: { ...adjustEdit.adjustment!, hsvSettings: { ...settings, bands: { ...settings.bands, [settings.range]: next } } } });
+  },
   /** Replaces the panel's Levels settings with the engine's auto-stretch for `mode`, read from
    * the same histogram the panel already opened with (never the live preview -- see the
    * histogram note on `beginAdjust`). */

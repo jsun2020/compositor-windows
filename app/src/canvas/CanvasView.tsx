@@ -29,6 +29,7 @@ export function CanvasView() {
   const snapGuides = useEditor((s) => s.snapGuides);
   const selectedLayerIds = useEditor((s) => s.selectedLayerIds);
   const maskSelected = useEditor((s) => s.maskSelected);
+  const sampleMode = useEditor((s) => s.adjustEdit?.sampleMode ?? null);
 
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
@@ -124,6 +125,33 @@ export function CanvasView() {
     window.addEventListener("keydown", key); window.addEventListener("keyup", key); window.addEventListener("blur", blur);
     return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
   }, []);
+
+  // Adjustment eyedroppers: while a sample mode is armed (Levels' three, or Hue/Saturation's
+  // replace/add/remove), a click reads the point under the cursor and feeds the open panel
+  // instead of starting whatever gesture the active tool would otherwise begin. Registered with
+  // `capture: true` so it runs before the pan/zoom/crop/move handlers below regardless of which
+  // tool happens to be selected, and `stopImmediatePropagation` keeps the event from reaching
+  // them at all -- no tool gesture starts.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    const down = (e: PointerEvent) => {
+      const s = useEditor.getState();
+      if (!s.adjustEdit?.sampleMode || !s.activeId) return;
+      const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+      const r = el.getBoundingClientRect();
+      const at = vp.documentPoint({ x: e.clientX - r.left, y: e.clientY - r.top }, { width: d.width, height: d.height });
+      s.sampleAt(at);
+      e.stopImmediatePropagation();
+    };
+    el.addEventListener("pointerdown", down, { capture: true });
+    return () => el.removeEventListener("pointerdown", down, { capture: true });
+  }, []);
+
+  // The cursor shows an armed eyedropper regardless of which tool is otherwise selected.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    el.style.cursor = sampleMode ? "crosshair" : "";
+  }, [sampleMode]);
 
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {

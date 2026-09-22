@@ -242,6 +242,43 @@ test("Enter on a dropdown does not commit the panel (the field owns its own Ente
   await expect(page.getByTestId("adjust-panel")).toBeVisible();
 });
 
+test("hue/saturation edits one range at a time and the eyedropper retargets a band", async ({ page }) => {
+  await setup(page);
+  await open(page, "Hue/Saturation");
+  // Exact: the panel's own dialog carries aria-label="Hue/Saturation" (adjustTitle), which is
+  // otherwise a substring match for both "Hue" and "Saturation" under getByLabel's default
+  // (non-exact) matching and resolves ambiguously against these two field labels.
+  await page.getByLabel("Hue", { exact: true }).fill("120");
+  let settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
+  expect(settings.adjustments.Master.hue).toBe(120);
+  await page.getByTestId("hue-range").selectOption("Reds");
+  expect(await page.getByLabel("Hue", { exact: true }).inputValue()).toBe("0");   // each range keeps its own values
+  await page.getByLabel("Saturation", { exact: true }).fill("-100");
+  settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
+  expect(settings.adjustments.Reds.saturation).toBe(-100);
+  expect(settings.adjustments.Master.hue).toBe(120);
+  // The eyedropper re-centres the selected range on the colour under the cursor.
+  await page.getByTestId("hue-sample-replace").click();
+  const view = page.getByTestId("canvas-view");
+  const box = (await view.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const band = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings.bands.Reds);
+  expect(band).not.toEqual({ falloffStart: 315, rangeStart: 345, rangeEnd: 15, falloffEnd: 45 });
+  await page.getByTestId("adjust-ok").click();
+  expect((await state(page)).canUndo).toBe(true);
+});
+
+test("colorize gives everything one hue", async ({ page }) => {
+  await setup(page);
+  await open(page, "Hue/Saturation");
+  await page.getByTestId("hue-colorize").check();
+  const settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
+  expect(settings.colorize).toBe(true);
+  expect(settings.adjustments.Master.saturation).toBe(25);   // Photoshop's starting point
+  await page.getByTestId("adjust-ok").click();
+  expect((await state(page)).canUndo).toBe(true);
+});
+
 test("a panel owns the document while it is open", async ({ page }) => {
   await setup(page);
   await open(page, "Levels");
