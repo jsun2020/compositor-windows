@@ -16,9 +16,9 @@ fn middle(e: &Engine, doc: uuid::Uuid) -> [u8; 4] {
 fn a_preview_shows_through_every_render_path_without_touching_the_document() {
     let (mut e, doc, layer) = seeded();
     let before = middle(&e, doc);
-    let (was_modified, could_undo, could_redo) = {
+    let (was_modified, could_undo, could_redo, depth) = {
         let s = e.state(doc).unwrap();
-        (s.is_modified, s.can_undo, s.can_redo)
+        (s.is_modified, s.can_undo, s.can_redo, s.undo_depth)
     };
     let mut a = LayerAdjustment::new(AdjustmentKind::Levels);
     a.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
@@ -28,7 +28,8 @@ fn a_preview_shows_through_every_render_path_without_touching_the_document() {
     let state = e.state(doc).unwrap();
     let l = state.layers.iter().find(|l| l.id == layer).unwrap();
     assert!(l.pixels_revision > 1_000_000, "a preview revision, so the renderer re-uploads");
-    assert!(state.is_modified == was_modified && state.can_undo == could_undo && state.can_redo == could_redo,
+    assert!(state.is_modified == was_modified && state.can_undo == could_undo
+        && state.can_redo == could_redo && state.undo_depth == depth,
         "a preview records nothing");
     // The stored document still holds the original pixels.
     assert_eq!(e.document(doc).unwrap().layer(layer).unwrap().pixels.as_ref().unwrap().pixel(0, 0), [128, 128, 128, 255]);
@@ -73,18 +74,38 @@ fn revert_drops_the_preview_and_still_reverts() {
 
 #[test]
 fn a_blur_preview_grows_the_layer_and_previews_from_a_reduced_copy() {
+    // 2100 is just past the 2048 filter-preview limit and 100 is nowhere near it, so exactly one
+    // halving runs (factor 0.5) without allocating a multi-thousand-square raster.
     let mut e = Engine::new();
-    let doc = e.new_document(400, 400, false).unwrap();
-    let bytes = encode_png(&Raster::from_premultiplied(300, 300, [255u8, 255, 255, 255].repeat(90_000)), 72.0).unwrap();
-    e.import_image(Some(doc), &bytes, "Big", Some(Point { x: 200.0, y: 200.0 })).unwrap();
+    let doc = e.new_document(2200, 200, false).unwrap();
+    let bytes = encode_png(&Raster::from_premultiplied(2100, 100, [255u8, 255, 255, 255].repeat(2100 * 100)), 72.0).unwrap();
+    e.import_image(Some(doc), &bytes, "Wide", Some(Point { x: 1100.0, y: 100.0 })).unwrap();
     let layer = e.state(doc).unwrap().active_layer_id.unwrap();
-    let before = e.state(doc).unwrap().layers[0].transform;
-    e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: FilterParams::GaussianBlur { radius: 6.0 } })).unwrap();
+    let before_state = e.state(doc).unwrap();
+    let before = before_state.layers[0].transform;
+    let before_pixels_width = before_state.layers[0].pixels_width;
+    let requested = FilterParams::GaussianBlur { radius: 6.0 };
+    e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: requested })).unwrap();
     let state = e.state(doc).unwrap();
     let l = &state.layers[0];
     assert!(l.transform.size.width > before.size.width, "the preview shows the grown layer");
     assert!(l.pixels_width <= 2048, "previewed from a reduced copy: {}", l.pixels_width);
-    assert!((l.transform.size.width / before.size.width - l.transform.size.height / before.size.height).abs() < 0.01);
+    assert!(l.pixels_width < before_pixels_width, "the halving demonstrably happened: {} vs {}", l.pixels_width, before_pixels_width);
+    // Pin the parameter scaling: the grow step must use the margin for the HALVED radius (3.0),
+    // not the requested one (6.0), scaled back up by 1/factor into document units.
+    let factor = 0.5;
+    let margin_pixels = requested.scaled(factor).margin().ceil();
+    let expected_width = before.size.width + 2.0 * margin_pixels / factor;
+    let expected_height = before.size.height + 2.0 * margin_pixels / factor;
+    assert!((l.transform.size.width - expected_width).abs() < 0.01,
+        "grown width should match the halved-radius margin: got {} want {}", l.transform.size.width, expected_width);
+    assert!((l.transform.size.height - expected_height).abs() < 0.01,
+        "grown height should match the halved-radius margin: got {} want {}", l.transform.size.height, expected_height);
+    // Shape-independent, unlike an aspect-ratio comparison: a grow that shifted off-centre would
+    // pass the width/height checks above but still make the layer jump when the panel opened.
+    let c0 = before.center();
+    let c1 = l.transform.center();
+    assert!((c0.x - c1.x).abs() < 1e-6 && (c0.y - c1.y).abs() < 1e-6, "a blur grows the layer in place, keeping its centre");
     e.set_preview(doc, None).unwrap();
     assert_eq!(e.state(doc).unwrap().layers[0].transform, before);
 }
