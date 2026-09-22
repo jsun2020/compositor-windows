@@ -86,6 +86,29 @@ fn a_blur_carries_a_covering_mask_onto_the_new_grid() {
 }
 
 #[test]
+fn a_blur_leaves_a_positioned_mask_where_it_sits() {
+    // A positioned mask is anchored in document space by its own `placement`, independent of
+    // the layer's rectangle. `follow` (used by set_transform/distort, where content truly
+    // moves) would map that placement through the old-to-new rectangle and rescale it by the
+    // grid ratio; a blur only grows the pixel grid around content that stays put, so applying
+    // `follow` here would incorrectly move a mask that never budged.
+    let (mut d, id) = doc_with_layer();
+    let placement = LayerTransform::axis_aligned(Point { x: 12.0, y: 12.0 }, Size { width: 10.0, height: 10.0 });
+    let mask_pixels = GrayRaster::from_bytes(10, 10, (0..100).map(|i| (i * 2) as u8).collect());
+    d.layer_mut(id).unwrap().set_mask(Some(Mask {
+        pixels: mask_pixels.clone(), enabled: true, placement: Some(placement), linked: None }));
+    let before = d.layer(id).unwrap().transform;
+    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { radius: 2.0 }).unwrap();
+    let l = d.layer(id).unwrap();
+    assert_ne!(l.transform, before, "the blur grew the layer");
+    let mask = l.mask.as_ref().unwrap();
+    assert_eq!(mask.placement, Some(placement), "a positioned mask keeps its own placement");
+    assert_eq!(mask.pixels.width, mask_pixels.width);
+    assert_eq!(mask.pixels.height, mask_pixels.height);
+    assert_eq!(mask.pixels.bytes(), mask_pixels.bytes(), "and its pixels are untouched");
+}
+
+#[test]
 fn a_filter_that_does_not_spread_keeps_the_layers_grid() {
     let (mut d, id) = doc_with_layer();
     let before = d.layer(id).unwrap().transform;
