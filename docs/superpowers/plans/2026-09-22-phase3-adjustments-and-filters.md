@@ -3504,6 +3504,23 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
     return layer.id as string;
   });
   await expectMatchesCpu(page, "hue ranges");
+  // Ruling (pre-flight, Task 13): colorize with a NON-MASTER range is the one combination where a
+  // shader that reads adjustments.Master diverges from hsv.rs (which reads adjustment(range)) while
+  // every Rust test stays green, because the divergence lives entirely in GLSL. The finished panel
+  // cannot produce it - the Colorize toggle resets the settings object to Master - but a .comp file
+  // or a SetAdjustment command can, and the parity constraint covers every adjustment layer, not
+  // only UI-reachable ones. Reds carries different amounts from Master here, so the two disagree.
+  const setColorize = (on: boolean, range: string) => page.evaluate(({ id, on, range }) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
+    const hsv = { ...layer.adjustment.hsvSettings, colorize: on, range,
+      adjustments: { ...layer.adjustment.hsvSettings.adjustments, Reds: { hue: 200, saturation: 70, lightness: 0 } } };
+    api.engine.execute(s.activeId, { type: "SetAdjustment", id, adjustment: { ...layer.adjustment, hsvSettings: hsv } });
+    s.refresh(); s.invalidate();
+  }, { id, on, range });
+  await setColorize(true, "Reds");
+  await expectMatchesCpu(page, "colorize with a non-Master range");
+  await setColorize(false, "Reds");
   const run = (cmd: unknown) => page.evaluate((cmd) => { const api = (window as any).__compositor; const s = api.store.getState(); api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate(); }, cmd);
   await run({ type: "SetLayerOpacity", id, opacity: 0.45 });
   await expectMatchesCpu(page, "opacity");
@@ -3797,9 +3814,18 @@ Compile it in `createPrograms` as `adjust` with the uniform list above, add it t
     gl.uniform1i(p.uniforms.useCoverage, coverageLevel === null ? 0 : 1);
     gl.uniformMatrix3fv(p.uniforms.deviceToDoc, true, new Float32Array(this.deviceToDoc(ctx.viewport, ctx.state, ctx.dpr)));
     const hsv = adjustment.hsvSettings;
-    const master = hsv?.adjustments?.Master ?? { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
+    // Ruling (pre-flight, Task 13): colorize reads the SELECTED range's adjustment, not Master.
+    // This mirrors hsv.rs::adjust_rgb, whose colorize branch is settings.adjustment(settings.range),
+    // which in turn mirrors the Mac: HueSaturation.swift defines hue/saturation/lightness as
+    // computed properties over adjustments[range] and the colorize branch uses those. An earlier
+    // version hard-coded .Master here. The polished panel cannot produce colorize with a non-Master
+    // range (the Colorize toggle resets the whole settings object), but a .comp file or a
+    // SetAdjustment command can, and the parity constraint covers every adjustment layer, not only
+    // UI-reachable ones. Hard-coding Master diverges GPU from CPU with every Rust test still green.
+    const selected = hsv?.adjustments?.[hsv.range] ?? hsv?.adjustments?.Master
+        ?? { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
     gl.uniform1i(p.uniforms.colorize, (hsv?.colorize ?? adjustment.colorize) ? 1 : 0);
-    gl.uniform3f(p.uniforms.colorizeAmounts, master.hue, master.saturation, master.lightness);
+    gl.uniform3f(p.uniforms.colorizeAmounts, selected.hue, selected.saturation, selected.lightness);
     const grain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
     // strength mirrors `grain_strength` in engine/src/adjust/grain.rs.
     gl.uniform3f(p.uniforms.grain, grain.size, grain.roughness, Math.min(1, grain.amount / 100) * 0.35 * 255);
@@ -4745,6 +4771,14 @@ test("double-clicking an adjustment row edits it live and OK records one step", 
   await setup(page);
   await clickMenu(page, "Layer", "layer-adjustment-curves");
   const id = (await state(page)).layers[1].id;
+  // Ruling (pre-flight, Task 17): close the auto-opened panel FIRST. addAdjustmentLayer ends by
+  // calling beginAdjust, so the menu action leaves a Curves panel already open, and beginAdjust
+  // no-ops while adjustEdit is set. Without this cancel the dblclick below is dead: the title
+  // already reads "Curves" and the assertion passes even if double-click is wired to nothing at
+  // all, which is the exact capability this test claims to cover. Cancelling records nothing, so
+  // the undo depth captured later is unaffected.
+  await page.getByTestId("adjust-cancel").click();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0, { timeout: 2000 });
   await page.getByTestId("layer-row").nth(0).dblclick();
   await expect(page.getByTestId("adjust-title")).toHaveText("Curves");
   const editor = page.getByTestId("curves-editor");
