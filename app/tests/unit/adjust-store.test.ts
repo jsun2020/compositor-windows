@@ -18,18 +18,22 @@ function document(layers: LayerState[], active: string): DocumentState {
 function install(layers: LayerState[], active: string) {
   const calls: Command[] = [];
   const previews: (PreviewRequest | null)[] = [];
+  const previewDocs: string[] = [];
+  const history: string[] = [];
+  const closed: string[] = [];
   const state = document(layers, active);
   const engine = {
     state: () => state,
     execute: (_id: string, cmd: Command) => { calls.push(cmd); return { structure: true, canvas: false, layers: [] }; },
-    setPreview: (_id: string, request: PreviewRequest | null) => { previews.push(request); return { structure: true, canvas: false, layers: [] }; },
+    setPreview: (id: string, request: PreviewRequest | null) => { previewDocs.push(id); previews.push(request); return { structure: true, canvas: false, layers: [] }; },
     histogram: () => [new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1)],
-    undo: () => ({ structure: true, canvas: false, layers: [] }),
-    redo: () => ({ structure: true, canvas: false, layers: [] }),
+    undo: () => { history.push("undo"); return { structure: true, canvas: false, layers: [] }; },
+    redo: () => { history.push("redo"); return { structure: true, canvas: false, layers: [] }; },
+    closeDocument: (id: string) => { closed.push(id); },
   } as unknown as EngineClient;
-  useEditor.setState({ engine, activeId: "D", documents: { D: state }, selectedLayerIds: [active], maskSelected: false,
+  useEditor.setState({ engine, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [active], maskSelected: false,
     transformEdit: null, adjustEdit: null, error: null, tool: "move" });
-  return { calls, previews };
+  return { calls, previews, previewDocs, history, closed };
 }
 
 describe("adjustment panels", () => {
@@ -81,14 +85,49 @@ describe("adjustment panels", () => {
   });
 
   it("a panel owns the document: other commands, undo and redo are refused while it is open", () => {
-    const { calls } = install([layer("A")], "A");
+    const { calls, history } = install([layer("A")], "A");
     useEditor.getState().beginAdjust({ kind: "Levels" });
     useEditor.getState().run({ type: "AddBlankLayer" });
     useEditor.getState().undo();
     useEditor.getState().redo();
     expect(calls).toEqual([]);
+    expect(history).toEqual([]);   // the engine's undo/redo must never be reached, not just no-op
     expect(useEditor.getState().error).toMatch(/Apply or cancel/);
     expect(useEditor.getState().adjustEdit).not.toBeNull();
+  });
+
+  it("a panel owns the document: beginTransform is refused too (an Alt-drag duplicate must not record while a panel is open)", () => {
+    const { calls } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    expect(useEditor.getState().beginTransform({ persistent: true, duplicate: true })).toBe(false);
+    expect(useEditor.getState().transformEdit).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("switching documents clears the panel and clears the preview on the document it belonged to, not the one being switched to", () => {
+    const { previewDocs } = install([layer("A")], "A");
+    useEditor.setState((s) => ({ documents: { ...s.documents, E: document([layer("B")], "B") }, order: [...s.order, "E"] }));
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    expect(useEditor.getState().adjustEdit).not.toBeNull();
+    useEditor.getState().setActive("E");
+    expect(useEditor.getState().adjustEdit).toBeNull();
+    expect(useEditor.getState().activeId).toBe("E");
+    // The clearing setPreview must target D (where the panel was), not E (where we are going).
+    expect(previewDocs.at(-1)).toBe("D");
+  });
+
+  it("closing a background document leaves a panel open on the active document untouched", () => {
+    const { previewDocs, closed } = install([layer("A")], "A");
+    useEditor.setState((s) => ({ documents: { ...s.documents, E: document([layer("B")], "B") }, order: [...s.order, "E"] }));
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    expect(useEditor.getState().adjustEdit).not.toBeNull();
+    const previewCallsBefore = previewDocs.length;
+    useEditor.getState().closeDocument("E");
+    expect(closed).toEqual(["E"]);
+    expect(useEditor.getState().adjustEdit).not.toBeNull();      // D's panel is untouched
+    expect(previewDocs.length).toBe(previewCallsBefore);         // no setPreview call for the close at all
+    expect(useEditor.getState().documents.E).toBeUndefined();
+    expect(useEditor.getState().activeId).toBe("D");
   });
 
   it("refuses to open on a folder, a hidden layer or a layer with no pixels", () => {
@@ -99,6 +138,18 @@ describe("adjustment panels", () => {
     install([layer("B", { hasPixels: false, pixelsWidth: 0 })], "B");
     expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(false);
     expect(useEditor.getState().canAdjust()).toBe(false);
+  });
+
+  it("reopening a customised adjustment layer unchanged commits nothing", () => {
+    // Regression for isAdjustIdentity comparing against defaultAdjustment(kind) instead of
+    // edit.original: a customised adjustment layer is never equal to the identity default, so
+    // that comparison judged every no-op reopen "changed" and issued a spurious SetAdjustment.
+    const custom = defaultAdjustment("Curves");
+    custom.curves.channels[0] = [{ x: 0, y: 40 }, { x: 255, y: 220 }];
+    const { calls } = install([layer("A"), layer("J", { hasPixels: false, pixelsWidth: 0, adjustment: custom })], "J");
+    useEditor.getState().beginAdjust({ kind: "Curves", layerId: "J", target: "adjustmentLayer" });
+    useEditor.getState().commitAdjust();
+    expect(calls).toEqual([]);
   });
 
   it("knows the default settings and which ones do nothing", () => {

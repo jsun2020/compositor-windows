@@ -49,15 +49,38 @@ export function adjustTitle(edit: Pick<AdjustEdit, "kind" | "params">): string {
 }
 export const isFilterKind = (kind: string): kind is FilterKind => kind in FILTER_TITLES;
 
-/** Whether the panel's current settings would change nothing (so OK records no undo step). */
-export function isAdjustIdentity(edit: Pick<AdjustEdit, "kind" | "adjustment" | "params">): boolean {
+/** Deep-equal, ignoring an object's key order (two adjustments equal in content but built via a
+ * different literal order, or round-tripped through JSON, must still compare equal). */
+function sameShape(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => sameShape(v, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ak = Object.keys(a as Record<string, unknown>);
+    const bk = Object.keys(b as Record<string, unknown>);
+    if (ak.length !== bk.length) return false;
+    return ak.every((k) => sameShape((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  }
+  return false;
+}
+
+/** Whether the panel's current settings would change nothing (so OK records no undo step).
+ * Identity means "equal to what the panel opened with": for a destructive edit on a pixel
+ * layer that is always the neutral default (there is nothing else it could have started from),
+ * but for an adjustment layer it is `edit.original` -- the settings already on the layer, which
+ * may themselves be far from the default. Comparing against the default unconditionally would
+ * judge a no-op reopen of an already-customised adjustment layer as "changed". */
+export function isAdjustIdentity(edit: Pick<AdjustEdit, "kind" | "adjustment" | "params" | "original">): boolean {
   if (edit.params) {
     const p = edit.params;
     return p.filter === "LensCorrection" ? p.distortion === 0 : false;
   }
   const a = edit.adjustment;
   if (!a) return true;
-  return JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind));
+  const baseline = edit.original ?? defaultAdjustment(a.kind);
+  return sameShape(a, baseline);
 }
 
 /** The pixel preview a destructive panel asks the engine for; null when there is nothing to show. */

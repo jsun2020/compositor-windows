@@ -251,6 +251,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     }
   },
   beginTransform: ({ persistent, duplicate }) => {
+    // A panel owns the document while it is open, as macOS's canTransform (which gates on
+    // canEditLayers) does. `selection.ts`'s `canTransform` has no view of `adjustEdit` -- it
+    // takes only `DocumentState` plus the selection, shared with UI hit-testing that has no
+    // reason to know about panels -- so this stays here rather than widening that signature.
+    if (get().adjustEdit) return false;
     const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;
     const state = get().documents[activeId];
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
