@@ -1120,13 +1120,17 @@ pub fn shifted_hue(hue: f64, settings: &HueSaturationSettings) -> f64 {
 /// raster shares it.
 pub fn adjust_rgb(rgb: [f64; 3], settings: &HueSaturationSettings, response: &[[f64; 3]]) -> [f64; 3] {
     let [mut hue, mut saturation, lightness] = rgb_to_hsl(rgb);
-    let mut lightness_amount = 0.0;
+    let lightness_amount;
     if settings.colorize {
-        let master = settings.adjustment(ColorRange::Master);
-        hue = master.hue % 360.0;
-        if hue < 0.0 { hue += 360.0; }
-        saturation = (master.saturation / 100.0).clamp(0.0, 1.0);
-        lightness_amount = master.lightness / 100.0;
+        // Ruling (Task 4): the SELECTED range, not Master, and NO negative wrap. The Mac's
+        // HueSaturationSettings defines hue/saturation/lightness as computed properties over
+        // adjustments[range], and its colorize branch applies only truncatingRemainder. An earlier
+        // version of this block hard-coded Master and wrapped negatives; both were wrong. Task 13's
+        // shader mirrors this exactly - keep the two in step if either ever changes.
+        let selected = settings.adjustment(settings.range);
+        hue = selected.hue % 360.0;
+        saturation = (selected.saturation / 100.0).clamp(0.0, 1.0);
+        lightness_amount = selected.lightness / 100.0;
     } else {
         let sampled = response[(hue.round() as usize).min(response.len() - 1)];
         lightness_amount = sampled[2] / 100.0;
@@ -3510,17 +3514,24 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
   // cannot produce it - the Colorize toggle resets the settings object to Master - but a .comp file
   // or a SetAdjustment command can, and the parity constraint covers every adjustment layer, not
   // only UI-reachable ones. Reds carries different amounts from Master here, so the two disagree.
-  const setColorize = (on: boolean, range: string) => page.evaluate(({ id, on, range }) => {
+  const setColorize = (on: boolean, range: string, hue: number) => page.evaluate(({ id, on, range, hue }) => {
     const api = (window as any).__compositor; const s = api.store.getState();
     const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
     const hsv = { ...layer.adjustment.hsvSettings, colorize: on, range,
-      adjustments: { ...layer.adjustment.hsvSettings.adjustments, Reds: { hue: 200, saturation: 70, lightness: 0 } } };
+      adjustments: { ...layer.adjustment.hsvSettings.adjustments, Reds: { hue, saturation: 70, lightness: 0 } } };
     api.engine.execute(s.activeId, { type: "SetAdjustment", id, adjustment: { ...layer.adjustment, hsvSettings: hsv } });
     s.refresh(); s.invalidate();
-  }, { id, on, range });
-  await setColorize(true, "Reds");
+  }, { id, on, range, hue });
+  await setColorize(true, "Reds", 200);
   await expectMatchesCpu(page, "colorize with a non-Master range");
-  await setColorize(false, "Reds");
+  // A NEGATIVE colorize hue is the second divergence the shader has to survive. Task 4 dropped the
+  // negative wrap to match the Mac's truncatingRemainder, so hue stays negative into hslToRgb.
+  // Rust's `%` truncates and its sector dispatch is `match sector as i64` with a catch-all, so a
+  // hue of -300 lands on the catch-all arm; a GLSL mod() plus a `sector < 1.0` comparison chain
+  // would send it to arm 0 instead and paint a different colour. -300 exercises both.
+  await setColorize(true, "Reds", -300);
+  await expectMatchesCpu(page, "colorize with a negative hue");
+  await setColorize(false, "Reds", 200);
   const run = (cmd: unknown) => page.evaluate((cmd) => { const api = (window as any).__compositor; const s = api.store.getState(); api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate(); }, cmd);
   await run({ type: "SetLayerOpacity", id, opacity: 0.45 });
   await expectMatchesCpu(page, "opacity");
@@ -3673,15 +3684,29 @@ vec3 rgbToHsl(vec3 c) {
   if (hue < 0.0) hue += 360.0;
   return vec3(hue, saturation, lightness);
 }
+// Ruling (pre-flight, Task 13): Rust's `%` truncates toward zero, GLSL's mod() floors. They agree
+// for non-negative values and disagree for negative ones, and the colorize branch CAN produce a
+// negative hue, because Task 4 deliberately dropped the negative wrap there to match the Mac's
+// truncatingRemainder. The parity constraint makes the CPU the reference, so the shader must
+// reproduce Rust's operator, not GLSL's. Use rem() wherever hsv.rs uses `%` on a possibly negative
+// value. The non-colorize path is NOT one of those: it wraps negatives itself, which makes it
+// equal to a floored mod, so mod() stays correct there.
+float rem(float x, float y) { return x - y * trunc(x / y); }
 vec3 hslToRgb(vec3 hsl) {
   if (hsl.y <= 0.0) return vec3(hsl.z);
   float chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
   float sector = hsl.x / 60.0;
-  float second = chroma * (1.0 - abs(mod(sector, 2.0) - 1.0));
+  float second = chroma * (1.0 - abs(rem(sector, 2.0) - 1.0));
   float base = hsl.z - chroma * 0.5;
-  vec3 rgb = sector < 1.0 ? vec3(chroma, second, 0.0) : sector < 2.0 ? vec3(second, chroma, 0.0)
-    : sector < 3.0 ? vec3(0.0, chroma, second) : sector < 4.0 ? vec3(0.0, second, chroma)
-    : sector < 5.0 ? vec3(second, 0.0, chroma) : vec3(chroma, 0.0, second);
+  // Ruling (pre-flight, Task 13): dispatch on the TRUNCATED INTEGER, mirroring hsv.rs's
+  // `match sector as i64 { 0..=4, _ }`. A `sector < 1.0` comparison chain sends every negative
+  // sector to arm 0, while Rust sends anything at or below -1 to the catch-all arm; for a colorize
+  // hue of -300 that is (chroma, second, 0) against (chroma, 0, second), two different colours.
+  // int(trunc(x)) truncates toward zero exactly as `as i64` does.
+  int s = int(trunc(sector));
+  vec3 rgb = s == 0 ? vec3(chroma, second, 0.0) : s == 1 ? vec3(second, chroma, 0.0)
+    : s == 2 ? vec3(0.0, chroma, second) : s == 3 ? vec3(0.0, second, chroma)
+    : s == 4 ? vec3(second, 0.0, chroma) : vec3(chroma, 0.0, second);
   return clamp(rgb + base, 0.0, 1.0);
 }
 uint mix32(uint x) {
@@ -3707,7 +3732,7 @@ uniform float opacity;
 uniform int mode;
 uniform int kind;
 uniform mat3 deviceToDoc;
-uniform vec3 colorizeAmounts;   // hue, saturation, lightness of the Master range
+uniform vec3 colorizeAmounts;   // hue, saturation, lightness of the SELECTED range (not Master)
 uniform vec3 grain;             // size, roughness, strength
 uniform uint grainSeed;
 out vec4 color;
@@ -3726,7 +3751,8 @@ vec3 throughHsl(vec3 c) {
   vec3 hsl = rgbToHsl(c);
   float lightnessAmount;
   if (colorize) {
-    hsl.x = mod(colorizeAmounts.x, 360.0);
+    // rem(), not mod(): hsv.rs uses `%`, which truncates, and this value can be negative.
+    hsl.x = rem(colorizeAmounts.x, 360.0);
     if (hsl.x < 0.0) hsl.x += 360.0;
     hsl.y = clamp(colorizeAmounts.y / 100.0, 0.0, 1.0);
     lightnessAmount = colorizeAmounts.z / 100.0;
