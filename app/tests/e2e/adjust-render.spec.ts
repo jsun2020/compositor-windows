@@ -11,12 +11,15 @@ import { hueSafeNoisePngBase64 } from "./helpers";
 // layer with no adjustment at all shows the same corruption at an unpinned viewport and is
 // bit-exact once pinned.
 //
-// Two heights, not one: an adjustment LAYER selected (AddAdjustmentLayer) shows extra controls
-// this app doesn't show for an ordinary image layer, which shifts the chrome by a further odd
-// number of device pixels on top of the baseline shift blend.spec.ts already pins for -- so the
-// height that aligns the two AddAdjustmentLayer tests below misaligns the destructive-preview
-// test's beginAdjust panel, and vice versa. Each test pins the height its own on-screen state
-// needs.
+// Two heights, not one, and here is how to re-derive them rather than trust them. The document
+// is 64 tall, so it centres on a whole pixel only when the canvas height is EVEN. Measured at
+// dpr 1: with an adjustment layer selected, 1280x721 gives canvas 976x640 and rect origin
+// y=288; with the beginAdjust panel open, 1280x720 gives canvas 976x618 and origin y=277. Both
+// whole pixels. The two chrome heights are 81 and 102, and they differ by 21 -- an odd number,
+// so no single viewport height can put both states on an even canvas. Swap the two and the
+// origins land on 287.5 and 277.5, which is the half-pixel case this pinning exists to avoid.
+// Note the direction: it is the OPEN PANEL that adds the extra 21px (chrome 102), not the
+// selected adjustment layer (chrome 81).
 const HEIGHT_ADJUSTMENT_LAYER = 721;
 const HEIGHT_DESTRUCTIVE_PREVIEW = 720;
 
