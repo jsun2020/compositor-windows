@@ -3531,6 +3531,23 @@ test("hue/saturation ranges, opacity, masks, blend modes and clipping match the 
   // would send it to arm 0 instead and paint a different colour. -300 exercises both.
   await setColorize(true, "Reds", -300);
   await expectMatchesCpu(page, "colorize with a negative hue");
+  // Ruling (Task 13 review): -300 alone does NOT distinguish trunc from floor, because -300/60 is
+  // exactly -5.0 and the two agree on integers. Swapping int(trunc(sector)) for int(floor(sector))
+  // leaves all 46 e2e green. Only a hue in (-60, 0) separates them: -30 gives sector -0.5, which
+  // truncates to 0 and floors to -1, two different arms. Verified at 74/255 with floor.
+  await setColorize(true, "Reds", -30);
+  await expectMatchesCpu(page, "colorize with a hue between -60 and 0, which separates trunc from floor");
+  // The selected range ABSENT from the sparse map: the CPU falls back to zero, and an earlier
+  // fallback to Master measured 26/255 here.
+  await page.evaluate((id) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
+    const hsv = { ...layer.adjustment.hsvSettings, colorize: true, range: "Greens",
+      adjustments: { Master: { hue: 210, saturation: 80, lightness: 10 } } };
+    api.engine.execute(s.activeId, { type: "SetAdjustment", id, adjustment: { ...layer.adjustment, hsvSettings: hsv } });
+    s.refresh(); s.invalidate();
+  }, id);
+  await expectMatchesCpu(page, "colorize whose selected range is absent from the adjustments map");
   await setColorize(false, "Reds", 200);
   const run = (cmd: unknown) => page.evaluate((cmd) => { const api = (window as any).__compositor; const s = api.store.getState(); api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate(); }, cmd);
   await run({ type: "SetLayerOpacity", id, opacity: 0.45 });
@@ -3851,8 +3868,18 @@ Compile it in `createPrograms` as `adjust` with the uniform list above, add it t
     // range (the Colorize toggle resets the whole settings object), but a .comp file or a
     // SetAdjustment command can, and the parity constraint covers every adjustment layer, not only
     // UI-reachable ones. Hard-coding Master diverges GPU from CPU with every Rust test still green.
-    const selected = hsv?.adjustments?.[hsv.range] ?? hsv?.adjustments?.Master
-        ?? { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
+    // Ruling (Task 13 review): when the selected range is ABSENT from the sparse adjustments map,
+    // fall back to ZERO, not to Master. Rust's HueSaturationSettings::adjustment is
+    // `adjustments.get(&range).copied().unwrap_or_default()` and the Mac is
+    // `adjustments[range]?.hue ?? 0` (HueSaturation.swift:188) - both zero. is_valid() never
+    // requires `range` to be a key, so {range:"Reds", colorize:true, adjustments:{Master:...}}
+    // passes set_adjustment AND .comp load. An earlier `?? adjustments.Master` here measured
+    // 26/255 against the CPU. With no hsvSettings at all, resolved_hsv() builds one from the
+    // legacy scalars under Master with range defaulting to Master, so the scalars are correct
+    // in that case and only in that case.
+    const selected = hsv
+        ? (hsv.adjustments?.[hsv.range] ?? { hue: 0, saturation: 0, lightness: 0 })
+        : { hue: adjustment.hue, saturation: adjustment.saturation, lightness: adjustment.lightness };
     gl.uniform1i(p.uniforms.colorize, (hsv?.colorize ?? adjustment.colorize) ? 1 : 0);
     gl.uniform3f(p.uniforms.colorizeAmounts, selected.hue, selected.saturation, selected.lightness);
     const grain = adjustment.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
