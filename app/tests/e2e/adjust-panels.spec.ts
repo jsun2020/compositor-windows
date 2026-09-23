@@ -336,3 +336,115 @@ test("a panel owns the document while it is open", async ({ page }) => {
   await page.getByTestId("layer-add").click();
   expect((await state(page)).layers.length).toBe(2);
 });
+
+/** The rendered canvas pixel at (32, 32), after a double rAF so the frame has painted (see the
+ * first Levels test above for why this reads the canvas and not an engine sampling API). */
+const canvasPixel = (page: Page) => page.evaluate(async () => {
+  const api = (window as any).__compositor;
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const s = api.store.getState();
+  const buf = api.readDocumentPixels();
+  const i = (32 * s.documents[s.activeId].width + 32) * 4;
+  return [buf[i], buf[i + 1], buf[i + 2]];
+});
+const whitePoint = (page: Page) => page.getByRole("spinbutton", { name: "White point", exact: true });
+
+test("a layer row click under an open destructive panel changes neither the selection nor the preview", async ({ page }) => {
+  await setup(page);
+  // A transparent layer above the noise, so the composite (and so the preview) is the noise's.
+  const ids = await page.evaluate(() => {
+    const api = (window as any).__compositor; const st = api.store.getState();
+    const noise = st.documents[st.activeId].layers[0].id;
+    st.run({ type: "AddBlankLayer" });
+    const blank = api.store.getState().documents[st.activeId].activeLayerId;
+    api.store.getState().selectLayers([noise], noise);
+    return { noise, blank };
+  });
+  const original = await canvasPixel(page);
+  await open(page, "Levels");
+  await whitePoint(page).fill("128");
+  await whitePoint(page).press("Enter");
+  const previewed = await canvasPixel(page);
+  expect(previewed).not.toEqual(original);
+  // The floating panel covers most of the row (deferred A.4); the row's right-hand edge is exposed.
+  const row = page.locator(`[data-testid="layer-row"][data-layer-id="${ids.blank}"]`);
+  const box = (await row.boundingBox())!;
+  await row.click({ position: { x: box.width - 4, y: box.height / 2 } });
+  await expect(page.getByTestId("error-banner")).toContainText("Apply or cancel");   // the click landed, and was refused
+  expect((await state(page)).activeLayerId).toBe(ids.noise);
+  expect(await page.evaluate(() => (window as any).__compositor.store.getState().selectedLayerIds)).toEqual([ids.noise]);
+  expect(await canvasPixel(page)).toEqual(previewed);   // SetActiveLayer's execute would have cleared the preview
+  await expect(page.getByTestId("adjust-panel")).toBeVisible();
+});
+
+test("while a panel is open the history, layer, image and sheet items are disabled and no sheet can open", async ({ page }) => {
+  await setup(page);
+  // Something to undo and something to redo, so only the panel can be what disables both.
+  await page.evaluate(() => { const st = (window as any).__compositor.store.getState(); st.run({ type: "AddBlankLayer" }); st.undo(); });
+  const before = await state(page);
+  expect(before.canUndo && before.canRedo).toBe(true);
+  await open(page, "Levels");
+  const disabled: [string, string[]][] = [
+    ["File", ["new", "import", "export-jpeg"]],
+    ["Edit", ["undo", "redo"]],
+    ["Layer", ["layer-new", "layer-new-folder", "layer-duplicate", "layer-merge", "layer-mask-reveal", "layer-flip-h", "layer-delete"]],
+    ["Image", ["canvas-size", "image-size", "flip-h", "flip-v"]],
+  ];
+  for (const [title, items] of disabled) {
+    const menu = page.getByRole("button", { name: title, exact: true });
+    await menu.click();
+    for (const id of items) await expect(page.getByTestId(`menu-${id}`)).toBeDisabled();
+    await menu.click();
+  }
+  // The sheet shortcuts are refused too, so Enter and Escape never have two owners.
+  await page.keyboard.press("Control+Alt+c");
+  await page.keyboard.press("Control+n");
+  await expect(page.getByRole("dialog", { name: "Canvas Size" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "New Canvas" })).toHaveCount(0);
+  await expect(page.getByTestId("error-banner")).toContainText("Apply or cancel");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  expect((await state(page)).undoDepth).toBe(before.undoDepth);
+});
+
+test("with the crop tool active, Enter applies the panel alone", async ({ page }) => {
+  await setup(page);
+  const depth = (await state(page)).undoDepth;
+  const cropRect = () => page.evaluate(() => (window as any).__compositor.store.getState().cropRect);
+  await page.keyboard.press("c");
+  expect(await cropRect()).not.toBeNull();   // the crop tool seeds a full-canvas rectangle
+  await open(page, "Levels");
+  expect(await cropRect()).toBeNull();       // dropped, as macOS's beginFilter calls cancelCrop
+  // A rectangle dragged after the panel opened must not answer the panel's Enter either.
+  await page.evaluate(() => (window as any).__compositor.store.getState().setCropRect({ x: 0, y: 0, width: 32, height: 32 }));
+  await whitePoint(page).fill("128");
+  await whitePoint(page).press("Enter");
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  const d = await state(page);
+  expect(d.undoDepth).toBe(depth + 1);       // the panel's commit, and no crop
+  expect(d.width).toBe(64);
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+});
+
+test("clicking the active tab or closing a background tab leaves the panel open", async ({ page }) => {
+  await setup(page);
+  const first = await page.evaluate(() => {
+    const api = (window as any).__compositor; const st = api.store.getState();
+    const first = st.activeId;
+    st.openDocument(api.engine.newDocument(32, 32, true));
+    api.store.getState().setActive(first);
+    return first;
+  });
+  const tabs = page.getByTestId("project-tab");
+  await expect(tabs).toHaveCount(2);
+  expect(await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.order[1]].isModified; })).toBe(false);
+  await open(page, "Levels");
+  await tabs.nth(0).locator("span").click();   // the active tab
+  await expect(page.getByTestId("adjust-panel")).toBeVisible();
+  await tabs.nth(1).getByRole("button").click();   // close the background tab
+  await expect(tabs).toHaveCount(1);
+  await expect(page.getByTestId("adjust-panel")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__compositor.store.getState().activeId)).toBe(first);
+});

@@ -3,6 +3,9 @@ import { useEditor } from "../../src/state/store";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, previewRequestFor } from "../../src/state/adjust-edit";
 import type { Command, DocumentState, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
+import type { ShellBridge } from "../../src/shell/bridge";
+import { closeProject, importImages } from "../../src/actions/files";
+import { runAction } from "../../src/shortcuts/useShortcuts";
 
 function layer(id: string, o: Partial<LayerState> = {}): LayerState {
   return { id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal",
@@ -21,6 +24,7 @@ function install(layers: LayerState[], active: string) {
   const previewDocs: string[] = [];
   const history: string[] = [];
   const closed: string[] = [];
+  const imports: string[] = [];
   const state = document(layers, active);
   const engine = {
     state: () => state,
@@ -30,10 +34,12 @@ function install(layers: LayerState[], active: string) {
     undo: () => { history.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     redo: () => { history.push("redo"); return { structure: true, canvas: false, layers: [] }; },
     closeDocument: (id: string) => { closed.push(id); },
+    importImage: (doc: string | null) => { imports.push(doc ?? "new"); return doc ?? "N"; },
   } as unknown as EngineClient;
-  useEditor.setState({ engine, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [active], maskSelected: false,
-    transformEdit: null, adjustEdit: null, error: null, tool: "move" });
-  return { calls, previews, previewDocs, history, closed };
+  const bridge = { readFile: async () => new Uint8Array([1]), baseName: (p: string) => p, pickImportImages: async () => ["C:/b.png"] } as unknown as ShellBridge;
+  useEditor.setState({ engine, bridge, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [active], maskSelected: false,
+    transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, busy: false, collapsed: {} });
+  return { calls, previews, previewDocs, history, closed, imports };
 }
 
 describe("adjustment panels", () => {
@@ -157,5 +163,96 @@ describe("adjustment panels", () => {
     expect(defaultFilterParams("MotionBlur")).toEqual({ filter: "MotionBlur", angle: 0, distance: 10 });
     expect(isAdjustIdentity({ kind: "Levels", adjustment: defaultAdjustment("Levels"), params: null } as never)).toBe(true);
     expect(previewRequestFor({ target: "layer", layerId: "A", kind: "Levels", adjustment: defaultAdjustment("Levels"), params: null, preview: true } as never)).toBeNull();
+  });
+});
+
+/** Opens a destructive Levels panel whose settings actually preview something. */
+function openPreviewingLevels() {
+  useEditor.getState().beginAdjust({ kind: "Levels" });
+  const next = defaultAdjustment("Levels");
+  next.levels.ranges[0] = { ...next.levels.ranges[0], white: 128 };
+  useEditor.getState().updateAdjust({ adjustment: next });
+}
+
+describe("a panel owns the document: every other way in is refused", () => {
+  beforeEach(() => useEditor.setState({ adjustEdit: null, error: null }));
+
+  it("a layer selection is refused, so it cannot run SetActiveLayer and clear the preview", () => {
+    const { calls, previews } = install([layer("A"), layer("B")], "A");
+    openPreviewingLevels();
+    const previewCalls = previews.length;
+    useEditor.getState().selectLayers(["B"], "B");
+    expect(calls).toEqual([]);   // no SetActiveLayer: every engine execute clears the preview
+    expect(previews.length).toBe(previewCalls);
+    expect(useEditor.getState().selectedLayerIds).toEqual(["A"]);
+    expect(useEditor.getState().error).toMatch(/Apply or cancel/);
+    useEditor.getState().setMaskSelected(true);
+    expect(useEditor.getState().maskSelected).toBe(false);
+  });
+
+  it("collapsing the folder around the active layer is refused along with the selection it makes", () => {
+    const { calls } = install([layer("F", { isGroup: true, hasPixels: false }), layer("A", { parentId: "F" })], "A");
+    openPreviewingLevels();
+    useEditor.getState().toggleCollapsed("F");
+    expect(calls).toEqual([]);
+    expect(useEditor.getState().collapsed.D ?? []).toEqual([]);
+    expect(useEditor.getState().error).toMatch(/Apply or cancel/);
+  });
+
+  it("a sheet does not open over a panel", () => {
+    install([layer("A")], "A");
+    openPreviewingLevels();
+    useEditor.getState().openSheet({ kind: "canvasSize" });
+    expect(useEditor.getState().sheet).toBeNull();
+    expect(useEditor.getState().error).toMatch(/Apply or cancel/);
+  });
+
+  it("importing into the document is refused", async () => {
+    const { imports } = install([layer("A")], "A");
+    openPreviewingLevels();
+    await importImages(["C:/b.png"]);
+    expect(imports).toEqual([]);
+    expect(useEditor.getState().error).toMatch(/Apply or cancel/);
+    useEditor.getState().cancelAdjust();
+    await importImages(["C:/b.png"]);
+    expect(imports).toEqual(["D"]);   // the same import goes through once the panel is gone
+  });
+
+  it("opening a panel drops the crop rectangle, and Enter and Escape reach only the panel", () => {
+    const { calls } = install([layer("A")], "A");
+    useEditor.getState().setTool("crop");
+    expect(useEditor.getState().cropRect).not.toBeNull();   // the tool seeds a full-canvas rectangle
+    openPreviewingLevels();
+    expect(useEditor.getState().cropRect).toBeNull();        // as macOS's beginFilter calls cancelCrop
+    // A rectangle dragged while the panel is open still must not answer the panel's keys.
+    useEditor.getState().setCropRect({ x: 0, y: 0, width: 5, height: 5 });
+    runAction("apply");
+    runAction("cancel");
+    expect(calls).toEqual([]);
+    expect(useEditor.getState().error).toBeNull();
+    expect(useEditor.getState().cropRect).toEqual({ x: 0, y: 0, width: 5, height: 5 });
+    expect(useEditor.getState().adjustEdit).not.toBeNull();
+  });
+
+  it("clicking the active document's tab keeps its panel and its preview", () => {
+    const { previews, previewDocs } = install([layer("A")], "A");
+    openPreviewingLevels();
+    const previewCalls = previewDocs.length;
+    useEditor.getState().setActive("D");
+    expect(useEditor.getState().adjustEdit).not.toBeNull();
+    expect(previewDocs.length).toBe(previewCalls);
+    expect(previews.at(-1)).not.toBeNull();
+  });
+
+  it("closing a background tab closes it without switching to it, so the active panel stays open", async () => {
+    const { closed, previewDocs } = install([layer("A")], "A");
+    useEditor.setState((s) => ({ documents: { ...s.documents, E: document([layer("B")], "B") }, order: [...s.order, "E"] }));
+    openPreviewingLevels();
+    const previewCalls = previewDocs.length;
+    expect(await closeProject("E")).toBe(true);
+    expect(closed).toEqual(["E"]);
+    expect(useEditor.getState().activeId).toBe("D");
+    expect(useEditor.getState().adjustEdit).not.toBeNull();
+    expect(previewDocs.length).toBe(previewCalls);
   });
 });

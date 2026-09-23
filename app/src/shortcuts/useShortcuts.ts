@@ -67,11 +67,15 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-hand": s.setTool("hand"); break;
     case "tool-zoom": s.setTool("zoom"); break;
     case "tool-crop": s.setTool("crop"); break;
+    // An open panel answers Enter and Escape itself (AdjustPanel.tsx); neither may also reach the
+    // crop tool or a transform.
     case "apply":
+      if (s.panelOwnsDocument()) break;
       if (doc && s.tool === "crop") { const r = s.cropRect; if (r) { s.run({ type: "Crop", ...r }); s.setCropRect(null); } }
       else if (s.transformEdit) s.commitTransform();
       break;
     case "cancel":
+      if (s.panelOwnsDocument()) break;
       if (s.tool === "crop") s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
       break;

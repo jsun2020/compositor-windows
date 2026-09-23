@@ -1,5 +1,5 @@
 import { useEditor } from "../state/store";
-import { closeActive } from "../actions/files";
+import { closeProject } from "../actions/files";
 
 const MODIFIED_DOT = " " + String.fromCharCode(0x2022);
 
@@ -13,7 +13,7 @@ export function ProjectTabs() {
         return (
           <div key={id} data-testid="project-tab" className={"tab" + (id === s.activeId ? " active" : "")} onClick={() => s.setActive(id)}>
             <span>{title}{d.isModified ? MODIFIED_DOT : ""}</span>
-            <button aria-label={`Close ${title}`} onClick={(e) => { e.stopPropagation(); s.setActive(id); void closeActive(); }}>x</button>
+            <button aria-label={`Close ${title}`} onClick={(e) => { e.stopPropagation(); void closeProject(id); }}>x</button>
           </div>
         );
       })}

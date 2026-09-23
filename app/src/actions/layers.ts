@@ -93,4 +93,4 @@ export function editAdjustmentLayer(id?: string): void {
   if (!layer?.adjustment) return;
   c.s.beginAdjust({ kind: layer.adjustment.kind, layerId: layer.id, target: "adjustmentLayer" });
 }
-export function canEditAdjustment(): boolean { const c = ctx(); return !!c?.active?.adjustment && !c.s.adjustEdit; }
+export function canEditAdjustment(): boolean { const c = ctx(); return !!c?.active?.adjustment && !c.s.panelOwnsDocument(); }

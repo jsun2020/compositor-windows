@@ -85,6 +85,11 @@ export interface EditorStore {
   setSnapGuides(g: { xs: number[]; ys: number[] }): void;
   setBlendPreview(m: BlendMode | null): void;
   previewEdit(): PreviewEdit | null;
+  /** True while an adjustment or filter panel is open. The panel owns the document then, as
+   * macOS's canEditLayers/canUseHistory make it: nothing may record history, change the
+   * selection, open a sheet or disturb the panel's preview. With `refuse`, also raises the
+   * refusal banner. Every such entry point and menu flag goes through this one guard. */
+  panelOwnsDocument(refuse?: boolean): boolean;
   canAdjust(): boolean;
   beginAdjust(opts: { kind: AdjustmentKind | FilterKind; layerId?: string; target?: "layer" | "adjustmentLayer" }): boolean;
   updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"] }): void;
@@ -107,6 +112,17 @@ const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]
   "AddBlankLayer", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
 ]);
 
+/** Closes an open panel without applying it and clears its engine-side preview. `adjustEdit`,
+ * like `transformEdit`, names no document of its own: it always belongs to whatever is
+ * `activeId` at the time, so that is the document whose preview is cleared. Callers leaving or
+ * closing the active document use this; closing some other, background tab must not. */
+function dropOpenPanel(): void {
+  const { adjustEdit, engine, activeId } = useEditor.getState();
+  if (!adjustEdit) return;
+  useEditor.setState({ adjustEdit: null });
+  if (activeId) engine!.setPreview(activeId, null);
+}
+
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
@@ -120,9 +136,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // Leaving the current document commits its pending edit rather than dropping it, as
     // ProjectWorkspace.select/newCanvas do on macOS.
     get().commitTransform();
-    const { engine, activeId } = get();
-    if (get().adjustEdit) { set({ adjustEdit: null }); if (activeId) engine!.setPreview(activeId, null); }
-    const state = engine!.state(id);
+    dropOpenPanel();
+    const state = get().engine!.state(id);
     const viewport = new Viewport();
     set((s) => ({ documents: { ...s.documents, [id]: state }, order: s.order.includes(id) ? s.order : [...s.order, id],
       viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
@@ -130,12 +145,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   closeDocument: (id) => {
     get().commitTransform();
-    // `adjustEdit`, like `transformEdit`, names no document of its own: it always belongs to
-    // whatever is `activeId` at the time. Closing some other, background tab must not touch it,
-    // so this clears the engine-side preview on `activeId` (not the possibly-different `id`
-    // being closed) and only when a panel could actually be open on it.
-    const closingActive = get().activeId === id;
-    if (closingActive && get().adjustEdit) { set({ adjustEdit: null }); get().engine!.setPreview(id, null); }
+    // A panel belongs to the active document; closing a background tab leaves it open.
+    if (get().activeId === id) dropOpenPanel();
     get().engine!.closeDocument(id);
     set((s) => {
       const { [id]: _d, ...documents } = s.documents;
@@ -148,9 +159,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
     });
   },
   setActive: (id) => {
+    // Clicking the tab already on screen changes nothing, and so must not cancel its panel.
+    if (id === get().activeId) return;
     get().commitTransform();
-    const { engine, activeId: leavingId } = get();
-    if (get().adjustEdit) { set({ adjustEdit: null }); if (leavingId) engine!.setPreview(leavingId, null); }
+    dropOpenPanel();
     const state = get().documents[id];
     set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null });
   },
@@ -182,9 +194,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (next.length !== list.length) set({ collapsed: { ...collapsed, [activeId]: next } });
   },
   run: (command) => {
-    // A panel owns the document while it is open, as macOS's canEditLayers does. Its own commit
-    // clears `adjustEdit` before calling this, so OK is never refused.
-    if (get().adjustEdit) { set({ error: "Apply or cancel the open adjustment first" }); return; }
+    // Its own commit clears `adjustEdit` before calling this, so a panel's OK is never refused.
+    if (get().panelOwnsDocument(true)) return;
     // A pending transform is closed before any other command records history. macOS refuses
     // these outright while `transformEdit != nil` (canEditLayers); committing is the gentler
     // equivalent and is what every action in actions/layers.ts already did individually.
@@ -207,8 +218,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   // A panel owns the document while it is open, as macOS's canEditLayers does; the menu items
   // for these are already disabled, so this stays quiet rather than raising the error banner.
-  undo: () => { if (get().adjustEdit) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
-  redo: () => { if (get().adjustEdit) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
+  undo: () => { if (get().panelOwnsDocument()) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
+  redo: () => { if (get().panelOwnsDocument()) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
     // Entering the crop tool seeds a full-canvas rectangle, as macOS does (EditorSession.selectTool);
@@ -221,13 +232,18 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setCropRect: (cropRect) => set({ cropRect }),
   setCropRatio: (cropRatio) => set({ cropRatio }),
-  openSheet: (sheet) => set({ sheet }),
+  // A sheet and a panel would both answer Enter and Escape (each listens on `window`), so a
+  // sheet never opens over a panel.
+  openSheet: (sheet) => { if (!get().panelOwnsDocument(true)) set({ sheet }); },
   closeSheet: () => set({ sheet: null }),
   setError: (error) => set({ error }),
   setRendererKind: (rendererKind) => set({ rendererKind }),
   invalidate: () => set((s) => ({ renderTick: s.renderTick + 1 })),
   selectLayers: (ids, primary) => {
     const { engine, activeId } = get(); if (!engine || !activeId) return;
+    // `SetActiveLayer` records no history, but every `execute` clears the engine's preview, so a
+    // row click under an open destructive panel would wipe what the panel is showing.
+    if (get().panelOwnsDocument(true)) return;
     const state = get().documents[activeId];
     const valid = ids.filter((id) => state.layers.some((l) => l.id === id));
     const active = primary && valid.includes(primary) ? primary : valid[0] ?? null;
@@ -236,29 +252,34 @@ export const useEditor = create<EditorStore>((set, get) => ({
     set({ selectedLayerIds: valid, maskSelected: false });
     get().refresh(activeId);
   },
-  setMaskSelected: (v) => set({ maskSelected: v }),
+  // Quiet: the chip handlers that call this have just had `selectLayers` raise the banner.
+  setMaskSelected: (v) => { if (!get().panelOwnsDocument()) set({ maskSelected: v }); },
   toggleCollapsed: (id) => {
     const { activeId, collapsed } = get(); if (!activeId) return;
     const list = collapsed[activeId] ?? [];
     const collapsing = !list.includes(id);
     const next = collapsing ? [...list, id] : list.filter((x) => x !== id);
-    set({ collapsed: { ...collapsed, [activeId]: next } });
     // Collapsing a folder whose descendant is active selects the folder itself, as macOS does.
+    let insideFolder = false;
     if (collapsing) {
       const state = get().documents[activeId];
       const byId = new Map(state.layers.map((l) => [l.id, l]));
       let node = state.activeLayerId ? byId.get(state.activeLayerId) : undefined;
-      let steps = 0; let insideFolder = false;
+      let steps = 0;
       while (node?.parentId && steps++ < 65) { if (node.parentId === id) { insideFolder = true; break; } node = byId.get(node.parentId); }
-      if (insideFolder) get().selectLayers([id], id);
     }
+    // That selection is refused while a panel is open, and hiding the active layer's row without
+    // it would leave nothing selected on screen, so the collapse is refused with it.
+    if (insideFolder && get().panelOwnsDocument(true)) return;
+    set({ collapsed: { ...collapsed, [activeId]: next } });
+    if (insideFolder) get().selectLayers([id], id);
   },
   beginTransform: ({ persistent, duplicate }) => {
     // A panel owns the document while it is open, as macOS's canTransform (which gates on
     // canEditLayers) does. `selection.ts`'s `canTransform` has no view of `adjustEdit` -- it
     // takes only `DocumentState` plus the selection, shared with UI hit-testing that has no
     // reason to know about panels -- so this stays here rather than widening that signature.
-    if (get().adjustEdit) return false;
+    if (get().panelOwnsDocument()) return false;
     const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;
     const state = get().documents[activeId];
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
@@ -335,9 +356,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (e.kind === "mask") return { kind: "mask", id: e.id, draft: e.draft };
     return { kind: "layer", id: e.id, draft: e.draft, corners: e.corners };
   },
+  panelOwnsDocument: (refuse = false) => {
+    if (!get().adjustEdit) return false;
+    if (refuse) set({ error: "Apply or cancel the open adjustment first" });
+    return true;
+  },
   canAdjust: () => {
-    const { activeId, documents, selectedLayerIds, maskSelected, adjustEdit } = get();
-    if (!activeId || adjustEdit) return false;
+    const { activeId, documents, selectedLayerIds, maskSelected } = get();
+    if (!activeId || get().panelOwnsDocument()) return false;
     const state = documents[activeId];
     const layer = activeLayer(state);
     return !!layer && !layer.isGroup && layer.hasPixels && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id);
@@ -348,7 +374,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const state = get().documents[activeId];
     const id = layerId ?? state.activeLayerId;
     const layer = id ? state.layers.find((l) => l.id === id) : null;
-    if (!layer || get().adjustEdit) return false;
+    if (!layer || get().panelOwnsDocument()) return false;
     const editing = target === "adjustmentLayer";
     if (editing ? !layer.adjustment : !get().canAdjust()) return false;
     const filter = isFilterKind(kind as string);
@@ -360,7 +386,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
       // Levels and Curves draw a histogram of what they are about to change.
       histogram: kind === "Levels" || kind === "Curves" ? engine.histogram(activeId, layer.id) : null,
     };
-    set({ adjustEdit: edit });
+    // The crop tool's rectangle goes, as macOS's beginFilter calls cancelCrop first: a pending
+    // crop would otherwise answer the same Enter and Escape as the panel.
+    set({ adjustEdit: edit, cropRect: null });
     get().applyAdjustPreview();
     return true;
   },
@@ -420,8 +448,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   cancelAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
-    set({ adjustEdit: null });
-    engine.setPreview(activeId, null);
+    dropOpenPanel();
     get().refresh(activeId);
     get().invalidate();
   },

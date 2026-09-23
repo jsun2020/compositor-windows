@@ -37,9 +37,8 @@ export async function openProject(path?: string): Promise<void> {
   });
 }
 
-async function saveTo(path: string): Promise<void> {
+async function saveTo(id: string, path: string): Promise<void> {
   const { s, engine, bridge } = ctx();
-  const id = s.activeId; if (!id) return;
   const files = engine.savePackage(id);
   await bridge.writePackage(path, files);
   engine.markSaved(id, path);
@@ -48,31 +47,37 @@ async function saveTo(path: string): Promise<void> {
   useEditor.getState().bumpRecent();
 }
 
-export async function saveProject(): Promise<void> {
-  await guarded(async () => {
-    const { s } = ctx();
-    const doc = s.activeId ? s.documents[s.activeId] : null;
-    if (!doc) return;
-    if (doc.path) await saveTo(doc.path); else await saveAsFlow();
-  });
+/** Unguarded bodies shared by the guarded entry points, so none double-guards (sets busy /
+ * routes errors to the banner twice). Each takes the document to save, which need not be the one
+ * on screen: closing a background tab saves it without switching to it. */
+async function saveFlow(id: string): Promise<void> {
+  const doc = ctx().s.documents[id];
+  if (!doc) return;
+  if (doc.path) await saveTo(id, doc.path); else await saveAsFlow(id);
 }
 
-/** Unguarded body shared by `saveProjectAs` and `saveProject`'s no-path fallback, so
- * neither entry point double-guards (sets busy / routes errors to the banner twice). */
-async function saveAsFlow(): Promise<void> {
+async function saveAsFlow(id: string): Promise<void> {
   const { s, bridge } = ctx();
-  const doc = s.activeId ? s.documents[s.activeId] : null;
+  const doc = s.documents[id];
   if (!doc) return;
   const suggested = doc.path ? bridge.baseName(doc.path) : "Untitled";
   const path = await bridge.pickSavePackage(suggested);
-  if (path) await saveTo(path);
+  if (path) await saveTo(id, path);
+}
+
+export async function saveProject(): Promise<void> {
+  await guarded(async () => { const id = ctx().s.activeId; if (id) await saveFlow(id); });
 }
 
 export async function saveProjectAs(): Promise<void> {
-  await guarded(saveAsFlow);
+  await guarded(async () => { const id = ctx().s.activeId; if (id) await saveAsFlow(id); });
 }
 
 export async function importImages(paths?: string[], at?: { x: number; y: number }): Promise<void> {
+  // Import records history through `Engine::edit`, not `store.run`, so it needs the panel guard
+  // of its own. A panel is only ever open on a document, so a drop with none open, which creates
+  // a new document, is never refused.
+  if (useEditor.getState().panelOwnsDocument(true)) return;
   await guarded(async () => {
     // Import records history through `Engine::edit` without going through `store.run`, so the
     // commit that every other recording path gets has to happen here. Otherwise an import
@@ -113,17 +118,24 @@ export async function exportPng(): Promise<void> {
   });
 }
 
-/** Returns false when the user cancelled. */
-export async function closeActive(): Promise<boolean> {
+/** Returns false when the user cancelled. Closes `id` whether or not it is on screen: closing a
+ * background tab must not switch to it first, which would cancel the active document's panel. */
+export async function closeProject(id: string): Promise<boolean> {
   const { s } = ctx();
-  const doc = s.activeId ? s.documents[s.activeId] : null;
+  const doc = s.documents[id];
   if (!doc) return true;
   if (doc.isModified) {
     const save = window.confirm(`Save changes to ${doc.path ? s.bridge!.baseName(doc.path) : "Untitled"} before closing?\n\nOK saves, Cancel keeps the document open.`);
     if (!save) return false;
-    await saveProject();
-    if (useEditor.getState().documents[doc.id]?.isModified) return false;
+    await guarded(() => saveFlow(id));
+    if (useEditor.getState().documents[id]?.isModified) return false;
   }
-  useEditor.getState().closeDocument(doc.id);
+  useEditor.getState().closeDocument(id);
   return true;
+}
+
+/** Returns false when the user cancelled. */
+export async function closeActive(): Promise<boolean> {
+  const id = useEditor.getState().activeId;
+  return id ? closeProject(id) : true;
 }

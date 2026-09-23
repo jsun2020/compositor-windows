@@ -20,6 +20,9 @@ export function MenuBar() {
   const activeDoc = s.activeId ? s.documents[s.activeId] : null;
   const active = activeDoc ? activeLayer(activeDoc) : null;
   const hasMask = !!active?.hasMask;
+  // An open panel owns the document (store.panelOwnsDocument): every item that would record
+  // history, change the layers or open a sheet greys out until it is applied or cancelled.
+  const editable = hasDoc && !s.panelOwnsDocument();
   const [recent, setRecent] = useState<string[]>([]);
   // Refetch only when the bridge changes, the open-document list changes, or a file
   // action explicitly records a new recent package (`recentTick`) - not on every store
@@ -28,57 +31,58 @@ export function MenuBar() {
   useEffect(() => { s.bridge?.recentPackages().then(setRecent); }, [s.bridge, s.order, s.recentTick]);
   const menus: { title: string; items: Item[] }[] = [
     { title: "File", items: [
-      { id: "new", label: "New Canvas...", run: () => runAction("new") },
+      { id: "new", label: "New Canvas...", run: () => runAction("new"), enabled: !s.panelOwnsDocument() },
       { id: "open", label: "Open Project...", run: () => runAction("open") },
       ...recent.map((p, i) => ({ id: `recent-${i}`, label: `Open Recent: ${s.bridge!.baseName(p)}`, run: () => void openProject(p) })),
       // No keyboard shortcut (and so no ActionId) covers importing images, so this one
       // keeps calling the action directly instead of going through runAction.
-      { id: "import", label: "Import Images...", run: () => void importImages() },
+      { id: "import", label: "Import Images...", run: () => void importImages(), enabled: !s.panelOwnsDocument() },
       "separator",
       { id: "save", label: "Save", run: () => runAction("save"), enabled: hasDoc },
       { id: "save-as", label: "Save As...", run: () => runAction("save-as"), enabled: hasDoc },
       { id: "export-png", label: "Export PNG...", run: () => runAction("export-png"), enabled: hasDoc },
-      { id: "export-jpeg", label: "Export JPEG...", run: () => runAction("export-jpeg"), enabled: hasDoc },
+      { id: "export-jpeg", label: "Export JPEG...", run: () => runAction("export-jpeg"), enabled: editable },
       "separator",
       { id: "close", label: "Close", run: () => runAction("close"), enabled: hasDoc },
     ] },
     { title: "Edit", items: [
       // A pending transform owns the gesture: macOS's `canUseHistory` requires
-      // `transformEdit == nil`, so both items grey out until it commits or cancels.
-      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: hasDoc && !s.transformEdit && !!activeDoc?.canUndo },
-      { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: hasDoc && !s.transformEdit && !!activeDoc?.canRedo },
+      // `transformEdit == nil`, so both items grey out until it commits or cancels. An open panel
+      // makes both inert as well (store.undo/redo), so they grey out for it too.
+      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: editable && !s.transformEdit && !!activeDoc?.canUndo },
+      { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: editable && !s.transformEdit && !!activeDoc?.canRedo },
     ] },
     { title: "Layer", items: [
-      { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: hasDoc },
-      { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: hasDoc },
-      { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: hasDoc },
-      { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: hasDoc },
-      { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: hasDoc },
+      { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: editable },
+      { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: editable },
+      { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: editable },
+      { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
+      { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: editable },
       "separator",
       ...ADJUSTMENT_KINDS.map((kind) => ({
         id: `layer-adjustment-${kind.toLowerCase().replace(/[^a-z]+/g, "-")}`,
-        label: `New ${kind} Adjustment...`, run: () => addAdjustmentLayer(kind), enabled: hasDoc && !s.adjustEdit,
+        label: `New ${kind} Adjustment...`, run: () => addAdjustmentLayer(kind), enabled: editable,
       })),
       { id: "layer-edit-adjustment", label: "Edit Adjustment...", run: () => editAdjustmentLayer(), enabled: canEditAdjustment() },
       "separator",
-      { id: "layer-mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true), enabled: hasDoc && !!active && !hasMask },
-      { id: "layer-mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false), enabled: hasDoc && !!active && !hasMask },
-      { id: "layer-mask-delete", label: "Delete Mask", run: () => deleteMaskOfActive(), enabled: hasMask },
-      { id: "layer-mask-toggle", label: active?.maskEnabled === false ? "Enable Mask" : "Disable Mask", run: () => toggleMaskEnabled(), enabled: hasMask },
-      { id: "layer-mask-link", label: active?.maskLinked === false ? "Link Mask" : "Unlink Mask", run: () => toggleMaskLink(), enabled: hasMask },
-      { id: "layer-mask-invert", label: "Invert Mask", run: () => invertMaskOfActive(), enabled: hasMask },
-      { id: "layer-mask-fill-white", label: "Fill Mask White", run: () => fillMaskOfActive(true), enabled: hasMask },
-      { id: "layer-mask-fill-black", label: "Fill Mask Black", run: () => fillMaskOfActive(false), enabled: hasMask },
-      { id: "layer-mask-blur", label: "Blur/Feather Mask...", run: () => blurMaskOfActive(), enabled: hasMask },
+      { id: "layer-mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true), enabled: editable && !!active && !hasMask },
+      { id: "layer-mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false), enabled: editable && !!active && !hasMask },
+      { id: "layer-mask-delete", label: "Delete Mask", run: () => deleteMaskOfActive(), enabled: editable && hasMask },
+      { id: "layer-mask-toggle", label: active?.maskEnabled === false ? "Enable Mask" : "Disable Mask", run: () => toggleMaskEnabled(), enabled: editable && hasMask },
+      { id: "layer-mask-link", label: active?.maskLinked === false ? "Link Mask" : "Unlink Mask", run: () => toggleMaskLink(), enabled: editable && hasMask },
+      { id: "layer-mask-invert", label: "Invert Mask", run: () => invertMaskOfActive(), enabled: editable && hasMask },
+      { id: "layer-mask-fill-white", label: "Fill Mask White", run: () => fillMaskOfActive(true), enabled: editable && hasMask },
+      { id: "layer-mask-fill-black", label: "Fill Mask Black", run: () => fillMaskOfActive(false), enabled: editable && hasMask },
+      { id: "layer-mask-blur", label: "Blur/Feather Mask...", run: () => blurMaskOfActive(), enabled: editable && hasMask },
       "separator",
-      { id: "layer-clip", label: "Create/Release Clipping Mask", run: () => runAction("clip"), enabled: hasDoc && canClipActive() },
+      { id: "layer-clip", label: "Create/Release Clipping Mask", run: () => runAction("clip"), enabled: editable && canClipActive() },
       "separator",
-      { id: "layer-flip-h", label: "Flip Layer Horizontal", run: () => flipSelected(true), enabled: hasDoc },
-      { id: "layer-flip-v", label: "Flip Layer Vertical", run: () => flipSelected(false), enabled: hasDoc },
-      { id: "layer-up", label: "Bring Forward", run: () => runAction("layer-up"), enabled: hasDoc && canMoveActiveBy(1) },
-      { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: hasDoc && canMoveActiveBy(-1) },
+      { id: "layer-flip-h", label: "Flip Layer Horizontal", run: () => flipSelected(true), enabled: editable },
+      { id: "layer-flip-v", label: "Flip Layer Vertical", run: () => flipSelected(false), enabled: editable },
+      { id: "layer-up", label: "Bring Forward", run: () => runAction("layer-up"), enabled: editable && canMoveActiveBy(1) },
+      { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: editable && canMoveActiveBy(-1) },
       "separator",
-      { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: hasDoc },
+      { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: editable },
     ] },
     { title: "Filter", items: [
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
@@ -87,8 +91,8 @@ export function MenuBar() {
       { id: "filter-lens-correction", label: "Lens Correction...", run: () => s.beginAdjust({ kind: "LensCorrection" }), enabled: s.canAdjust() },
     ] },
     { title: "Image", items: [
-      { id: "canvas-size", label: "Canvas Size...", run: () => runAction("canvas-size"), enabled: hasDoc },
-      { id: "image-size", label: "Image Size...", run: () => runAction("image-size"), enabled: hasDoc },
+      { id: "canvas-size", label: "Canvas Size...", run: () => runAction("canvas-size"), enabled: editable },
+      { id: "image-size", label: "Image Size...", run: () => runAction("image-size"), enabled: editable },
       "separator",
       { id: "image-levels", label: "Levels...", run: () => runAction("levels"), enabled: s.canAdjust() },
       { id: "image-curves", label: "Curves...", run: () => runAction("curves"), enabled: s.canAdjust() },
@@ -96,12 +100,12 @@ export function MenuBar() {
       { id: "image-exposure", label: "Exposure...", run: () => s.beginAdjust({ kind: "Exposure" }), enabled: s.canAdjust() },
       { id: "image-gradient-map", label: "Gradient Map...", run: () => s.beginAdjust({ kind: "Gradient Map" }), enabled: s.canAdjust() },
       { id: "image-grain", label: "Grain...", run: () => s.beginAdjust({ kind: "Grain" }), enabled: s.canAdjust() },
-      { id: "image-invert", label: s.maskSelected ? "Invert Mask" : "Invert", run: () => runAction("invert"), enabled: canInvert() && !s.adjustEdit },
+      { id: "image-invert", label: s.maskSelected ? "Invert Mask" : "Invert", run: () => runAction("invert"), enabled: editable && canInvert() },
       "separator",
       // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
       // command directly, same as Import above.
-      { id: "flip-h", label: "Flip Canvas Horizontal", run: () => s.run({ type: "FlipCanvas", horizontal: true }), enabled: hasDoc },
-      { id: "flip-v", label: "Flip Canvas Vertical", run: () => s.run({ type: "FlipCanvas", horizontal: false }), enabled: hasDoc },
+      { id: "flip-h", label: "Flip Canvas Horizontal", run: () => s.run({ type: "FlipCanvas", horizontal: true }), enabled: editable },
+      { id: "flip-v", label: "Flip Canvas Vertical", run: () => s.run({ type: "FlipCanvas", horizontal: false }), enabled: editable },
     ] },
     { title: "View", items: [
       { id: "zoom-in", label: "Zoom In", run: () => runAction("zoom-in"), enabled: hasDoc },
