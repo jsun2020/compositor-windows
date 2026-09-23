@@ -1,0 +1,57 @@
+{
+  "activeLayerID" : "C739274B-CF54-4B5A-AB7C-EFA6A76F1746",
+  "colorSpace" : "sRGB",
+  "documentID" : "55CAD8C0-E7E8-4506-882D-DCD793368BC7",
+  "format" : "com.compositor.project",
+  "height" : 1080,
+  "layers" : [
+    {
+      "blendMode" : "Normal",
+      "id" : "ABB48C56-055F-4C53-B657-1D3147C3A15C",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Layer 1",
+      "opacity" : 1,
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          -479,
+          0
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          1920,
+          1080
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "C739274B-CF54-4B5A-AB7C-EFA6A76F1746",
+      "imageFile" : "C739274B-CF54-4B5A-AB7C-EFA6A76F1746.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "7e64ddbe-696c-45e2-854e-20cbdac21093",
+      "opacity" : 1,
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          0,
+          -314
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          962,
+          1708
+        ]
+      }
+    }
+  ],
+  "resolution" : 72,
+  "version" : 9,
+  "width" : 962
+}
