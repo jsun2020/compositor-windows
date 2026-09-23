@@ -4,6 +4,7 @@ import { adjustTitle, defaultAdjustment, defaultFilterParams } from "../state/ad
 import { LevelsPanel } from "./LevelsPanel";
 import { CurvesPanel } from "./CurvesPanel";
 import { HueSaturationPanel } from "./HueSaturationPanel";
+import { FilterPanel } from "./FilterPanel";
 
 /** The floating, non-modal shell every adjustment and filter panel opens inside: it routes to
  * the right body by kind and owns Preview, Reset, Cancel and OK plus Enter and Escape. It must
@@ -11,9 +12,9 @@ import { HueSaturationPanel } from "./HueSaturationPanel";
  * need the canvas underneath to stay clickable, and several e2e specs pin an exact browser
  * window height against the surrounding chrome, which an in-flow panel would change.
  *
- * Levels, Curves and Hue/Saturation are wired to a real body here; the filter panels belong to
- * later tasks in this plan and are not part of this one's file list, so an unrecognised kind
- * falls back to a plain placeholder instead of importing a module that does not exist yet. */
+ * Levels, Curves and Hue/Saturation are wired to their own bodies here; Exposure, Gradient Map,
+ * Grain and the four filters (Gaussian Blur, Motion Blur, Add Noise, Lens Correction) all route
+ * to FilterPanel, which switches over the open kind itself. */
 // Form controls with their own Enter semantics: a field commits its own value, a `<select>`
 // leaves the dropdown's native handling alone (or has no meaningful behaviour to preempt), and a
 // focused button's Enter is already a click on that button, not on OK. The panel's own Enter
@@ -42,7 +43,7 @@ export function AdjustPanel() {
   if (!edit.params && edit.adjustment!.kind === "Levels") body = <LevelsPanel />;
   else if (!edit.params && edit.adjustment!.kind === "Curves") body = <CurvesPanel />;
   else if (!edit.params && edit.adjustment!.kind === "Hue/Saturation") body = <HueSaturationPanel />;
-  else body = <div className="adjust-placeholder">{adjustTitle(edit)} is not built yet.</div>;
+  else body = <FilterPanel />;
   return (
     <div className="adjust-panel" data-testid="adjust-panel" role="dialog" aria-label={adjustTitle(edit)}>
       <div className="adjust-header" data-testid="adjust-title">{adjustTitle(edit)}</div>

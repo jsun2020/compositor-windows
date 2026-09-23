@@ -100,6 +100,12 @@ body { margin: 0; }
 .adjust-header { padding: 8px 10px; font-weight: 600; border-bottom: 1px solid #000; }
 .adjust-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .adjust-body label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* FilterPanel's number+slider pair: a <span>, not a <label>, so the slider (aria-hidden,
+   tabIndex -1, kept out of any label) never inherits the row's caption as its own accessible
+   name -- see the comment on FilterPanel's NumberField. Laid out the same as .adjust-body
+   label above so the two field styles read identically. */
+.adjust-body .number-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.adjust-body .number-field input[type="range"] { flex: 1 1 auto; margin: 0 8px; }
 .adjust-body select { flex: 1 1 auto; background: #1e1e1e; border: 1px solid #555; color: #ddd; padding: 2px 4px; }
 .adjust-body input[type="number"] { width: 64px; background: #1e1e1e; border: 1px solid #555; color: #ddd; padding: 2px 4px; }
 .adjust-body canvas.histogram, .adjust-body canvas.curves { width: 100%; background: #1a1a1a; border: 1px solid #444; }

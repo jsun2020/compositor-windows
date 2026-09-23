@@ -40,6 +40,14 @@ describe("keymap", () => {
     expect(matchShortcut(ev("5"))).toBe("opacity-5");
     expect(matchShortcut(ev("Delete"))).toBe("delete-layer");
   });
+
+  it("maps the adjustment shortcuts", () => {
+    expect(matchShortcut(ev("l", { ctrlKey: true }))).toBe("levels");
+    expect(matchShortcut(ev("m", { ctrlKey: true }))).toBe("curves");
+    expect(matchShortcut(ev("u", { ctrlKey: true }))).toBe("hue-saturation");
+    expect(matchShortcut(ev("i", { ctrlKey: true }))).toBe("invert");
+    expect(matchShortcut(ev("i", { ctrlKey: true, altKey: true }))).toBe("image-size"); // still its own binding
+  });
 });
 
 describe("typeOpacityDigit", () => {

@@ -6,7 +6,7 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteSelected, duplicateSelected, groupSelected, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, cycleBlendMode, deleteSelected, duplicateSelected, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
@@ -85,6 +85,10 @@ export function runAction(id: ActionId, shift = false): void {
     case "blend-next": cycleBlendMode(true); break;
     case "blend-prev": cycleBlendMode(false); break;
     case "delete-layer": if (doc && !s.sheet) deleteSelected(); break;
+    case "levels": s.beginAdjust({ kind: "Levels" }); break;
+    case "curves": s.beginAdjust({ kind: "Curves" }); break;
+    case "hue-saturation": s.beginAdjust({ kind: "Hue/Saturation" }); break;
+    case "invert": invertActive(); break;
     default:
       if (id.startsWith("opacity-")) { if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8))); }
   }

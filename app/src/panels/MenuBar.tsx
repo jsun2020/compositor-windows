@@ -4,7 +4,7 @@ import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
-  addMaskToActive, blurMaskOfActive, canClipActive, canMoveActiveBy, deleteMaskOfActive, deleteSelected,
+  addMaskToActive, blurMaskOfActive, canClipActive, canInvert, canMoveActiveBy, deleteMaskOfActive, deleteSelected,
   fillMaskOfActive, flipSelected, invertMaskOfActive, mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
 
@@ -72,9 +72,23 @@ export function MenuBar() {
       "separator",
       { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: hasDoc },
     ] },
+    { title: "Filter", items: [
+      { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
+      { id: "filter-motion-blur", label: "Motion Blur...", run: () => s.beginAdjust({ kind: "MotionBlur" }), enabled: s.canAdjust() },
+      { id: "filter-add-noise", label: "Add Noise...", run: () => s.beginAdjust({ kind: "AddNoise" }), enabled: s.canAdjust() },
+      { id: "filter-lens-correction", label: "Lens Correction...", run: () => s.beginAdjust({ kind: "LensCorrection" }), enabled: s.canAdjust() },
+    ] },
     { title: "Image", items: [
       { id: "canvas-size", label: "Canvas Size...", run: () => runAction("canvas-size"), enabled: hasDoc },
       { id: "image-size", label: "Image Size...", run: () => runAction("image-size"), enabled: hasDoc },
+      "separator",
+      { id: "image-levels", label: "Levels...", run: () => runAction("levels"), enabled: s.canAdjust() },
+      { id: "image-curves", label: "Curves...", run: () => runAction("curves"), enabled: s.canAdjust() },
+      { id: "image-hue-saturation", label: "Hue/Saturation...", run: () => runAction("hue-saturation"), enabled: s.canAdjust() },
+      { id: "image-exposure", label: "Exposure...", run: () => s.beginAdjust({ kind: "Exposure" }), enabled: s.canAdjust() },
+      { id: "image-gradient-map", label: "Gradient Map...", run: () => s.beginAdjust({ kind: "Gradient Map" }), enabled: s.canAdjust() },
+      { id: "image-grain", label: "Grain...", run: () => s.beginAdjust({ kind: "Grain" }), enabled: s.canAdjust() },
+      { id: "image-invert", label: s.maskSelected ? "Invert Mask" : "Invert", run: () => runAction("invert"), enabled: canInvert() && !s.adjustEdit },
       "separator",
       // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
       // command directly, same as Import above.

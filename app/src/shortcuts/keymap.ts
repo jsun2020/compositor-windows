@@ -2,7 +2,8 @@ export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "exp
   | "canvas-size" | "image-size" | "zoom-in" | "zoom-out" | "fit" | "actual" | "tool-move" | "tool-hand" | "tool-zoom" | "tool-crop" | "apply" | "cancel"
   | "nudge-left" | "nudge-right" | "nudge-up" | "nudge-down"
   | "new-folder" | "duplicate" | "group" | "merge" | "clip" | "layer-up" | "layer-down" | "blend-next" | "blend-prev" | "delete-layer"
-  | "opacity-0" | "opacity-1" | "opacity-2" | "opacity-3" | "opacity-4" | "opacity-5" | "opacity-6" | "opacity-7" | "opacity-8" | "opacity-9";
+  | "opacity-0" | "opacity-1" | "opacity-2" | "opacity-3" | "opacity-4" | "opacity-5" | "opacity-6" | "opacity-7" | "opacity-8" | "opacity-9"
+  | "levels" | "curves" | "hue-saturation" | "invert";
 
 export interface Shortcut { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean; }
 
@@ -27,6 +28,8 @@ export const SHORTCUTS = {
   "delete-layer": [{ key: "Delete" }, { key: "Backspace" }],
   "opacity-0": [{ key: "0" }], "opacity-1": [{ key: "1" }], "opacity-2": [{ key: "2" }], "opacity-3": [{ key: "3" }], "opacity-4": [{ key: "4" }],
   "opacity-5": [{ key: "5" }], "opacity-6": [{ key: "6" }], "opacity-7": [{ key: "7" }], "opacity-8": [{ key: "8" }], "opacity-9": [{ key: "9" }],
+  "levels": [{ key: "l", ctrl: true }], "curves": [{ key: "m", ctrl: true }],
+  "hue-saturation": [{ key: "u", ctrl: true }], "invert": [{ key: "i", ctrl: true }],
 } satisfies Record<ActionId, Shortcut[]>;
 
 export function matchShortcut(e: KeyboardEvent): ActionId | null {

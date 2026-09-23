@@ -66,3 +66,14 @@ export function cycleBlendMode(forward: boolean): void {
   const i = BLEND_MODES.indexOf(c.active.blendMode);
   setBlendModeOfActive(BLEND_MODES[(i + (forward ? 1 : BLEND_MODES.length - 1)) % BLEND_MODES.length]);
 }
+/** Image > Invert: immediate, one undo step, on the mask when the mask chip is selected. */
+export function invertActive(): void {
+  const c = ctx(); if (!c?.active) return;
+  const mask = c.s.maskSelected && c.active.hasMask;
+  if (!mask && !c.active.hasPixels) return;
+  c.s.run({ type: "InvertPixels", id: c.active.id, mask });
+}
+export function canInvert(): boolean {
+  const c = ctx(); if (!c?.active || c.active.isGroup) return false;
+  return (c.s.maskSelected && c.active.hasMask) || c.active.hasPixels;
+}
