@@ -4875,8 +4875,12 @@ test("cancelling an edit restores the settings and records nothing", async ({ pa
   await clickMenu(page, "Layer", "layer-adjustment-exposure");
   const depth = (await state(page)).undoDepth;
   await page.getByTestId("layer-row").nth(0).dblclick();
-  await page.getByLabel("Exposure").fill("2");
-  await page.getByLabel("Exposure").press("Enter");
+  // Ruling (Task 16): a role-based locator, not getByLabel. The open panel's dialog carries
+  // aria-label="Exposure", identical to this field's label, so getByLabel("Exposure") matches the
+  // dialog as well as the field even with exact matching. A number input's role is spinbutton,
+  // which the dialog can never match.
+  await page.getByRole("spinbutton", { name: "Exposure", exact: true }).fill("2");
+  await page.getByRole("spinbutton", { name: "Exposure", exact: true }).press("Enter");
   await page.getByTestId("adjust-cancel").click();
   const d = await state(page);
   expect(d.undoDepth).toBe(depth);
