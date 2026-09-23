@@ -137,3 +137,48 @@ fn an_adjustment_blends_with_its_own_blend_mode() {
     let out = full(&d);
     assert_eq!(out.pixel(0, 0), [200, 100, 50, 255]);
 }
+
+/// Malformed shapes `is_valid` refuses and the table builders would index out of range with.
+fn malformed() -> Vec<(&'static str, LayerAdjustment)> {
+    let mut levels = LayerAdjustment::new(AdjustmentKind::Levels);
+    levels.levels.ranges.truncate(2);
+    levels.levels.channel = LevelsChannel::Blue;
+    let mut curves = LayerAdjustment::new(AdjustmentKind::Curves);
+    curves.curves.channels[0] = vec![CurvePoint { x: 0.0, y: 0.0 }];
+    let mut few_curves = LayerAdjustment::new(AdjustmentKind::Curves);
+    few_curves.curves.channels.truncate(1);
+    let mut hsv = LayerAdjustment::new(AdjustmentKind::Hsv);
+    hsv.hsv_settings = Some(HueSaturationSettings::new(500.0, 0.0, 0.0, false, ColorRange::Master));
+    vec![("two levels ranges", levels), ("a one-point curve", curves), ("one curve channel", few_curves), ("hue 500", hsv)]
+}
+
+#[test]
+fn a_malformed_adjustment_preview_shows_the_stored_adjustment_instead_of_trapping() {
+    let (mut d, _) = canvas([200, 100, 50, 255]);
+    let a = adjust::add_adjustment_layer(&mut d, AdjustmentKind::Levels, 0, None).unwrap();
+    let mut stored = LayerAdjustment::new(AdjustmentKind::Levels);
+    stored.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
+    adjust::set_adjustment(&mut d, a, &stored).unwrap();
+    let expected = full(&d);
+    for (label, bad) in malformed() {
+        let edit = PreviewEdit::Adjustment { id: a, adjustment: bad };
+        let plan = render_plan(&d, Some(&edit));
+        let shown = plan.nodes.iter().find_map(|n| match n { PlanNode::Layer { draw } => draw.adjustment.clone(), _ => None });
+        assert_eq!(shown.as_ref(), Some(&stored), "{label}: the plan falls back to the stored adjustment");
+        assert_eq!(composite_edit(&d, Some(&edit), Rect { x: 0.0, y: 0.0, width: 2.0, height: 2.0 }, 2, 2).bytes(), expected.bytes(), "{label}");
+    }
+    // A valid edit still shows through.
+    let edit = PreviewEdit::Adjustment { id: a, adjustment: LayerAdjustment::new(AdjustmentKind::Levels) };
+    assert_eq!(composite_edit(&d, Some(&edit), Rect { x: 0.0, y: 0.0, width: 2.0, height: 2.0 }, 2, 2).pixel(0, 0), [200, 100, 50, 255]);
+}
+
+#[test]
+fn the_gpu_tables_are_empty_for_a_malformed_adjustment() {
+    for (label, bad) in malformed() {
+        assert!(gpu_lut(&bad).is_empty(), "{label}");
+        assert!(gpu_hue_response(&bad).is_empty(), "{label}");
+    }
+    assert_eq!(gpu_lut(&LayerAdjustment::new(AdjustmentKind::Levels)).len(), 256 * 4);
+    assert_eq!(gpu_hue_response(&LayerAdjustment::new(AdjustmentKind::Hsv)).len(), 361 * 4);
+    assert!(gpu_lut(&LayerAdjustment::new(AdjustmentKind::Hsv)).is_empty(), "no table for Hue/Saturation");
+}

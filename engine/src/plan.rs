@@ -95,10 +95,12 @@ pub fn displayed_mask_placement(layer: &Layer, edit: Option<&PreviewEdit>) -> Op
     }
 }
 
-/// The layer's adjustment as the pending edit shows it.
+/// The layer's adjustment as the pending edit shows it. An edit that fails `is_valid` shows the
+/// stored adjustment instead: the table builders index `ranges[channel]` and a curve's
+/// neighbouring points, so a malformed one from a caller would trap the wasm instance.
 pub fn displayed_adjustment(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<LayerAdjustment> {
     match edit {
-        Some(PreviewEdit::Adjustment { id, adjustment }) if *id == layer.id => Some(adjustment.clone()),
+        Some(PreviewEdit::Adjustment { id, adjustment }) if *id == layer.id && adjustment.is_valid() => Some(adjustment.clone()),
         _ => layer.extra.adjustment.clone(),
     }
 }
