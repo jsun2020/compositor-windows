@@ -113,6 +113,19 @@ Tauri 2 with the dialog plugin. Commands:
 
 The shell never decodes or touches pixels. The window uses the fixed `tauri://localhost` origin so local storage is stable across launches (LL-036).
 
+### 4.5 Adjustments (`engine/src/adjust/`)
+
+The macOS adjustment and filter kernels (Levels, Curves, Hue/Saturation, Exposure,
+Gradient Map, Grain, Invert, Gaussian Blur, Motion Blur, Add Noise, Lens Correction)
+are ported to Rust under `engine/src/adjust/`, shared by the CPU compositor and by the
+live preview path, with the colour tables mirrored in GLSL for the WebGL2 renderer so
+only the HSL and grain arithmetic is written twice. Two deliberate simplifications from
+the macOS behaviour:
+
+- Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point colour
+  cube, so results are slightly more exact than the Mac app's.
+- Motion Blur is an even streak rather than Core Image's tapered one.
+
 ## 5. Project format on Windows
 
 The Windows app reads and writes the macOS folder package unchanged: a `<name>.comp` directory containing `manifest.json` and `images/<layer UUID>.png` plus `<layer UUID>.mask.png`. The macOS source (`ProjectStore.swift`) is ahead of `docs/project-format.md`: it reads versions 1 to 7 and writes version 7, where version 7 adds per-layer `adjustment`, `maskPlacement`, `maskLinked` and `shape` records. The Windows app reads 1 to 7 and writes 7. Fields whose features arrive in a later phase (adjustment, shape, mask placement) are preserved verbatim through open and save so a project never loses data by passing through the Windows app. Validation rejects unsupported versions, invalid metadata, missing assets, unsafe paths and oversized data before the live document is replaced, exactly as `ProjectStore.swift` does. Round-trip tests open every fixture version and re-save it.

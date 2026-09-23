@@ -50,6 +50,41 @@ Photoshop.
 | Apply transform | Enter |
 | Cancel transform | Escape |
 
+## Phase 3: adjustments and filters
+
+- Levels, with Auto and the three eyedroppers (black point, gray point, white point)
+- Curves
+- Hue/Saturation, with seven colour ranges (Reds, Yellows, Greens, Cyans, Blues,
+  Magentas, and the master range), Colorize, and the band eyedroppers
+- Exposure
+- Gradient Map
+- Grain
+- Invert
+- Gaussian Blur and Motion Blur, both spreading past the layer's edges
+- Add Noise
+- Lens Correction
+- Live previews for every adjustment: the document is untouched until OK; Cancel
+  restores it exactly
+- Adjustment layers for all six kinds above that support them (Levels, Curves,
+  Hue/Saturation, Exposure, Gradient Map, Grain): maskable, clippable, and reaching
+  everything beneath them in the stack unless limited by an enclosing folder's mask
+  (a folder does not isolate its contents on its own). Double-clicking an adjustment
+  layer's row reopens its panel; double-clicking an ordinary layer's row still renames it.
+- Note: an adjustment layer is never a clipping source.
+- Note: selection-limited adjustments arrive with selections in Phase 4.
+- Note: Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point
+  colour cube, so results are slightly more exact than the Mac app's.
+- Note: Motion Blur is an even streak rather than Core Image's tapered one.
+
+### Image and Filter menu shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Levels | Ctrl+L |
+| Curves | Ctrl+M |
+| Hue/Saturation | Ctrl+U |
+| Invert | Ctrl+I |
+
 ## Prerequisites
 
 - Rust 1.95 with the `wasm32-unknown-unknown` target
