@@ -2,7 +2,7 @@ import { useState, type DragEvent } from "react";
 import { useEditor } from "../state/store";
 import { layerRows, dropTarget, type Row } from "./layer-rows";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, flipSelected, groupSelected, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
 
 type Zone = "above" | "below" | "into";
 function zoneFor(e: DragEvent, row: Row): Zone {
@@ -70,7 +70,7 @@ export function LayersList() {
               className={"layer-row" + (selected ? " selected" : "") + (l.id === doc.activeLayerId ? " active" : "") + (row.visible ? "" : " dimmed")}
               style={{ paddingLeft: 8 + row.depth * 14 }} draggable
               onClick={(e) => select(e, row)}
-              onDoubleClick={() => setRenaming({ id: l.id, name: l.name })}
+              onDoubleClick={() => { if (l.adjustment) editAdjustmentLayer(l.id); else setRenaming({ id: l.id, name: l.name }); }}
               onContextMenu={(e) => { e.preventDefault(); if (!selected) s.selectLayers([l.id], l.id); setMenu({ x: e.clientX, y: e.clientY }); }}
               onDragStart={(e) => { setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
               onDragOver={(e) => {
@@ -87,7 +87,10 @@ export function LayersList() {
               {/* "content", not "pixels": the latter's letters collide with the Transform inspector's
                   single-letter "X" field under Playwright's substring accessible-name matching
                   (getByLabel("X") would otherwise also match "... pixels"). */}
-              <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} content`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />
+              {l.adjustment
+                ? <button data-testid={`adjustment-chip-${l.id}`} className="chip chip-adjustment" aria-label={`${l.adjustment.kind} adjustment`}
+                    aria-pressed={l.id === doc.activeLayerId} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); }} />
+                : <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} content`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />}
               {l.hasMask && <button data-testid={`target-mask-${l.id}`} className={"chip chip-mask" + (l.maskEnabled ? "" : " disabled")} aria-label={`${l.name} mask`} aria-pressed={l.id === doc.activeLayerId && s.maskSelected} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); s.setMaskSelected(true); }} />}
               {renaming?.id === l.id ? (
                 <input autoFocus value={renaming.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setRenaming({ id: l.id, name: e.target.value })}

@@ -65,6 +65,10 @@ body { margin: 0; }
 .layer-row .chip { background: #333; border: 1px solid #555; border-radius: 3px; cursor: pointer; width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
 .layer-row .chip.chip-folder { border-radius: 3px 3px 3px 0; }
 .layer-row .chip.chip-mask { background: #444; }
+/* A half-filled circle reads as "adjustment" without needing a per-kind glyph, and keeps the
+   row's visible text equal to the layer name for the existing allInnerTexts assertions. */
+.layer-row .chip.chip-adjustment { border-radius: 50%; background: linear-gradient(to right, #ddd 50%, #333 50%); }
+.layer-row .chip.chip-adjustment[aria-pressed="true"] { border-color: #3a6ea5; background: linear-gradient(to right, #cfe0f2 50%, #3a6ea5 50%); }
 .layer-row .chip[aria-pressed="true"] { border-color: #3a6ea5; background: #3a6ea5; }
 .layer-row .chip.disabled { opacity: 0.5; }
 .layer-row .layer-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

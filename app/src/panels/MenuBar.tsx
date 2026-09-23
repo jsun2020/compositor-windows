@@ -4,9 +4,11 @@ import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
-  addMaskToActive, blurMaskOfActive, canClipActive, canInvert, canMoveActiveBy, deleteMaskOfActive, deleteSelected,
-  fillMaskOfActive, flipSelected, invertMaskOfActive, mergeTitle, toggleMaskEnabled, toggleMaskLink,
+  addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy,
+  deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
+  mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
+import { ADJUSTMENT_KINDS } from "../engine/types";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -52,6 +54,12 @@ export function MenuBar() {
       { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: hasDoc },
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: hasDoc },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: hasDoc },
+      "separator",
+      ...ADJUSTMENT_KINDS.map((kind) => ({
+        id: `layer-adjustment-${kind.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+        label: `New ${kind} Adjustment...`, run: () => addAdjustmentLayer(kind), enabled: hasDoc && !s.adjustEdit,
+      })),
+      { id: "layer-edit-adjustment", label: "Edit Adjustment...", run: () => editAdjustmentLayer(), enabled: canEditAdjustment() },
       "separator",
       { id: "layer-mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true), enabled: hasDoc && !!active && !hasMask },
       { id: "layer-mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false), enabled: hasDoc && !!active && !hasMask },

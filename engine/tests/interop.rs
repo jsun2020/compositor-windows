@@ -145,3 +145,34 @@ fn a_fixture_with_lowercase_uuids_parses_and_resaves_uppercase() {
     assert_all_uuids_uppercase(&resaved.manifest_json);
     assert!(resaved.manifest_json.contains(&doc_id.to_uppercase()), "the re-saved documentID must be uppercase");
 }
+
+#[test]
+fn a_macos_adjustment_layer_opens_and_saves_unchanged() {
+    // A v7 manifest as macOS writes it: an adjustment layer with only the keys that kind uses.
+    let manifest = r#"{
+  "activeLayerID": "11111111-1111-4111-8111-111111111111",
+  "colorSpace": "sRGB",
+  "documentID": "22222222-2222-4222-8222-222222222222",
+  "format": "com.compositor.project",
+  "height": 4,
+  "layers": [
+    {
+      "adjustment": {"colorize":false,"curves":{"channel":"RGB","channels":[[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}]]},"hue":120,"kind":"Hue/Saturation","levels":{"channel":"RGB","ranges":[{"black":0,"gamma":1,"outputBlack":0,"outputWhite":255,"white":255},{"black":0,"gamma":1,"outputBlack":0,"outputWhite":255,"white":255},{"black":0,"gamma":1,"outputBlack":0,"outputWhite":255,"white":255},{"black":0,"gamma":1,"outputBlack":0,"outputWhite":255,"white":255}]},"lightness":0,"saturation":0},
+      "id": "11111111-1111-4111-8111-111111111111",
+      "isVisible": true,
+      "name": "Hue/Saturation",
+      "transform": {"origin":[0,0],"size":[4,4]}
+    }
+  ],
+  "version": 7,
+  "width": 4
+}"#;
+    let doc = open_package(&Package { manifest_json: manifest.to_string(), images: vec![] }).unwrap();
+    let adjustment = doc.layers[0].extra.adjustment.as_ref().unwrap();
+    assert_eq!(adjustment.kind, AdjustmentKind::Hsv);
+    assert_eq!(adjustment.resolved_hsv().adjustment(ColorRange::Master).hue, 120.0, "the legacy scalar still drives the adjustment");
+    let saved = save_package(&doc).unwrap();
+    let written: serde_json::Value = serde_json::from_str(&saved.manifest_json).unwrap();
+    let original: serde_json::Value = serde_json::from_str(manifest).unwrap();
+    assert_eq!(written["layers"][0]["adjustment"], original["layers"][0]["adjustment"], "re-saved byte for byte");
+}

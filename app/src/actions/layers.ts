@@ -1,6 +1,6 @@
 import { useEditor } from "../state/store";
 import { activeLayer } from "../state/selection";
-import type { BlendMode } from "../engine/types";
+import type { AdjustmentKind, BlendMode } from "../engine/types";
 import type { DropTarget } from "../panels/layer-rows";
 
 export const BLEND_MODES: BlendMode[] = ["Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten", "Difference", "Color Dodge", "Color Burn", "Hue", "Saturation", "Color", "Luminosity"];
@@ -77,3 +77,20 @@ export function canInvert(): boolean {
   const c = ctx(); if (!c?.active || c.active.isGroup) return false;
   return (c.s.maskSelected && c.active.hasMask) || c.active.hasPixels;
 }
+/** Layer > New <kind> Adjustment. Each Grain layer gets its own pattern, and a Gradient Map
+ * starts from black to white (the Mac takes the palette, which Phase 4 adds). */
+export function addAdjustmentLayer(kind: AdjustmentKind): void {
+  const c = ctx(); if (!c) return;
+  const seed = Math.floor(Math.random() * 0xffffffff);
+  c.s.run({ type: "AddAdjustmentLayer", kind, seed, shadows: null, highlights: null });
+  // The new layer is active; open its panel straight away, as macOS does.
+  const created = activeLayer(useEditor.getState().documents[c.doc.id]);
+  if (created?.adjustment) useEditor.getState().beginAdjust({ kind, layerId: created.id, target: "adjustmentLayer" });
+}
+export function editAdjustmentLayer(id?: string): void {
+  const c = ctx(); if (!c) return;
+  const layer = id ? c.doc.layers.find((l) => l.id === id) : c.active;
+  if (!layer?.adjustment) return;
+  c.s.beginAdjust({ kind: layer.adjustment.kind, layerId: layer.id, target: "adjustmentLayer" });
+}
+export function canEditAdjustment(): boolean { const c = ctx(); return !!c?.active?.adjustment && !c.s.adjustEdit; }
