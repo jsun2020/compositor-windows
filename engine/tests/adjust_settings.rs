@@ -189,3 +189,26 @@ fn manifests_accept_adjustment_layers_only_when_well_formed() {
     assert!(back.layers[0].is_adjustment() && back.layers[0].pixels.is_none());
     assert_eq!(back.layers[0].extra.adjustment, doc.layers[0].extra.adjustment);
 }
+
+/// The per-kind rule the panels ask for (wasm `adjustment_is_identity`), matching the Mac's
+/// `commitFilter` skips (`Filters.swift:387-389`) and its Levels/Curves/HSV identities: Gradient
+/// Map always applies, Grain only above amount 0, and the channel and range selectors are where
+/// the panel is looking, not settings.
+#[test]
+fn identity_is_per_kind_and_ignores_the_selectors() {
+    assert!(!LayerAdjustment::new(AdjustmentKind::GradientMap).is_identity(), "a gradient map always recolours");
+    let mut grain = LayerAdjustment::new(AdjustmentKind::Grain);
+    assert!(!grain.is_identity(), "the default amount is 25");
+    grain.grain_settings = Some(GrainSettings { amount: 0.0, ..GrainSettings::default() });
+    assert!(grain.is_identity());
+    assert!(LayerAdjustment::new(AdjustmentKind::Exposure).is_identity());
+    let mut levels = LayerAdjustment::new(AdjustmentKind::Levels);
+    levels.levels.channel = LevelsChannel::Red;
+    assert!(levels.is_identity());
+    let mut curves = LayerAdjustment::new(AdjustmentKind::Curves);
+    curves.curves.channel = LevelsChannel::Blue;
+    assert!(curves.is_identity());
+    let mut hsv = LayerAdjustment::new(AdjustmentKind::Hsv);
+    hsv.hsv_settings = Some(HueSaturationSettings::new(0.0, 0.0, 0.0, false, ColorRange::Reds));
+    assert!(hsv.is_identity());
+}

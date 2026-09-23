@@ -125,6 +125,12 @@ impl WasmEngine {
             Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),
         }
     }
+    /// `LayerAdjustment::is_identity`: whether applying this would change nothing. The panels ask
+    /// rather than keep a second copy of the per-kind rule.
+    pub fn adjustment_is_identity(&self, adjustment_json: &str) -> Result<bool, JsError> {
+        let a: LayerAdjustment = serde_json::from_str(adjustment_json).map_err(js_err)?;
+        Ok(a.is_identity())
+    }
     /// 256 RGBA rows for the kinds that map colour through a table; empty for the others.
     pub fn adjustment_lut(&self, adjustment_json: &str) -> Result<Uint8Array, JsError> {
         let a: LayerAdjustment = serde_json::from_str(adjustment_json).map_err(js_err)?;

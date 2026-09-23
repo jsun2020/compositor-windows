@@ -1,6 +1,7 @@
 import { useEditor } from "../state/store";
 import { ALL_RANGES, DEFAULT_BANDS, colorizeStart, defaultHsv, setHandle } from "../tools/hue-band";
 import type { ColorRange, HueBand, HueSaturationSettings, RangeAdjustment } from "../engine/types";
+import { NumberInput } from "./NumberInput";
 
 const IDENTITY_ADJUSTMENT: RangeAdjustment = { hue: 0, saturation: 0, lightness: 0 };
 const HANDLE_LABELS = ["Falloff start", "Range start", "Range end", "Falloff end"];
@@ -33,12 +34,9 @@ export function HueSaturationPanel() {
         onChange={(e) => write({ ...settings, range: e.target.value as ColorRange })}>
         {ALL_RANGES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select></label>
-      <label>Hue <input aria-label="Hue" type="number" min={hueRange[0]} max={hueRange[1]} value={adjustment.hue}
-        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateField("hue", v); }} /></label>
-      <label>Saturation <input aria-label="Saturation" type="number" min={saturationRange[0]} max={saturationRange[1]} value={adjustment.saturation}
-        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateField("saturation", v); }} /></label>
-      <label>Lightness <input aria-label="Lightness" type="number" min={-100} max={100} value={adjustment.lightness}
-        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateField("lightness", v); }} /></label>
+      <label>Hue <NumberInput label="Hue" min={hueRange[0]} max={hueRange[1]} value={adjustment.hue} onChange={(v) => updateField("hue", v)} /></label>
+      <label>Saturation <NumberInput label="Saturation" min={saturationRange[0]} max={saturationRange[1]} value={adjustment.saturation} onChange={(v) => updateField("saturation", v)} /></label>
+      <label>Lightness <NumberInput label="Lightness" min={-100} max={100} value={adjustment.lightness} onChange={(v) => updateField("lightness", v)} /></label>
       <label><input type="checkbox" data-testid="hue-colorize" checked={settings.colorize}
         onChange={(e) => write(e.target.checked ? colorizeStart() : defaultHsv())} /> Colorize</label>
       <label><input type="checkbox" data-testid="hue-invert" checked={settings.invertRange} disabled={range === "Master"}

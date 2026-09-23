@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { useEditor } from "../state/store";
-import { adjustTitle, defaultAdjustment, defaultFilterParams } from "../state/adjust-edit";
+import { adjustTitle, defaultFilterParams, resetAdjustment } from "../state/adjust-edit";
 import { LevelsPanel } from "./LevelsPanel";
 import { CurvesPanel } from "./CurvesPanel";
 import { HueSaturationPanel } from "./HueSaturationPanel";
@@ -37,7 +37,7 @@ export function AdjustPanel() {
   if (!edit) return null;
   const reset = () => {
     if (edit.params) s.updateAdjust({ params: defaultFilterParams(edit.params.filter) });
-    else s.updateAdjust({ adjustment: defaultAdjustment(edit.adjustment!.kind) });
+    else s.updateAdjust({ adjustment: resetAdjustment(edit.adjustment!, edit.original) });
   };
   let body: ReactNode;
   if (!edit.params && edit.adjustment!.kind === "Levels") body = <LevelsPanel />;

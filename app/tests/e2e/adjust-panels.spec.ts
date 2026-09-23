@@ -1,7 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-import { noisePngBase64 } from "./helpers";
+import { clickMenu, noisePngBase64 } from "./helpers";
 import { curveValue } from "../../src/tools/curves-editor";
-import { DEFAULT_BANDS, centeredOn, hueOf } from "../../src/tools/hue-band";
+import { DEFAULT_BANDS, centeredOn, defaultHsv, hueOf } from "../../src/tools/hue-band";
+import { defaultAdjustment } from "../../src/state/adjust-edit";
 
 async function setup(page: Page) {
   await page.goto("/");
@@ -447,4 +448,98 @@ test("clicking the active tab or closing a background tab leaves the panel open"
   await expect(tabs).toHaveCount(1);
   await expect(page.getByTestId("adjust-panel")).toBeVisible();
   expect(await page.evaluate(() => (window as any).__compositor.store.getState().activeId)).toBe(first);
+});
+/** Every rendered canvas pixel, after a double rAF so the frame has painted. */
+const canvasPixels = (page: Page) => page.evaluate(async () => {
+  const api = (window as any).__compositor;
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return Array.from(api.readDocumentPixels() as Uint8Array);
+});
+const editState = (page: Page) => page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit);
+
+test("a destructive panel asks the engine what counts as doing nothing", async ({ page }) => {
+  await setup(page);
+  const reds = { ...defaultAdjustment("Hue/Saturation"), hsvSettings: { ...defaultHsv(), range: "Reds" } };
+  const cases: [string, unknown, boolean][] = [
+    ["Levels", defaultAdjustment("Levels"), true],
+    ["Levels, Red channel", { ...defaultAdjustment("Levels"), levels: { ...defaultAdjustment("Levels").levels, channel: "Red" } }, true],
+    ["Curves, Blue channel", { ...defaultAdjustment("Curves"), curves: { ...defaultAdjustment("Curves").curves, channel: "Blue" } }, true],
+    ["Hue/Saturation, Reds range", reds, true],
+    ["Exposure", defaultAdjustment("Exposure"), true],
+    ["Gradient Map", defaultAdjustment("Gradient Map"), false],
+    ["Grain", defaultAdjustment("Grain"), false],
+    ["Grain at amount 0", { ...defaultAdjustment("Grain"), grainSettings: { amount: 0, size: 1.5, roughness: 50, seed: 3 } }, true],
+  ];
+  const answers = await page.evaluate((list) => list.map(([, a]) => (window as any).__compositor.engine.adjustmentIsIdentity(a)), cases);
+  expect(Object.fromEntries(cases.map(([name], i) => [name, answers[i]]))).toEqual(Object.fromEntries(cases.map(([name, , want]) => [name, want])));
+});
+
+test("Grain and Gradient Map preview at their starting settings and OK applies them", async ({ page }) => {
+  await setup(page);
+  for (const [id, title] of [["image-grain", "Grain"], ["image-gradient-map", "Gradient Map"]] as const) {
+    const depth = (await state(page)).undoDepth;
+    const original = await canvasPixels(page);
+    await clickMenu(page, "Image", id);
+    await expect(page.getByTestId("adjust-title")).toHaveText(title);
+    expect(await canvasPixels(page)).not.toEqual(original);   // the Mac shows these at once, too
+    await page.getByTestId("adjust-ok").click();
+    await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+    expect((await state(page)).undoDepth).toBe(depth + 1);
+  }
+});
+
+test("switching a channel or range selector alone records nothing", async ({ page }) => {
+  await setup(page);
+  const depth = (await state(page)).undoDepth;
+  for (const [kind, selector, value] of [["Levels", "levels-channel", "Red"], ["Curves", "curves-channel", "Blue"], ["Hue/Saturation", "hue-range", "Reds"]]) {
+    await open(page, kind);
+    await page.getByTestId(selector).selectOption(value);
+    await page.getByTestId("adjust-ok").click();
+    await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  }
+  expect((await state(page)).undoDepth).toBe(depth);
+});
+
+test("typed values are clamped to the ranges the engine accepts, so OK applies them", async ({ page }) => {
+  await setup(page);
+  const depth = (await state(page)).undoDepth;
+  await open(page, "Exposure");
+  const exposure = page.getByRole("spinbutton", { name: "Exposure", exact: true });
+  await exposure.fill("25");
+  await exposure.press("Enter");
+  expect((await editState(page)).adjustment.exposureSettings.exposure).toBe(20);
+  await expect(exposure).toHaveValue("20");
+  await page.getByTestId("adjust-ok").click();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  expect((await state(page)).undoDepth).toBe(depth + 1);
+
+  await open(page, "Hue/Saturation");
+  const field = (name: string) => page.getByRole("spinbutton", { name, exact: true });
+  await field("Hue").fill("400");
+  await field("Lightness").fill("-150");
+  let master = (await editState(page)).adjustment.hsvSettings.adjustments.Master;
+  expect([master.hue, master.lightness]).toEqual([180, -100]);
+  // Colorize takes hue 0..360 and saturation 0..100.
+  await page.getByTestId("hue-colorize").check();
+  await field("Hue").fill("-30");
+  await field("Saturation").fill("150");
+  master = (await editState(page)).adjustment.hsvSettings.adjustments.Master;
+  expect([master.hue, master.saturation]).toEqual([0, 100]);
+  await page.getByTestId("adjust-ok").click();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  expect((await state(page)).undoDepth).toBe(depth + 2);
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+});
+
+test("Reset on an adjustment layer keeps its seed, so an untouched OK records nothing", async ({ page }) => {
+  await setup(page);
+  await clickMenu(page, "Layer", "layer-adjustment-grain");
+  await expect(page.getByTestId("adjust-title")).toHaveText("Grain");
+  const depth = (await state(page)).undoDepth;
+  const seed = (await editState(page)).original.grainSettings.seed;
+  await page.getByTestId("adjust-reset").click();
+  expect((await editState(page)).adjustment.grainSettings.seed).toBe(seed);
+  await page.getByTestId("adjust-ok").click();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  expect((await state(page)).undoDepth).toBe(depth);
 });

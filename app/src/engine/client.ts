@@ -101,6 +101,9 @@ export class EngineClient {
     const json = this.wasm.sample_color(doc, at.x, at.y);
     return json ? (JSON.parse(json) as [number, number, number]) : null;
   }
+  /** The engine's `LayerAdjustment::is_identity`: Gradient Map never is, Grain only at amount 0,
+   * and the channel and range selectors never count. */
+  adjustmentIsIdentity(adjustment: LayerAdjustment): boolean { return this.wasm.adjustment_is_identity(JSON.stringify(adjustment)); }
   adjustmentLut(adjustment: LayerAdjustment): Uint8Array { return this.wasm.adjustment_lut(JSON.stringify(adjustment)); }
   hueResponse(adjustment: LayerAdjustment): Float32Array { return this.wasm.hue_response_table(JSON.stringify(adjustment)); }
 }

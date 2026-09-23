@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditor } from "../../src/state/store";
-import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, previewRequestFor } from "../../src/state/adjust-edit";
-import type { Command, DocumentState, LayerState, PreviewRequest } from "../../src/engine/types";
+import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, previewRequestFor, resetAdjustment } from "../../src/state/adjust-edit";
+import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { ShellBridge } from "../../src/shell/bridge";
 import { closeProject, importImages } from "../../src/actions/files";
@@ -35,6 +35,9 @@ function install(layers: LayerState[], active: string) {
     redo: () => { history.push("redo"); return { structure: true, canvas: false, layers: [] }; },
     closeDocument: (id: string) => { closed.push(id); },
     importImage: (doc: string | null) => { imports.push(doc ?? "new"); return doc ?? "N"; },
+    // Stands in for LayerAdjustment::is_identity, which e2e exercises for real: these store tests
+    // only need Levels at its defaults to count as "nothing to do".
+    adjustmentIsIdentity: (a: LayerAdjustment) => JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind)),
   } as unknown as EngineClient;
   const bridge = { readFile: async () => new Uint8Array([1]), baseName: (p: string) => p, pickImportImages: async () => ["C:/b.png"] } as unknown as ShellBridge;
   useEditor.setState({ engine, bridge, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [active], maskSelected: false,
@@ -158,11 +161,64 @@ describe("adjustment panels", () => {
     expect(calls).toEqual([]);
   });
 
-  it("knows the default settings and which ones do nothing", () => {
+  it("knows the default settings, and asks the engine which destructive ones do nothing", () => {
     expect(defaultAdjustment("Grain").grainSettings?.amount).toBe(25);
     expect(defaultFilterParams("MotionBlur")).toEqual({ filter: "MotionBlur", angle: 0, distance: 10 });
-    expect(isAdjustIdentity({ kind: "Levels", adjustment: defaultAdjustment("Levels"), params: null } as never)).toBe(true);
-    expect(previewRequestFor({ target: "layer", layerId: "A", kind: "Levels", adjustment: defaultAdjustment("Levels"), params: null, preview: true } as never)).toBeNull();
+    const grain = defaultAdjustment("Grain");
+    const asked: unknown[] = [];
+    // A destructive edit takes the engine's answer, whatever the default looks like...
+    expect(isAdjustIdentity({ adjustment: grain, params: null, original: null }, (a) => { asked.push(a); return false; })).toBe(false);
+    expect(asked).toEqual([grain]);
+    expect(isAdjustIdentity({ adjustment: defaultAdjustment("Levels"), params: null, original: null }, () => true)).toBe(true);
+    expect(previewRequestFor({ target: "layer", layerId: "A", kind: "Grain", adjustment: grain, params: null, original: null, preview: true, sampleMode: null, histogram: null }, () => false))
+      .toEqual({ preview: "Adjustment", layer: "A", adjustment: grain });
+    // ...and an adjustment layer compares with the settings it opened with, never the engine's rule.
+    expect(isAdjustIdentity({ adjustment: grain, params: null, original: grain }, () => false)).toBe(true);
+  });
+
+  it("each destructive Grain panel draws its own seed", () => {
+    install([layer("A")], "A");
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    useEditor.getState().beginAdjust({ kind: "Grain" });
+    random.mockRestore();
+    expect(useEditor.getState().adjustEdit!.adjustment!.grainSettings!.seed).toBe(Math.floor(0.5 * 0xffffffff));
+  });
+
+  it("a refused OK keeps the panel open with the user's settings and its preview", () => {
+    const { previews } = install([layer("A")], "A");
+    const engine = useEditor.getState().engine as unknown as { execute: () => never };
+    engine.execute = () => { throw new Error("adjustment settings out of range"); };
+    openPreviewingLevels();
+    const edit = useEditor.getState().adjustEdit;
+    useEditor.getState().commitAdjust();
+    expect(useEditor.getState().adjustEdit).toEqual(edit);
+    expect(useEditor.getState().error).toMatch(/out of range/);
+    expect((previews.at(-1) as any)?.preview).toBe("Adjustment");   // the preview is back on the canvas
+  });
+
+  it("Reset keeps what a panel cannot choose, and adds nothing an untouched layer lacks", () => {
+    const grainLayer = { ...defaultAdjustment("Grain"), grainSettings: { amount: 60, size: 4, roughness: 10, seed: 7 } };
+    expect(resetAdjustment(grainLayer, grainLayer).grainSettings).toEqual({ amount: 25, size: 1.5, roughness: 50, seed: 7 });
+    const destructiveGrain = { ...defaultAdjustment("Grain"), grainSettings: { amount: 60, size: 4, roughness: 10, seed: 9 } };
+    expect(resetAdjustment(destructiveGrain, null).grainSettings!.seed).toBe(9);
+    const colours = { shadows: { red: 0.2, green: 0.1, blue: 0 }, highlights: { red: 1, green: 0.9, blue: 0.5 }, reversed: true };
+    const mapLayer = { ...defaultAdjustment("Gradient Map"), gradientMapSettings: colours };
+    expect(resetAdjustment(mapLayer, mapLayer).gradientMapSettings).toEqual({ ...colours, reversed: false });
+    const exposureLayer = defaultAdjustment("Exposure");
+    delete exposureLayer.exposureSettings;   // as AddAdjustmentLayer makes it: absent means neutral
+    const edited = { ...exposureLayer, exposureSettings: { exposure: 2, offset: 0, gamma: 1 } };
+    expect(resetAdjustment(edited, exposureLayer)).toEqual(exposureLayer);
+  });
+
+  it("Reset then OK on an untouched adjustment layer records nothing", () => {
+    const exposureLayer = defaultAdjustment("Exposure");
+    delete exposureLayer.exposureSettings;
+    const { calls } = install([layer("A"), layer("J", { hasPixels: false, pixelsWidth: 0, adjustment: exposureLayer })], "J");
+    useEditor.getState().beginAdjust({ kind: "Exposure", layerId: "J", target: "adjustmentLayer" });
+    const edit = useEditor.getState().adjustEdit!;
+    useEditor.getState().updateAdjust({ adjustment: resetAdjustment(edit.adjustment!, edit.original) });
+    useEditor.getState().commitAdjust();
+    expect(calls).toEqual([]);
   });
 });
 

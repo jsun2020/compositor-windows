@@ -1,5 +1,6 @@
 import { useEditor } from "../state/store";
 import type { AdjustmentColor, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
+import { NumberInput } from "./NumberInput";
 
 // A plain <span> caption, not a <label>, wraps the pair: a <label> would give the range
 // input the same accessible name as the number input (Chromium keeps a focusable element
@@ -13,8 +14,7 @@ function NumberField(props: { label: string; value: number; min: number; max: nu
       <span className="number-field-label">{props.label}</span>
       <input type="range" aria-hidden tabIndex={-1} min={props.min} max={props.max} step={props.step} value={props.value}
         onChange={(e) => props.onChange(Number(e.target.value))} />
-      <input aria-label={props.label} type="number" min={props.min} max={props.max} step={props.step} value={props.value}
-        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) props.onChange(v); }} />
+      <NumberInput label={props.label} value={props.value} min={props.min} max={props.max} step={props.step} onChange={props.onChange} />
     </span>
   );
 }

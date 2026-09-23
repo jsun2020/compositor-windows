@@ -63,7 +63,8 @@ export interface EditorStore {
   setActive(id: string): void;
   refresh(id?: string): void;
   revealActiveLayer(): void;
-  run(command: Command): void;
+  /** True when the engine accepted the command; a refusal raises the banner. */
+  run(command: Command): boolean;
   undo(): void;
   redo(): void;
   setTool(tool: Tool): void;
@@ -195,7 +196,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   run: (command) => {
     // Its own commit clears `adjustEdit` before calling this, so a panel's OK is never refused.
-    if (get().panelOwnsDocument(true)) return;
+    if (get().panelOwnsDocument(true)) return false;
     // A pending transform is closed before any other command records history. macOS refuses
     // these outright while `transformEdit != nil` (canEditLayers); committing is the gentler
     // equivalent and is what every action in actions/layers.ts already did individually.
@@ -209,12 +210,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // `run` below sees none and this does not recurse.
     if (get().transformEdit) get().commitTransform();
     const { engine, activeId } = get();
-    if (!engine || !activeId) return;
+    if (!engine || !activeId) return false;
     try {
       engine.execute(activeId, command);
       get().refresh(activeId);
       if (REVEALING_COMMANDS.has(command.type)) get().revealActiveLayer();
-    } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); }
+      return true;
+    } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
   },
   // A panel owns the document while it is open, as macOS's canEditLayers does; the menu items
   // for these are already disabled, so this stays quiet rather than raising the error banner.
@@ -379,6 +381,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (editing ? !layer.adjustment : !get().canAdjust()) return false;
     const filter = isFilterKind(kind as string);
     const adjustment = filter ? null : (editing ? layer.adjustment! : defaultAdjustment(kind as AdjustmentKind));
+    // Each destructive Grain gets a pattern of its own, as the Mac's FilterEdit draws a random
+    // seed and as Add Noise already does here; an adjustment layer keeps the seed it was made with.
+    if (adjustment?.grainSettings && !editing) adjustment.grainSettings.seed = Math.floor(Math.random() * 0xffffffff);
     const edit: AdjustEdit = {
       kind, target: editing ? "adjustmentLayer" : "layer", layerId: layer.id,
       adjustment, params: filter ? defaultFilterParams(kind as FilterKind) : null,
@@ -434,17 +439,19 @@ export const useEditor = create<EditorStore>((set, get) => ({
   applyAdjustPreview: () => {
     const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId) return;
     if (!adjustEdit || adjustEdit.target === "adjustmentLayer") { if (!adjustEdit) engine.setPreview(activeId, null); get().invalidate(); return; }
-    engine.setPreview(activeId, previewRequestFor(adjustEdit));
+    engine.setPreview(activeId, previewRequestFor(adjustEdit, (a) => engine.adjustmentIsIdentity(a)));
     get().refresh(activeId);
   },
   commitAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
-    set({ adjustEdit: null });
-    engine.setPreview(activeId, null);
-    if (isAdjustIdentity(edit)) { get().refresh(activeId); get().invalidate(); return; }
-    if (edit.target === "adjustmentLayer") { get().run({ type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }); return; }
-    if (edit.params) get().run({ type: "ApplyFilter", id: edit.layerId, params: edit.params });
-    else get().run({ type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! });
+    dropOpenPanel();
+    if (isAdjustIdentity(edit, (a) => engine.adjustmentIsIdentity(a))) { get().refresh(activeId); get().invalidate(); return; }
+    const command: Command = edit.target === "adjustmentLayer" ? { type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }
+      : edit.params ? { type: "ApplyFilter", id: edit.layerId, params: edit.params }
+      : { type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! };
+    // A refused command (settings the engine will not accept) leaves the panel open with the
+    // user's settings and its preview, under the banner, rather than discarding the edit.
+    if (!get().run(command)) { set({ adjustEdit: edit }); get().applyAdjustPreview(); }
   },
   cancelAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;

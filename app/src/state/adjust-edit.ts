@@ -1,4 +1,5 @@
 import type { AdjustmentKind, FilterKind, FilterParams, LayerAdjustment, PreviewRequest } from "../engine/types";
+import { defaultHsv } from "../tools/hue-band";
 
 /** Which eyedropper is armed: the Levels three, or the Hue/Saturation band tools. */
 export type SampleMode = "Black" | "Gray" | "White" | "replace" | "add" | "remove";
@@ -66,26 +67,58 @@ function sameShape(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/** Whether the panel's current settings would change nothing (so OK records no undo step).
- * Identity means "equal to what the panel opened with": for a destructive edit on a pixel
- * layer that is always the neutral default (there is nothing else it could have started from),
- * but for an adjustment layer it is `edit.original` -- the settings already on the layer, which
- * may themselves be far from the default. Comparing against the default unconditionally would
- * judge a no-op reopen of an already-customised adjustment layer as "changed". */
-export function isAdjustIdentity(edit: Pick<AdjustEdit, "kind" | "adjustment" | "params" | "original">): boolean {
+/** The engine's `LayerAdjustment::is_identity` (`EngineClient.adjustmentIsIdentity`). */
+export type EngineIdentity = (adjustment: LayerAdjustment) => boolean;
+
+/** Whether the panel's current settings would change nothing (so OK records no undo step and a
+ * destructive panel previews nothing).
+ *
+ * For a destructive edit that is the engine's own per-kind rule, asked rather than mirrored:
+ * Gradient Map always recolours, Grain applies at any amount above 0, and the Levels/Curves
+ * channel and Hue/Saturation range selectors are where the panel is looking, not settings. Equal
+ * to the kind's default is wrong for Grain and Gradient Map, whose defaults do something.
+ *
+ * For an adjustment layer it is "equal to `edit.original`", the settings already on the layer,
+ * which may themselves be far from any default: a no-op reopen of a customised layer is not an
+ * edit. */
+export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" | "original">, engineIdentity: EngineIdentity): boolean {
   if (edit.params) {
     const p = edit.params;
     return p.filter === "LensCorrection" ? p.distortion === 0 : false;
   }
   const a = edit.adjustment;
   if (!a) return true;
-  const baseline = edit.original ?? defaultAdjustment(a.kind);
-  return sameShape(a, baseline);
+  return edit.original ? sameShape(a, edit.original) : engineIdentity(a);
+}
+
+/** What Reset puts back: the kind's neutral settings. What a panel cannot choose survives it:
+ * Grain's seed (drawn when the panel or the layer was made) and, on an adjustment layer, its
+ * Gradient Map colours. An adjustment layer resets only its own kind's settings and gains no
+ * optional settings object it did not already carry, so Reset then OK on an untouched layer
+ * still records nothing. */
+export function resetAdjustment(current: LayerAdjustment, original: LayerAdjustment | null): LayerAdjustment {
+  const fresh = defaultAdjustment(current.kind);
+  const seed = (original ?? current).grainSettings?.seed;
+  if (fresh.grainSettings && seed !== undefined) fresh.grainSettings.seed = seed;
+  if (!original) return fresh;
+  const out: LayerAdjustment = { ...original };
+  switch (current.kind) {
+    case "Levels": out.levels = fresh.levels; break;
+    case "Curves": out.curves = fresh.curves; break;
+    case "Hue/Saturation":
+      if (original.hsvSettings) out.hsvSettings = defaultHsv();
+      else Object.assign(out, { hue: 0, saturation: 0, lightness: 0, colorize: false });
+      break;
+    case "Exposure": if (original.exposureSettings) out.exposureSettings = fresh.exposureSettings; break;
+    case "Gradient Map": if (original.gradientMapSettings) out.gradientMapSettings = { ...original.gradientMapSettings, reversed: false }; break;
+    case "Grain": if (original.grainSettings) out.grainSettings = fresh.grainSettings; break;
+  }
+  return out;
 }
 
 /** The pixel preview a destructive panel asks the engine for; null when there is nothing to show. */
-export function previewRequestFor(edit: AdjustEdit): PreviewRequest | null {
-  if (edit.target !== "layer" || !edit.preview || isAdjustIdentity(edit)) return null;
+export function previewRequestFor(edit: AdjustEdit, engineIdentity: EngineIdentity): PreviewRequest | null {
+  if (edit.target !== "layer" || !edit.preview || isAdjustIdentity(edit, engineIdentity)) return null;
   if (edit.params) return { preview: "Filter", layer: edit.layerId, params: edit.params };
   return edit.adjustment ? { preview: "Adjustment", layer: edit.layerId, adjustment: edit.adjustment } : null;
 }
