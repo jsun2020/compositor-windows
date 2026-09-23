@@ -7,10 +7,13 @@ fn clamp_or(n: f64, lo: f64, hi: f64, fallback: f64) -> f64 { if n.is_finite() {
 /// `serde_json`'s default `f64` writer always keeps the decimal point, so every numeric field that
 /// must match the Mac byte for byte serializes and deserializes through this module instead.
 mod mac_number {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{ser::Error, Deserialize, Deserializer, Serializer};
 
+    /// A non-finite value is refused rather than written: `serde_json` would emit `null`, which
+    /// neither this reader nor the Mac's can read back.
     pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-        if value.is_finite() && value.fract() == 0.0 && value.abs() < 1e15 {
+        if !value.is_finite() { return Err(S::Error::custom(format!("non-finite adjustment number {value}"))); }
+        if value.fract() == 0.0 && value.abs() < 1e15 {
             serializer.serialize_i64(*value as i64)
         } else {
             serializer.serialize_f64(*value)

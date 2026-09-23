@@ -176,3 +176,135 @@ fn a_macos_adjustment_layer_opens_and_saves_unchanged() {
     let original: serde_json::Value = serde_json::from_str(manifest).unwrap();
     assert_eq!(written["layers"][0]["adjustment"], original["layers"][0]["adjustment"], "re-saved byte for byte");
 }
+
+/// HAND-WRITTEN, not Mac-produced: no Mac was available when this was added. It follows Swift's
+/// documented `Dictionary` encoding for a key type that is neither `String`/`Int` nor
+/// `CodingKeyRepresentable` (`ColorRange`): an unkeyed container of alternating key and value, in
+/// the hash order of that process. The keys below are deliberately NOT in `ColorRange::ALL` order,
+/// so the reader cannot depend on order. `.prettyPrinted, .sortedKeys` layout, as `ProjectStore`
+/// writes it. To be confirmed against a real Mac save.
+const MAC_HSV_ARRAY_FORM: &str = r#"{
+  "activeLayerID" : "33333333-3333-4333-8333-333333333333",
+  "colorSpace" : "sRGB",
+  "documentID" : "44444444-4444-4444-8444-444444444444",
+  "format" : "com.compositor.project",
+  "height" : 4,
+  "layers" : [
+    {
+      "adjustment" : {
+        "colorize" : false,
+        "curves" : {
+          "channel" : "RGB",
+          "channels" : [
+            [ { "x" : 0, "y" : 0 }, { "x" : 255, "y" : 255 } ],
+            [ { "x" : 0, "y" : 0 }, { "x" : 255, "y" : 255 } ],
+            [ { "x" : 0, "y" : 0 }, { "x" : 255, "y" : 255 } ],
+            [ { "x" : 0, "y" : 0 }, { "x" : 255, "y" : 255 } ]
+          ]
+        },
+        "hsvSettings" : {
+          "adjustments" : [
+            "Blues",
+            { "hue" : 0, "lightness" : 0, "saturation" : -40 },
+            "Master",
+            { "hue" : 0, "lightness" : 10, "saturation" : 0 },
+            "Reds",
+            { "hue" : 30.5, "lightness" : 0, "saturation" : 0 }
+          ],
+          "bands" : [
+            "Greens",
+            { "falloffEnd" : 165, "falloffStart" : 75, "rangeEnd" : 135, "rangeStart" : 105 },
+            "Magentas",
+            { "falloffEnd" : 345, "falloffStart" : 255, "rangeEnd" : 315, "rangeStart" : 285 },
+            "Reds",
+            { "falloffEnd" : 50, "falloffStart" : 300, "rangeEnd" : 20, "rangeStart" : 330 },
+            "Master",
+            { "falloffEnd" : 360, "falloffStart" : 0, "rangeEnd" : 360, "rangeStart" : 0 },
+            "Cyans",
+            { "falloffEnd" : 225, "falloffStart" : 135, "rangeEnd" : 195, "rangeStart" : 165 },
+            "Yellows",
+            { "falloffEnd" : 105, "falloffStart" : 15, "rangeEnd" : 75, "rangeStart" : 45 },
+            "Blues",
+            { "falloffEnd" : 285, "falloffStart" : 195, "rangeEnd" : 255, "rangeStart" : 225 }
+          ],
+          "colorize" : false,
+          "invertRange" : true,
+          "range" : "Reds"
+        },
+        "hue" : 0,
+        "kind" : "Hue/Saturation",
+        "levels" : {
+          "channel" : "RGB",
+          "ranges" : [
+            { "black" : 0, "gamma" : 1, "outputBlack" : 0, "outputWhite" : 255, "white" : 255 },
+            { "black" : 0, "gamma" : 1, "outputBlack" : 0, "outputWhite" : 255, "white" : 255 },
+            { "black" : 0, "gamma" : 1, "outputBlack" : 0, "outputWhite" : 255, "white" : 255 },
+            { "black" : 0, "gamma" : 1, "outputBlack" : 0, "outputWhite" : 255, "white" : 255 }
+          ]
+        },
+        "lightness" : 0,
+        "saturation" : 0
+      },
+      "id" : "33333333-3333-4333-8333-333333333333",
+      "isVisible" : true,
+      "name" : "Hue/Saturation",
+      "transform" : { "origin" : [ 0, 0 ], "size" : [ 4, 4 ] }
+    }
+  ],
+  "version" : 7,
+  "width" : 4
+}"#;
+
+fn assert_mac_hsv_settings(doc: &Document) {
+    let hsv = doc.layers[0].extra.adjustment.as_ref().unwrap().hsv_settings.clone().expect("hsvSettings survives");
+    assert_eq!(hsv.range, ColorRange::Reds);
+    assert!(hsv.invert_range && !hsv.colorize);
+    assert_eq!(hsv.adjustments.len(), 3);
+    assert_eq!(hsv.adjustment(ColorRange::Blues), RangeAdjustment { hue: 0.0, saturation: -40.0, lightness: 0.0 });
+    assert_eq!(hsv.adjustment(ColorRange::Master), RangeAdjustment { hue: 0.0, saturation: 0.0, lightness: 10.0 });
+    assert_eq!(hsv.adjustment(ColorRange::Reds), RangeAdjustment { hue: 30.5, saturation: 0.0, lightness: 0.0 });
+    assert_eq!(hsv.bands.len(), 7);
+    assert_eq!(hsv.band(ColorRange::Reds), HueBand { falloff_start: 300.0, range_start: 330.0, range_end: 20.0, falloff_end: 50.0 });
+    assert_eq!(hsv.band(ColorRange::Cyans), ColorRange::Cyans.default_band());
+}
+
+#[test]
+fn a_macos_hue_saturation_layer_in_swift_array_form_opens_and_resaves_as_arrays() {
+    let doc = open_package(&Package { manifest_json: MAC_HSV_ARRAY_FORM.to_string(), images: vec![] })
+        .expect("a Mac project with an edited Hue/Saturation layer must open");
+    assert_mac_hsv_settings(&doc);
+
+    let saved = save_package(&doc).unwrap();
+    assert_keys_are_sorted(&saved.manifest_json);
+    let written: serde_json::Value = serde_json::from_str(&saved.manifest_json).unwrap();
+    let hsv = &written["layers"][0]["adjustment"]["hsvSettings"];
+    assert_eq!(hsv["adjustments"], serde_json::json!([
+        "Master", {"hue": 0, "lightness": 10, "saturation": 0},
+        "Reds", {"hue": 30.5, "lightness": 0, "saturation": 0},
+        "Blues", {"hue": 0, "lightness": 0, "saturation": -40},
+    ]), "re-saved in Swift's array form, ColorRange::ALL order");
+    let keys: Vec<&str> = hsv["bands"].as_array().expect("bands re-saved as an array").iter().step_by(2).map(|k| k.as_str().unwrap()).collect();
+    assert_eq!(keys, ["Master", "Reds", "Yellows", "Greens", "Cyans", "Blues", "Magentas"]);
+
+    let reopened = open_package(&saved).unwrap();
+    assert_mac_hsv_settings(&reopened);
+}
+
+#[test]
+fn a_hue_saturation_layer_in_the_0_3_0_object_form_still_opens() {
+    // What a 0.3.0 development build wrote: the same maps as objects keyed by range name.
+    let mut value: serde_json::Value = serde_json::from_str(MAC_HSV_ARRAY_FORM).unwrap();
+    let hsv = &mut value["layers"][0]["adjustment"]["hsvSettings"];
+    for name in ["adjustments", "bands"] {
+        let pairs = hsv[name].as_array().unwrap().clone();
+        let object: serde_json::Map<String, serde_json::Value> =
+            pairs.chunks(2).map(|p| (p[0].as_str().unwrap().to_string(), p[1].clone())).collect();
+        hsv[name] = serde_json::Value::Object(object);
+    }
+    let doc = open_package(&Package { manifest_json: value.to_string(), images: vec![] })
+        .expect("an object-form file from a 0.3.0 build must open");
+    assert_mac_hsv_settings(&doc);
+    let saved = save_package(&doc).unwrap();
+    let written: serde_json::Value = serde_json::from_str(&saved.manifest_json).unwrap();
+    assert!(written["layers"][0]["adjustment"]["hsvSettings"]["adjustments"].is_array(), "re-saved in the Mac's form");
+}

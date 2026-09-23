@@ -45,10 +45,68 @@ pub struct LayerRecord {
     #[serde(rename = "maskFile", default, skip_serializing_if = "Option::is_none")] pub mask_file: Option<String>,
     #[serde(rename = "maskEnabled", default, skip_serializing_if = "Option::is_none")] pub mask_enabled: Option<bool>,
     #[serde(rename = "maskSourceID", default, with = "ids::upper_opt", skip_serializing_if = "Option::is_none")] pub mask_source_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
+    #[serde(default, with = "adjustment_file", skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
     #[serde(rename = "maskPlacement", default, skip_serializing_if = "Option::is_none")] pub mask_placement: Option<LayerTransform>,
     #[serde(rename = "maskLinked", default, skip_serializing_if = "Option::is_none")] pub mask_linked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
+}
+
+/// The file form of a layer's adjustment. It differs from the bridge form (plain `LayerAdjustment`
+/// serde) in one place only: the Mac declares `HueSaturationSettings.adjustments` and `.bands` as
+/// `[ColorRange: _]`, and `ColorRange` is a `String`-backed enum that is not
+/// `CodingKeyRepresentable`, so Swift's `Dictionary` encodes each as an unkeyed container of
+/// alternating key and value (`["Master", {...}, "Reds", {...}]`) and decodes only that. The TS
+/// panels and the GL renderer read those maps as objects, so the conversion happens here, on top
+/// of the one `LayerAdjustment` definition, rather than in a second copy of the type. Writing
+/// fails (instead of silently writing objects) if the two maps ever stop serializing as objects.
+mod adjustment_file {
+    use crate::{ColorRange, LayerAdjustment};
+    use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
+    use serde_json::{Map, Value};
+
+    const HSV: &str = "hsvSettings";
+    const MAPS: [&str; 2] = ["adjustments", "bands"];
+
+    /// `[key, value, ...]` in `ColorRange::ALL` order. The Mac's own order is hash-seeded per
+    /// process, so byte identity is impossible and a fixed order is the stable choice.
+    pub fn serialize<S: Serializer>(value: &Option<LayerAdjustment>, s: S) -> Result<S::Ok, S::Error> {
+        let Some(adjustment) = value else { return s.serialize_none() };
+        let mut json = serde_json::to_value(adjustment).map_err(ser::Error::custom)?;
+        if let Some(hsv) = json.get_mut(HSV) {
+            for name in MAPS {
+                let Some(Value::Object(mut map)) = hsv.get_mut(name).map(Value::take) else {
+                    return Err(ser::Error::custom(format!("{HSV}.{name} is not an object")));
+                };
+                let mut pairs = Vec::with_capacity(map.len() * 2);
+                for range in ColorRange::ALL {
+                    let key = serde_json::to_value(range).map_err(ser::Error::custom)?;
+                    if let Some(entry) = key.as_str().and_then(|k| map.remove(k)) { pairs.push(key); pairs.push(entry); }
+                }
+                if !map.is_empty() { return Err(ser::Error::custom(format!("{HSV}.{name} has an unknown range"))); }
+                hsv[name] = Value::Array(pairs);
+            }
+        }
+        json.serialize(s)
+    }
+
+    /// Accepts the Mac's array form and the object form a 0.3.0 development build wrote. A key
+    /// repeated in the array keeps its last value, as Swift's decoder does.
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<LayerAdjustment>, D::Error> {
+        let Some(mut json) = Option::<Value>::deserialize(d)? else { return Ok(None) };
+        if let Some(hsv) = json.get_mut(HSV).filter(|h| h.is_object()) {
+            for name in MAPS {
+                let Some(Value::Array(items)) = hsv.get(name) else { continue };
+                if items.len() % 2 != 0 { return Err(de::Error::custom(format!("{HSV}.{name} has an odd number of entries"))); }
+                let mut map = Map::new();
+                for pair in items.chunks(2) {
+                    let key = pair[0].as_str().ok_or_else(|| de::Error::custom(format!("{HSV}.{name} has a non-string key")))?;
+                    map.insert(key.to_string(), pair[1].clone());
+                }
+                hsv[name] = Value::Object(map);
+            }
+        }
+        serde_json::from_value(json).map(Some).map_err(de::Error::custom)
+    }
 }
 
 impl LayerRecord {

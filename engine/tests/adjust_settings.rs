@@ -13,20 +13,95 @@ fn levels_adjustment_round_trips_the_mac_json_byte_for_byte() {
     assert!(a.hsv_settings.is_none() && a.exposure_settings.is_none() && a.gradient_map_settings.is_none() && a.grain_settings.is_none());
 }
 
+/// Reds hue 60, Blues saturation -100, Master lightness 12.5, default bands except Reds.
+fn edited_hsv() -> HueSaturationSettings {
+    let mut hsv = HueSaturationSettings::new(60.0, 0.0, 0.0, false, ColorRange::Reds);
+    hsv.adjustments.insert(ColorRange::Blues, RangeAdjustment { hue: 0.0, saturation: -100.0, lightness: 0.0 });
+    hsv.adjustments.insert(ColorRange::Master, RangeAdjustment { hue: 0.0, saturation: 0.0, lightness: 12.5 });
+    hsv.bands.insert(ColorRange::Reds, HueBand { falloff_start: 300.0, range_start: 330.0, range_end: 20.0, falloff_end: 50.0 });
+    hsv
+}
+
 #[test]
-fn legacy_hsv_fields_resolve_and_range_settings_serialize_with_string_keys() {
+fn legacy_hsv_fields_resolve_to_a_master_adjustment() {
     let legacy: LayerAdjustment = serde_json::from_str(r#"{"kind":"Hue/Saturation","hue":120,"saturation":0,"lightness":0,"colorize":false,"levels":{"channel":"RGB","ranges":[{"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255},{"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255},{"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255},{"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255}]},"curves":{"channel":"RGB","channels":[[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}],[{"x":0,"y":0},{"x":255,"y":255}]]}}"#).unwrap();
     assert!(legacy.hsv_settings.is_none());
     assert_eq!(legacy.resolved_hsv().adjustment(ColorRange::Master).hue, 120.0);
+}
+
+/// The wasm bridge form (commands, `LayerState`, the render plan): the range maps are objects keyed
+/// by range name, because the TS panels and `gl-renderer.ts` read `adjustments[range]`. Only the
+/// manifest writes Swift's array form (next test). Whole numbers are written as integers, as Swift
+/// does; a dropped `mac_number` on `RangeAdjustment` or `HueBand` writes `0.0` and fails here.
+#[test]
+fn the_bridge_form_keys_range_maps_by_name_with_mac_numbers() {
     let mut a = LayerAdjustment::new(AdjustmentKind::Hsv);
-    let mut hsv = HueSaturationSettings::new(60.0, 0.0, 0.0, false, ColorRange::Reds);
-    hsv.adjustments.insert(ColorRange::Blues, RangeAdjustment { hue: 0.0, saturation: -100.0, lightness: 0.0 });
-    a.hsv_settings = Some(hsv.clone());
+    a.hsv_settings = Some(edited_hsv());
     let json = serde_json::to_string(&a).unwrap();
-    assert!(json.contains(r#""adjustments":{"Blues":{"hue":0.0,"lightness":0.0,"saturation":-100.0},"Reds":"#) || json.contains(r#""adjustments":{"Blues":{"hue":0,"lightness":0,"saturation":-100},"Reds":"#), "{json}");
-    assert!(json.contains(r#""bands":{"Blues":{"falloffEnd":285"#) || json.contains(r#""bands":{"Blues":{"falloffEnd":285.0"#), "{json}");
+    assert!(json.contains(r#""adjustments":{"Blues":{"hue":0,"lightness":0,"saturation":-100},"Master":{"hue":0,"lightness":12.5,"saturation":0},"Reds":{"hue":60,"lightness":0,"saturation":0}}"#), "{json}");
+    assert!(json.contains(r#""bands":{"Blues":{"falloffEnd":285,"falloffStart":195,"rangeEnd":255,"rangeStart":225},"Cyans":"#), "{json}");
     let back: LayerAdjustment = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.resolved_hsv(), hsv);
+    assert_eq!(back.resolved_hsv(), edited_hsv());
+}
+
+/// Swift encodes `[ColorRange: _]` (a `String` enum key that is not `CodingKeyRepresentable`) as
+/// an unkeyed container of alternating key and value, and decodes only that. The manifest writes
+/// it in `ColorRange::ALL` order, with integers for whole numbers.
+#[test]
+fn the_file_form_writes_range_maps_as_swift_key_value_arrays() {
+    let mut doc = Document::new(4, 4);
+    let mut layer = Layer::blank("Hue/Saturation", doc.size());
+    let mut a = LayerAdjustment::new(AdjustmentKind::Hsv);
+    a.hsv_settings = Some(edited_hsv());
+    layer.extra.adjustment = Some(a);
+    doc.layers.push(layer);
+    let text = doc.manifest().to_json_pretty().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let hsv = &value["layers"][0]["adjustment"]["hsvSettings"];
+    assert_eq!(serde_json::to_string(&hsv["adjustments"]).unwrap(),
+        r#"["Master",{"hue":0,"lightness":12.5,"saturation":0},"Reds",{"hue":60,"lightness":0,"saturation":0},"Blues",{"hue":0,"lightness":0,"saturation":-100}]"#);
+    assert_eq!(serde_json::to_string(&hsv["bands"]).unwrap(), concat!(
+        r#"["Master",{"falloffEnd":360,"falloffStart":0,"rangeEnd":360,"rangeStart":0},"#,
+        r#""Reds",{"falloffEnd":50,"falloffStart":300,"rangeEnd":20,"rangeStart":330},"#,
+        r#""Yellows",{"falloffEnd":105,"falloffStart":15,"rangeEnd":75,"rangeStart":45},"#,
+        r#""Greens",{"falloffEnd":165,"falloffStart":75,"rangeEnd":135,"rangeStart":105},"#,
+        r#""Cyans",{"falloffEnd":225,"falloffStart":135,"rangeEnd":195,"rangeStart":165},"#,
+        r#""Blues",{"falloffEnd":285,"falloffStart":195,"rangeEnd":255,"rangeStart":225},"#,
+        r#""Magentas",{"falloffEnd":345,"falloffStart":255,"rangeEnd":315,"rangeStart":285}]"#));
+    let parsed = Manifest::parse(&text).unwrap();
+    assert_eq!(parsed.layers[0].adjustment.as_ref().unwrap().resolved_hsv(), edited_hsv());
+}
+
+#[test]
+fn the_file_form_refuses_malformed_range_arrays() {
+    let mut doc = Document::new(4, 4);
+    let mut layer = Layer::blank("Hue/Saturation", doc.size());
+    let mut a = LayerAdjustment::new(AdjustmentKind::Hsv);
+    a.hsv_settings = Some(HueSaturationSettings::default());
+    layer.extra.adjustment = Some(a);
+    doc.layers.push(layer);
+    let text = doc.manifest().to_json_pretty().unwrap();
+    let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let hsv = value["layers"][0]["adjustment"]["hsvSettings"].clone();
+    for (label, adjustments) in [
+        ("odd length", serde_json::json!(["Master"])),
+        ("non-string key", serde_json::json!([0, {"hue": 0, "lightness": 0, "saturation": 0}])),
+        ("unknown range", serde_json::json!(["Oranges", {"hue": 0, "lightness": 0, "saturation": 0}])),
+    ] {
+        let mut broken = hsv.clone();
+        broken["adjustments"] = adjustments;
+        value["layers"][0]["adjustment"]["hsvSettings"] = broken;
+        assert!(matches!(Manifest::parse(&value.to_string()), Err(ProjectError::Invalid)), "{label}");
+    }
+}
+
+#[test]
+fn a_non_finite_number_is_refused_rather_than_written_as_null() {
+    let mut a = LayerAdjustment::new(AdjustmentKind::Exposure);
+    a.exposure_settings = Some(ExposureSettings { exposure: f64::NAN, offset: 0.0, gamma: 1.0 });
+    assert!(serde_json::to_string(&a).is_err());
+    a.exposure_settings = Some(ExposureSettings { exposure: f64::INFINITY, offset: 0.0, gamma: 1.0 });
+    assert!(serde_json::to_value(&a).is_err());
 }
 
 #[test]
