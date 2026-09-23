@@ -29,6 +29,22 @@ test("a new adjustment layer appears above the active layer and never rewrites i
   expect(await page.getByTestId("layer-row").nth(0).innerText()).toContain("Levels");
 });
 
+test("double-clicking an ordinary layer row still renames it", async ({ page }) => {
+  await setup(page);
+  // Pairs with the test above: that one pins the adjustment-row branch of the row's
+  // onDoubleClick conditional, this one pins the other branch. Without both, a regression
+  // that always took one branch (e.g. an adjustment layer opening a rename editor, or an
+  // ordinary layer opening a panel instead) could pass the rest of the suite unnoticed.
+  const row = page.getByTestId("layer-row").nth(0);
+  await row.dblclick();
+  const input = row.getByRole("textbox");
+  await expect(input).toBeVisible();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  await input.fill("Renamed");
+  await input.press("Enter");
+  expect((await state(page)).layers[0].name).toBe("Renamed");
+});
+
 test("double-clicking an adjustment row edits it live and OK records one step", async ({ page }) => {
   await setup(page);
   await clickMenu(page, "Layer", "layer-adjustment-curves");
