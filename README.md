@@ -75,6 +75,8 @@ Photoshop.
 - Note: Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point
   colour cube, so results are slightly more exact than the Mac app's.
 - Note: Motion Blur is an even streak rather than Core Image's tapered one.
+- Note: Image > Grain places its grain in document pixels; the Mac's uses the layer's own
+  pixels, so on a scaled layer the grain size differs from the Mac's by the layer's scale.
 
 ### Image and Filter menu shortcuts
 
