@@ -31,7 +31,7 @@ test("a new adjustment layer appears above the active layer and never rewrites i
 
 test("double-clicking an ordinary layer row still renames it", async ({ page }) => {
   await setup(page);
-  // Pairs with the test above: that one pins the adjustment-row branch of the row's
+  // Pairs with the next test: that one pins the adjustment-row branch of the row's
   // onDoubleClick conditional, this one pins the other branch. Without both, a regression
   // that always took one branch (e.g. an adjustment layer opening a rename editor, or an
   // ordinary layer opening a panel instead) could pass the rest of the suite unnoticed.
