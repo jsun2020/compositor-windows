@@ -64,7 +64,7 @@ A pure Rust library with no Tauri, browser or GPU dependency. It compiles native
 - Tiled raster storage: every layer's pixels and mask live in 256 by 256 tiles of premultiplied RGBA8 (masks are 8-bit grey). Tiles are immutable and reference-counted; writes copy the touched tile. Blank tiles are not allocated.
 - History: a command log. Each entry stores the command and the tiles or metadata it replaced, so undo of a brush stroke costs only the touched tiles. Undo and redo are session-only, as on macOS.
 - Operations: every pixel and structural operation from section 3, implemented as a `Command` enum (serde-serialisable) executed by `Engine::execute`. The UI and the tests speak the same command vocabulary.
-- Kernels: the eight macOS C kernels (adjust, brush, content fill, heal, lens, levels, noise, wand) ported line-for-line to Rust modules under `engine/src/kernels/`. Porting rather than compiling C keeps one toolchain and identical native and wasm behaviour.
+- Kernels: the eight macOS C kernels (adjust, brush, content fill, heal, lens, levels, noise, wand) ported line-for-line to Rust. Porting rather than compiling C keeps one toolchain and identical native and wasm behaviour. Phase 3 ported adjust, lens, levels and noise into `engine/src/adjust/` (see 4.5); brush, content fill, heal and wand arrive with Phase 4's selection and retouching tools. (An earlier draft named a single `engine/src/kernels/` folder; the kernels live with the feature that uses them instead.)
 - CPU compositor: composites any document region to RGBA8. It is the reference implementation used by export, by tests, and by the WebGL fallback.
 - Codecs: `.comp` manifest parsing and validation for versions 1 to 7 with the limits in `docs/project-format.md`; PNG and JPEG decode and encode with resolution metadata; TIFF, WebP and BMP decode via the `image` crate.
 
@@ -118,8 +118,10 @@ The shell never decodes or touches pixels. The window uses the fixed `tauri://lo
 The macOS adjustment and filter kernels (Levels, Curves, Hue/Saturation, Exposure,
 Gradient Map, Grain, Invert, Gaussian Blur, Motion Blur, Add Noise, Lens Correction)
 are ported to Rust under `engine/src/adjust/`, shared by the CPU compositor and by the
-live preview path, with the colour tables mirrored in GLSL for the WebGL2 renderer so
-only the HSL and grain arithmetic is written twice. Two deliberate simplifications from
+live preview path. The WebGL2 renderer does not re-derive the colour tables: the engine
+computes them and uploads them as textures (`adjustment_lut`, `hue_response_table`), so
+only the HSL and grain arithmetic is written twice, once in Rust and once in GLSL, and an
+end-to-end GPU/CPU parity suite holds the two within 2/255 (3/255 for Grain). Two deliberate simplifications from
 the macOS behaviour:
 
 - Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point colour
