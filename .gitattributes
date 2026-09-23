@@ -1,0 +1,2 @@
+# Files produced by the macOS app are compared byte for byte; never convert their line endings.
+engine/tests/fixtures/mac-1.2.6/** -text
