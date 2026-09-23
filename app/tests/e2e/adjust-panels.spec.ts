@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { noisePngBase64 } from "./helpers";
 import { curveValue } from "../../src/tools/curves-editor";
+import { DEFAULT_BANDS, centeredOn, hueOf } from "../../src/tools/hue-band";
 
 async function setup(page: Page) {
   await page.goto("/");
@@ -63,6 +64,32 @@ async function setupWith(page: Page, generate: () => Promise<string>) {
   }, b64);
 }
 
+/**
+ * A flat, fully-saturated orange fills the whole 64x64 canvas, so a click anywhere samples a
+ * colour whose hue is known exactly up front (via `hueOf`, the very function the production
+ * sampling path uses) -- unlike the noise fixture, whose colour at any one pixel is unknowable
+ * without re-deriving the whole PRNG. Runs as a standalone page function (see `noisePngBase64`'s
+ * comment in helpers.ts), so it cannot close over `HUE_FIXTURE_RGB` below and repeats the same
+ * literal by hand.
+ */
+async function hueFixturePngBase64(): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "rgb(255, 128, 0)";
+  ctx.fillRect(0, 0, 64, 64);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+/** The exact colour `hueFixturePngBase64` fills the canvas with, kept in sync by hand. */
+const HUE_FIXTURE_RGB: [number, number, number] = [255 / 255, 128 / 255, 0 / 255];
+
 test("the levels panel previews, applies once, and leaves the pixels alone until OK", async ({ page }) => {
   await setup(page);
   const before = (await state(page)).layers[0].pixelsRevision;
@@ -71,13 +98,21 @@ test("the levels panel previews, applies once, and leaves the pixels alone until
   // "recorded nothing" has to mean "the depth did not move from here", not "canUndo is false".
   const depthBefore = (await state(page)).undoDepth;
   const sampleAt = { x: 32, y: 32 };
-  // `sampleColor` reads the composite through `render_document`, which substitutes the preview
-  // (unlike `sampleLayerColor`, which the histogram/eyedroppers deliberately read straight off
-  // the stored document so they never chase the preview they are about to change) -- so this is
-  // the same read a screenshot comparison would be, without one.
-  const sample = () => page.evaluate((at) => {
+  // Reads the actual canvas pixel, not an engine sampling API: this test's subject is whether the
+  // user SEES the preview, and the rendered canvas answers that directly (this is also why
+  // `sampleColor` reads the stored document like every other sampler here, not the preview --
+  // see its doc comment). The document is a single opaque 64x64 layer at zoom 1 with dpr forced
+  // to 1 by playwright.config.ts's default, so `readDocumentPixels` (already used for GPU/CPU
+  // parity elsewhere, e.g. render.spec.ts) returns a tight 64x64 RGBA buffer with no cropping or
+  // sub-pixel rounding to account for; a double rAF wait (same as `expectMatchesCpu` in
+  // adjust-render.spec.ts) ensures the frame this reads has actually painted.
+  const sample = () => page.evaluate(async (at) => {
     const api = (window as any).__compositor;
-    return api.engine.sampleColor(api.store.getState().activeId, at);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = api.store.getState();
+    const buf = api.readDocumentPixels();
+    const i = (at.y * s.documents[s.activeId].width + at.x) * 4;
+    return [buf[i] / 255, buf[i + 1] / 255, buf[i + 2] / 255];
   }, sampleAt);
   const original = await sample();
   await open(page, "Levels");
@@ -243,7 +278,7 @@ test("Enter on a dropdown does not commit the panel (the field owns its own Ente
 });
 
 test("hue/saturation edits one range at a time and the eyedropper retargets a band", async ({ page }) => {
-  await setup(page);
+  await setupWith(page, hueFixturePngBase64);
   await open(page, "Hue/Saturation");
   // Exact: the panel's own dialog carries aria-label="Hue/Saturation" (adjustTitle), which is
   // otherwise a substring match for both "Hue" and "Saturation" under getByLabel's default
@@ -257,13 +292,25 @@ test("hue/saturation edits one range at a time and the eyedropper retargets a ba
   settings = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings);
   expect(settings.adjustments.Reds.saturation).toBe(-100);
   expect(settings.adjustments.Master.hue).toBe(120);
-  // The eyedropper re-centres the selected range on the colour under the cursor.
+  // The eyedropper re-centres the selected range on the colour under the cursor. By this point a
+  // real (non-identity) preview is already installed on the layer -- Master hue+120, Reds
+  // saturation -100 -- so this also pins the eyedropper to the STORED document: sampling the
+  // preview instead would centre the band on the shifted hue (~150 deg after the +120 Master
+  // shift), not the fixture's actual ~30 deg.
   await page.getByTestId("hue-sample-replace").click();
   const view = page.getByTestId("canvas-view");
   const box = (await view.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const band = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.hsvSettings.bands.Reds);
-  expect(band).not.toEqual({ falloffStart: 315, rangeStart: 345, rangeEnd: 15, falloffEnd: 45 });
+  // Strengthened per code review: `.not.toEqual(defaultBand)` only proved the band changed, which
+  // passes whether the sample was correct or already distorted by the panel's own live preview.
+  // This pins the band to the actual known fixture colour instead.
+  const expectedHue = hueOf(HUE_FIXTURE_RGB)!;
+  const expected = centeredOn(DEFAULT_BANDS.Reds, expectedHue);
+  expect(band.rangeStart).toBeCloseTo(expected.rangeStart, 3);
+  expect(band.rangeEnd).toBeCloseTo(expected.rangeEnd, 3);
+  expect(band.falloffStart).toBeCloseTo(expected.falloffStart, 3);
+  expect(band.falloffEnd).toBeCloseTo(expected.falloffEnd, 3);
   await page.getByTestId("adjust-ok").click();
   expect((await state(page)).canUndo).toBe(true);
 });

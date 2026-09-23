@@ -93,6 +93,10 @@ export class EngineClient {
     const json = this.wasm.sample_layer_color(doc, layer, at.x, at.y);
     return json ? (JSON.parse(json) as [number, number, number]) : null;
   }
+  /** Reads the STORED document, never an open preview -- for the Hue/Saturation eyedroppers, the
+   * same reason `sampleLayerColor` bypasses the preview for Levels'. A caller that wants what the
+   * canvas is showing right now, preview included, should read the rendered canvas directly
+   * (`readDocumentPixels` in the test API) rather than ask this to special-case it. */
   sampleColor(doc: string, at: { x: number; y: number }): [number, number, number] | null {
     const json = this.wasm.sample_color(doc, at.x, at.y);
     return json ? (JSON.parse(json) as [number, number, number]) : null;

@@ -380,11 +380,24 @@ impl Engine {
         if pixel[3] == 0 { return Ok(None); }
         Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
     }
-    /// The straight colour of the visible composite at a document point (the Hue/Saturation eyedroppers).
+    /// The straight colour of the visible composite at a document point (the Hue/Saturation
+    /// eyedroppers), read from the STORED document -- never an open preview, for the same reason
+    /// `histogram` and `sample_layer_color` do not: a Hue/Saturation eyedropper reading its own
+    /// panel's live edit would chase whatever the sliders just did instead of the colour that was
+    /// actually there, and could never converge. Mirrors `sampleCompositeColor` in
+    /// `ColorPalette.swift`, which draws from the session's `document` property (the committed
+    /// model), not the separate live-preview image the canvas shows while an edit is open.
+    ///
+    /// A caller that deliberately wants "what is on screen right now, preview included" (a test
+    /// proving a preview toggle changes the displayed pixels, say) should read the rendered
+    /// canvas directly rather than ask a sampling API to special-case it: this crate had exactly
+    /// that special case once, under this same name, and it was never used by anything but such a
+    /// test -- a live production caller (the Hue/Saturation eyedropper) reused it on the strength
+    /// of the name alone and sampled its own preview by mistake (a Critical, Task 15 code review).
     pub fn sample_color(&self, id: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
-        let doc = self.render_document(id)?;
+        let doc = &self.session(id)?.document;
         let region = Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 };
-        let pixel = compositor::composite(&*doc, region, 1, 1).pixel(0, 0);
+        let pixel = compositor::composite(doc, region, 1, 1).pixel(0, 0);
         if pixel[3] == 0 { return Ok(None); }
         Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
     }

@@ -102,18 +102,23 @@ export function setHandle(band: HueBand, index: number, degrees: number): HueBan
   return band;
 }
 
-/** The hue of a colour, mirroring `rgb_to_hsl`'s hue computation; null when the colour is too
- * close to neutral to have a meaningful hue, at the same 0.02-saturation floor as the Mac's
- * `sampledHue` (`hsb.saturation > 0.02 ? hsb.hue : nil`). `rgb` is 0..1 per channel. */
+/** The hue of a colour, mirroring `rgb_to_hsl`'s hue computation (identical to HSB's hue -- the
+ * two models only disagree on saturation and lightness/value); null when the colour is too close
+ * to neutral to have a meaningful hue. The floor matches the Mac's `sampledHue`
+ * (`hsb.saturation > 0.02 ? hsb.hue : nil`) exactly: `hsb.saturation` there is HSB saturation,
+ * `delta / high` (`PickerHSB.setRGB` in `ColorPalette.swift`), NOT the HSL saturation
+ * `rgb_to_hsl`/`adjust_rgb` use elsewhere. The two diverge sharply near white or black -- e.g.
+ * rgb(1, 0.99, 0.99) is 0.01 in HSB terms (still neutral) but reads as fully saturated in HSL
+ * terms (`delta / (1 - |2L-1|)` blows up as L approaches 1) -- so the floor has to use HSB's
+ * formula even though the hue below does not. `rgb` is 0..1 per channel. */
 export function hueOf(rgb: [number, number, number]): number | null {
   const [r, g, b] = rgb;
   const high = Math.max(r, g, b);
   const low = Math.min(r, g, b);
   const delta = high - low;
-  if (delta <= 0) return null; // Saturation 0: perfectly neutral.
-  const lightness = (high + low) / 2;
-  const saturation = Math.min(1, delta / (1 - Math.abs(2 * lightness - 1)));
-  if (saturation <= 0.02) return null;
+  if (delta <= 0) return null; // Saturation 0 either way: perfectly neutral.
+  const saturationHSB = high > 0 ? delta / high : 0;
+  if (saturationHSB <= 0.02) return null;
   let hue = high === r ? (g - b) / delta : high === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
   hue *= 60;
   if (hue < 0) hue += 360;

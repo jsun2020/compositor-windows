@@ -381,6 +381,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
       get().updateAdjust({ adjustment: { ...adjustEdit.adjustment!, levels } });
       return;
     }
+    // `sampleColor` reads the stored document, never the open preview -- sampling the panel's own
+    // live edit would chase whatever the sliders just did (the same reason `histogram` never
+    // reads the preview).
     const rgb = engine.sampleColor(activeId, at);
     const hue = rgb ? hueOf(rgb) : null;
     if (hue === null) return;

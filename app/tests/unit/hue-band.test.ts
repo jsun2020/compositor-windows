@@ -30,4 +30,14 @@ describe("hue bands", () => {
     expect(hueOf([0, 0, 1])).toBeCloseTo(240, 3);
     expect(hueOf([0.5, 0.5, 0.5])).toBeNull();
   });
+  it("floors neutrality by HSB saturation (delta/high), not HSL's", () => {
+    // rgb(1, 0.99, 0.99): 0.01 in HSB terms (delta/high = 0.01/1), still under the Mac's 0.02
+    // floor -- but delta/(1-|2L-1|), the HSL formula used elsewhere in this file, blows up as
+    // lightness approaches 1 and reads this as fully saturated (saturation 1), which is the
+    // Critical this test guards: a near-white or near-black sample must stay neutral.
+    expect(hueOf([1, 0.99, 0.99])).toBeNull();
+    // The same colour, pushed just past the floor (delta/high = 0.03), does read a hue -- proving
+    // the null above is the floor doing its job, not some other guard.
+    expect(hueOf([1, 0.97, 0.97])).not.toBeNull();
+  });
 });

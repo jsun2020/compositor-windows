@@ -170,3 +170,21 @@ fn histograms_auto_levels_and_the_eyedroppers_read_the_right_pixels() {
     assert_eq!(under[1][128], 64.0, "the gray layer underneath");
     assert!(e.adjustment_source(doc, a).unwrap().width == 20);
 }
+
+#[test]
+fn sample_color_reads_the_stored_document_not_an_open_preview() {
+    // The Hue/Saturation eyedroppers need this: chasing their own panel's live preview (a
+    // Critical from Task 15's code review) would centre a band on a hue the preview just
+    // produced, not the colour actually stored on the layer -- the same reason `histogram` and
+    // `sample_layer_color` never read the preview either. `sample_color` once did read through
+    // the preview (a special case for a test proving a preview toggle changes the displayed
+    // pixels); that test now reads the rendered canvas directly instead, so every sampler in this
+    // module agrees on "the stored document" with no special case left to misuse.
+    let (mut e, doc, layer) = seeded();
+    let at = Point { x: 11.0, y: 11.0 };
+    let mut a = LayerAdjustment::new(AdjustmentKind::Levels);
+    a.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
+    e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: a })).unwrap();
+    let stored = e.sample_color(doc, at).unwrap().unwrap();
+    assert!((stored[0] - 128.0 / 255.0).abs() < 0.01, "unaffected by the open preview");
+}
