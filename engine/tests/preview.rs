@@ -33,7 +33,9 @@ fn a_preview_shows_through_every_render_path_without_touching_the_document() {
         "a preview records nothing");
     // The stored document still holds the original pixels.
     assert_eq!(e.document(doc).unwrap().layer(layer).unwrap().pixels.as_ref().unwrap().pixel(0, 0), [128, 128, 128, 255]);
-    assert_eq!(e.export_png(doc).map(|b| b.len() > 0).unwrap(), true);
+    // Export writes the stored document: the gray, not the previewed black.
+    let exported = decode_image(&e.export_png(doc).unwrap()).unwrap().raster;
+    assert_eq!(exported.pixel(10, 10), [128, 128, 128, 255], "export ignores the open preview");
     e.set_preview(doc, None).unwrap();
     assert_eq!(middle(&e, doc), before, "clearing the preview restores the canvas");
 }
@@ -53,6 +55,16 @@ fn a_command_undo_and_redo_all_end_a_preview() {
     e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: a })).unwrap();
     e.undo(doc).unwrap();
     assert_eq!(middle(&e, doc), [128, 128, 128, 255], "undo drops the preview rather than leaving it stranded");
+    // Redo too: with a preview showing, it cancels the preview and redoes nothing yet.
+    let mut white = LayerAdjustment::new(AdjustmentKind::Levels);
+    white.levels.ranges[0] = LevelRange { output_black: 255.0, ..LevelRange::default() };
+    e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: white })).unwrap();
+    assert_eq!(middle(&e, doc), [255, 255, 255, 255], "the preview is showing");
+    e.redo(doc).unwrap();
+    assert_eq!(middle(&e, doc), [128, 128, 128, 255], "redo drops the preview rather than redoing past it");
+    assert!(e.state(doc).unwrap().can_redo, "the redo step is still waiting");
+    e.redo(doc).unwrap();
+    assert_eq!(middle(&e, doc), [0, 0, 0, 255], "the next redo redoes");
 }
 
 #[test]
@@ -153,8 +165,6 @@ fn histograms_auto_levels_and_the_eyedroppers_read_the_right_pixels() {
     let bins = e.histogram(doc, layer).unwrap();
     assert_eq!(bins.len(), 4);
     assert_eq!(bins[1][128], 64.0, "every pixel of the 8x8 gray layer");
-    let auto = e.auto_levels(doc, layer, LevelsAuto::Contrast).unwrap();
-    assert!(auto.ranges[0].black <= 128.0 && auto.ranges[0].white >= 128.0);
     let sampled = e.sample_layer_color(doc, layer, Point { x: 11.0, y: 11.0 }).unwrap().unwrap();
     assert!((sampled[0] - 128.0 / 255.0).abs() < 0.01);
     assert!(e.sample_layer_color(doc, layer, Point { x: 1.0, y: 1.0 }).unwrap().is_none(), "outside the layer");
@@ -185,8 +195,28 @@ fn sample_color_reads_the_stored_document_not_an_open_preview() {
     let mut a = LayerAdjustment::new(AdjustmentKind::Levels);
     a.levels.ranges[0] = LevelRange { output_white: 0.0, ..LevelRange::default() };
     e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: a })).unwrap();
+    assert_eq!(middle(&e, doc), [0, 0, 0, 255], "the preview is showing");
     let stored = e.sample_color(doc, at).unwrap().unwrap();
     assert!((stored[0] - 128.0 / 255.0).abs() < 0.01, "unaffected by the open preview");
+    // The Levels histogram and eyedroppers read the stored pixels too.
+    assert_eq!(e.histogram(doc, layer).unwrap()[1][128], 64.0, "the gray, not the previewed black");
+    let own = e.sample_layer_color(doc, layer, at).unwrap().unwrap();
+    assert!((own[0] - 128.0 / 255.0).abs() < 0.01, "sample_layer_color ignores the open preview: {own:?}");
+}
+
+#[test]
+fn auto_levels_stretches_a_two_tone_layer_to_its_tones() {
+    // Two tones, so there is a real stretch to find: a single-valued histogram makes every Auto
+    // return the identity, which a broken or no-op auto_levels would also return.
+    let mut e = Engine::new();
+    let doc = e.new_document(20, 20, false).unwrap();
+    let mut data = Vec::new();
+    for i in 0..64 { let v = if i % 2 == 0 { 64u8 } else { 192 }; data.extend_from_slice(&[v, v, v, 255]); }
+    let bytes = encode_png(&Raster::from_premultiplied(8, 8, data), 72.0).unwrap();
+    e.import_image(Some(doc), &bytes, "Two tones", Some(Point { x: 10.0, y: 10.0 })).unwrap();
+    let layer = e.state(doc).unwrap().active_layer_id.unwrap();
+    let auto = e.auto_levels(doc, layer, LevelsAuto::Contrast).unwrap();
+    assert_eq!((auto.ranges[0].black, auto.ranges[0].white), (64.0, 192.0));
 }
 
 /// A distinct colour per pixel, opaque except for a transparent column, so a misplaced or

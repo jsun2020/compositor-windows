@@ -257,12 +257,16 @@ test("clicking empty canvas space at the 32-point cap does not leave a stale sel
   const box = (await editor.boundingBox())!;
   const emptyX = box.x + box.width * (50 / 255);
   const y = box.y + box.height * 0.5;
+  const before = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.curves.channels[0]);
   await page.mouse.move(emptyX, y);
   await page.mouse.down();
   await page.mouse.move(emptyX + 10, y - 10);
   await page.mouse.up();
   expect(errors).toEqual([]);
   await expect(page.getByTestId("adjust-panel")).toBeVisible();
+  // The refused click starts no drag either: the previously selected point stays where it was.
+  const after = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment.curves.channels[0]);
+  expect(after).toEqual(before);
 });
 
 test("Enter on a dropdown does not commit the panel (the field owns its own Enter)", async ({ page }) => {

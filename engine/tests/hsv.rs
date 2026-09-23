@@ -60,6 +60,14 @@ fn the_response_table_and_after_bar_follow_hue_shifts() {
     let response = hue_response(&greens);
     assert_eq!(response.len(), 361);
     assert!((response[120][0] - 60.0).abs() < 0.001 && response[0][0] == 0.0);
+    // The default Master entry above adds nothing whether it is skipped or summed, so on its own
+    // it pins nothing. A real Master shift applies everywhere and adds to the range's own.
+    let mut both = greens.clone();
+    both.adjustments.insert(ColorRange::Master, RangeAdjustment { hue: 30.0, saturation: -20.0, lightness: 0.0 });
+    assert!((shifted_hue(120.0, &both) - 210.0).abs() < 0.001, "Greens 60 plus Master 30 inside the band");
+    assert!((shifted_hue(0.0, &both) - 30.0).abs() < 0.001, "Master alone outside it");
+    let summed = hue_response(&both);
+    assert!((summed[120][0] - 90.0).abs() < 0.001 && (summed[120][1] + 20.0).abs() < 0.001 && (summed[0][0] - 30.0).abs() < 0.001);
 }
 
 #[test]

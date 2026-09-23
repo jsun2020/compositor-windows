@@ -74,8 +74,10 @@ describe("adjustment panels", () => {
     useEditor.getState().beginAdjust({ kind: "Levels" });
     useEditor.getState().commitAdjust();
     expect(calls).toEqual([]);
-    useEditor.getState().beginAdjust({ kind: "Gaussian Blur" as never });
+    expect(useEditor.getState().beginAdjust({ kind: "GaussianBlur" })).toBe(true);
+    expect(useEditor.getState().adjustEdit).toMatchObject({ adjustment: null, params: { filter: "GaussianBlur", radius: 1 } });   // a filter panel
     useEditor.getState().updateAdjust({ params: { filter: "GaussianBlur", radius: 4 } });
+    expect(previews.at(-1)).toEqual({ preview: "Filter", layer: "A", params: { filter: "GaussianBlur", radius: 4 } });
     useEditor.getState().cancelAdjust();
     expect(previews.at(-1)).toBeNull();
     expect(calls).toEqual([]);

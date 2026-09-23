@@ -54,8 +54,9 @@ export function CurvesPanel() {
             // A no-op `insertPoint` (the 32-point cap, or a point already at that input) returns
             // the same-length array back; searching it for the point that was never added would
             // find none and select nothing (`selected` = -1), so leave the current selection
-            // alone instead.
-            if (next.length > points.length) { setPoints(next); setSelected(next.findIndex((p) => p.x === Math.round(at.x))); }
+            // alone instead -- and start no drag, which would move that selected point.
+            if (next.length === points.length) return;
+            setPoints(next); setSelected(next.findIndex((p) => p.x === Math.round(at.x)));
           }
           setDragging(true); (e.target as HTMLElement).setPointerCapture(e.pointerId);
         }}

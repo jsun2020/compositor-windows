@@ -26,16 +26,24 @@ fn grain_is_fixed_in_document_space_and_leaves_transparency_alone() {
 
 #[test]
 fn grain_is_strongest_in_the_midtones_and_bounded_by_its_amount() {
-    let s = GrainSettings { amount: 100.0, size: 1.5, roughness: 50.0, seed: 3 };
-    let mid = apply_grain(&gray(24, 24, 255), &s, Point { x: 0.0, y: 0.0 }, 1.0);
-    let black = apply_grain(&Raster::from_premultiplied(24, 24, [0, 0, 0, 255].repeat(576)), &s, Point { x: 0.0, y: 0.0 }, 1.0);
     let spread = |r: &Raster| -> i64 {
         let v: Vec<i64> = r.bytes().chunks_exact(4).map(|p| p[0] as i64).collect();
         v.iter().max().unwrap() - v.iter().min().unwrap()
     };
-    assert!(spread(&mid) > spread(&black), "midtones take more grain than the shadows: {} vs {}", spread(&mid), spread(&black));
+    let flat = |v: u8| Raster::from_premultiplied(24, 24, [v, v, v, 255].repeat(576));
+    // Amount 20 keeps every delta well inside 0..255 for both tones (at most about 36 levels at
+    // the midtone), so no clamp shapes the spreads: they differ only by grain_weight. On black the
+    // negative deltas clamp away, which would halve the spread whatever the weight did.
+    let gentle = GrainSettings { amount: 20.0, size: 1.5, roughness: 50.0, seed: 3 };
+    let mid = spread(&apply_grain(&flat(128), &gentle, Point { x: 0.0, y: 0.0 }, 1.0));
+    let dark = spread(&apply_grain(&flat(40), &gentle, Point { x: 0.0, y: 0.0 }, 1.0));
+    let want = grain_weight(128.0 / 255.0) / grain_weight(40.0 / 255.0);
+    assert!(mid > dark + 5 && ((mid as f32 / dark as f32) - want).abs() < 0.1,
+        "midtones take more grain than a darker tone, by the weight ratio {want}: {mid} vs {dark}");
     // strength is amount/100 * 0.35 * 255, and the midtone weight peaks at 1.0.
-    assert!(spread(&mid) > 20, "grain at full amount is clearly visible: {}", spread(&mid));
+    let s = GrainSettings { amount: 100.0, ..gentle };
+    let full = spread(&apply_grain(&gray(24, 24, 255), &s, Point { x: 0.0, y: 0.0 }, 1.0));
+    assert!(full > 20, "grain at full amount is clearly visible: {full}");
     assert!((grain_weight(0.5) - 1.0).abs() < 1e-6 && (grain_weight(0.0) - 0.4).abs() < 1e-6);
 }
 

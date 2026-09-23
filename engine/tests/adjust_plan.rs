@@ -182,3 +182,20 @@ fn the_gpu_tables_are_empty_for_a_malformed_adjustment() {
     assert_eq!(gpu_hue_response(&LayerAdjustment::new(AdjustmentKind::Hsv)).len(), 361 * 4);
     assert!(gpu_lut(&LayerAdjustment::new(AdjustmentKind::Hsv)).is_empty(), "no table for Hue/Saturation");
 }
+#[test]
+fn an_unclipped_adjustment_maps_a_semi_transparent_backdrop_by_its_straight_colour() {
+    // The backdrop is half transparent: premultiplied (100, 50, 0, 128) is straight about (199,
+    // 100, 0). An inverting Levels must map the straight colour and keep the backdrop's alpha:
+    // straight (56, 155, 255) re-premultiplied at 128 is (28, 78, 128). Mapping the premultiplied
+    // bytes directly would give (155, 205, 255), which is not even a valid premultiplied pixel.
+    let (mut d, _) = canvas([100, 50, 0, 128]);
+    let a = adjust::add_adjustment_layer(&mut d, AdjustmentKind::Levels, 0, None).unwrap();
+    let mut invert = LayerAdjustment::new(AdjustmentKind::Levels);
+    invert.levels.ranges[0] = LevelRange { output_black: 255.0, output_white: 0.0, ..LevelRange::default() };
+    adjust::set_adjustment(&mut d, a, &invert).unwrap();
+    let p = full(&d).pixel(0, 0);
+    assert_eq!(p[3], 128, "the adjustment never changes the backdrop's alpha: {p:?}");
+    for (c, want) in [28i32, 78, 128].into_iter().enumerate() {
+        assert!((p[c] as i32 - want).abs() <= 1, "channel {c}: {p:?}");
+    }
+}
