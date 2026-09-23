@@ -4887,7 +4887,12 @@ test("cancelling an edit restores the settings and records nothing", async ({ pa
   await page.getByTestId("adjust-cancel").click();
   const d = await state(page);
   expect(d.undoDepth).toBe(depth);
-  expect(d.layers[1].adjustment.exposureSettings.exposure).toBe(0);
+  // Ruling (Task 17): exposureSettings is Option<ExposureSettings>, absent until a commit, exactly
+  // as on the Mac (LayerAdjustment.swift), and absent means identity. Cancel commits nothing, so it
+  // stays absent. Eagerly storing a default instead would make fresh Exposure layers write an
+  // exposureSettings key the Mac never writes, breaking byte compatibility. This still fails if
+  // Cancel wrongly commits, because that stores exposure 2.
+  expect(d.layers[1].adjustment.exposureSettings?.exposure ?? 0).toBe(0);
 });
 
 test("an adjustment layer saves, reopens and still renders the same", async ({ page }) => {
