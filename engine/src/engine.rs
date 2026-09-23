@@ -158,6 +158,11 @@ impl Engine {
         Ok(std::borrow::Cow::Owned(doc))
     }
     pub fn set_preview(&mut self, id: Uuid, request: Option<PreviewRequest>) -> Result<Dirty, CommandError> {
+        // A request that would compute the pixels already showing keeps them: the settled request
+        // after a Grain drag (full size either way) would otherwise recompute the whole layer.
+        if let (Some(r), Some(current)) = (&request, &self.session(id)?.preview) {
+            if current.answers(r) { return Ok(Dirty { structure: false, canvas: false, layers: vec![] }); }
+        }
         let revision = { self.preview_revision += 1; PREVIEW_REVISION_BASE + self.preview_revision };
         let s = self.session_mut(id)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();

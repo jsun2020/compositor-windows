@@ -263,3 +263,26 @@ fn an_adjustment_layers_eyedropper_reads_one_pixel_of_what_lies_beneath() {
     assert_eq!(e.sample_layer_color(doc, a, Point { x: -1.0, y: 5.0 }).unwrap(), None, "off the canvas");
     assert_eq!(e.sample_layer_color(doc, a, Point { x: 40.0, y: 5.0 }).unwrap(), None, "off the canvas");
 }
+#[test]
+fn a_drag_preview_reduces_a_colour_adjustment_and_a_settled_one_does_not() {
+    let mut e = Engine::new();
+    let doc = e.new_document(1000, 800, false).unwrap();
+    let bytes = encode_png(&Raster::from_premultiplied(800, 600, [90u8, 120, 150, 255].repeat(800 * 600)), 72.0).unwrap();
+    e.import_image(Some(doc), &bytes, "Photo", Some(Point { x: 500.0, y: 400.0 })).unwrap();
+    let layer = e.state(doc).unwrap().active_layer_id.unwrap();
+    let pixels = |e: &Engine| { let l = &e.state(doc).unwrap().layers[0]; (l.pixels_width, l.pixels_height, l.pixels_revision) };
+    let mut levels = LayerAdjustment::new(AdjustmentKind::Levels);
+    levels.levels.ranges[0] = LevelRange { white: 200.0, ..LevelRange::default() };
+    // 800 is over the 512 drag limit, so one halving; under the 4096 settled limit, so none.
+    e.set_preview(doc, Some(PreviewRequest::DragAdjustment { layer, adjustment: levels.clone() })).unwrap();
+    assert_eq!((pixels(&e).0, pixels(&e).1), (400, 300), "a drag previews from a halved copy");
+    e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: levels })).unwrap();
+    assert_eq!((pixels(&e).0, pixels(&e).1), (800, 600), "the settled preview is full size, as before the drag cap");
+    // Grain is full size dragged or not, so the settled request after a drag keeps its pixels.
+    let grain = LayerAdjustment::new(AdjustmentKind::Grain);
+    e.set_preview(doc, Some(PreviewRequest::DragAdjustment { layer, adjustment: grain.clone() })).unwrap();
+    let dragged = pixels(&e);
+    assert_eq!((dragged.0, dragged.1), (800, 600));
+    e.set_preview(doc, Some(PreviewRequest::Adjustment { layer, adjustment: grain })).unwrap();
+    assert_eq!(pixels(&e), dragged, "not recomputed: same pixels, same revision");
+}

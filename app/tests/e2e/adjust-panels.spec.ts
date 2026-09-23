@@ -17,6 +17,8 @@ async function setup(page: Page) {
     await api.setZoom(1);
   }, b64);
 }
+/** Resolves once no quick drag preview is waiting to be replaced by the full-quality one. */
+const previewSettled = (page: Page) => page.waitForFunction(() => !(window as any).__compositor.store.getState().previewSettling());
 const state = (page: Page) => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
 const open = (page: Page, kind: string) => page.evaluate((kind) => (window as any).__compositor.store.getState().beginAdjust({ kind }), kind);
 
@@ -107,14 +109,16 @@ test("the levels panel previews, applies once, and leaves the pixels alone until
   // parity elsewhere, e.g. render.spec.ts) returns a tight 64x64 RGBA buffer with no cropping or
   // sub-pixel rounding to account for; a double rAF wait (same as `expectMatchesCpu` in
   // adjust-render.spec.ts) ensures the frame this reads has actually painted.
-  const sample = () => page.evaluate(async (at) => {
+  // Waits for the full-quality preview first: a slider tick shows a quick reduced one until input
+  // settles (store.previewSettling), and this test is about what the finished preview shows.
+  const sample = async () => { await previewSettled(page); return page.evaluate(async (at) => {
     const api = (window as any).__compositor;
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const s = api.store.getState();
     const buf = api.readDocumentPixels();
     const i = (at.y * s.documents[s.activeId].width + at.x) * 4;
     return [buf[i] / 255, buf[i + 1] / 255, buf[i + 2] / 255];
-  }, sampleAt);
+  }, sampleAt); };
   const original = await sample();
   await open(page, "Levels");
   await expect(page.getByTestId("adjust-panel")).toBeVisible();
@@ -344,14 +348,14 @@ test("a panel owns the document while it is open", async ({ page }) => {
 
 /** The rendered canvas pixel at (32, 32), after a double rAF so the frame has painted (see the
  * first Levels test above for why this reads the canvas and not an engine sampling API). */
-const canvasPixel = (page: Page) => page.evaluate(async () => {
+const canvasPixel = async (page: Page) => { await previewSettled(page); return page.evaluate(async () => {
   const api = (window as any).__compositor;
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const s = api.store.getState();
   const buf = api.readDocumentPixels();
   const i = (32 * s.documents[s.activeId].width + 32) * 4;
   return [buf[i], buf[i + 1], buf[i + 2]];
-});
+}); };
 const whitePoint = (page: Page) => page.getByRole("spinbutton", { name: "White point", exact: true });
 
 test("a layer row click under an open destructive panel changes neither the selection nor the preview", async ({ page }) => {
@@ -454,11 +458,11 @@ test("clicking the active tab or closing a background tab leaves the panel open"
   expect(await page.evaluate(() => (window as any).__compositor.store.getState().activeId)).toBe(first);
 });
 /** Every rendered canvas pixel, after a double rAF so the frame has painted. */
-const canvasPixels = (page: Page) => page.evaluate(async () => {
+const canvasPixels = async (page: Page) => { await previewSettled(page); return page.evaluate(async () => {
   const api = (window as any).__compositor;
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   return Array.from(api.readDocumentPixels() as Uint8Array);
-});
+}); };
 const editState = (page: Page) => page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit);
 
 test("a destructive panel asks the engine what counts as doing nothing", async ({ page }) => {
@@ -546,4 +550,32 @@ test("Reset on an adjustment layer keeps its seed, so an untouched OK records no
   await page.getByTestId("adjust-ok").click();
   await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
   expect((await state(page)).undoDepth).toBe(depth);
+});
+test("a slider tick previews a large layer from a reduced copy, then at full size once it settles", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    const c = document.createElement("canvas"); c.width = 1200; c.height = 100;
+    const ctx = c.getContext("2d")!; ctx.fillStyle = "#468"; ctx.fillRect(0, 0, 1200, 100);
+    const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/png"));
+    const doc = api.engine.newDocument(1300, 200, false);
+    api.engine.importImage(doc, new Uint8Array(await blob.arrayBuffer()), "wide", { x: 650, y: 100 });
+    api.store.getState().openDocument(doc);
+  });
+  const width = () => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].layers[0].pixelsWidth; });
+  await open(page, "Levels");
+  // The tick and the read in one synchronous step, so the settle timer cannot fire in between:
+  // 1200 halves twice to fit the 512 drag limit.
+  const ticked = await page.evaluate(() => {
+    const store = (window as any).__compositor.store;
+    const a = store.getState().adjustEdit.adjustment;
+    store.getState().updateAdjust({ adjustment: { ...a, levels: { ...a.levels, ranges: a.levels.ranges.map((r: any, i: number) => (i === 0 ? { ...r, white: 128 } : r)) } } });
+    const s = store.getState();
+    return { width: s.documents[s.activeId].layers[0].pixelsWidth, settling: s.previewSettling() };
+  });
+  expect(ticked).toEqual({ width: 300, settling: true });
+  await previewSettled(page);
+  expect(await width()).toBe(1200);   // the settled preview, at the quality that shipped before
+  await page.getByTestId("adjust-cancel").click();
 });

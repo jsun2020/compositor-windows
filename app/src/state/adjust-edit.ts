@@ -116,9 +116,11 @@ export function resetAdjustment(current: LayerAdjustment, original: LayerAdjustm
   return out;
 }
 
-/** The pixel preview a destructive panel asks the engine for; null when there is nothing to show. */
-export function previewRequestFor(edit: AdjustEdit, engineIdentity: EngineIdentity): PreviewRequest | null {
+/** The pixel preview a destructive panel asks the engine for; null when there is nothing to show.
+ * `dragging` asks for a colour adjustment's quick, reduced preview (see `COLOUR_DRAG_LIMIT` in
+ * engine/src/preview.rs); filters have one quality only. */
+export function previewRequestFor(edit: AdjustEdit, engineIdentity: EngineIdentity, dragging = false): PreviewRequest | null {
   if (edit.target !== "layer" || !edit.preview || isAdjustIdentity(edit, engineIdentity)) return null;
   if (edit.params) return { preview: "Filter", layer: edit.layerId, params: edit.params };
-  return edit.adjustment ? { preview: "Adjustment", layer: edit.layerId, adjustment: edit.adjustment } : null;
+  return edit.adjustment ? { preview: dragging ? "DragAdjustment" : "Adjustment", layer: edit.layerId, adjustment: edit.adjustment } : null;
 }

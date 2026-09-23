@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useEditor } from "../../src/state/store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SETTLE_MS, useEditor } from "../../src/state/store";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, previewRequestFor, resetAdjustment } from "../../src/state/adjust-edit";
 import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
@@ -48,6 +48,11 @@ function install(layers: LayerState[], active: string) {
   return { calls, previews, previewDocs, history, closed, imports, histograms, autos };
 }
 
+// Every test runs on fake timers, so a settled-preview timer one test schedules can never fire
+// into the next test's store.
+beforeEach(() => { vi.useFakeTimers(); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
 describe("adjustment panels", () => {
   beforeEach(() => useEditor.setState({ adjustEdit: null, error: null }));
 
@@ -61,7 +66,7 @@ describe("adjustment panels", () => {
     const next = defaultAdjustment("Levels");
     next.levels.ranges[0] = { ...next.levels.ranges[0], outputWhite: 0 };
     useEditor.getState().updateAdjust({ adjustment: next });
-    expect((previews.at(-1) as any).preview).toBe("Adjustment");
+    expect((previews.at(-1) as any).preview).toBe("DragAdjustment");   // a slider tick: the quick preview first
     expect(calls).toEqual([]);
     useEditor.getState().commitAdjust();
     expect(previews.at(-1)).toBeNull();
@@ -325,5 +330,91 @@ describe("a panel owns the document: every other way in is refused", () => {
     expect(useEditor.getState().activeId).toBe("D");
     expect(useEditor.getState().adjustEdit).not.toBeNull();
     expect(previewDocs.length).toBe(previewCalls);
+  });
+});
+/** A Levels adjustment whose white point is `white`: not identity, so it previews. */
+function levelsWithWhite(white: number): LayerAdjustment {
+  const a = defaultAdjustment("Levels");
+  a.levels.ranges[0] = { ...a.levels.ranges[0], white };
+  return a;
+}
+const kinds = (list: (PreviewRequest | null)[]) => list.map((r) => r?.preview ?? null);
+
+describe("a colour adjustment previews quickly while dragging and at full quality once settled", () => {
+  beforeEach(() => useEditor.setState({ adjustEdit: null, error: null }));
+
+  it("a tick previews the drag size at once and the settled size after SETTLE_MS", () => {
+    const { previews } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    const before = previews.length;
+    useEditor.getState().updateAdjust({ adjustment: levelsWithWhite(200) });
+    expect(kinds(previews.slice(before))).toEqual(["DragAdjustment"]);
+    expect(useEditor.getState().previewSettling()).toBe(true);
+    vi.advanceTimersByTime(SETTLE_MS - 1);
+    expect(kinds(previews.slice(before))).toEqual(["DragAdjustment"]);
+    vi.advanceTimersByTime(1);
+    expect(previews.at(-1)).toEqual({ preview: "Adjustment", layer: "A", adjustment: levelsWithWhite(200) });
+    expect(useEditor.getState().previewSettling()).toBe(false);
+  });
+
+  it("a new tick within the window cancels the pending settled request", () => {
+    const { previews } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    const before = previews.length;
+    useEditor.getState().updateAdjust({ adjustment: levelsWithWhite(200) });
+    vi.advanceTimersByTime(SETTLE_MS - 50);
+    useEditor.getState().updateAdjust({ adjustment: levelsWithWhite(180) });
+    vi.advanceTimersByTime(SETTLE_MS - 1);   // past the first tick's deadline, short of the second's
+    expect(kinds(previews.slice(before))).toEqual(["DragAdjustment", "DragAdjustment"]);
+    vi.advanceTimersByTime(1);
+    expect(kinds(previews.slice(before))).toEqual(["DragAdjustment", "DragAdjustment", "Adjustment"]);
+    expect((previews.at(-1) as any).adjustment).toEqual(levelsWithWhite(180));
+  });
+
+  it("the settled request uses the panel's settings when it fires, not when it was scheduled", () => {
+    const { previews } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    useEditor.getState().updateAdjust({ adjustment: levelsWithWhite(200) });
+    const edit = useEditor.getState().adjustEdit!;
+    useEditor.setState({ adjustEdit: { ...edit, adjustment: levelsWithWhite(150) } });
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(previews.at(-1)).toEqual({ preview: "Adjustment", layer: "A", adjustment: levelsWithWhite(150) });
+  });
+
+  it("OK, Cancel, Preview off and leaving or closing the document all clear the pending request", () => {
+    const leave: [string, () => void][] = [
+      ["OK", () => useEditor.getState().commitAdjust()],
+      ["Cancel", () => useEditor.getState().cancelAdjust()],
+      ["Preview off", () => useEditor.getState().setAdjustPreview(false)],
+      ["switching documents", () => useEditor.getState().setActive("E")],
+      ["closing the document", () => useEditor.getState().closeDocument("D")],
+      ["opening another document", () => useEditor.getState().openDocument("E")],
+    ];
+    for (const [label, action] of leave) {
+      const { previews } = install([layer("A")], "A");
+      useEditor.setState((s) => ({ documents: { ...s.documents, E: document([layer("B")], "B") }, order: [...s.order, "E"] }));
+      useEditor.getState().beginAdjust({ kind: "Levels" });
+      useEditor.getState().updateAdjust({ adjustment: levelsWithWhite(200) });
+      action();
+      expect(useEditor.getState().previewSettling(), label).toBe(false);
+      const after = previews.length;
+      vi.advanceTimersByTime(SETTLE_MS * 2);
+      expect(previews.length, label).toBe(after);   // no settled preview lands afterwards
+    }
+  });
+
+  it("opening a panel shows the settled quality straight away", () => {
+    const { previews } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Grain" });   // Grain's starting settings preview at once
+    expect(kinds(previews)).toEqual(["Adjustment"]);
+    expect(useEditor.getState().previewSettling()).toBe(false);
+  });
+
+  it("a filter has one quality and is not debounced", () => {
+    const { previews } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "GaussianBlur" });
+    useEditor.getState().updateAdjust({ params: { filter: "GaussianBlur", radius: 4 } });
+    expect(previews.at(-1)?.preview).toBe("Filter");
+    expect(useEditor.getState().previewSettling()).toBe(false);
   });
 });

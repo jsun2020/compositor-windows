@@ -46,6 +46,9 @@ async function setup(page: Page, height: number): Promise<string> {
 }
 
 async function expectMatchesCpu(page: Page, label: string) {
+  // A destructive colour preview is first a quick reduced one and is replaced once input settles
+  // (store.previewSettling); compare the settled one rather than whichever a race catches.
+  await page.waitForFunction(() => !(window as any).__compositor.store.getState().previewSettling());
   const r = await page.evaluate(async () => {
     const api = (window as unknown as { __compositor: any }).__compositor;
     const s = api.store.getState(); const d = s.documents[s.activeId];

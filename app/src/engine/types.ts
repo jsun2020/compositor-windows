@@ -46,6 +46,8 @@ export type FilterKind = FilterParams["filter"];
 
 export type PreviewRequest =
   | { preview: "Adjustment"; layer: string; adjustment: LayerAdjustment }
+  /** The same while a slider moves: previewed from a smaller copy until input settles. */
+  | { preview: "DragAdjustment"; layer: string; adjustment: LayerAdjustment }
   | { preview: "Filter"; layer: string; params: FilterParams };
 
 export interface LayerState {

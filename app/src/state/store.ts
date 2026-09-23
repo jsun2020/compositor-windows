@@ -102,7 +102,9 @@ export interface EditorStore {
    * Task 12 brief's public action list, but needed by beginAdjust/updateAdjust/setAdjustPreview,
    * which all share it rather than duplicating the branch between a pixel-layer preview (through
    * `engine.setPreview`) and an adjustment-layer preview (through the render plan). */
-  applyAdjustPreview(): void;
+  applyAdjustPreview(dragging?: boolean): void;
+  /** True while a quick drag preview is showing and the full-quality one is still to come. */
+  previewSettling(): boolean;
   commitAdjust(): void;
   cancelAdjust(): void;
 }
@@ -113,11 +115,20 @@ const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]
   "AddBlankLayer", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
 ]);
 
+/** How long after the last slider tick a colour adjustment's quick drag preview is replaced by
+ * the full-quality one (engine/src/preview.rs explains the two sizes). */
+export const SETTLE_MS = 150;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+function cancelSettle(): void {
+  if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+}
+
 /** Closes an open panel without applying it and clears its engine-side preview. `adjustEdit`,
  * like `transformEdit`, names no document of its own: it always belongs to whatever is
  * `activeId` at the time, so that is the document whose preview is cleared. Callers leaving or
  * closing the active document use this; closing some other, background tab must not. */
 function dropOpenPanel(): void {
+  cancelSettle();
   const { adjustEdit, engine, activeId } = useEditor.getState();
   if (!adjustEdit) return;
   useEditor.setState({ adjustEdit: null });
@@ -400,7 +411,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   updateAdjust: (patch) => {
     const edit = get().adjustEdit; if (!edit) return;
     set({ adjustEdit: { ...edit, ...patch } });
-    get().applyAdjustPreview();
+    get().applyAdjustPreview(true);
   },
   setAdjustPreview: (preview) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, preview } }); get().applyAdjustPreview(); },
   setAdjustSample: (sampleMode) => { const e = get().adjustEdit; if (!e) return; set({ adjustEdit: { ...e, sampleMode } }); },
@@ -437,12 +448,27 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   /** Pushes the panel's settings to the engine: a pixel preview for a destructive edit, or a
    * plan-level preview (through `previewEdit`) when an adjustment layer is being edited. */
-  applyAdjustPreview: () => {
+  applyAdjustPreview: (dragging = false) => {
+    cancelSettle();
     const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId) return;
     if (!adjustEdit || adjustEdit.target === "adjustmentLayer") { if (!adjustEdit) engine.setPreview(activeId, null); get().invalidate(); return; }
-    engine.setPreview(activeId, previewRequestFor(adjustEdit, (a) => engine.adjustmentIsIdentity(a)));
+    const request = previewRequestFor(adjustEdit, (a) => engine.adjustmentIsIdentity(a), dragging);
+    engine.setPreview(activeId, request);
     get().refresh(activeId);
+    // A slider tick previews a colour adjustment from a small copy; once ticks stop, the
+    // full-quality preview replaces it. It is built from `adjustEdit` as it is when the timer
+    // fires, and never lands on another document or a closed panel: every path that closes the
+    // panel or leaves the document cancels the timer (dropOpenPanel), and this checks again.
+    if (request?.preview === "DragAdjustment") {
+      const doc = activeId;
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        const s = get();
+        if (s.activeId === doc && s.adjustEdit) s.applyAdjustPreview();
+      }, SETTLE_MS);
+    }
   },
+  previewSettling: () => settleTimer !== null,
   commitAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
     dropOpenPanel();
