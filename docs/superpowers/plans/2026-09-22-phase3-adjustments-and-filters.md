@@ -4874,7 +4874,10 @@ test("cancelling an edit restores the settings and records nothing", async ({ pa
   await setup(page);
   await clickMenu(page, "Layer", "layer-adjustment-exposure");
   const depth = (await state(page)).undoDepth;
-  await page.getByTestId("layer-row").nth(0).dblclick();
+  // Ruling (Task 17): no double-click here. addAdjustmentLayer already opened this panel, so a
+  // double-click on the row has nothing to do, and the floating panel covers the row's centre
+  // at 1280x720, so Playwright's click is intercepted and times out. Deferred as harmless in the
+  // pre-flight audit; it was not.
   // Ruling (Task 16): a role-based locator, not getByLabel. The open panel's dialog carries
   // aria-label="Exposure", identical to this field's label, so getByLabel("Exposure") matches the
   // dialog as well as the field even with exact matching. A number input's role is spinbutton,
