@@ -428,10 +428,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   /** Replaces the panel's Levels settings with the engine's auto-stretch for `mode`, read from
    * the same histogram the panel already opened with (never the live preview -- see the
-   * histogram note on `beginAdjust`). */
+   * histogram note on `beginAdjust`). Those bins are passed in rather than recomputed: for an
+   * adjustment layer they come from a full composite of everything beneath it. */
   autoLevels: (mode) => {
-    const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId || !adjustEdit?.adjustment) return;
-    const levels = engine.autoLevels(activeId, adjustEdit.layerId, mode);
+    const { engine, adjustEdit } = get(); if (!engine || !adjustEdit?.adjustment || !adjustEdit.histogram) return;
+    const levels = engine.autoLevels(adjustEdit.histogram, mode);
     get().updateAdjust({ adjustment: { ...adjustEdit.adjustment, levels } });
   },
   /** Pushes the panel's settings to the engine: a pixel preview for a destructive edit, or a

@@ -27,7 +27,7 @@ test("phase 2 client calls reach the engine", async ({ page }) => {
     const withAdjustment = api.engine.state(doc);
     const adjustmentLayer = withAdjustment.layers.find((l: any) => l.adjustment);
     const bins = api.engine.histogram(doc, adjustmentLayer.id);
-    const auto = api.engine.autoLevels(doc, adjustmentLayer.id, "Contrast");
+    const auto = api.engine.autoLevels(bins, "Contrast");
     const planWithAdjustment = api.engine.renderPlan(doc, null);
     const adjustmentDraw = planWithAdjustment.nodes.map((n: any) => n.draw).find((d: any) => d && d.adjustment);
     return {

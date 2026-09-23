@@ -105,9 +105,15 @@ impl WasmEngine {
     pub fn histogram(&self, doc: &str, layer: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.engine.histogram(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?).map_err(js_err)
     }
-    pub fn auto_levels(&self, doc: &str, layer: &str, mode: &str) -> Result<String, JsError> {
+    /// Auto Levels from a histogram the panel already holds (`histogram` above, computed once when
+    /// it opened), so choosing Auto never recomposites. Anything but 4 x 256 finite bins is refused.
+    pub fn auto_levels(&self, histogram_json: &str, mode: &str) -> Result<String, JsError> {
         let mode: LevelsAuto = serde_json::from_str(&format!("\"{mode}\"")).map_err(js_err)?;
-        serde_json::to_string(&self.engine.auto_levels(parse_id(doc)?, parse_id(layer)?, mode).map_err(js_err)?).map_err(js_err)
+        let histogram: Vec<Vec<f64>> = serde_json::from_str(histogram_json).map_err(js_err)?;
+        if histogram.len() != 4 || histogram.iter().any(|b| b.len() != 256 || b.iter().any(|v| !v.is_finite())) {
+            return Err(JsError::new("a histogram is 4 x 256 finite bins"));
+        }
+        serde_json::to_string(&mode.settings(&histogram)).map_err(js_err)
     }
     pub fn levels_sampling(&self, doc: &str, layer: &str, settings_json: &str, x: f64, y: f64, mode: &str) -> Result<String, JsError> {
         let settings: LevelsSettings = serde_json::from_str(settings_json).map_err(js_err)?;

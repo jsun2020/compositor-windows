@@ -188,3 +188,48 @@ fn sample_color_reads_the_stored_document_not_an_open_preview() {
     let stored = e.sample_color(doc, at).unwrap().unwrap();
     assert!((stored[0] - 128.0 / 255.0).abs() < 0.01, "unaffected by the open preview");
 }
+
+/// A distinct colour per pixel, opaque except for a transparent column, so a misplaced or
+/// mis-scaled sample reads a visibly different value.
+fn pattern(w: u32, h: u32) -> Vec<u8> {
+    let mut data = Vec::new();
+    for y in 0..h { for x in 0..w {
+        if x == 3 { data.extend_from_slice(&[0, 0, 0, 0]); continue; }
+        data.extend_from_slice(&[(x * 37 % 256) as u8, (y * 53 % 256) as u8, ((x + y) * 29 % 256) as u8, 255]);
+    }}
+    encode_png(&Raster::from_premultiplied(w, h, data), 72.0).unwrap()
+}
+
+#[test]
+fn an_adjustment_layers_eyedropper_reads_one_pixel_of_what_lies_beneath() {
+    // The one-pixel composite must agree with the full canvas-size composite of everything beneath
+    // the adjustment layer (what it used to read, and what its histogram still reads) at every
+    // probe: under a rotated, scaled layer, on its transparent column, off the layer entirely,
+    // and never through the opaque layer above.
+    let mut e = Engine::new();
+    let doc = e.new_document(40, 30, false).unwrap();
+    e.import_image(Some(doc), &pattern(16, 12), "Pattern", Some(Point { x: 20.0, y: 15.0 })).unwrap();
+    let under = e.state(doc).unwrap().active_layer_id.unwrap();
+    let mut t = e.state(doc).unwrap().layers[0].transform;
+    t.rotation = 20.0;
+    t.size = Size { width: 24.0, height: 18.0 };
+    t.origin = Point { x: 8.0, y: 6.0 };
+    e.execute(doc, Command::SetLayerTransform { id: under, transform: t }).unwrap();
+    e.execute(doc, Command::AddAdjustmentLayer { kind: AdjustmentKind::Levels, seed: 0, shadows: None, highlights: None }).unwrap();
+    let a = e.state(doc).unwrap().active_layer_id.unwrap();
+    let red = encode_png(&Raster::from_premultiplied(40, 30, [255u8, 0, 0, 255].repeat(40 * 30)), 72.0).unwrap();
+    e.import_image(Some(doc), &red, "Above", Some(Point { x: 20.0, y: 15.0 })).unwrap();
+
+    let source = e.adjustment_source(doc, a).unwrap();
+    let mut compared = 0;
+    for y in 0..30 { for x in 0..40 {
+        let at = Point { x: x as f64 + 0.3, y: y as f64 + 0.7 };
+        let p = source.pixel(x, y);
+        let want = if p[3] == 0 { None } else { Some([0, 1, 2].map(|c| (p[c] as f64 / p[3] as f64).min(1.0))) };
+        assert_eq!(e.sample_layer_color(doc, a, at).unwrap(), want, "at {x},{y}");
+        compared += want.is_some() as u32;
+    }}
+    assert!(compared > 100, "the probes cover the layer beneath: {compared}");
+    assert_eq!(e.sample_layer_color(doc, a, Point { x: -1.0, y: 5.0 }).unwrap(), None, "off the canvas");
+    assert_eq!(e.sample_layer_color(doc, a, Point { x: 40.0, y: 5.0 }).unwrap(), None, "off the canvas");
+}

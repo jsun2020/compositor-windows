@@ -341,16 +341,22 @@ impl Engine {
         }
         Ok(Some(raster))
     }
-    /// Everything that renders beneath an adjustment layer, composited at canvas size: what its
-    /// histogram and eyedroppers read, as macOS renders the layers underneath.
-    pub fn adjustment_source(&self, id: Uuid, layer: Uuid) -> Result<Raster, CommandError> {
+    /// The stored document with the adjustment layer and everything above it hidden: what renders
+    /// beneath it, as macOS renders the layers underneath for its histogram and eyedroppers.
+    fn beneath(&self, id: Uuid, layer: Uuid) -> Result<Document, CommandError> {
         let doc = &self.session(id)?.document;
         let order = ops::hierarchy::hierarchy_order(doc);
         let position = order.iter().position(|o| *o == layer).ok_or(CommandError::NoLayer)?;
         let beneath: std::collections::HashSet<Uuid> = order[..position].iter().copied().collect();
         let mut below = doc.clone();
         for l in &mut below.layers { if !l.is_group && !beneath.contains(&l.id) { l.visible = false; } }
-        Ok(compositor::composite(&below, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height))
+        Ok(below)
+    }
+    /// Everything that renders beneath an adjustment layer, composited at canvas size: what its
+    /// histogram reads. A full composite, so a panel computes it once, when it opens.
+    pub fn adjustment_source(&self, id: Uuid, layer: Uuid) -> Result<Raster, CommandError> {
+        let below = self.beneath(id, layer)?;
+        Ok(compositor::composite(&below, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height))
     }
     /// A panel's histogram: an adjustment layer reads what lies beneath it, any other layer its
     /// own stored pixels (never the preview, or the graph would chase itself).
@@ -364,15 +370,24 @@ impl Engine {
     pub fn auto_levels(&self, id: Uuid, layer: Uuid, mode: LevelsAuto) -> Result<LevelsSettings, CommandError> {
         Ok(mode.settings(&self.histogram(id, layer)?))
     }
-    /// The straight colour of one layer at a document point; None where it is transparent.
+    /// The straight colour of one layer at a document point; None where it is transparent. For an
+    /// adjustment layer, the colour of what lies beneath it there: one composited pixel, as
+    /// `sample_color` does, rather than the whole canvas for every eyedropper click.
     pub fn sample_layer_color(&self, id: Uuid, layer: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
         let doc = &self.session(id)?.document;
         let target = doc.layer(layer).ok_or(CommandError::NoLayer)?;
-        let (raster, source) = match (target.pixels.as_ref(), target.is_adjustment()) {
-            (Some(r), _) => (r.clone(), target.transform),
-            (None, true) => (self.adjustment_source(id, layer)?, LayerTransform::axis_aligned(Point { x: 0.0, y: 0.0 }, doc.size())),
+        let raster = match (target.pixels.as_ref(), target.is_adjustment()) {
+            (Some(r), _) => r,
+            (None, true) => {
+                if at.x < 0.0 || at.y < 0.0 || at.x >= doc.width as f64 || at.y >= doc.height as f64 { return Ok(None); }
+                let below = self.beneath(id, layer)?;
+                let pixel = compositor::composite(&below, Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 }, 1, 1).pixel(0, 0);
+                if pixel[3] == 0 { return Ok(None); }
+                return Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))));
+            }
             _ => return Err(CommandError::Argument("the layer has no pixels".into())),
         };
+        let source = target.transform;
         let Some(inverse) = source.pixel_to_document(raster.width, raster.height).invert() else { return Ok(None); };
         let p = inverse.apply(at);
         if p.x < 0.0 || p.y < 0.0 || p.x >= raster.width as f64 || p.y >= raster.height as f64 { return Ok(None); }

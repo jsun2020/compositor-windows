@@ -25,12 +25,15 @@ function install(layers: LayerState[], active: string) {
   const history: string[] = [];
   const closed: string[] = [];
   const imports: string[] = [];
+  const histograms: string[] = [];
+  const autos: { bins: number[][]; mode: string }[] = [];
   const state = document(layers, active);
   const engine = {
     state: () => state,
     execute: (_id: string, cmd: Command) => { calls.push(cmd); return { structure: true, canvas: false, layers: [] }; },
     setPreview: (id: string, request: PreviewRequest | null) => { previewDocs.push(id); previews.push(request); return { structure: true, canvas: false, layers: [] }; },
-    histogram: () => [new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1)],
+    histogram: () => { histograms.push("histogram"); return [new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1), new Array(256).fill(1)]; },
+    autoLevels: (bins: number[][], mode: string) => { autos.push({ bins, mode }); const l = defaultAdjustment("Levels").levels; l.ranges[0].black = 10; return l; },
     undo: () => { history.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     redo: () => { history.push("redo"); return { structure: true, canvas: false, layers: [] }; },
     closeDocument: (id: string) => { closed.push(id); },
@@ -42,7 +45,7 @@ function install(layers: LayerState[], active: string) {
   const bridge = { readFile: async () => new Uint8Array([1]), baseName: (p: string) => p, pickImportImages: async () => ["C:/b.png"] } as unknown as ShellBridge;
   useEditor.setState({ engine, bridge, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [active], maskSelected: false,
     transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, busy: false, collapsed: {} });
-  return { calls, previews, previewDocs, history, closed, imports };
+  return { calls, previews, previewDocs, history, closed, imports, histograms, autos };
 }
 
 describe("adjustment panels", () => {
@@ -174,6 +177,16 @@ describe("adjustment panels", () => {
       .toEqual({ preview: "Adjustment", layer: "A", adjustment: grain });
     // ...and an adjustment layer compares with the settings it opened with, never the engine's rule.
     expect(isAdjustIdentity({ adjustment: grain, params: null, original: grain }, () => false)).toBe(true);
+  });
+
+  it("Auto Levels reuses the histogram the panel opened with instead of recompositing", () => {
+    const { histograms, autos } = install([layer("A")], "A");
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    const opened = useEditor.getState().adjustEdit!.histogram;
+    useEditor.getState().autoLevels("Contrast");
+    expect(histograms).toEqual(["histogram"]);   // computed once, when the panel opened
+    expect(autos).toEqual([{ bins: opened, mode: "Contrast" }]);
+    expect(useEditor.getState().adjustEdit!.adjustment!.levels.ranges[0].black).toBe(10);
   });
 
   it("each destructive Grain panel draws its own seed", () => {

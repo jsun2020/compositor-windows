@@ -85,7 +85,8 @@ export class EngineClient {
   }
   /** Four arrays of 256 bins: the mean of the channels, then red, green and blue. */
   histogram(doc: string, layer: string): number[][] { return JSON.parse(this.wasm.histogram(doc, layer)) as number[][]; }
-  autoLevels(doc: string, layer: string, mode: LevelsAuto): LevelsSettings { return JSON.parse(this.wasm.auto_levels(doc, layer, mode)) as LevelsSettings; }
+  /** Auto Levels from `histogram`'s bins, which the panel already holds: nothing is recomposited. */
+  autoLevels(histogram: number[][], mode: LevelsAuto): LevelsSettings { return JSON.parse(this.wasm.auto_levels(JSON.stringify(histogram), mode)) as LevelsSettings; }
   levelsSampling(doc: string, layer: string, settings: LevelsSettings, at: { x: number; y: number }, mode: LevelsSample): LevelsSettings {
     return JSON.parse(this.wasm.levels_sampling(doc, layer, JSON.stringify(settings), at.x, at.y, mode)) as LevelsSettings;
   }
