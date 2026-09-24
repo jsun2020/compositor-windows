@@ -180,3 +180,31 @@ test("a saved guide is drawn on the overlay and View > Hide Guides removes it", 
   await clickMenu(page, "View", "view-guides");
   expect(await cyanNear(page, 10)).toBe(false);
 });
+
+test("a notice names what the project uses that this build does not draw, and Dismiss hides it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const softId = "0B6C6B1E-4F1B-4B4E-9E0A-AAAAAAAAAAAA";
+  const manifest = adjustmentManifest("Black & White", "0B6C6B1E-4F1B-4B4E-9E0A-BBBBBBBBBBBB");
+  // A second, adjustment-free layer whose blend mode this build does not draw yet: needs an
+  // image, per manifest.rs's `validate` (an adjustment layer cannot also carry `imageFile`).
+  (manifest.layers as unknown[]).push({
+    id: softId, name: "Soft Light", isVisible: true, blendMode: "Soft Light", imageFile: `${softId}.png`,
+    transform: { origin: [0, 0], size: [64, 48], rotation: 0, flipX: false, flipY: false, sampling: "High quality" },
+  });
+  const b64 = await page.evaluate(redSquarePngBase64);
+  await page.evaluate(async ({ manifest, b64, softId }) => {
+    const api = (window as any).__compositor;
+    const png = Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${softId}.png`, bytes: png }] }, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+  }, { manifest, b64, softId });
+  const notice = page.getByTestId("undrawn-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("Black & White adjustment layers");
+  await expect(notice).toContainText("the Soft Light blend mode");
+  // Scoped to the notice: the error banner's button (App.tsx:98) is also named "Dismiss".
+  await notice.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(notice).toHaveCount(0);
+});

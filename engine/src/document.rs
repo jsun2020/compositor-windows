@@ -137,6 +137,26 @@ impl Document {
     pub fn index_of(&self, id: Uuid) -> Option<usize> { self.layers.iter().position(|l| l.id == id) }
     pub fn layer(&self, id: Uuid) -> Option<&Layer> { self.layers.iter().find(|l| l.id == id) }
     pub fn layer_mut(&mut self, id: Uuid) -> Option<&mut Layer> { self.layers.iter_mut().find(|l| l.id == id) }
+    /// What this project contains that this build does not draw yet, as phrases for a notice.
+    /// Sorted and de-duplicated so the notice is stable. Everything listed is preserved on save.
+    pub fn undrawn(&self) -> Vec<String> {
+        let mut out = std::collections::BTreeSet::new();
+        if !self.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }
+        for layer in &self.layers {
+            if !layer.blend_mode.is_drawn() {
+                let name = serde_json::to_value(layer.blend_mode).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+                out.insert(format!("the {name} blend mode"));
+            }
+            if let Some(a) = &layer.extra.adjustment {
+                if !a.kind.is_drawn() { out.insert(format!("{} adjustment layers", a.kind.name())); }
+            }
+            if let Some(serde_json::Value::Object(effects)) = &layer.extra.effects {
+                if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.insert("layer effects".to_string()); }
+            }
+            if !layer.extra.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }
+        }
+        out.into_iter().collect()
+    }
 }
 
 impl Mask {

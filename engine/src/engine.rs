@@ -57,6 +57,8 @@ pub struct DocumentState {
     pub path: Option<String>,
     pub layers: Vec<LayerState>,
     pub guides: Vec<Guide>,
+    /// What this project contains that this build does not draw yet (`Document::undrawn`).
+    pub undrawn: Vec<String>,
 }
 
 /// Preview revisions start here so they can never collide with a layer's own, which counts up
@@ -142,6 +144,7 @@ impl Engine {
                 adjustment: l.extra.adjustment.clone(),
             }).collect(),
             guides: d.guides.clone(),
+            undrawn: d.undrawn(),
         })
     }
 

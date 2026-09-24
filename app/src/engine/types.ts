@@ -97,6 +97,8 @@ export interface DocumentState {
    * depth it saw beforehand to tell whether its own entry is still the one on top. */
   undoDepth: number;
   guides: Guide[];
+  /** What this project contains that this build does not draw yet (`Document::undrawn`). */
+  undrawn: string[];
 }
 
 export type Command =
