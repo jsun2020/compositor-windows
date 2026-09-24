@@ -1,6 +1,8 @@
 import type { BlendMode } from "../../engine/types";
 
-export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12 };
+// Mac 1.2.6 additions all map to Normal (0) for now; Phase 3.5b gives them real indices.
+export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12,
+  "Linear Burn": 0, "Linear Dodge (Add)": 0, "Soft Light": 0, "Hard Light": 0, "Vivid Light": 0, "Linear Light": 0, "Pin Light": 0, "Hard Mix": 0, Exclusion: 0, Subtract: 0, Divide: 0 };
 export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4 };
 
 const VERT_UNIT = `#version 300 es

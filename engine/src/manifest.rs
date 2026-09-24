@@ -31,6 +31,28 @@ pub enum BlendMode {
     #[serde(rename = "Saturation")] Saturation,
     #[serde(rename = "Color")] Color,
     #[serde(rename = "Luminosity")] Luminosity,
+    // Mac 1.2.6 additions (R 2.4). Parsed and preserved now; drawn from Phase 3.5b.
+    #[serde(rename = "Linear Burn")] LinearBurn,
+    #[serde(rename = "Linear Dodge (Add)")] LinearDodge,
+    #[serde(rename = "Soft Light")] SoftLight,
+    #[serde(rename = "Hard Light")] HardLight,
+    #[serde(rename = "Vivid Light")] VividLight,
+    #[serde(rename = "Linear Light")] LinearLight,
+    #[serde(rename = "Pin Light")] PinLight,
+    #[serde(rename = "Hard Mix")] HardMix,
+    #[serde(rename = "Exclusion")] Exclusion,
+    #[serde(rename = "Subtract")] Subtract,
+    #[serde(rename = "Divide")] Divide,
+}
+
+impl BlendMode {
+    /// Whether this build composites the mode as itself. The 1.2.6 additions composite as
+    /// Normal until Phase 3.5b, and the open notice (Task 6) says so.
+    pub fn is_drawn(self) -> bool {
+        !matches!(self, BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::SoftLight | BlendMode::HardLight
+            | BlendMode::VividLight | BlendMode::LinearLight | BlendMode::PinLight | BlendMode::HardMix
+            | BlendMode::Exclusion | BlendMode::Subtract | BlendMode::Divide)
+    }
 }
 
 /// A saved alignment guide (v8, `CanvasGuide`, Document/Guides.swift:5-10). `position` is in

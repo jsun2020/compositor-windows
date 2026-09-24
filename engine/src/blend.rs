@@ -17,6 +17,11 @@ pub fn separable(mode: BlendMode, cb: f32, cs: f32) -> f32 {
         BlendMode::ColorBurn => if cb >= 1.0 { 1.0 } else if cs <= 0.0 { 0.0 } else { 1.0 - ((1.0 - cb) / cs).min(1.0) },
         // Non-separable modes are handled by blend_rgb; per channel they fall back to Normal.
         BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => cs,
+        // Mac 1.2.6 additions: not drawn yet (Phase 3.5b), so `compose` never reaches these via
+        // the real blend path; kept here only so the match stays exhaustive.
+        BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::SoftLight | BlendMode::HardLight
+        | BlendMode::VividLight | BlendMode::LinearLight | BlendMode::PinLight | BlendMode::HardMix
+        | BlendMode::Exclusion | BlendMode::Subtract | BlendMode::Divide => cs,
     }
 }
 
@@ -78,7 +83,7 @@ pub fn compose(dst: [f32; 4], src: [f32; 4], mode: BlendMode) -> [f32; 4] {
     let ad = dst[3]; let a_s = src[3];
     if a_s <= 0.0 { return dst; }
     let out_a = a_s + ad * (1.0 - a_s);
-    if mode == BlendMode::Normal || ad <= 0.0 {
+    if mode == BlendMode::Normal || !mode.is_drawn() || ad <= 0.0 {
         return [src[0] + dst[0] * (1.0 - a_s), src[1] + dst[1] * (1.0 - a_s), src[2] + dst[2] * (1.0 - a_s), out_a];
     }
     let cb = [dst[0] / ad, dst[1] / ad, dst[2] / ad];
