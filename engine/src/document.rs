@@ -14,6 +14,9 @@ pub struct Mask {
 pub struct LayerExtra {
     pub adjustment: Option<LayerAdjustment>,
     pub shape: Option<serde_json::Value>,
+    pub effects: Option<serde_json::Value>,
+    pub text: Option<serde_json::Value>,
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -53,11 +56,14 @@ impl Layer {
     /// Replaces the layer's pixels. A shape record describes the pixels it drew, so rewriting
     /// them drops it: macOS treats `liveShape` as nil once the asset is no longer the image the
     /// shape produced (ShapeTool.swift), and would otherwise redraw the shape over the new
-    /// pixels on the next handle drag.
+    /// pixels on the next handle drag. Live text is dropped the same way: the Mac stops writing
+    /// `text` once the layer's image is replaced (TypeTool.swift:52-55), and would otherwise
+    /// reopen the layer as live text and re-render over the new pixels on its next text edit.
     pub fn set_pixels(&mut self, pixels: Option<Raster>) {
         self.pixels = pixels;
         self.pixels_revision += 1;
         self.extra.shape = None;
+        self.extra.text = None;
     }
     pub fn record(&self) -> LayerRecord {
         let mut r = LayerRecord::new(self.id, &self.name, self.transform,
@@ -76,6 +82,9 @@ impl Layer {
         r.mask_source_id = self.mask_source_id;
         r.adjustment = self.extra.adjustment.clone();
         r.shape = self.extra.shape.clone();
+        r.effects = self.extra.effects.clone();
+        r.text = self.extra.text.clone();
+        r.unknown = self.extra.unknown.clone();
         r
     }
     pub fn from_record(record: &LayerRecord, pixels: Option<Raster>, mask: Option<GrayRaster>) -> Layer {
@@ -86,7 +95,8 @@ impl Layer {
             mask: mask.map(|pixels| Mask { pixels, enabled: record.mask_enabled.unwrap_or(true),
                 placement: record.mask_placement, linked: record.mask_linked }),
             mask_source_id: record.mask_source_id,
-            extra: LayerExtra { adjustment: record.adjustment.clone(), shape: record.shape.clone() },
+            extra: LayerExtra { adjustment: record.adjustment.clone(), shape: record.shape.clone(),
+                effects: record.effects.clone(), text: record.text.clone(), unknown: record.unknown.clone() },
             mask_revision: 1,
         }
     }
@@ -100,17 +110,22 @@ pub struct Document {
     pub resolution: f64,
     pub layers: Vec<Layer>, // bottom to top
     pub active_layer_id: Option<Uuid>,
+    pub guides: Vec<crate::Guide>,
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Document {
     pub fn new(width: u32, height: u32) -> Document {
-        Document { id: Uuid::new_v4(), width, height, resolution: DEFAULT_RESOLUTION, layers: vec![], active_layer_id: None }
+        Document { id: Uuid::new_v4(), width, height, resolution: DEFAULT_RESOLUTION, layers: vec![], active_layer_id: None,
+            guides: vec![], unknown: Default::default() }
     }
     pub fn size(&self) -> Size { Size { width: self.width as f64, height: self.height as f64 } }
     pub fn manifest(&self) -> Manifest {
         let mut m = Manifest::new(self.id, self.width as i64, self.height as i64, self.active_layer_id,
             self.layers.iter().map(Layer::record).collect());
         m.resolution = Some(self.resolution);
+        m.guides = if self.guides.is_empty() { None } else { Some(self.guides.clone()) };
+        m.unknown = self.unknown.clone();
         m
     }
     pub fn used_pixels(&self) -> u64 {
@@ -197,8 +212,9 @@ impl Document {
     /// error here rather than a field silently left out of the undo comparison, which would make
     /// edits to it quietly un-undoable.
     pub fn same_content(&self, other: &Document) -> bool {
-        let Document { id, width, height, resolution, layers, active_layer_id: _ } = self;
+        let Document { id, width, height, resolution, layers, active_layer_id: _, guides, unknown } = self;
         *id == other.id && *width == other.width && *height == other.height
             && *resolution == other.resolution && *layers == other.layers
+            && *guides == other.guides && *unknown == other.unknown
     }
 }

@@ -56,6 +56,7 @@ pub fn open_package(pkg: &Package) -> Result<Document, ProjectError> {
     Ok(Document {
         id: manifest.document_id, width: manifest.width as u32, height: manifest.height as u32,
         resolution: manifest.resolution.unwrap_or(DEFAULT_RESOLUTION), layers, active_layer_id: manifest.active_layer_id,
+        guides: manifest.guides.clone().unwrap_or_default(), unknown: manifest.unknown.clone(),
     })
 }
 

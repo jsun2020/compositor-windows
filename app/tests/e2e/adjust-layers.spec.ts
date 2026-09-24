@@ -109,7 +109,7 @@ test("an adjustment layer saves, reopens and still renders the same", async ({ p
     return { same: before.every((v, i) => v === after[i]), version: manifest.version, adjustment: manifest.layers[1].adjustment };
   });
   expect(saved.same).toBe(true);
-  expect(saved.version).toBe(7);
+  expect(saved.version).toBe(9);
   expect(saved.adjustment.kind).toBe("Gradient Map");
   expect(saved.adjustment.gradientMapSettings).toBeTruthy();
   expect(saved.adjustment.exposureSettings).toBeUndefined();

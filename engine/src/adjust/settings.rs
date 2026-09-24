@@ -6,7 +6,7 @@ fn clamp_or(n: f64, lo: f64, hi: f64, fallback: f64) -> f64 { if n.is_finite() {
 /// Swift's `JSONEncoder` writes a whole-number `Double` without a decimal point (`0`, not `0.0`).
 /// `serde_json`'s default `f64` writer always keeps the decimal point, so every numeric field that
 /// must match the Mac byte for byte serializes and deserializes through this module instead.
-mod mac_number {
+pub(crate) mod mac_number {
     use serde::{ser::Error, Deserialize, Deserializer, Serializer};
 
     /// A non-finite value is refused rather than written: `serde_json` would emit `null`, which

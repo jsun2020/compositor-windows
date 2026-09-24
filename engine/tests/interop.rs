@@ -73,7 +73,7 @@ fn assert_keys_are_sorted(text: &str) {
 }
 
 #[test]
-fn every_fixture_version_opens_resaves_at_v7_and_preserves_later_phase_fields() {
+fn every_fixture_version_opens_resaves_at_v9_and_preserves_later_phase_fields() {
     for (name, json) in FIXTURES {
         let pkg = Package { manifest_json: json.to_string(), images: images_for(json) };
         let doc = open_package(&pkg).unwrap_or_else(|e| panic!("{name}: open_package failed: {e:?}"));
@@ -84,7 +84,7 @@ fn every_fixture_version_opens_resaves_at_v7_and_preserves_later_phase_fields() 
 
         let before: serde_json::Value = serde_json::from_str(json).unwrap();
         let after: serde_json::Value = serde_json::from_str(&resaved.manifest_json).unwrap();
-        assert_eq!(after["version"], serde_json::json!(7), "{name}: re-saved manifest must be version 7");
+        assert_eq!(after["version"], serde_json::json!(9), "{name}: re-saved manifest must be version 9");
 
         let before_layers = before["layers"].as_array().unwrap();
         let after_layers = after["layers"].as_array().unwrap();

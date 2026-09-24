@@ -15,7 +15,7 @@ fn round_trips_json_with_swift_shapes() {
     let m = manifest();
     let json = m.to_json_pretty().unwrap();
     assert!(json.contains("\"format\": \"com.compositor.project\""));
-    assert!(json.contains("\"version\": 7"));
+    assert!(json.contains("\"version\": 9"));
     assert!(json.contains("\"colorSpace\": \"sRGB\""));
     assert!(!json.contains("\"parentID\""), "absent optionals are omitted");
     let upper = ids::upper_string(&m.layers[0].id);

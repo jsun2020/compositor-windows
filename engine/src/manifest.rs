@@ -1,10 +1,12 @@
 use crate::{ids, LayerAdjustment, LayerTransform, ProjectError};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 pub const MANIFEST_FORMAT: &str = "com.compositor.project";
-pub const CURRENT_VERSION: u32 = 7;
+pub const CURRENT_VERSION: u32 = 9;
+pub const MAX_GUIDES: usize = 1_000;
 pub const MAX_SIDE: i64 = 30_000;
 pub const MAX_PIXELS: u64 = 100_000_000;
 pub const MAX_LAYERS: usize = 10_000;
@@ -31,6 +33,20 @@ pub enum BlendMode {
     #[serde(rename = "Luminosity")] Luminosity,
 }
 
+/// A saved alignment guide (v8, `CanvasGuide`, Document/Guides.swift:5-10). `position` is in
+/// document pixels: X for a vertical guide, Y for a horizontal one; it may be fractional and may
+/// lie outside the canvas.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GuideAxis { Horizontal, Vertical }
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Guide {
+    pub axis: GuideAxis,
+    #[serde(with = "ids::upper")] pub id: Uuid,
+    #[serde(with = "crate::adjust::settings::mac_number")] pub position: f64,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayerRecord {
     #[serde(with = "ids::upper")] pub id: Uuid,
@@ -49,6 +65,13 @@ pub struct LayerRecord {
     #[serde(rename = "maskPlacement", default, skip_serializing_if = "Option::is_none")] pub mask_placement: Option<LayerTransform>,
     #[serde(rename = "maskLinked", default, skip_serializing_if = "Option::is_none")] pub mask_linked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
+    /// Layer effects (R 2.1). Kept verbatim: this build does not draw them yet (Phase 3.5b) and
+    /// the Mac does not validate them either.
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub effects: Option<Value>,
+    /// Live text (R 2.2). The rendered text is the layer's PNG; the style is kept verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub text: Option<Value>,
+    /// Keys this build does not know, kept verbatim so a re-save never drops them.
+    #[serde(flatten)] pub unknown: Map<String, Value>,
 }
 
 /// The file form of a layer's adjustment. It differs from the bridge form (plain `LayerAdjustment`
@@ -113,7 +136,8 @@ impl LayerRecord {
     pub fn new(id: Uuid, name: &str, transform: LayerTransform, image_file: Option<String>) -> Self {
         LayerRecord { id, name: name.to_string(), is_visible: true, transform, image_file, parent_id: None,
             is_group: None, opacity: None, blend_mode: None, mask_file: None, mask_enabled: None,
-            mask_source_id: None, adjustment: None, mask_placement: None, mask_linked: None, shape: None }
+            mask_source_id: None, adjustment: None, mask_placement: None, mask_linked: None, shape: None,
+            effects: None, text: None, unknown: Map::new() }
     }
     pub fn image_filename(id: &Uuid) -> String { format!("{}.png", ids::upper_string(id)) }
     pub fn mask_filename(id: &Uuid) -> String { format!("{}.mask.png", ids::upper_string(id)) }
@@ -131,6 +155,9 @@ pub struct Manifest {
     pub height: i64,
     #[serde(rename = "activeLayerID", default, with = "ids::upper_opt", skip_serializing_if = "Option::is_none")] pub active_layer_id: Option<Uuid>,
     pub layers: Vec<LayerRecord>,
+    /// Saved guides (v8). Omitted when there are none, as the Mac omits them (R 1.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub guides: Option<Vec<Guide>>,
+    #[serde(flatten)] pub unknown: Map<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -139,7 +166,8 @@ struct Header { format: String, version: u32 }
 impl Manifest {
     pub fn new(document_id: Uuid, width: i64, height: i64, active_layer_id: Option<Uuid>, layers: Vec<LayerRecord>) -> Self {
         Manifest { format: MANIFEST_FORMAT.into(), version: CURRENT_VERSION, color_space: "sRGB".into(),
-            resolution: None, document_id, width, height, active_layer_id, layers }
+            resolution: None, document_id, width, height, active_layer_id, layers,
+            guides: None, unknown: Map::new() }
     }
 
     /// Header check first so an unsupported version reports its number, then full decode, then validation.
@@ -189,7 +217,14 @@ impl Manifest {
             let blend = layer.blend_mode.unwrap_or_default();
             if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) { return Err(Invalid); }
             if self.version < 3 && (opacity != 1.0 || blend != BlendMode::Normal) { return Err(Invalid); }
-            if layer.is_group() && (opacity != 1.0 || blend != BlendMode::Normal) { return Err(Invalid); }
+            // Folders are pass-through, so their blend mode is always Normal; an opacity of their
+            // own arrived in v8 (ProjectStore.swift:212-216).
+            if layer.is_group() && (blend != BlendMode::Normal || (self.version < 8 && opacity != 1.0)) { return Err(Invalid); }
+            // Live text is a valid LayerTextStyle on a pixel layer that is not a folder or an
+            // adjustment (ProjectStore.swift:196-198).
+            if let Some(text) = &layer.text {
+                if !text_is_valid(text) || layer.image_file.is_none() || layer.is_group() || layer.adjustment.is_some() { return Err(Invalid); }
+            }
         }
         validate_hierarchy(&self.layers)?;
         validate_clipping(&self.layers)?;
@@ -207,8 +242,43 @@ impl Manifest {
         if let Some(active) = self.active_layer_id {
             if !ids.contains(&active) { return Err(Invalid); }
         }
+        let guides = self.guides.as_deref().unwrap_or(&[]);
+        if self.version < 8 && !guides.is_empty() { return Err(Invalid); }
+        if guides.len() > MAX_GUIDES { return Err(TooLarge); }
+        let mut guide_ids = HashSet::new();
+        for g in guides {
+            if !guide_ids.insert(g.id) || !g.position.is_finite() || g.position.abs() > 1_000_000.0 { return Err(Invalid); }
+        }
         Ok(())
     }
+}
+
+/// `LayerTextStyle.isValid` (TypeTool.swift:25-36), read from the verbatim value. Swift's
+/// synthesized decode requires every key but `boxSize`, so a missing required key or a wrong type
+/// makes the text invalid, as it makes the Mac refuse the project. `boxSize` is a CGSize, which
+/// Swift encodes as `[width, height]`.
+fn text_is_valid(text: &Value) -> bool {
+    let number = |key: &str, range: std::ops::RangeInclusive<f64>| {
+        text.get(key).and_then(Value::as_f64).is_some_and(|v| v.is_finite() && range.contains(&v))
+    };
+    let Some(content) = text.get("content").and_then(Value::as_str) else { return false };
+    let box_ok = match text.get("boxSize") {
+        None | Some(Value::Null) => true,
+        Some(b) => match b.as_array().map(|a| a.iter().map(Value::as_f64).collect::<Option<Vec<f64>>>()) {
+            Some(Some(s)) if s.len() == 2 => {
+                s.iter().all(|v| v.is_finite() && (16.0..=30_000.0).contains(v)) && s[0] * s[1] <= 100_000_000.0
+            }
+            _ => false,
+        },
+    };
+    content.chars().map(char::len_utf16).sum::<usize>() <= 100_000
+        && text.get("fontName").is_some_and(Value::is_string)
+        && matches!(text.get("alignment").and_then(Value::as_str), Some("Left" | "Center" | "Right"))
+        && number("fontSize", 1.0..=2000.0)
+        && ["red", "green", "blue"].into_iter().all(|k| number(k, 0.0..=1.0))
+        && number("tracking", -100.0..=1000.0)
+        && number("leading", 0.0..=5000.0)
+        && box_ok
 }
 
 pub fn validate_hierarchy(layers: &[LayerRecord]) -> Result<(), ProjectError> {

@@ -305,7 +305,8 @@ pub fn composite(doc: &Document, region: Rect, w: u32, h: u32) -> Raster { compo
 
 /// Draws a single layer with Normal blend and its opacity, ignoring masks and clipping (Image Size resampling).
 pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &Layer) {
-    let doc = Document { id: Uuid::nil(), width: 1, height: 1, resolution: 72.0, layers: vec![layer.clone()], active_layer_id: None };
+    let doc = Document { id: Uuid::nil(), width: 1, height: 1, resolution: 72.0, layers: vec![layer.clone()], active_layer_id: None,
+        guides: vec![], unknown: Default::default() };
     let plan = RenderPlan { nodes: vec![], sources: vec![] };
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,

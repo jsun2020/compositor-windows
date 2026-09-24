@@ -4,7 +4,7 @@ use thiserror::Error;
 pub enum ProjectError {
     #[error("This is not a valid Compositor project, or its metadata is damaged.")]
     Invalid,
-    #[error("This project uses format version {0}. This app supports versions 1-7.")]
+    #[error("This project uses format version {0}. This app supports versions 1-9.")]
     Version(u32),
     #[error("An image inside the project is missing or damaged. The current document has not been replaced.")]
     MissingImage,
