@@ -34,6 +34,10 @@ pub fn image_size(doc: &Document, options: ImageSizeOptions) -> Result<Document,
     let sy = options.height as f64 / doc.height as f64;
     for g in &mut out.guides {
         match g.axis { GuideAxis::Vertical => g.position *= sx, GuideAxis::Horizontal => g.position *= sy }
+        // The Mac's own saveable range (manifest.rs validate, R 1.2): refuse rather than move a
+        // guide somewhere this build (which has no guide UI to delete it, only undo) could never
+        // save again, the same way a resampled layer transform is already refused just below.
+        if !g.position.is_finite() || g.position.abs() > 1_000_000.0 { return Err(ProjectError::TooLarge); }
     }
     let mut used = 0u64; let mut used_masks = 0u64;
     for layer in &mut out.layers {

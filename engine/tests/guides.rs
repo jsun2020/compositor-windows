@@ -44,3 +44,18 @@ fn flip_canvas_mirrors_only_the_perpendicular_guides() {
     ops::flip::flip_canvas(&mut doc, false);
     assert_eq!(positions(&doc), (80.0, 30.0));
 }
+
+#[test]
+fn a_guide_beyond_the_macs_saveable_range_refuses_an_enlarging_image_size() {
+    // M7: a guide already legal (up to 1e6) plus an enlarging resize can push it past the
+    // range manifest.rs validate enforces at save, after which this build (no guide UI, only
+    // undo) could never save the project again. Refuse instead, as the ops already do for a
+    // moved layer transform that would go out of range.
+    let mut doc = Document::new(100, 50);
+    doc.guides = vec![Guide { id: uuid::Uuid::new_v4(), axis: GuideAxis::Vertical, position: 900_000.0 }];
+    let before = doc.clone();
+    let err = ops::image_size::image_size(&doc, ops::image_size::ImageSizeOptions {
+        width: 200, height: 50, resolution: 72.0, sampling: Sampling::Smooth }).unwrap_err();
+    assert_eq!(err, ProjectError::TooLarge);
+    assert_eq!(doc, before, "a refused resize leaves the document untouched");
+}

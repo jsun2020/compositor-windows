@@ -45,6 +45,10 @@ pub fn canvas_size(doc: &Document, options: CanvasSizeOptions) -> Result<Documen
     }
     for g in &mut out.guides {
         match g.axis { GuideAxis::Vertical => g.position += offset.x, GuideAxis::Horizontal => g.position += offset.y }
+        // The Mac's own saveable range (manifest.rs validate, R 1.2): refuse rather than move a
+        // guide somewhere this build (which has no guide UI to delete it, only undo) could never
+        // save again, the same way a moved layer transform is already refused just below.
+        if !g.position.is_finite() || g.position.abs() > 1_000_000.0 { return Err(ProjectError::TooLarge); }
     }
     // A colored extension is separate bottom-layer content; the old canvas area stays transparent.
     if let Some(color) = options.fill {
