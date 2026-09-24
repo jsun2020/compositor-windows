@@ -32,6 +32,10 @@ impl PreparedAdjustment {
                 if !(settings.amount > 0.0) { return PreparedAdjustment::Identity; }
                 PreparedAdjustment::Grain { settings }
             }
+            // Mac 1.2.6 additions, drawn from Phase 3.5b; until then an adjustment layer of this
+            // kind changes nothing and the open notice says so.
+            AdjustmentKind::AddNoise | AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur
+                | AdjustmentKind::Invert | AdjustmentKind::BlackWhite | AdjustmentKind::ColorBalance => PreparedAdjustment::Identity,
         }
     }
 

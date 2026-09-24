@@ -1,4 +1,5 @@
 import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from "../engine/types";
+import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
@@ -199,7 +200,8 @@ export class GlRenderer implements Renderer {
     const p = this.programs.adjust;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`${pair}B`, "rgba").fbo);
     gl.useProgram(p.program);
-    const kind = adjustment.kind === "Hue/Saturation" ? ADJUST_KIND.hsv : adjustment.kind === "Grain" ? ADJUST_KIND.grain
+    const kind = !DRAWN_ADJUSTMENT_KINDS.includes(adjustment.kind) ? ADJUST_KIND.identity
+      : adjustment.kind === "Hue/Saturation" ? ADJUST_KIND.hsv : adjustment.kind === "Grain" ? ADJUST_KIND.grain
       : adjustment.kind === "Gradient Map" ? ADJUST_KIND.gradientMap : ADJUST_KIND.tables;
     gl.uniform1i(p.uniforms.kind, kind);
     gl.uniform1f(p.uniforms.opacity, draw.opacity);

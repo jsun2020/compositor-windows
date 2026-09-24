@@ -25,6 +25,10 @@ pub fn apply_adjustment(raster: &Raster, a: &LayerAdjustment, origin: Point, uni
         AdjustmentKind::GradientMap => apply_gradient_map(raster, &gradient_map_table(&a.gradient_map())),
         AdjustmentKind::Hsv => apply_hsv(raster, &a.resolved_hsv()),
         AdjustmentKind::Grain => apply_grain(raster, &a.grain(), origin, units_per_pixel),
+        // Mac 1.2.6 additions, drawn from Phase 3.5b; no UI creates one of these in 3.5a, so the
+        // whole-raster path (destructive Layer > Apply) just returns the input unchanged.
+        AdjustmentKind::AddNoise | AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur
+            | AdjustmentKind::Invert | AdjustmentKind::BlackWhite | AdjustmentKind::ColorBalance => raster.clone(),
     };
     match selection { Some(coverage) => blend_by_coverage(&adjusted, raster, coverage), None => adjusted }
 }

@@ -10,8 +10,11 @@ export interface LayerTransform { origin: [number, number]; size: [number, numbe
 export type PointTuple = [number, number];
 export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
-export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain";
-export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain"];
+export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain"
+  // Mac 1.2.6 additions (R 3). Parsed and preserved now; drawn from Phase 3.5b.
+  | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
+/** The kinds this build draws and can edit. The 1.2.6 additions are not in it (Phase 3.5b). */
+export const DRAWN_ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain"];
 export type LevelsChannel = "RGB" | "Red" | "Green" | "Blue";
 export type ColorRange = "Master" | "Reds" | "Yellows" | "Greens" | "Cyans" | "Blues" | "Magentas";
 export type LevelsAuto = "Contrast" | "Color" | "Neutral";
@@ -32,12 +35,24 @@ export interface AdjustmentColor { red: number; green: number; blue: number; }
 export interface ExposureSettings { exposure: number; offset: number; gamma: number; }
 export interface GradientMapSettings { shadows: AdjustmentColor; highlights: AdjustmentColor; reversed: boolean; }
 export interface GrainSettings { amount: number; size: number; roughness: number; seed: number; }
+export interface BlackWhiteSettings {
+  blues: number; cyans: number; greens: number; magentas: number; reds: number;
+  tint: boolean; tintHue: number; tintSaturation: number; yellows: number;
+}
+export interface ColorBalanceSettings {
+  highlightCyanRed: number; highlightMagentaGreen: number; highlightYellowBlue: number;
+  midCyanRed: number; midMagentaGreen: number; midYellowBlue: number; preserveLuminosity: boolean;
+  shadowCyanRed: number; shadowMagentaGreen: number; shadowYellowBlue: number;
+}
 /** The Mac's LayerAdjustment: the optional settings are written only when present, so a project
  * saved by either app re-encodes byte for byte. */
 export interface LayerAdjustment {
   kind: AdjustmentKind; hue: number; saturation: number; lightness: number; colorize: boolean;
   hsvSettings?: HueSaturationSettings; levels: LevelsSettings; curves: CurvesSettings;
   exposureSettings?: ExposureSettings; gradientMapSettings?: GradientMapSettings; grainSettings?: GrainSettings;
+  blackWhiteSettings?: BlackWhiteSettings; colorBalanceSettings?: ColorBalanceSettings;
+  blurRadius?: number; motionAngle?: number; motionDistance?: number;
+  noiseAmount?: number; noiseGaussian?: boolean; noiseMonochromatic?: boolean; noiseSeed?: number;
 }
 
 export type FilterParams =

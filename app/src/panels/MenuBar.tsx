@@ -8,7 +8,7 @@ import {
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
   mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
-import { ADJUSTMENT_KINDS } from "../engine/types";
+import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -59,7 +59,7 @@ export function MenuBar() {
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: editable },
       "separator",
-      ...ADJUSTMENT_KINDS.map((kind) => ({
+      ...DRAWN_ADJUSTMENT_KINDS.map((kind) => ({
         id: `layer-adjustment-${kind.toLowerCase().replace(/[^a-z]+/g, "-")}`,
         label: `New ${kind} Adjustment...`, run: () => addAdjustmentLayer(kind), enabled: editable,
       })),

@@ -226,6 +226,7 @@ impl Manifest {
         for layer in &self.layers {
             if let Some(adjustment) = &layer.adjustment {
                 if self.version < 7 || layer.is_group() || layer.image_file.is_some() || !adjustment.is_valid() { return Err(Invalid); }
+                if adjustment.kind.needs_version_9() && self.version < 9 { return Err(Invalid); }
             }
             if let Some(mask) = &layer.mask_file {
                 let needed = if layer.is_group() { 6 } else { 4 };

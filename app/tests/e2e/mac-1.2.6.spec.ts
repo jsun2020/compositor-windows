@@ -34,3 +34,34 @@ test("a layer using a blend mode this build does not draw yet shows it, disabled
   // the option's. Checking the attribute directly targets the option itself.
   await expect(select.locator("option[value='Soft Light']")).toHaveAttribute("disabled", "");
 });
+
+/** A v9 manifest holding one adjustment layer of `kind`, with every field a LayerAdjustment always
+ * writes. Built in Node and passed to the page, because page.evaluate serializes only its callback. */
+function adjustmentManifest(kind: string, id: string) {
+  const range = { black: 0, gamma: 1, white: 255, outputBlack: 0, outputWhite: 255 };
+  const line = [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+  return {
+    format: "com.compositor.project", version: 9, colorSpace: "sRGB",
+    documentID: "0B6C6B1E-4F1B-4B4E-9E0A-111111111111", width: 64, height: 48, activeLayerID: id,
+    layers: [{ id, name: kind, isVisible: true,
+      transform: { origin: [0, 0], size: [64, 48], rotation: 0, flipX: false, flipY: false, sampling: "High quality" },
+      adjustment: { kind, hue: 0, saturation: 0, lightness: 0, colorize: false,
+        levels: { channel: "RGB", ranges: [range, range, range, range] },
+        curves: { channel: "RGB", channels: [line, line, line, line] } } }],
+  };
+}
+
+test("an adjustment layer of a kind with no editor yet cannot be opened for editing", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await page.evaluate(async (manifest) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [] }, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+  }, adjustmentManifest("Invert", "0B6C6B1E-4F1B-4B4E-9E0A-555555555555"));
+  await page.getByTestId("layer-row").nth(0).dblclick();
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: "Layer", exact: true }).click();
+  await expect(page.getByTestId("menu-layer-edit-adjustment")).toBeDisabled();
+});

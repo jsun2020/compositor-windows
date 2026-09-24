@@ -24,6 +24,15 @@ pub(crate) mod mac_number {
     }
 }
 
+/// The optional-field counterpart of `mac_number`, for fields written only when present.
+pub(crate) mod mac_number_opt {
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(value: &Option<f64>, s: S) -> Result<S::Ok, S::Error> {
+        match value { Some(v) => super::mac_number::serialize(v, s), None => s.serialize_none() }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> { Option::<f64>::deserialize(d) }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AdjustmentKind {
     #[default] #[serde(rename = "Hue/Saturation")] Hsv,
@@ -32,20 +41,42 @@ pub enum AdjustmentKind {
     #[serde(rename = "Exposure")] Exposure,
     #[serde(rename = "Gradient Map")] GradientMap,
     #[serde(rename = "Grain")] Grain,
+    // Mac 1.2.6 additions (R 3). Parsed, validated and preserved now; drawn from Phase 3.5b.
+    #[serde(rename = "Add Noise")] AddNoise,
+    #[serde(rename = "Gaussian Blur")] GaussianBlur,
+    #[serde(rename = "Motion Blur")] MotionBlur,
+    #[serde(rename = "Invert")] Invert,
+    #[serde(rename = "Black & White")] BlackWhite,
+    #[serde(rename = "Color Balance")] ColorBalance,
 }
 impl AdjustmentKind {
-    pub const ALL: [AdjustmentKind; 6] = [AdjustmentKind::Hsv, AdjustmentKind::Levels, AdjustmentKind::Curves, AdjustmentKind::Exposure, AdjustmentKind::GradientMap, AdjustmentKind::Grain];
+    /// The kinds this build draws and can edit. The 1.2.6 additions are not in it (Phase 3.5b).
+    pub const DRAWN: [AdjustmentKind; 6] = [AdjustmentKind::Hsv, AdjustmentKind::Levels, AdjustmentKind::Curves, AdjustmentKind::Exposure, AdjustmentKind::GradientMap, AdjustmentKind::Grain];
+    pub fn is_drawn(self) -> bool { Self::DRAWN.contains(&self) }
+    /// Gaussian Blur, Motion Blur and Add Noise adjustment layers need format v9 (ProjectStore.swift:199-204).
+    pub fn needs_version_9(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::AddNoise) }
     pub fn name(self) -> &'static str {
-        match self { AdjustmentKind::Hsv => "Hue/Saturation", AdjustmentKind::Levels => "Levels", AdjustmentKind::Curves => "Curves", AdjustmentKind::Exposure => "Exposure", AdjustmentKind::GradientMap => "Gradient Map", AdjustmentKind::Grain => "Grain" }
+        match self {
+            AdjustmentKind::Hsv => "Hue/Saturation", AdjustmentKind::Levels => "Levels", AdjustmentKind::Curves => "Curves", AdjustmentKind::Exposure => "Exposure", AdjustmentKind::GradientMap => "Gradient Map", AdjustmentKind::Grain => "Grain",
+            AdjustmentKind::AddNoise => "Add Noise", AdjustmentKind::GaussianBlur => "Gaussian Blur", AdjustmentKind::MotionBlur => "Motion Blur", AdjustmentKind::Invert => "Invert", AdjustmentKind::BlackWhite => "Black & White", AdjustmentKind::ColorBalance => "Color Balance",
+        }
     }
     /// Undo names, static so `Command::action_name` can stay `&'static str`.
     pub fn new_action_name(self) -> &'static str {
-        match self { AdjustmentKind::Hsv => "New Hue/Saturation Adjustment", AdjustmentKind::Levels => "New Levels Adjustment", AdjustmentKind::Curves => "New Curves Adjustment",
-            AdjustmentKind::Exposure => "New Exposure Adjustment", AdjustmentKind::GradientMap => "New Gradient Map Adjustment", AdjustmentKind::Grain => "New Grain Adjustment" }
+        match self {
+            AdjustmentKind::Hsv => "New Hue/Saturation Adjustment", AdjustmentKind::Levels => "New Levels Adjustment", AdjustmentKind::Curves => "New Curves Adjustment",
+            AdjustmentKind::Exposure => "New Exposure Adjustment", AdjustmentKind::GradientMap => "New Gradient Map Adjustment", AdjustmentKind::Grain => "New Grain Adjustment",
+            AdjustmentKind::AddNoise => "New Add Noise Adjustment", AdjustmentKind::GaussianBlur => "New Gaussian Blur Adjustment", AdjustmentKind::MotionBlur => "New Motion Blur Adjustment",
+            AdjustmentKind::Invert => "New Invert Adjustment", AdjustmentKind::BlackWhite => "New Black & White Adjustment", AdjustmentKind::ColorBalance => "New Color Balance Adjustment",
+        }
     }
     pub fn edit_action_name(self) -> &'static str {
-        match self { AdjustmentKind::Hsv => "Edit Hue/Saturation Adjustment", AdjustmentKind::Levels => "Edit Levels Adjustment", AdjustmentKind::Curves => "Edit Curves Adjustment",
-            AdjustmentKind::Exposure => "Edit Exposure Adjustment", AdjustmentKind::GradientMap => "Edit Gradient Map Adjustment", AdjustmentKind::Grain => "Edit Grain Adjustment" }
+        match self {
+            AdjustmentKind::Hsv => "Edit Hue/Saturation Adjustment", AdjustmentKind::Levels => "Edit Levels Adjustment", AdjustmentKind::Curves => "Edit Curves Adjustment",
+            AdjustmentKind::Exposure => "Edit Exposure Adjustment", AdjustmentKind::GradientMap => "Edit Gradient Map Adjustment", AdjustmentKind::Grain => "Edit Grain Adjustment",
+            AdjustmentKind::AddNoise => "Edit Add Noise Adjustment", AdjustmentKind::GaussianBlur => "Edit Gaussian Blur Adjustment", AdjustmentKind::MotionBlur => "Edit Motion Blur Adjustment",
+            AdjustmentKind::Invert => "Edit Invert Adjustment", AdjustmentKind::BlackWhite => "Edit Black & White Adjustment", AdjustmentKind::ColorBalance => "Edit Color Balance Adjustment",
+        }
     }
 }
 
@@ -314,6 +345,56 @@ impl GrainSettings {
     pub fn normalized(&self) -> Self { GrainSettings { amount: clamp_or(self.amount, 0.0, 100.0, 25.0), size: clamp_or(self.size, 0.5, 20.0, 1.5), roughness: clamp_or(self.roughness, 0.0, 100.0, 50.0), seed: self.seed } }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlackWhiteSettings {
+    #[serde(with = "mac_number")] pub blues: f64,
+    #[serde(with = "mac_number")] pub cyans: f64,
+    #[serde(with = "mac_number")] pub greens: f64,
+    #[serde(with = "mac_number")] pub magentas: f64,
+    #[serde(with = "mac_number")] pub reds: f64,
+    pub tint: bool,
+    #[serde(rename = "tintHue", with = "mac_number")] pub tint_hue: f64,
+    #[serde(rename = "tintSaturation", with = "mac_number")] pub tint_saturation: f64,
+    #[serde(with = "mac_number")] pub yellows: f64,
+}
+impl Default for BlackWhiteSettings {
+    fn default() -> Self { BlackWhiteSettings { reds: 40.0, yellows: 60.0, greens: 40.0, cyans: 60.0, blues: 20.0, magentas: 80.0,
+        tint: false, tint_hue: 40.0, tint_saturation: 20.0 } }
+}
+impl BlackWhiteSettings {
+    pub fn is_valid(&self) -> bool {
+        [self.reds, self.yellows, self.greens, self.cyans, self.blues, self.magentas].iter().all(|w| (-200.0..=300.0).contains(w))
+            && (0.0..=360.0).contains(&self.tint_hue) && (0.0..=100.0).contains(&self.tint_saturation)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ColorBalanceSettings {
+    #[serde(rename = "highlightCyanRed", with = "mac_number")] pub highlight_cyan_red: f64,
+    #[serde(rename = "highlightMagentaGreen", with = "mac_number")] pub highlight_magenta_green: f64,
+    #[serde(rename = "highlightYellowBlue", with = "mac_number")] pub highlight_yellow_blue: f64,
+    #[serde(rename = "midCyanRed", with = "mac_number")] pub mid_cyan_red: f64,
+    #[serde(rename = "midMagentaGreen", with = "mac_number")] pub mid_magenta_green: f64,
+    #[serde(rename = "midYellowBlue", with = "mac_number")] pub mid_yellow_blue: f64,
+    #[serde(rename = "preserveLuminosity")] pub preserve_luminosity: bool,
+    #[serde(rename = "shadowCyanRed", with = "mac_number")] pub shadow_cyan_red: f64,
+    #[serde(rename = "shadowMagentaGreen", with = "mac_number")] pub shadow_magenta_green: f64,
+    #[serde(rename = "shadowYellowBlue", with = "mac_number")] pub shadow_yellow_blue: f64,
+}
+impl Default for ColorBalanceSettings {
+    fn default() -> Self { ColorBalanceSettings { highlight_cyan_red: 0.0, highlight_magenta_green: 0.0, highlight_yellow_blue: 0.0,
+        mid_cyan_red: 0.0, mid_magenta_green: 0.0, mid_yellow_blue: 0.0, preserve_luminosity: true,
+        shadow_cyan_red: 0.0, shadow_magenta_green: 0.0, shadow_yellow_blue: 0.0 } }
+}
+impl ColorBalanceSettings {
+    fn values(&self) -> [f64; 9] {
+        [self.shadow_cyan_red, self.shadow_magenta_green, self.shadow_yellow_blue, self.mid_cyan_red, self.mid_magenta_green,
+         self.mid_yellow_blue, self.highlight_cyan_red, self.highlight_magenta_green, self.highlight_yellow_blue]
+    }
+    pub fn is_valid(&self) -> bool { self.values().iter().all(|v| (-100.0..=100.0).contains(v)) }
+    pub fn is_zero(&self) -> bool { self.values().iter().all(|v| *v == 0.0) }
+}
+
 /// The Mac's `LayerAdjustment`: legacy scalar HSV fields plus optional range-aware settings, so
 /// files written before those settings existed decode and re-encode byte for byte.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -329,11 +410,22 @@ pub struct LayerAdjustment {
     #[serde(rename = "exposureSettings", default, skip_serializing_if = "Option::is_none")] pub exposure_settings: Option<ExposureSettings>,
     #[serde(rename = "gradientMapSettings", default, skip_serializing_if = "Option::is_none")] pub gradient_map_settings: Option<GradientMapSettings>,
     #[serde(rename = "grainSettings", default, skip_serializing_if = "Option::is_none")] pub grain_settings: Option<GrainSettings>,
+    #[serde(rename = "blackWhiteSettings", default, skip_serializing_if = "Option::is_none")] pub black_white_settings: Option<BlackWhiteSettings>,
+    #[serde(rename = "colorBalanceSettings", default, skip_serializing_if = "Option::is_none")] pub color_balance_settings: Option<ColorBalanceSettings>,
+    #[serde(rename = "blurRadius", default, with = "mac_number_opt", skip_serializing_if = "Option::is_none")] pub blur_radius: Option<f64>,
+    #[serde(rename = "motionAngle", default, with = "mac_number_opt", skip_serializing_if = "Option::is_none")] pub motion_angle: Option<f64>,
+    #[serde(rename = "motionDistance", default, with = "mac_number_opt", skip_serializing_if = "Option::is_none")] pub motion_distance: Option<f64>,
+    #[serde(rename = "noiseAmount", default, with = "mac_number_opt", skip_serializing_if = "Option::is_none")] pub noise_amount: Option<f64>,
+    #[serde(rename = "noiseGaussian", default, skip_serializing_if = "Option::is_none")] pub noise_gaussian: Option<bool>,
+    #[serde(rename = "noiseMonochromatic", default, skip_serializing_if = "Option::is_none")] pub noise_monochromatic: Option<bool>,
+    #[serde(rename = "noiseSeed", default, skip_serializing_if = "Option::is_none")] pub noise_seed: Option<u32>,
 }
 impl LayerAdjustment {
     pub fn new(kind: AdjustmentKind) -> Self {
         LayerAdjustment { kind, hue: 0.0, saturation: 0.0, lightness: 0.0, colorize: false, hsv_settings: None, levels: LevelsSettings::default(),
-            curves: CurvesSettings::default(), exposure_settings: None, gradient_map_settings: None, grain_settings: None }
+            curves: CurvesSettings::default(), exposure_settings: None, gradient_map_settings: None, grain_settings: None,
+            black_white_settings: None, color_balance_settings: None, blur_radius: None, motion_angle: None, motion_distance: None,
+            noise_amount: None, noise_gaussian: None, noise_monochromatic: None, noise_seed: None }
     }
     pub fn resolved_hsv(&self) -> HueSaturationSettings {
         self.hsv_settings.clone().unwrap_or_else(|| HueSaturationSettings::new(self.hue, self.saturation, self.lightness, self.colorize, ColorRange::Master))
@@ -341,10 +433,19 @@ impl LayerAdjustment {
     pub fn exposure(&self) -> ExposureSettings { self.exposure_settings.unwrap_or_default() }
     pub fn gradient_map(&self) -> GradientMapSettings { self.gradient_map_settings.unwrap_or_default() }
     pub fn grain(&self) -> GrainSettings { self.grain_settings.unwrap_or_default() }
+    pub fn black_white(&self) -> BlackWhiteSettings { self.black_white_settings.unwrap_or_default() }
+    pub fn color_balance(&self) -> ColorBalanceSettings { self.color_balance_settings.unwrap_or_default() }
+    pub fn gaussian_radius(&self) -> f64 { self.blur_radius.unwrap_or(10.0) }
+    pub fn motion_angle_degrees(&self) -> f64 { self.motion_angle.unwrap_or(0.0) }
+    pub fn motion_distance_pixels(&self) -> f64 { self.motion_distance.unwrap_or(10.0) }
+    pub fn noise_amount_percent(&self) -> f64 { self.noise_amount.unwrap_or(10.0) }
     pub fn is_valid(&self) -> bool {
         self.hue.is_finite() && self.saturation.is_finite() && self.lightness.is_finite() && self.hue.abs() <= 360.0 && self.saturation.abs() <= 100.0 && self.lightness.abs() <= 100.0
             && self.resolved_hsv().is_valid() && self.levels.is_valid() && self.curves.is_valid()
             && self.exposure().is_valid() && self.gradient_map().is_valid() && self.grain().is_valid()
+            && self.black_white().is_valid() && self.color_balance().is_valid()
+            && (0.1..=250.0).contains(&self.gaussian_radius()) && (-90.0..=90.0).contains(&self.motion_angle_degrees())
+            && (1.0..=2000.0).contains(&self.motion_distance_pixels()) && (0.1..=400.0).contains(&self.noise_amount_percent())
     }
     /// Whether applying this adjustment would change nothing (used to skip no-op commits).
     pub fn is_identity(&self) -> bool {
@@ -355,6 +456,8 @@ impl LayerAdjustment {
             AdjustmentKind::Exposure => self.exposure() == ExposureSettings::default(),
             AdjustmentKind::GradientMap => false,
             AdjustmentKind::Grain => self.grain().amount <= 0.0,
+            AdjustmentKind::Invert | AdjustmentKind::BlackWhite | AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::AddNoise => false,
+            AdjustmentKind::ColorBalance => self.color_balance().is_zero(),
         }
     }
 }

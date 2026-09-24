@@ -1,6 +1,7 @@
 import { useEditor } from "../state/store";
 import { activeLayer } from "../state/selection";
 import type { AdjustmentKind, BlendMode } from "../engine/types";
+import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
 import type { DropTarget } from "../panels/layer-rows";
 
 export const BLEND_MODES: BlendMode[] = ["Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten", "Difference", "Color Dodge", "Color Burn", "Hue", "Saturation", "Color", "Luminosity"];
@@ -90,7 +91,11 @@ export function addAdjustmentLayer(kind: AdjustmentKind): void {
 export function editAdjustmentLayer(id?: string): void {
   const c = ctx(); if (!c) return;
   const layer = id ? c.doc.layers.find((l) => l.id === id) : c.active;
-  if (!layer?.adjustment) return;
+  // A kind this build does not draw has no panel yet (Phase 3.5b).
+  if (!layer?.adjustment || !DRAWN_ADJUSTMENT_KINDS.includes(layer.adjustment.kind)) return;
   c.s.beginAdjust({ kind: layer.adjustment.kind, layerId: layer.id, target: "adjustmentLayer" });
 }
-export function canEditAdjustment(): boolean { const c = ctx(); return !!c?.active?.adjustment && !c.s.panelOwnsDocument(); }
+export function canEditAdjustment(): boolean {
+  const c = ctx();
+  return !!c?.active?.adjustment && DRAWN_ADJUSTMENT_KINDS.includes(c.active.adjustment.kind) && !c.s.panelOwnsDocument();
+}
