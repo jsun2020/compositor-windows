@@ -8,7 +8,7 @@
     "wasm:dev": "powershell -ExecutionPolicy Bypass -File scripts/ensure-wasm-pack.ps1 && wasm-pack build engine-wasm --target web --dev --out-dir ../app/src/engine/pkg --out-name compositor_engine",
     "build-info": "powershell -ExecutionPolicy Bypass -File scripts/write-build-info.ps1",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc --noEmit -p app/tests/unit && tsc --noEmit -p app/tests/e2e && vite build",
     "test": "vitest run",
     "e2e": "playwright test",
     "tauri": "tauri",
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "@tauri-apps/cli": "^2.3.1",
-    "@types/node": "^26.6.2",
+    "@types/node": "^22.20.4",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

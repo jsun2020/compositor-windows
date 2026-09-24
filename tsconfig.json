@@ -4,5 +4,5 @@
     "jsx": "react-jsx", "strict": true, "noUnusedLocals": true, "skipLibCheck": true, "isolatedModules": true,
     "types": ["vite/client"]
   },
-  "include": ["app/src", "app/tests"]
+  "include": ["app/src"]
 }
