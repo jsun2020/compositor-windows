@@ -19,8 +19,9 @@ export function UndrawnNotice() {
   if (!activeId || !undrawn || undrawn.length === 0 || dismissed.has(activeId)) return null;
   return (
     <div className="undrawn-notice" data-testid="undrawn-notice" role="status">
-      This project uses {joinPhrases(undrawn)}. Compositor for Windows does not draw these yet, so the canvas
-      and exports show the project without them. They are kept exactly as they are when you save.
+      This project uses {joinPhrases(undrawn)}. Compositor for Windows does not draw these yet, or draws them
+      differently, so the canvas and exports may not match Compositor for Mac. They are kept exactly as they
+      are when you save.
       <button onClick={() => setDismissed((prev) => new Set(prev).add(activeId))}>Dismiss</button>
     </div>
   );
