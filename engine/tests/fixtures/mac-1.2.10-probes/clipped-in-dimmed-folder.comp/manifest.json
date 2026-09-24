@@ -1,0 +1,75 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "B82AE5EB-AC3A-4C55-8A3D-CB92F8D2C6B7",
+  "format": "com.compositor.project",
+  "height": 60,
+  "layers": [
+    {
+      "id": "14B99BA6-48C7-460F-989E-7CD4DA3BA3FD",
+      "isGroup": true,
+      "isVisible": true,
+      "name": "Folder",
+      "opacity": 0.5,
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "id": "C99E4B08-42E4-4C3B-8F09-855B625C0ADA",
+      "imageFile": "C99E4B08-42E4-4C3B-8F09-855B625C0ADA.png",
+      "isVisible": true,
+      "name": "Base",
+      "parentID": "14B99BA6-48C7-460F-989E-7CD4DA3BA3FD",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "id": "EF817E1D-C28A-4579-ACA9-A6E03BAA8D7B",
+      "imageFile": "EF817E1D-C28A-4579-ACA9-A6E03BAA8D7B.png",
+      "isVisible": true,
+      "maskSourceID": "C99E4B08-42E4-4C3B-8F09-855B625C0ADA",
+      "name": "Child",
+      "parentID": "14B99BA6-48C7-460F-989E-7CD4DA3BA3FD",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    }
+  ],
+  "resolution": 72.0,
+  "version": 9,
+  "width": 120
+}

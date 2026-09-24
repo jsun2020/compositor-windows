@@ -1,0 +1,74 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "6C79BF9E-A6AF-49EF-952C-2F7B9A6F8E8D",
+  "format": "com.compositor.project",
+  "height": 60,
+  "layers": [
+    {
+      "id": "85CA9562-D64E-4BCF-A119-403DD0E94799",
+      "isGroup": true,
+      "isVisible": true,
+      "name": "Folder",
+      "opacity": 0.5,
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "id": "C2A491AE-FB33-444E-8375-72D26ABACA4D",
+      "imageFile": "C2A491AE-FB33-444E-8375-72D26ABACA4D.png",
+      "isVisible": true,
+      "name": "Red",
+      "parentID": "85CA9562-D64E-4BCF-A119-403DD0E94799",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          80.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "id": "648E3E36-FF07-435E-A722-0F70D6EBC943",
+      "imageFile": "648E3E36-FF07-435E-A722-0F70D6EBC943.png",
+      "isVisible": true,
+      "name": "Blue",
+      "parentID": "85CA9562-D64E-4BCF-A119-403DD0E94799",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          80.0,
+          60.0
+        ]
+      }
+    }
+  ],
+  "resolution": 72.0,
+  "version": 9,
+  "width": 120
+}

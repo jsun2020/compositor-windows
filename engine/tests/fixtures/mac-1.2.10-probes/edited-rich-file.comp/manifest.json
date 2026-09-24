@@ -1,0 +1,262 @@
+{
+  "activeLayerID": "D0925954-4E11-4A2E-8051-CA4A6CEF271E",
+  "colorSpace": "sRGB",
+  "documentID": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE0",
+  "format": "com.compositor.project",
+  "futureDocumentKey": {
+    "nested": [
+      1,
+      2.5,
+      "x"
+    ]
+  },
+  "guides": [
+    {
+      "axis": "vertical",
+      "id": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE4",
+      "position": 110
+    }
+  ],
+  "height": 80,
+  "layers": [
+    {
+      "futureFolderKey": true,
+      "id": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE1",
+      "isGroup": true,
+      "isVisible": true,
+      "name": "Folder",
+      "opacity": 0.5,
+      "transform": {
+        "flipX": true,
+        "flipY": false,
+        "origin": [
+          20.0,
+          10.0
+        ],
+        "rotation": -0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "effects": {
+        "shadow": {
+          "angle": 90,
+          "blue": 0,
+          "blur": 20,
+          "distance": 20,
+          "green": 0,
+          "opacity": 0.5,
+          "red": 0
+        }
+      },
+      "futureLayerKey": 7,
+      "id": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE2",
+      "imageFile": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE2.png",
+      "isVisible": true,
+      "name": "Titled",
+      "text": {
+        "alignment": "Left",
+        "blue": 0,
+        "content": "Hi",
+        "fontName": "Helvetica",
+        "fontSize": 72,
+        "green": 0,
+        "leading": 0,
+        "red": 0,
+        "tracking": 0
+      },
+      "transform": {
+        "flipX": true,
+        "flipY": false,
+        "origin": [
+          70.0,
+          20.0
+        ],
+        "rotation": -0.0,
+        "sampling": "High quality",
+        "size": [
+          60.0,
+          40.0
+        ]
+      }
+    },
+    {
+      "id": "D0925954-4E11-4A2E-8051-CA4A6CEF271E",
+      "isGroup": true,
+      "isVisible": true,
+      "name": "Folder 1",
+      "transform": {
+        "flipX": true,
+        "flipY": false,
+        "origin": [
+          20.0,
+          10.0
+        ],
+        "rotation": -0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "effects": {
+        "shadow": {
+          "angle": 90,
+          "blue": 0,
+          "blur": 20,
+          "distance": 20,
+          "green": 0,
+          "opacity": 0.5,
+          "red": 0
+        }
+      },
+      "futureLayerKey": 7,
+      "id": "ABBCE24B-C5D8-486A-B4C3-DBA33695479E",
+      "imageFile": "ABBCE24B-C5D8-486A-B4C3-DBA33695479E.png",
+      "isVisible": true,
+      "name": "Titled copy",
+      "parentID": "D0925954-4E11-4A2E-8051-CA4A6CEF271E",
+      "text": {
+        "alignment": "Left",
+        "blue": 0,
+        "content": "Hi",
+        "fontName": "Helvetica",
+        "fontSize": 72,
+        "green": 0,
+        "leading": 0,
+        "red": 0,
+        "tracking": 0
+      },
+      "transform": {
+        "flipX": true,
+        "flipY": false,
+        "origin": [
+          70.0,
+          20.0
+        ],
+        "rotation": -0.0,
+        "sampling": "High quality",
+        "size": [
+          60.0,
+          40.0
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "blurRadius": 24,
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Gaussian Blur",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "saturation": 0
+      },
+      "futureAdjLayerKey": "z",
+      "id": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE3",
+      "isVisible": true,
+      "name": "Blur",
+      "parentID": "D0925954-4E11-4A2E-8051-CA4A6CEF271E",
+      "transform": {
+        "flipX": true,
+        "flipY": false,
+        "origin": [
+          20.0,
+          10.0
+        ],
+        "rotation": -0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    }
+  ],
+  "resolution": 72.0,
+  "version": 9,
+  "width": 160
+}

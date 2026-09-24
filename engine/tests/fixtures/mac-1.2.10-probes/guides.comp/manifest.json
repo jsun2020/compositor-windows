@@ -1,0 +1,43 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "00AA74AB-EADD-4DA4-8C1A-EFF9EFC0D8D2",
+  "format": "com.compositor.project",
+  "guides": [
+    {
+      "axis": "vertical",
+      "id": "C08AB37C-B025-455A-9062-53C15859C301",
+      "position": 30
+    },
+    {
+      "axis": "horizontal",
+      "id": "084571CC-8299-4162-8575-4371FB631FC3",
+      "position": 45.5
+    }
+  ],
+  "height": 60,
+  "layers": [
+    {
+      "id": "B158D4B1-A824-485B-B8E6-1A3007CEFB75",
+      "imageFile": "B158D4B1-A824-485B-B8E6-1A3007CEFB75.png",
+      "isVisible": true,
+      "name": "Layer 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          120.0,
+          60.0
+        ]
+      }
+    }
+  ],
+  "resolution": 72.0,
+  "version": 9,
+  "width": 120
+}

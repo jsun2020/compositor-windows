@@ -1,0 +1,262 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "CF05C984-E111-4E74-8EA9-77954B01C681",
+  "format": "com.compositor.project",
+  "height": 60,
+  "layers": [
+    {
+      "id": "088FF4C5-9EF7-4667-BCDF-CC4E7E00249A",
+      "imageFile": "088FF4C5-9EF7-4667-BCDF-CC4E7E00249A.png",
+      "isVisible": true,
+      "name": "Gradient",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          220.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Burn",
+      "id": "ECEA3337-85E7-491A-8FEB-4DCE10568EED",
+      "imageFile": "ECEA3337-85E7-491A-8FEB-4DCE10568EED.png",
+      "isVisible": true,
+      "name": "Column 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Dodge (Add)",
+      "id": "B52E6C37-3743-4F35-9E59-6A41C020DACB",
+      "imageFile": "B52E6C37-3743-4F35-9E59-6A41C020DACB.png",
+      "isVisible": true,
+      "name": "Column 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          20.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "8A2F434E-0325-4260-97AC-193D169BF627",
+      "imageFile": "8A2F434E-0325-4260-97AC-193D169BF627.png",
+      "isVisible": true,
+      "name": "Column 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "BD649679-6AEE-4165-9DF2-3FC3AD297BDE",
+      "imageFile": "BD649679-6AEE-4165-9DF2-3FC3AD297BDE.png",
+      "isVisible": true,
+      "name": "Column 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          60.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "D5521048-CA4C-42FF-AB74-77606BD355ED",
+      "imageFile": "D5521048-CA4C-42FF-AB74-77606BD355ED.png",
+      "isVisible": true,
+      "name": "Column 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "5F270396-D998-4765-BC22-7A19B00FDFE6",
+      "imageFile": "5F270396-D998-4765-BC22-7A19B00FDFE6.png",
+      "isVisible": true,
+      "name": "Column 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          100.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "2776CDD4-D40F-411B-99F0-A868F0A726BC",
+      "imageFile": "2776CDD4-D40F-411B-99F0-A868F0A726BC.png",
+      "isVisible": true,
+      "name": "Column 6",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "CED76A20-CC97-48DE-9160-C35ECAD93159",
+      "imageFile": "CED76A20-CC97-48DE-9160-C35ECAD93159.png",
+      "isVisible": true,
+      "name": "Column 7",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          140.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Exclusion",
+      "id": "4D24531B-3D63-4333-8D80-7208AD65EF40",
+      "imageFile": "4D24531B-3D63-4333-8D80-7208AD65EF40.png",
+      "isVisible": true,
+      "name": "Column 8",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Subtract",
+      "id": "F9A6585A-75CC-4B7E-A115-06711FE50B93",
+      "imageFile": "F9A6585A-75CC-4B7E-A115-06711FE50B93.png",
+      "isVisible": true,
+      "name": "Column 9",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          180.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    },
+    {
+      "blendMode": "Divide",
+      "id": "6EADEA2A-0E0B-4622-8DA2-75F2A205FD08",
+      "imageFile": "6EADEA2A-0E0B-4622-8DA2-75F2A205FD08.png",
+      "isVisible": true,
+      "name": "Column 10",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200.0,
+          0.0
+        ],
+        "rotation": 0.0,
+        "sampling": "High quality",
+        "size": [
+          20.0,
+          60.0
+        ]
+      }
+    }
+  ],
+  "resolution": 72.0,
+  "version": 9,
+  "width": 220
+}
