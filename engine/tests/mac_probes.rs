@@ -171,12 +171,65 @@ Projects:
 - new-blend-modes.comp          -> new-blend-modes.png
 - new-adjustment-layers.comp    -> new-adjustment-layers.png
 - grain.comp                    -> grain.png
+- edited-rich-file.comp         -> edited-rich-file.png (confirm it opens, and export a PNG)
 ";
 
-const PROBE_NAMES: [&str; 6] = [
-    "folder-opacity.comp", "clipped-in-dimmed-folder.comp", "guides.comp",
-    "new-blend-modes.comp", "new-adjustment-layers.comp", "grain.comp",
-];
+/// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
+/// The other six probes are rendering oracles for documents this build only opened (or built)
+/// and re-saved unmodified; none of them sends the Mac a file this build has actually EDITED
+/// while carrying effects, live text, an unknown-version adjustment kind and unknown keys at
+/// both levels -- the case this phase's "the Mac accepts what we write" constraint is really
+/// about. Starts from the same kind of rich v9 document as `preservation_through_commands.rs`,
+/// restricted to features the Mac's own validation/decode accepts (no free-form `shape`, whose
+/// exact Mac schema this build does not know), then edits it through `Engine::execute` before
+/// saving, exactly as a user would.
+fn edited_rich_file_doc() -> Document {
+    let folder_id = "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE1";
+    let text_id = "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE2";
+    let adj_id = "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE3";
+    let image_file = format!("{text_id}.png");
+    let manifest = serde_json::json!({
+        "format": "com.compositor.project", "version": 9, "colorSpace": "sRGB",
+        "documentID": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE0", "width": 120, "height": 60,
+        "activeLayerID": text_id,
+        "guides": [ { "axis": "vertical", "id": "0B6C6B1E-4F1B-4B4E-9E0A-EEEEEEEEEEE4", "position": 30 } ],
+        "futureDocumentKey": { "nested": [1, 2.5, "x"] },
+        "layers": [
+            { "id": folder_id, "name": "Folder", "isVisible": true, "isGroup": true, "opacity": 0.5,
+              "transform": { "origin": [0, 0], "size": [120, 60], "rotation": 0, "flipX": false, "flipY": false, "sampling": "High quality" },
+              "futureFolderKey": true },
+            { "id": text_id, "name": "Titled", "isVisible": true, "imageFile": image_file,
+              "transform": { "origin": [10, 10], "size": [60, 40], "rotation": 0, "flipX": false, "flipY": false, "sampling": "High quality" },
+              "effects": { "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } },
+              "text": { "alignment": "Left", "blue": 0, "content": "Hi", "fontName": "Helvetica", "fontSize": 72,
+                        "green": 0, "leading": 0, "red": 0, "tracking": 0 },
+              "futureLayerKey": 7 },
+            { "id": adj_id, "name": "Blur", "isVisible": true,
+              "transform": { "origin": [0, 0], "size": [120, 60], "rotation": 0, "flipX": false, "flipY": false, "sampling": "High quality" },
+              "adjustment": { "kind": "Gaussian Blur", "hue": 0, "saturation": 0, "lightness": 0, "colorize": false,
+                  "levels": { "channel": "RGB", "ranges": [ {"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255},
+                      {"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255}, {"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255},
+                      {"black":0,"gamma":1,"white":255,"outputBlack":0,"outputWhite":255} ] },
+                  "curves": { "channel": "RGB", "channels": [ [{"x":0,"y":0},{"x":255,"y":255}], [{"x":0,"y":0},{"x":255,"y":255}],
+                      [{"x":0,"y":0},{"x":255,"y":255}], [{"x":0,"y":0},{"x":255,"y":255}] ] },
+                  "blurRadius": 24 },
+              "futureAdjLayerKey": "z" }
+        ]
+    }).to_string();
+    let image = encode_png(&colourful_gradient(60, 40), 72.0).unwrap();
+    let package = Package { manifest_json: manifest, images: vec![(image_file, image)] };
+
+    let mut e = Engine::new();
+    let id = e.open_package(&package, None).unwrap_or_else(|err| panic!("edited-rich-file.comp: does not open: {err:?}"));
+    let text_uuid = uuid::Uuid::parse_str(text_id).unwrap();
+    let adj_uuid = uuid::Uuid::parse_str(adj_id).unwrap();
+    e.execute(id, Command::DuplicateLayer { id: text_uuid }).unwrap();
+    let dup_id = e.state(id).unwrap().active_layer_id.unwrap();
+    e.execute(id, Command::GroupLayers { ids: vec![dup_id, adj_uuid] }).unwrap();
+    e.execute(id, Command::CanvasSize { width: 160, height: 80, anchor: 4, fill: None }).unwrap();
+    e.execute(id, Command::FlipCanvas { horizontal: true }).unwrap();
+    e.document(id).unwrap().clone()
+}
 
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
@@ -205,12 +258,8 @@ fn write_mac_probes() {
     write_probe(&dir, "new-blend-modes.comp", &new_blend_modes_doc());
     write_probe(&dir, "new-adjustment-layers.comp", &new_adjustment_layers_doc());
     write_probe(&dir, "grain.comp", &grain_doc());
+    write_probe(&dir, "edited-rich-file.comp", &edited_rich_file_doc());
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
-
-    for name in PROBE_NAMES {
-        let manifest_path = dir.join(name).join("manifest.json");
-        assert!(manifest_path.is_file(), "{name} is missing its manifest.json");
-    }
 }
