@@ -27,7 +27,7 @@ export function LayerProperties() {
   };
   return (
     <div className="layer-properties">
-      <label>Opacity <input aria-label="Opacity" type="number" min={0} max={100} value={text} disabled={folder}
+      <label>Opacity <input aria-label="Opacity" type="number" min={0} max={100} value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={commitOpacity}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOpacity(); } }} /> %</label>

@@ -132,6 +132,26 @@ fn folder_coverages(by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&
     result
 }
 
+/// A layer's drawn opacity: its own times every enclosing folder's, up to 64 levels
+/// (LayerOpacity.effective, LayerGroups.swift:49-64). Per-descendant multiplication, never group
+/// compositing: folders are pass-through, so this matches the Mac rather than Photoshop. Every
+/// draw in the plan goes through here (plain layers, stack bases and children, mask sources,
+/// adjustment strength), which is what makes a clipped child in a dimmed folder dim twice, as
+/// the Mac's LiveMaskRenderer does.
+fn effective_opacity(by_id: &HashMap<Uuid, &Layer>, layer: &Layer) -> f64 {
+    let mut opacity = layer.opacity.clamp(0.0, 1.0);
+    let mut parent = layer.parent_id;
+    let mut depth = 0;
+    while let Some(pid) = parent {
+        if depth >= MAX_NESTING { break; }
+        let Some(folder) = by_id.get(&pid) else { break };
+        opacity *= folder.opacity.clamp(0.0, 1.0);
+        parent = folder.parent_id;
+        depth += 1;
+    }
+    opacity
+}
+
 pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>, with_folders: bool) -> LayerDraw {
     let (transform, corners) = displayed_transform(layer, edit);
     let mut coverages: Vec<Coverage> = own_coverage(layer, edit).into_iter().collect();
@@ -139,7 +159,7 @@ pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &L
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     LayerDraw {
         id: layer.id, transform, corners, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
-        opacity: layer.opacity.clamp(0.0, 1.0), blend: layer.blend_mode, coverages, clip: layer.mask_source_id,
+        opacity: effective_opacity(by_id, layer), blend: layer.blend_mode, coverages, clip: layer.mask_source_id,
         adjustment: displayed_adjustment(layer, edit),
     }
 }

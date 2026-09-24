@@ -17,9 +17,12 @@ fn opacity_and_blend_mode() {
     appearance::set_opacity(&mut d, id, 7.0).unwrap();
     assert_eq!(d.layer(id).unwrap().opacity, 1.0);
     let g = hierarchy::add_group(&mut d).unwrap();
-    assert!(appearance::set_opacity(&mut d, g, 0.5).is_err());
-    appearance::set_opacity_many(&mut d, &[id, g], 0.5).unwrap();
-    assert_eq!((d.layer(id).unwrap().opacity, d.layer(g).unwrap().opacity), (0.5, 1.0));
+    appearance::set_opacity(&mut d, g, 0.5).unwrap();
+    assert_eq!(d.layer(g).unwrap().opacity, 0.5);
+    // A different value from the single set above, so the folder's result proves set_opacity_many reached it.
+    appearance::set_opacity_many(&mut d, &[id, g], 0.25).unwrap();
+    assert_eq!((d.layer(id).unwrap().opacity, d.layer(g).unwrap().opacity), (0.25, 0.25));
+    assert!(appearance::set_blend_mode(&mut d, g, BlendMode::Multiply).is_err(), "folders stay Normal");
 }
 
 #[test]
