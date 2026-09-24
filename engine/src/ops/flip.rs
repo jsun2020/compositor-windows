@@ -9,4 +9,8 @@ pub fn flip_canvas(doc: &mut Document, horizontal: bool) {
             if let Some(p) = mask.placement { mask.placement = Some(p.mirrored(horizontal, axis)); }
         }
     }
+    for g in &mut doc.guides {
+        let perpendicular = if horizontal { g.axis == crate::GuideAxis::Vertical } else { g.axis == crate::GuideAxis::Horizontal };
+        if perpendicular { g.position = 2.0 * axis - g.position; }
+    }
 }

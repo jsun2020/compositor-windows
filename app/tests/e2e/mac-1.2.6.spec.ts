@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { noisePngBase64, redSquarePngBase64 } from "./helpers";
+import { clickMenu, noisePngBase64, redSquarePngBase64 } from "./helpers";
 
 // Copied verbatim from adjust-layers.spec.ts, where they are file-local.
 async function setup(page: Page) {
@@ -140,4 +140,43 @@ test("selecting a folder enables Opacity but leaves Blend mode disabled", async 
   await page.evaluate((id) => { (window as any).__compositor.store.getState().selectLayers([id], id); }, folder);
   await expect(page.getByRole("spinbutton", { name: "Opacity", exact: true })).toBeEnabled();
   await expect(page.getByRole("combobox", { name: "Blend mode", exact: true })).toBeDisabled();
+});
+
+/** Whether any device column within one of the view column of document x `docX` is guide-cyan on the overlay. */
+function cyanNear(page: Page, docX: number): Promise<boolean> {
+  return page.evaluate((docX) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+    const dpr = window.devicePixelRatio || 1;
+    const p = vp.viewPoint({ x: docX, y: d.height / 2 }, { width: d.width, height: d.height });
+    const overlay = document.querySelector("[data-testid='overlay']") as HTMLCanvasElement;
+    const data = overlay.getContext("2d")!.getImageData(Math.floor(p.x * dpr) - 1, Math.floor(p.y * dpr), 3, 1).data;
+    for (let i = 0; i < 3; i++) {
+      const [r, g, b, a] = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3]];
+      if (a > 0 && r < 60 && g > 200 && b > 200) return true;
+    }
+    return false;
+  }, docX);
+}
+
+test("a saved guide is drawn on the overlay and View > Hide Guides removes it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const manifest = {
+    format: "com.compositor.project", version: 9, colorSpace: "sRGB",
+    documentID: "0B6C6B1E-4F1B-4B4E-9E0A-666666666666", width: 64, height: 48,
+    layers: [{ id: "0B6C6B1E-4F1B-4B4E-9E0A-777777777777", name: "Layer 1", isVisible: true,
+      transform: { origin: [0, 0], size: [64, 48], rotation: 0, flipX: false, flipY: false, sampling: "High quality" } }],
+    guides: [{ axis: "vertical", id: "0B6C6B1E-4F1B-4B4E-9E0A-888888888888", position: 10 }],
+  };
+  await page.evaluate(async (manifest) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [] }, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+  }, manifest);
+  expect(await cyanNear(page, 10)).toBe(true);
+  expect(await cyanNear(page, 12)).toBe(false);
+  await clickMenu(page, "View", "view-guides");
+  expect(await cyanNear(page, 10)).toBe(false);
 });

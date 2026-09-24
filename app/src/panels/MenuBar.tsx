@@ -112,6 +112,7 @@ export function MenuBar() {
       { id: "zoom-out", label: "Zoom Out", run: () => runAction("zoom-out"), enabled: hasDoc },
       { id: "fit", label: "Fit on Screen", run: () => runAction("fit"), enabled: hasDoc },
       { id: "actual", label: "Actual Size", run: () => runAction("actual"), enabled: hasDoc },
+      { id: "view-guides", label: s.showGuides ? "Hide Guides" : "Show Guides", run: () => s.toggleGuides(), enabled: hasDoc },
     ] },
   ];
   const [openMenu, setOpenMenu] = useState<string | null>(null);

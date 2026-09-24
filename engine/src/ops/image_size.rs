@@ -32,6 +32,9 @@ pub fn image_size(doc: &Document, options: ImageSizeOptions) -> Result<Document,
     out.height = options.height;
     let sx = options.width as f64 / doc.width as f64;
     let sy = options.height as f64 / doc.height as f64;
+    for g in &mut out.guides {
+        match g.axis { GuideAxis::Vertical => g.position *= sx, GuideAxis::Horizontal => g.position *= sy }
+    }
     let mut used = 0u64; let mut used_masks = 0u64;
     for layer in &mut out.layers {
         let corners = layer.transform.corners().map(|p| Point { x: p.x * sx, y: p.y * sy });

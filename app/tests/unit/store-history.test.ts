@@ -14,7 +14,7 @@ function layer(id: string, over: Partial<LayerState> = {}): LayerState {
   };
 }
 function document(id: string, layers: LayerState[], activeLayerId: string | null, undoDepth = 0): DocumentState {
-  return { id, documentId: id, width: 100, height: 100, resolution: 72, activeLayerId, canUndo: true, canRedo: true, isModified: false, undoDepth, path: null, layers };
+  return { id, documentId: id, width: 100, height: 100, resolution: 72, activeLayerId, canUndo: true, canRedo: true, isModified: false, undoDepth, path: null, guides: [], layers };
 }
 
 /** Records every engine call. `state` serves whatever `docs` currently holds for that handle. */

@@ -27,6 +27,7 @@ export function CanvasView() {
   const renderTick = useEditor((s) => s.renderTick);
   const transformEdit = useEditor((s) => s.transformEdit);
   const snapGuides = useEditor((s) => s.snapGuides);
+  const showGuides = useEditor((s) => s.showGuides);
   const selectedLayerIds = useEditor((s) => s.selectedLayerIds);
   const maskSelected = useEditor((s) => s.maskSelected);
   const sampleMode = useEditor((s) => s.adjustEdit?.sampleMode ?? null);
@@ -96,8 +97,11 @@ export function CanvasView() {
       const shape = editedShape(state, transformEdit, selectedLayerIds, maskSelected);
       if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, viewport, { width: state.width, height: state.height });
     }
-    drawOverlay(overlay.getContext("2d")!, viewport, dpr, { docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? cropRect : null, guides: snapGuides, transform: transformGeometry });
-  }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected]);
+    drawOverlay(overlay.getContext("2d")!, viewport, dpr, {
+      docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? cropRect : null, guides: snapGuides,
+      transform: transformGeometry, canvasGuides: showGuides ? state.guides : null,
+    });
+  }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected, showGuides]);
 
   // Wheel: zoom with Ctrl, otherwise pan.
   useEffect(() => {

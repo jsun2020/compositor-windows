@@ -6,7 +6,7 @@ function layer(id: string, o: Partial<LayerState> = {}): LayerState {
   return { id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal", transform: { origin: [0, 0], size: [10, 10], rotation: 0, flipX: false, flipY: false, sampling: "High quality" },
     pixelsWidth: 10, pixelsHeight: 10, pixelsRevision: 1, hasPixels: true, hasMask: false, maskWidth: 0, maskHeight: 0, maskRevision: 0, maskEnabled: true, maskLinked: true, maskSourceId: null, maskPlacement: null, maskBackground: 255, ...o };
 }
-const doc = (layers: LayerState[], active: string | null): DocumentState => ({ id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: active, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, layers });
+const doc = (layers: LayerState[], active: string | null): DocumentState => ({ id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: active, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], layers });
 
 describe("selection helpers", () => {
   const f = layer("F", { isGroup: true, hasPixels: false, pixelsWidth: 0 });

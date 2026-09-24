@@ -43,6 +43,9 @@ pub fn canvas_size(doc: &Document, options: CanvasSizeOptions) -> Result<Documen
             if let Some(p) = &mut mask.placement { p.origin.x += offset.x; p.origin.y += offset.y; }
         }
     }
+    for g in &mut out.guides {
+        match g.axis { GuideAxis::Vertical => g.position += offset.x, GuideAxis::Horizontal => g.position += offset.y }
+    }
     // A colored extension is separate bottom-layer content; the old canvas area stays transparent.
     if let Some(color) = options.fill {
         if options.width > doc.width || options.height > doc.height {

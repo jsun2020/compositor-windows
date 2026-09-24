@@ -56,6 +56,7 @@ pub struct DocumentState {
     pub is_modified: bool,
     pub path: Option<String>,
     pub layers: Vec<LayerState>,
+    pub guides: Vec<Guide>,
 }
 
 /// Preview revisions start here so they can never collide with a layer's own, which counts up
@@ -140,6 +141,7 @@ impl Engine {
                 mask_placement: l.mask.as_ref().and_then(|m| m.placement), mask_background: l.mask.as_ref().map_or(255, |m| m.background()),
                 adjustment: l.extra.adjustment.clone(),
             }).collect(),
+            guides: d.guides.clone(),
         })
     }
 

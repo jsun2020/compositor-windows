@@ -2,8 +2,16 @@ import type { Viewport } from "./viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
 import type { OverlayGeometry } from "../tools/transform-geometry";
+import type { Guide } from "../engine/types";
 
-export interface OverlayState { docWidth: number; docHeight: number; cropRect: Rect | null; guides: { xs: number[]; ys: number[] }; transform: OverlayGeometry | null; }
+export interface OverlayState {
+  docWidth: number; docHeight: number; cropRect: Rect | null;
+  /** Temporary smart-snap lines shown while dragging a crop or transform; not the saved guides. */
+  guides: { xs: number[]; ys: number[] };
+  transform: OverlayGeometry | null;
+  /** The document's saved guides, or null while View > Hide Guides is in effect. */
+  canvasGuides: Guide[] | null;
+}
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, dpr: number, state: OverlayState): void {
   const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -65,6 +73,15 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
       ctx.fillRect(h.x - 3.5, h.y - 3.5, 7, 7);
       ctx.strokeStyle = "#3a6ea5"; ctx.lineWidth = 1;
       ctx.strokeRect(h.x - 3.5, h.y - 3.5, 7, 7);
+    }
+  }
+  if (state.canvasGuides) {
+    ctx.strokeStyle = "rgba(0,255,255,0.9)"; ctx.lineWidth = 1 / dpr;
+    for (const g of state.canvasGuides) {
+      ctx.beginPath();
+      if (g.axis === "vertical") { const v = viewport.viewPoint({ x: g.position, y: 0 }, size).x; ctx.moveTo(v, 0); ctx.lineTo(v, viewport.viewSize.height); }
+      else { const v = viewport.viewPoint({ x: 0, y: g.position }, size).y; ctx.moveTo(0, v); ctx.lineTo(viewport.viewSize.width, v); }
+      ctx.stroke();
     }
   }
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;

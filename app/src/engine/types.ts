@@ -75,6 +75,8 @@ export interface LayerState {
   maskSourceId: string | null; maskPlacement: LayerTransform | null; maskBackground: number; adjustment?: LayerAdjustment;
 }
 
+export interface Guide { id: string; axis: "horizontal" | "vertical"; position: number; }
+
 export interface Coverage { layerId: string; maskRevision: number; placement: LayerTransform; corners: Corners | null; width: number; height: number; background: number; nearest: boolean; }
 export interface LayerDraw {
   id: string; transform: LayerTransform; corners: Corners | null; pixelsWidth: number; pixelsHeight: number; pixelsRevision: number; opacity: number;
@@ -94,6 +96,7 @@ export interface DocumentState {
   /** Entries on the undo stack. A gesture that recorded one command compares this against the
    * depth it saw beforehand to tell whether its own entry is still the one on top. */
   undoDepth: number;
+  guides: Guide[];
 }
 
 export type Command =

@@ -52,6 +52,9 @@ export interface EditorStore {
   collapsed: Record<string, string[]>;
   transformEdit: TransformEdit | null;
   snapGuides: { xs: number[]; ys: number[] };
+  /** Whether the document's saved guides are drawn (View > Hide/Show Guides). Persisted so the
+   * choice survives a relaunch, as it does on the Mac. */
+  showGuides: boolean;
   blendPreview: BlendMode | null;
   adjustEdit: AdjustEdit | null;
   setEngine(engine: EngineClient): void;
@@ -84,6 +87,7 @@ export interface EditorStore {
   commitTransform(): void;
   cancelTransform(): void;
   setSnapGuides(g: { xs: number[]; ys: number[] }): void;
+  toggleGuides(): void;
   setBlendPreview(m: BlendMode | null): void;
   previewEdit(): PreviewEdit | null;
   /** True while an adjustment or filter panel is open. The panel owns the document then, as
@@ -135,10 +139,16 @@ function dropOpenPanel(): void {
   if (activeId) engine!.setPreview(activeId, null);
 }
 
+const GUIDES_KEY = "compositor.showGuides";
+function loadShowGuides(): boolean {
+  try { return localStorage.getItem(GUIDES_KEY) !== "false"; } catch { return true; }
+}
+
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
-  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, blendPreview: null,
+  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, showGuides: loadShowGuides(),
+  blendPreview: null,
   adjustEdit: null,
   setEngine: (engine) => set({ engine }),
   setBridge: (bridge) => set({ bridge }),
@@ -360,6 +370,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().invalidate();
   },
   setSnapGuides: (g) => set({ snapGuides: g }),
+  toggleGuides: () => set((s) => {
+    const showGuides = !s.showGuides;
+    try { localStorage.setItem(GUIDES_KEY, String(showGuides)); } catch { /* ignore */ }
+    return { showGuides };
+  }),
   setBlendPreview: (m) => set({ blendPreview: m }),
   previewEdit: () => {
     const a = get().adjustEdit;
