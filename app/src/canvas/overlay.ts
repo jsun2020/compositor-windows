@@ -30,6 +30,17 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
     for (let y = y0; y <= y1; y++) { const vy = rect.y + y * step; ctx.moveTo(rect.x, vy); ctx.lineTo(rect.x + rect.width, vy); }
     ctx.stroke();
   }
+  // Saved guides go under the crop dimming and transform handles, as the Mac draws them first
+  // (TransformOverlay.swift:92-100).
+  if (state.canvasGuides) {
+    ctx.strokeStyle = "rgba(0,255,255,0.9)"; ctx.lineWidth = 1 / dpr;
+    for (const g of state.canvasGuides) {
+      ctx.beginPath();
+      if (g.axis === "vertical") { const v = viewport.viewPoint({ x: g.position, y: 0 }, size).x; ctx.moveTo(v, 0); ctx.lineTo(v, viewport.viewSize.height); }
+      else { const v = viewport.viewPoint({ x: 0, y: g.position }, size).y; ctx.moveTo(0, v); ctx.lineTo(viewport.viewSize.width, v); }
+      ctx.stroke();
+    }
+  }
   if (state.cropRect) {
     const c = state.cropRect;
     const tl = viewport.viewPoint({ x: c.x, y: c.y }, size), br = viewport.viewPoint({ x: c.x + c.width, y: c.y + c.height }, size);
@@ -73,15 +84,6 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
       ctx.fillRect(h.x - 3.5, h.y - 3.5, 7, 7);
       ctx.strokeStyle = "#3a6ea5"; ctx.lineWidth = 1;
       ctx.strokeRect(h.x - 3.5, h.y - 3.5, 7, 7);
-    }
-  }
-  if (state.canvasGuides) {
-    ctx.strokeStyle = "rgba(0,255,255,0.9)"; ctx.lineWidth = 1 / dpr;
-    for (const g of state.canvasGuides) {
-      ctx.beginPath();
-      if (g.axis === "vertical") { const v = viewport.viewPoint({ x: g.position, y: 0 }, size).x; ctx.moveTo(v, 0); ctx.lineTo(v, viewport.viewSize.height); }
-      else { const v = viewport.viewPoint({ x: 0, y: g.position }, size).y; ctx.moveTo(0, v); ctx.lineTo(viewport.viewSize.width, v); }
-      ctx.stroke();
     }
   }
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
