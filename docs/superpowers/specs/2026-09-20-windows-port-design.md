@@ -14,7 +14,7 @@ The macOS app is 23k lines of Swift on AppKit, SwiftUI, Core Image, Metal and Vi
 Goals:
 
 - Feature parity with the macOS app for the four areas listed in section 3, delivered in usable phases.
-- Open and save the same `.comp` folder packages as the macOS app (format versions 1 to 7) so projects move between machines.
+- Open and save the same `.comp` folder packages as the macOS app so projects move between machines. This tracks the macOS app's CURRENT format, not a fixed version: at the time of writing that is Compositor 1.2.6, which writes format version 9 (the port was begun against a v7 snapshot; see Phase 3.5). Opening a file must never silently lose data on re-save, and anything the port cannot yet render must be preserved verbatim.
 - Ship as a portable zip (no installer) built by a PowerShell script, matching the user's other Windows desktop apps.
 - Smooth interactive painting and live adjustment previews on canvases up to the macOS limits (30,000 px per side, 100 million source pixels).
 
@@ -39,8 +39,19 @@ layer stack with folders, visibility, opacity, blend modes (Normal, Multiply, Sc
 Phase 3, adjustments and filters:
 Levels with Auto, Curves, Hue/Saturation, Exposure, Gradient Map, Grain, Invert, Gaussian Blur and Motion Blur that spread past layer edges, Add Noise, Lens Correction. Live previews, limited to the selection when there is one. Adjustment layers for Hue/Saturation, Levels, Curves, Exposure, Gradient Map and Grain.
 
+Phase 3.5, compatibility with macOS Compositor 1.2.6 (added 2026-09-24):
+open and save project format versions 8 and 9 exactly as the macOS app does. Folder opacity and saved guides (v8); Gaussian Blur, Motion Blur and Add Noise as adjustment layers (v9); the ungated additions Invert, Black & White and Color Balance adjustment layers, eleven new blend modes, and layer effects (stroke and drop shadow) rendered as the Mac renders them; `text`, `shape` and any unrecognised fields preserved verbatim on re-save; and the 1.2.6 changes to existing kernels (Grain's roughness detail, Add Noise's hash) so v1-v7 files also render as the current Mac renders them. The research behind this phase is `docs/superpowers/research/mac-1.2.6-format-delta.md`, and its ground truth is a project saved by the Mac app (`engine/tests/fixtures/mac-1.2.6/`). Editing text and effects is Phase 5.
+
+The behavioural oracle from Phase 3.5 onward is the user's fork at Compositor 1.2.6 (https://github.com/jsun2020/Compositor, cloned beside this repository as `Compositor-1.2.6`), not the earlier v7 snapshot.
+
 Phase 4, selections and retouching:
-Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic Wand, add and subtract, move outline, move and duplicate pixels inside, load layer or mask as selection, Brush with size, hardness and opacity and Shift for straight lines, Spot Healing Brush, Clone Stamp (aligned or not, current layer or all), Blur tool, Content-Aware Fill including extending past edges, Gradient tool, Shape tool (rectangle, rounded rectangle, ellipse), Eyedropper, full colour picker, Copy Merged, Photoshop-style keyboard shortcuts.
+Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic Wand, add and subtract, move outline, move and duplicate pixels inside, load layer or mask as selection, Brush with size, hardness and opacity and Shift for straight lines, Spot Healing Brush, Clone Stamp (aligned or not, current layer or all), Blur tool, Content-Aware Fill including extending past edges, Gradient tool, Shape tool (rectangle, rounded rectangle, ellipse), Eyedropper, full colour picker, Copy Merged, Photoshop-style keyboard shortcuts. Selection-limited adjustments and filters (the coverage path Phase 3 built but always passed `None`). Re-scoped against Compositor 1.2.6 before planning: its object selection and floating selection are candidates.
+
+Phase 5, text and layer effects (added 2026-09-24 at the user's request): the type tool and editable text layers, live shape layers, and editing layer effects (stroke, drop shadow). Phase 3.5 already renders and preserves all three.
+
+Phase 6, Liquify and Smudge (added 2026-09-24): the Smear tool's Liquify, Blur and Smudge modes.
+
+Phase 7, Camera Raw, PSD and RAW (added 2026-09-24): the raw develop panel, and PSD and RAW import.
 
 ## 4. Architecture
 
