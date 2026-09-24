@@ -44,6 +44,33 @@ test("a layer using a blend mode this build does not draw yet shows it, disabled
   await expect(select.locator("option[value='Soft Light']")).toHaveAttribute("disabled", "");
 });
 
+test("merging onto a layer that uses an undrawn blend mode is refused, with the feature named in the error banner", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(redSquarePngBase64);
+  await page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const png = Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.newDocument(8, 8, false);
+    api.engine.importImage(doc, png, "Below", { x: 0, y: 0 });
+    const below = api.engine.state(doc).activeLayerId;
+    api.engine.execute(doc, { type: "SetLayerBlendMode", id: below, mode: "Soft Light" });
+    api.engine.importImage(doc, png, "Above", { x: 0, y: 0 });
+    const above = api.engine.state(doc).activeLayerId;
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.store.getState().selectLayers([above], above);
+  }, b64);
+  expect((await state(page)).layers).toHaveLength(2);
+
+  // Merge Down via the same store/menu path a user would use (LayersList.tsx / MenuBar.tsx).
+  await clickMenu(page, "Layer", "layer-merge");
+  const banner = page.getByTestId("error-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("Merging would bake the Soft Light blend mode, which this build does not draw yet");
+  expect((await state(page)).layers).toHaveLength(2);
+});
+
 /** A v9 manifest holding one adjustment layer of `kind`, with every field a LayerAdjustment always
  * writes. Built in Node and passed to the page, because page.evaluate serializes only its callback. */
 function adjustmentManifest(kind: string, id: string) {

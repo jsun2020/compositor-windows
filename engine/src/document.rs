@@ -100,6 +100,33 @@ impl Layer {
             mask_revision: 1,
         }
     }
+    /// What this layer alone contains that this build does not draw yet, as phrases for the
+    /// notice (`Document::undrawn` collects these across every layer, plus its own document-level
+    /// check). Not sorted or de-duplicated here -- callers that need that pool the phrases through
+    /// a set, as `Document::undrawn` does and as `merge` does when refusing to bake one (I1).
+    pub fn undrawn_features(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if !self.blend_mode.is_drawn() {
+            let name = serde_json::to_value(self.blend_mode).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            out.push(format!("the {name} blend mode"));
+        }
+        if let Some(a) = &self.extra.adjustment {
+            if !a.kind.is_drawn() { out.push(format!("{} adjustment layers", a.kind.name())); }
+            // Mac 1.2.6 changed the Grain fine-noise kernel (smoothstep-interpolated lattice
+            // instead of un-interpolated) whenever roughness contributes at all; at roughness
+            // 0 the two kernels agree (`noise = smooth + (fine - smooth) * rough`, AdjustPixels.c).
+            // This build still draws the old kernel (Phase 3.5b), so disclose the divergence
+            // rather than silently rendering every default-roughness Grain layer wrong.
+            if a.kind == AdjustmentKind::Grain && a.grain().roughness > 0.0 {
+                out.push("the Compositor 1.2.6 grain roughness".to_string());
+            }
+        }
+        if let Some(serde_json::Value::Object(effects)) = &self.extra.effects {
+            if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.push("layer effects".to_string()); }
+        }
+        if !self.extra.unknown.is_empty() { out.push("settings from a newer version of Compositor".to_string()); }
+        out
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,27 +169,7 @@ impl Document {
     pub fn undrawn(&self) -> Vec<String> {
         let mut out = std::collections::BTreeSet::new();
         if !self.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }
-        for layer in &self.layers {
-            if !layer.blend_mode.is_drawn() {
-                let name = serde_json::to_value(layer.blend_mode).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-                out.insert(format!("the {name} blend mode"));
-            }
-            if let Some(a) = &layer.extra.adjustment {
-                if !a.kind.is_drawn() { out.insert(format!("{} adjustment layers", a.kind.name())); }
-                // Mac 1.2.6 changed the Grain fine-noise kernel (smoothstep-interpolated lattice
-                // instead of un-interpolated) whenever roughness contributes at all; at roughness
-                // 0 the two kernels agree (`noise = smooth + (fine - smooth) * rough`, AdjustPixels.c).
-                // This build still draws the old kernel (Phase 3.5b), so disclose the divergence
-                // rather than silently rendering every default-roughness Grain layer wrong.
-                if a.kind == AdjustmentKind::Grain && a.grain().roughness > 0.0 {
-                    out.insert("the Compositor 1.2.6 grain roughness".to_string());
-                }
-            }
-            if let Some(serde_json::Value::Object(effects)) = &layer.extra.effects {
-                if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.insert("layer effects".to_string()); }
-            }
-            if !layer.extra.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }
-        }
+        for layer in &self.layers { out.extend(layer.undrawn_features()); }
         out.into_iter().collect()
     }
 }
