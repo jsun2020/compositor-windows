@@ -115,9 +115,11 @@ pnpm build:portable   # build and package the portable Windows zip
 
 ## Project file interoperability
 
-Projects are `.comp` folder packages, compatible with Compositor for macOS. The macOS app
-currently writes format version 7; this app reads format versions 1 through 7 and writes
-version 7, so projects created or edited by either app can be opened by the other.
+Projects are `.comp` folder packages, compatible with Compositor for macOS. This app opens
+projects from Compositor for Mac 1.2.6 (format version 9) and every earlier format (1 to 9),
+writes version 9 as the Mac does, and saves them back without losing anything. Folder opacity
+and saved guides are supported. Newer effects, blend modes and adjustment kinds are kept and
+listed in a notice until the next update draws them.
 
 ## Further reading
 

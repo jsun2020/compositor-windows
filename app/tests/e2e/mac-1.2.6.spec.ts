@@ -1,5 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect, type Page } from "@playwright/test";
 import { clickMenu, noisePngBase64, redSquarePngBase64 } from "./helpers";
+
+// The real fixture the controller saved from Compositor for Mac 1.2.6. Resolved from this
+// file's own location, not the cwd-dependent ".", so it works regardless of where the test
+// runner's working directory ends up.
+const FIXTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..",
+  "engine", "tests", "fixtures", "mac-1.2.6", "Mac-test-for-windows.comp");
 
 // Copied verbatim from adjust-layers.spec.ts, where they are file-local.
 async function setup(page: Page) {
@@ -207,4 +216,52 @@ test("a notice names what the project uses that this build does not draw, and Di
   // Scoped to the notice: the error banner's button (App.tsx:98) is also named "Dismiss".
   await notice.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(notice).toHaveCount(0);
+});
+
+test("the Mac-saved fixture opens, matches and re-saves to a re-openable v9 manifest", async ({ page }) => {
+  const manifestJson = fs.readFileSync(path.join(FIXTURE_DIR, "manifest.json"), "utf8");
+  const inputManifest = JSON.parse(manifestJson) as { layers: { id: string; imageFile?: string; transform: unknown }[] };
+  // Only the second layer carries an image in this fixture; read whichever layers do.
+  const images = inputManifest.layers.filter((l) => l.imageFile).map((l) => ({
+    name: l.imageFile as string,
+    b64: fs.readFileSync(path.join(FIXTURE_DIR, "images", l.imageFile as string)).toString("base64"),
+  }));
+
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const result = await page.evaluate(async ({ manifestJson, images }) => {
+    const api = (window as any).__compositor;
+    const files = {
+      manifest: manifestJson,
+      images: images.map((i: { name: string; b64: string }) => ({
+        name: i.name, bytes: Uint8Array.from(atob(i.b64), (c: string) => c.charCodeAt(0)),
+      })),
+    };
+    const doc = api.engine.openPackage(files, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    const before = api.engine.state(doc);
+    const saved = api.engine.savePackage(doc);
+    const reopened = api.engine.openPackage(saved, null);
+    const after = api.engine.state(reopened);
+    api.engine.closeDocument(reopened);
+    return { before, savedManifest: JSON.parse(saved.manifest), after };
+  }, { manifestJson, images });
+
+  expect(result.before.width).toBe(962);
+  expect(result.before.height).toBe(1080);
+  expect(result.before.layers).toHaveLength(2);
+  expect(result.before.layers[1].transform.size).toEqual([962, 1708]);
+  await expect(page.getByTestId("undrawn-notice")).toHaveCount(0);
+
+  // The save round-trips to version 9 with every layer's id and transform unchanged.
+  expect(result.savedManifest.version).toBe(9);
+  expect(result.savedManifest.layers.map((l: any) => l.id)).toEqual(inputManifest.layers.map((l) => l.id));
+  inputManifest.layers.forEach((l, i) => {
+    expect(result.savedManifest.layers[i].transform).toEqual(l.transform);
+  });
+  // The save re-opened above without the page.evaluate throwing; it also matches the original.
+  expect(result.after.width).toBe(962);
+  expect(result.after.height).toBe(1080);
+  expect(result.after.layers).toHaveLength(2);
 });
