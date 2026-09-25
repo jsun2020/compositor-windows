@@ -25,6 +25,7 @@ pub use adjust::grain::*;
 pub use adjust::filters::*;
 pub use adjust::prepared::*;
 pub use adjust::apply::*;
+pub use adjust::spatial::*;
 pub use error::*;
 pub use geometry::*;
 pub use manifest::*;

@@ -444,6 +444,15 @@ impl LayerAdjustment {
     pub fn noise_is_gaussian(&self) -> bool { self.noise_gaussian.unwrap_or(false) }
     pub fn noise_is_monochromatic(&self) -> bool { self.noise_monochromatic.unwrap_or(false) }
     pub fn noise_seed_or_zero(&self) -> u32 { self.noise_seed.unwrap_or(0) }
+    /// Document pixels a partial render must include around what it shows so this layer's blur
+    /// sees everything within its reach (`samplingMargin`, LayerAdjustment.swift:121-127).
+    pub fn sampling_margin(&self) -> f64 {
+        match self.kind {
+            AdjustmentKind::GaussianBlur => self.gaussian_radius() * 3.0 + 2.0,
+            AdjustmentKind::MotionBlur => self.motion_distance_pixels() / 2.0 + 2.0,
+            _ => 0.0,
+        }
+    }
     pub fn is_valid(&self) -> bool {
         self.hue.is_finite() && self.saturation.is_finite() && self.lightness.is_finite() && self.hue.abs() <= 360.0 && self.saturation.abs() <= 100.0 && self.lightness.abs() <= 100.0
             && self.resolved_hsv().is_valid() && self.levels.is_valid() && self.curves.is_valid()

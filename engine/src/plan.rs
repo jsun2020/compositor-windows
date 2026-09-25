@@ -47,7 +47,12 @@ pub enum PlanNode {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RenderPlan { pub nodes: Vec<PlanNode>, pub sources: Vec<LayerDraw> }
+pub struct RenderPlan {
+    pub nodes: Vec<PlanNode>,
+    pub sources: Vec<LayerDraw>,
+    /// Document pixels the plan's blurs reach, summed (stacked blurs compound); zero when the plan has no blur. spatial_grid turns it into a render's pad.
+    pub spatial_margin: f64,
+}
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -229,7 +234,10 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
             sources.push(draw);
         }
     }
-    RenderPlan { nodes, sources }
+    let mut plan = RenderPlan { nodes, sources, spatial_margin: 0.0 };
+    let margin: f64 = spatial_blurs(&plan).into_iter().map(LayerAdjustment::sampling_margin).sum();
+    plan.spatial_margin = margin;
+    plan
 }
 
 /// Appends draws for `id` and its clipping chain to `plan.sources` when they are missing.

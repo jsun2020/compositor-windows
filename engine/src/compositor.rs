@@ -187,7 +187,10 @@ impl<'a> Target<'a> {
 
 /// Draws one layer with its opacity, coverages and clip, blended with its mode.
 fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
-    if draw.adjustment.is_some() { return adjust_target(doc, plan, target, draw, blend, use_clip); }
+    if let Some(adjustment) = &draw.adjustment {
+        if adjustment.kind.is_spatial() { return spatial_target(doc, plan, target, draw, adjustment, blend, use_clip); }
+        return adjust_target(doc, plan, target, draw, blend, use_clip);
+    }
     let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
     // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
@@ -250,6 +253,72 @@ fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &
     }}
 }
 
+/// `original` moved toward `result` by `k`, premultiplied: the Mac's CIBlendWithMask at the layer's
+/// opacity, then the copy through its masks (R 3.4 steps 4-5). Colour never exceeds alpha.
+fn toward(original: [u8; 4], result: [u8; 4], k: f32) -> [u8; 4] {
+    if k >= 1.0 { return result; }
+    let lerp = |o: u8, r: u8| (o as f32 + (r as f32 - o as f32) * k).round().clamp(0.0, 255.0);
+    let alpha = lerp(original[3], result[3]);
+    [lerp(original[0], result[0]).min(alpha) as u8, lerp(original[1], result[1]).min(alpha) as u8,
+     lerp(original[2], result[2]).min(alpha) as u8, alpha as u8]
+}
+
+/// A spatial adjustment's result blended onto the original in `mode` at full coverage, keeping the
+/// original's alpha (LiveMaskRenderer.swift:24-46): both made opaque as `layer_unpremultiply_opaque`
+/// does (a clear pixel becomes black), blended, then `layer_restore_alpha`.
+fn blended_keeping_alpha(mode: BlendMode, original: [u8; 4], adjusted: [u8; 4]) -> [u8; 4] {
+    let opaque = |p: [u8; 4]| -> [f32; 3] {
+        let a = p[3] as u32;
+        [0, 1, 2].map(|c| if a == 0 { 0.0 } else { ((p[c] as u32 * 255 + a / 2) / a).min(255) as f32 / 255.0 })
+    };
+    let b = blend_rgb(mode, opaque(original), opaque(adjusted));
+    let a = original[3] as u32;
+    let c = |v: f32| (((v.clamp(0.0, 1.0) * 255.0).round() as u32 * a + 127) / 255) as u8;
+    [c(b[0]), c(b[1]), c(b[2]), original[3]]
+}
+
+/// A Gaussian or Motion Blur adjustment layer (R 3.4): everything composited so far, blurred as a
+/// whole with alpha, then put back where this layer's coverage reaches, weighted by it. Anything
+/// outside the canvas is transparent to the blur and takes nothing from it, as the Mac's
+/// canvas-sized context is empty there.
+fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, adjustment: &LayerAdjustment, blend: BlendMode, use_clip: bool) {
+    let scale = target.w as f64 / target.region.width;
+    let on_canvas = |p: Point| p.x >= 0.0 && p.y >= 0.0 && p.x < doc.width as f64 && p.y < doc.height as f64;
+    let mut input = target.data.to_vec();
+    for oy in 0..target.h { for ox in 0..target.w {
+        if !on_canvas(target.doc_point(ox, oy)) {
+            let i = ((oy * target.w + ox) * 4) as usize;
+            input[i..i + 4].fill(0);
+        }
+    }}
+    let input = Raster::from_premultiplied(target.w, target.h, input);
+    let b = spatial_blur(adjustment, scale);
+    let blurred = match adjustment.kind {
+        AdjustmentKind::GaussianBlur => blur_for_layer(&input, b.sigma),
+        AdjustmentKind::MotionBlur => streak_for_layer(&input, b.angle, b.distance),
+        _ => return,
+    };
+    let blurred = blurred.bytes();
+    let clip_sources = match (use_clip, draw.clip) {
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, scale),
+        _ => SourceRasters::new(),
+    };
+    for oy in 0..target.h { for ox in 0..target.w {
+        let i = ((oy * target.w + ox) * 4) as usize;
+        let p = target.doc_point(ox, oy);
+        if !on_canvas(p) { continue; }
+        let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
+        if k <= 0.0 { continue; }
+        let original = [target.data[i], target.data[i + 1], target.data[i + 2], target.data[i + 3]];
+        let mut result = [blurred[i], blurred[i + 1], blurred[i + 2], blurred[i + 3]];
+        // The layer's own mode is not Normal: full coverage in its Core Graphics mode, original
+        // alpha kept, even when that mode is Normal (Task 1, `keeps_alpha`).
+        if draw.keeps_alpha { result = blended_keeping_alpha(blend, original, result); }
+        target.data[i..i + 4].copy_from_slice(&toward(original, result, k));
+    }}
+}
+
 fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &LayerDraw, children: &[LayerDraw], folder: &[Coverage]) {
     let (w, h) = (target.w, target.h);
     let mut temp = vec![0u8; (w * h * 4) as usize];
@@ -258,10 +327,14 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
         draw_layer(doc, plan, &mut t, base, BlendMode::Normal, true);
     }
     let base_alpha: Vec<u8> = temp.chunks_exact(4).map(|p| p[3]).collect();
-    // Opaque where the base has any coverage, so children blend against its colours.
+    // The whole surface opaque, a clear pixel becoming opaque black, as layer_unpremultiply_opaque
+    // does (BrushPixels.c:23-35) before the children draw (LiveMaskRenderer.swift:97-101). The
+    // base alpha put back below zeroes what lies beyond the base again; only a clipped blur can
+    // tell, by spreading that black inward.
     for px in temp.chunks_exact_mut(4) {
         let a = px[3] as u32;
-        if a > 0 { for c in 0..3 { px[c] = ((px[c] as u32 * 255 + a / 2) / a).min(255) as u8; } px[3] = 255; }
+        if a > 0 { for c in 0..3 { px[c] = ((px[c] as u32 * 255 + a / 2) / a).min(255) as u8; } }
+        px[3] = 255;
     }
     {
         let mut t = Target { data: &mut temp, w, h, region: target.region };
@@ -290,7 +363,37 @@ pub fn render_layers(doc: &Document) -> Vec<&Layer> {
     doc.render_ids().into_iter().filter_map(|id| doc.layer(id)).collect()
 }
 
+/// How a partial render grows its region so its blurs see everything within their reach.
+struct Padding { region: Rect, width: u32, height: u32, left: u32, top: u32 }
+
+/// The region grown on each axis by `spatial_span`: by the plan's pad, onto the halving lattice
+/// anchored at the canvas's top-left corner, never past the canvas's span rounded out to that
+/// lattice (beyond the canvas the Mac's context is empty, R 3.4, and `spatial_target` zeroes it).
+/// None when nothing changes: no blur, or a region already on the lattice out to the canvas edges.
+fn padding(doc: &Document, plan: &RenderPlan, region: Rect, w: u32, h: u32) -> Option<Padding> {
+    if !(plan.spatial_margin > 0.0) || w == 0 || h == 0 || !(region.width > 0.0) || !(region.height > 0.0) { return None; }
+    let (sx, sy) = (w as f64 / region.width, h as f64 / region.height);
+    let grid = spatial_grid(plan, sx);
+    // Whole output pixels from the canvas's corner to the region's. Exact, and so is the lattice,
+    // whenever the region starts on the canvas's own output grid, as export, merge, the histogram,
+    // the eyedroppers (engine.rs:394, :425, both `floor`ed 1 x 1 regions) and a whole-pixel pan do.
+    let (x0, y0) = ((region.x * sx).floor() as i64, (region.y * sy).floor() as i64);
+    let (xs, xe) = spatial_span(x0, x0 + w as i64, (doc.width as f64 * sx).ceil() as i64, grid.cell, grid.pad);
+    let (ys, ye) = spatial_span(y0, y0 + h as i64, (doc.height as f64 * sy).ceil() as i64, grid.cell, grid.pad);
+    let (left, top, width, height) = ((x0 - xs) as u32, (y0 - ys) as u32, (xe - xs) as u32, (ye - ys) as u32);
+    if left == 0 && top == 0 && width == w && height == h { return None; }
+    Some(Padding { region: Rect { x: region.x - left as f64 / sx, y: region.y - top as f64 / sy, width: width as f64 / sx, height: height as f64 / sy },
+        width, height, left, top })
+}
+
 pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
+    match padding(doc, plan, region, out_width, out_height) {
+        Some(p) => composite_region(doc, plan, p.region, p.width, p.height).cropped(p.left, p.top, out_width, out_height),
+        None => composite_region(doc, plan, region, out_width, out_height),
+    }
+}
+
+fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
         let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
@@ -314,7 +417,7 @@ pub fn composite(doc: &Document, region: Rect, w: u32, h: u32) -> Raster { compo
 pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &Layer) {
     let doc = Document { id: Uuid::nil(), width: 1, height: 1, resolution: 72.0, layers: vec![layer.clone()], active_layer_id: None,
         guides: vec![], unknown: Default::default() };
-    let plan = RenderPlan { nodes: vec![], sources: vec![] };
+    let plan = RenderPlan { nodes: vec![], sources: vec![], spatial_margin: 0.0 };
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
         opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, keeps_alpha: false, coverages: vec![], clip: None, adjustment: None };

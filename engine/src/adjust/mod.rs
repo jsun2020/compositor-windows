@@ -7,3 +7,4 @@ pub mod grain;
 pub mod filters;
 pub mod prepared;
 pub mod apply;
+pub mod spatial;
