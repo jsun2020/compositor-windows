@@ -192,3 +192,53 @@ test("the new-blend-modes probe draws on the GPU as the Mac exported it", async 
   await openProbe(page, "new-blend-modes");
   expect(worstOf(await glPixels(page), await macPixels(page, "new-blend-modes"))).toBeLessThanOrEqual(2);
 });
+
+/** A new adjustment layer of `kind` on the active document, with `settings` merged into it; it becomes the active layer. */
+async function addAdjustment(page: Page, kind: string, settings: object | null): Promise<string> {
+  return page.evaluate(({ kind, settings }) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    api.engine.execute(s.activeId, { type: "AddAdjustmentLayer", kind, seed: 7, shadows: null, highlights: null });
+    const layer = api.engine.state(s.activeId).layers.filter((l: any) => l.adjustment).at(-1);
+    if (settings) api.engine.execute(s.activeId, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, ...settings } });
+    s.refresh(); s.invalidate();
+    return layer.id as string;
+  }, { kind, settings });
+}
+
+test("the four per-pixel 1.2.6 kinds draw on the GPU as on the CPU", async ({ page }) => {
+  await setupNoise(page, 721);
+  const cases: [string, object | null, number][] = [
+    ["Invert", null, 2],
+    ["Black & White", null, 2],
+    ["Black & White", { blackWhiteSettings: { reds: 115, yellows: -40, greens: 70, cyans: 180, blues: -90, magentas: 20, tint: true, tintHue: 205, tintSaturation: 45 } }, 2],
+    ["Color Balance", { colorBalanceSettings: { shadowCyanRed: 40, shadowMagentaGreen: -20, shadowYellowBlue: 30, midCyanRed: -35, midMagentaGreen: 25, midYellowBlue: -15, highlightCyanRed: 20, highlightMagentaGreen: 45, highlightYellowBlue: -50, preserveLuminosity: true } }, 2],
+    ["Color Balance", { colorBalanceSettings: { shadowCyanRed: 40, shadowMagentaGreen: -20, shadowYellowBlue: 30, midCyanRed: -35, midMagentaGreen: 25, midYellowBlue: -15, highlightCyanRed: 20, highlightMagentaGreen: 45, highlightYellowBlue: -50, preserveLuminosity: false } }, 2],
+    ["Add Noise", { noiseAmount: 30, noiseGaussian: false, noiseMonochromatic: false, noiseSeed: 12345 }, 2],
+    // Box-Muller's log and cos round differently in GLSL: one more level.
+    ["Add Noise", { noiseAmount: 45, noiseGaussian: true, noiseMonochromatic: true, noiseSeed: 777 }, 3],
+  ];
+  for (const [kind, settings, tolerance] of cases) {
+    const id = await addAdjustment(page, kind, settings);
+    await expectMatchesCpu(page, `${kind} ${JSON.stringify(settings)}`, tolerance);
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+});
+
+test("an Invert layer turns each opaque pixel into 255 minus itself on the GPU", async ({ page }) => {
+  const doc = await setupNoise(page, 721);
+  // The noise layer's own stored pixels: an expectation that does not come from either renderer.
+  const noise = await page.evaluate((doc) => {
+    const api = (window as any).__compositor;
+    const id = api.engine.state(doc).layers[0].id;
+    return Array.from(api.engine.layerPixels(doc, id, 0)) as number[];
+  }, doc);
+  await addAdjustment(page, "Invert", null);
+  const gl = await glPixels(page);
+  const want = noise.map((v, i) => (i % 4 === 3 ? v : 255 - v));
+  expect(worstOf(gl, want)).toBeLessThanOrEqual(1);
+});
+
+test("the Black & White probe draws on the GPU as the Mac exported it", async ({ page }) => {
+  await openProbe(page, "new-adjustment-layers");
+  expect(worstOf(await glPixels(page), await macPixels(page, "new-adjustment-layers"))).toBeLessThanOrEqual(2);
+});

@@ -1,5 +1,5 @@
 import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from "../engine/types";
-import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
@@ -11,6 +11,15 @@ import { AdjustTextures } from "./gl/adjust-textures";
 import { cornersOf, fromTuple, homographyUnitTo, mat3Invert, mat3Mul, pixelToDocument, type Mat3, type P } from "../tools/transform-geometry";
 
 const MAX_CLIP_LEVELS = 3;
+
+/** Which FRAG_ADJUST branch draws each kind (PreparedAdjustment in engine/src/adjust/prepared.rs). */
+const KIND_CODE: Record<AdjustmentKind, number> = {
+  "Hue/Saturation": ADJUST_KIND.hsv, Levels: ADJUST_KIND.tables, Curves: ADJUST_KIND.tables, Exposure: ADJUST_KIND.tables,
+  "Gradient Map": ADJUST_KIND.gradientMap, Grain: ADJUST_KIND.grain, Invert: ADJUST_KIND.invert,
+  "Black & White": ADJUST_KIND.blackWhite, "Color Balance": ADJUST_KIND.colorBalance, "Add Noise": ADJUST_KIND.addNoise,
+  // Spatial: a pass of their own (Task 10); identity here until it exists.
+  "Gaussian Blur": ADJUST_KIND.identity, "Motion Blur": ADJUST_KIND.identity,
+};
 
 export class GlRenderer implements Renderer {
   readonly kind = "gl" as const;
@@ -200,10 +209,7 @@ export class GlRenderer implements Renderer {
     const p = this.programs.adjust;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`${pair}B`, "rgba").fbo);
     gl.useProgram(p.program);
-    const kind = !DRAWN_ADJUSTMENT_KINDS.includes(adjustment.kind) ? ADJUST_KIND.identity
-      : adjustment.kind === "Hue/Saturation" ? ADJUST_KIND.hsv : adjustment.kind === "Grain" ? ADJUST_KIND.grain
-      : adjustment.kind === "Gradient Map" ? ADJUST_KIND.gradientMap : ADJUST_KIND.tables;
-    gl.uniform1i(p.uniforms.kind, kind);
+    gl.uniform1i(p.uniforms.kind, KIND_CODE[adjustment.kind]);
     gl.uniform1f(p.uniforms.opacity, draw.opacity);
     gl.uniform1i(p.uniforms.mode, BLEND_INDEX[blend as keyof typeof BLEND_INDEX]);
     gl.uniform1i(p.uniforms.useCoverage, coverageLevel === null ? 0 : 1);
@@ -246,6 +252,20 @@ export class GlRenderer implements Renderer {
     // strength mirrors `grain_strength` in engine/src/adjust/grain.rs.
     gl.uniform3f(p.uniforms.grain, grain.size, grain.roughness, Math.min(1, grain.amount / 100) * 0.35 * 255);
     gl.uniform1ui(p.uniforms.grainSeed, grain.seed >>> 0);
+    // The Global Constraints' one exception: absent settings resolve with TS copies of the
+    // engine's defaults (black_white, color_balance, noise_amount_percent, noise_seed_or_zero in
+    // engine/src/adjust/settings.rs), as `clampOr` above does for grain.
+    const bw = adjustment.blackWhiteSettings ?? DEFAULT_BLACK_WHITE;
+    gl.uniform3f(p.uniforms.bwLow, bw.reds / 100, bw.yellows / 100, bw.greens / 100);
+    gl.uniform3f(p.uniforms.bwHigh, bw.cyans / 100, bw.blues / 100, bw.magentas / 100);
+    gl.uniform3f(p.uniforms.bwTint, bw.tint ? 1 : 0, bw.tintHue, bw.tintSaturation / 100);
+    const cb = adjustment.colorBalanceSettings ?? DEFAULT_COLOR_BALANCE;
+    gl.uniform3f(p.uniforms.cbShadows, cb.shadowCyanRed / 100, cb.shadowMagentaGreen / 100, cb.shadowYellowBlue / 100);
+    gl.uniform3f(p.uniforms.cbMidtones, cb.midCyanRed / 100, cb.midMagentaGreen / 100, cb.midYellowBlue / 100);
+    gl.uniform3f(p.uniforms.cbHighlights, cb.highlightCyanRed / 100, cb.highlightMagentaGreen / 100, cb.highlightYellowBlue / 100);
+    gl.uniform1i(p.uniforms.cbPreserve, cb.preserveLuminosity ? 1 : 0);
+    gl.uniform3f(p.uniforms.noiseParams, (adjustment.noiseAmount ?? 10) / 100 * 127.5, adjustment.noiseGaussian ? 1 : 0, adjustment.noiseMonochromatic ? 1 : 0);
+    gl.uniform1ui(p.uniforms.noiseSeed, (adjustment.noiseSeed ?? 0) >>> 0);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.fbos.get(`${pair}A`, "rgba").tex); gl.uniform1i(p.uniforms.src, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, coverageLevel === null ? this.white : this.fbos.get(`coverage${coverageLevel}`, "r8").tex); gl.uniform1i(p.uniforms.coverage, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.adjustTextures.lut(ctx.engine, adjustment) ?? this.white); gl.uniform1i(p.uniforms.lut, 2);

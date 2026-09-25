@@ -4,7 +4,7 @@ import type { BlendMode } from "../../engine/types";
 // already mapped to their Core Graphics mode by the plan (BlendMode::cg_mode).
 export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12,
   "Linear Burn": 13, "Linear Dodge (Add)": 14, "Soft Light": 15, "Hard Light": 16, "Vivid Light": 17, "Linear Light": 18, "Pin Light": 19, "Hard Mix": 20, Exclusion: 21, Subtract: 22, Divide: 23 };
-export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4 };
+export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4, invert: 5, blackWhite: 6, colorBalance: 7, addNoise: 8 };
 
 const VERT_UNIT = `#version 300 es
 in vec2 unit;
@@ -225,6 +225,15 @@ uniform mat3 deviceToDoc;
 uniform vec3 colorizeAmounts;   // hue, saturation, lightness of the SELECTED range (not Master)
 uniform vec3 grain;             // size, roughness, strength
 uniform uint grainSeed;
+uniform vec3 bwLow;        // reds, yellows, greens weights (/ 100)
+uniform vec3 bwHigh;       // cyans, blues, magentas weights (/ 100)
+uniform vec3 bwTint;       // on (0 or 1), hue in degrees, saturation 0..1
+uniform vec3 cbShadows;    // cyan-red, magenta-green, yellow-blue (/ 100)
+uniform vec3 cbMidtones;
+uniform vec3 cbHighlights;
+uniform bool cbPreserve;
+uniform vec3 noiseParams;  // spread (amount / 100 * 127.5), gaussian (0 or 1), monochromatic (0 or 1)
+uniform uint noiseSeed;
 out vec4 color;
 ${BLEND_GLSL}
 ${ADJUST_GLSL}
@@ -269,6 +278,60 @@ vec3 throughGrain(vec3 c, vec2 at) {
   float delta = noise * grain.z * (0.4 + 2.4 * level * (1.0 - level)) / 255.0;
   return clamp(c + delta, 0.0, 1.0);
 }
+// black_white_rgb in engine/src/adjust/tonal.rs (AdjustPixels.c:110-152).
+float bwWeight(int i) { return i == 0 ? bwLow.x : i == 1 ? bwLow.y : i == 2 ? bwLow.z : i == 3 ? bwHigh.x : i == 4 ? bwHigh.y : bwHigh.z; }
+vec3 throughBlackWhite(vec3 c) {
+  float r = min(c.r, 1.0), g = min(c.g, 1.0), b = min(c.b, 1.0);
+  float mx = max(r, max(g, b)), mn = min(r, min(g, b)), md = r + g + b - mx - mn;
+  int primary; int secondary;
+  if (mx == r) { primary = 0; secondary = g >= b ? 1 : 5; }
+  else if (mx == g) { primary = 2; secondary = r >= b ? 1 : 3; }
+  else { primary = 4; secondary = g >= r ? 3 : 5; }
+  float gray = clamp(mn + (md - mn) * bwWeight(secondary) + (mx - md) * bwWeight(primary), 0.0, 1.0);
+  if (bwTint.x < 0.5 || bwTint.z <= 0.0) return vec3(gray);
+  float chroma = (1.0 - abs(2.0 * gray - 1.0)) * bwTint.z;
+  float hp = mod(bwTint.y, 360.0) / 60.0;   // tintHue is 0..360, where mod and fmod agree
+  float x = chroma * (1.0 - abs(mod(hp, 2.0) - 1.0));
+  vec3 rgb = hp < 1.0 ? vec3(chroma, x, 0.0) : hp < 2.0 ? vec3(x, chroma, 0.0) : hp < 3.0 ? vec3(0.0, chroma, x)
+    : hp < 4.0 ? vec3(0.0, x, chroma) : hp < 5.0 ? vec3(x, 0.0, chroma) : vec3(chroma, 0.0, x);
+  return clamp(rgb + (gray - chroma / 2.0), 0.0, 1.0);
+}
+// tonal_weights and color_balance_rgb in engine/src/adjust/tonal.rs (AdjustPixels.c:156-196).
+vec3 tonalWeights(float v) {
+  float s = clamp((v - 0.333) / -0.25 + 0.5, 0.0, 1.0);
+  float h = clamp((v + 0.333 - 1.0) / 0.25 + 0.5, 0.0, 1.0);
+  float m = clamp((v - 0.333) / 0.25 + 0.5, 0.0, 1.0) * clamp((v + 0.333 - 1.0) / -0.25 + 0.5, 0.0, 1.0);
+  return vec3(s, m, h) * 0.7;
+}
+vec3 throughColorBalance(vec3 c) {
+  c = min(c, vec3(1.0));
+  float before = dot(c, vec3(0.299, 0.587, 0.114));
+  vec3 outc;
+  for (int i = 0; i < 3; i++) {
+    vec3 w = tonalWeights(c[i]);
+    outc[i] = clamp(c[i] + cbShadows[i] * w.x + cbMidtones[i] * w.y + cbHighlights[i] * w.z, 0.0, 1.0);
+  }
+  if (cbPreserve) {
+    float after = dot(outc, vec3(0.299, 0.587, 0.114));
+    if (after > 0.0001) outc = clamp(outc * (before / after), 0.0, 1.0);
+  }
+  return outc;
+}
+// noise_base and noise_offset in engine/src/adjust/filters.rs (NoisePixels.c:5-49); noise_hash is mix32.
+float noiseUnit(uint key) { return float(mix32(key) >> 8u) * (1.0 / 16777216.0); }
+vec3 throughNoise(vec3 c, vec2 at) {
+  uint px = uint(int(floor(at.x))), py = uint(int(floor(at.y)));
+  uint base = mix32(noiseSeed ^ mix32(px * 0x9e3779b9u ^ mix32(py * 0x85ebca6bu)));
+  vec3 outc;
+  for (int i = 0; i < 3; i++) {
+    uint key = noiseParams.z > 0.5 ? base : base + uint(i) * 0x9e3779b9u;
+    float n = noiseParams.y > 0.5
+      ? sqrt(-2.0 * log(1.0 - noiseUnit(key))) * cos(6.2831853 * noiseUnit(key ^ 0x68e31da4u)) * noiseParams.x * (2.0 / 3.0)
+      : (noiseUnit(key) * 2.0 - 1.0) * noiseParams.x;
+    outc[i] = clamp(c[i] * 255.0 + n, 0.0, 255.0) / 255.0;
+  }
+  return outc;
+}
 void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   vec4 d = texelFetch(src, at, 0);
@@ -281,6 +344,10 @@ void main() {
   else if (kind == 2) adjusted = throughGradientMap(original);
   else if (kind == 3) adjusted = throughHsl(original);
   else if (kind == 4) { vec3 p = deviceToDoc * vec3(gl_FragCoord.xy, 1.0); adjusted = throughGrain(original, p.xy / p.z); }
+  else if (kind == 5) adjusted = vec3(1.0) - original;
+  else if (kind == 6) adjusted = throughBlackWhite(original);
+  else if (kind == 7) adjusted = throughColorBalance(original);
+  else if (kind == 8) { vec3 p = deviceToDoc * vec3(gl_FragCoord.xy, 1.0); adjusted = throughNoise(original, p.xy / p.z); }
   if (mode != 0) adjusted = clamp(blendRgb(mode, original, adjusted), 0.0, 1.0);
   vec3 mixed = mix(original, clamp(adjusted, 0.0, 1.0), k);
   color = vec4(mixed * d.a, d.a);
@@ -311,7 +378,8 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
     restore: compile(gl, VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
     blit: compile(gl, VERT_SCREEN, FRAG_BLIT, ["src"]),
     checker: compile(gl, VERT_UNIT, FRAG_CHECKER, ["unitToClip", "uvRect", "flipX", "flipY", "sizePx", "cell"]),
-    adjust: compile(gl, VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed"]),
+    adjust: compile(gl, VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed",
+      "bwLow", "bwHigh", "bwTint", "cbShadows", "cbMidtones", "cbHighlights", "cbPreserve", "noiseParams", "noiseSeed"]),
     vao, buffer,
   };
   for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust]) {
