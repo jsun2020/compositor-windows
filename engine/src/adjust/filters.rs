@@ -100,6 +100,9 @@ pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f
     let (w, h) = (width as i64, height as i64);
     let band = (2 * radius + 1).min(h);
     let mut tmp = vec![0f32; (band * w * 4) as usize];
+    // The vertical taps inside the raster for one output row, in kernel order: where the tap's
+    // row starts in the band, and its weight.
+    let mut taps: Vec<(usize, f32)> = Vec::with_capacity(kernel.len());
     // The next source row the horizontal pass reads.
     let mut next = 0i64;
     for y in 0..h {
@@ -119,13 +122,17 @@ pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f
             }
             next += 1;
         }
+        taps.clear();
+        for (k, weight) in kernel.iter().enumerate() {
+            let sy = y + k as i64 - radius;
+            if sy < 0 || sy >= h { continue; }
+            taps.push((((sy % band) * w * 4) as usize, *weight));
+        }
         for x in 0..w {
             let mut acc = [0f32; 4];
-            for (k, weight) in kernel.iter().enumerate() {
-                let sy = y + k as i64 - radius;
-                if sy < 0 || sy >= h { continue; }
-                let i = (((sy % band) * w + x) * 4) as usize;
-                for c in 0..4 { acc[c] += tmp[i + c] * weight; }
+            let column = (x * 4) as usize;
+            for &(row, weight) in &taps {
+                for c in 0..4 { acc[c] += tmp[row + column + c] * weight; }
             }
             let i = ((y * w + x) * 4) as usize;
             let alpha = (acc[3] / sum).round().clamp(0.0, 255.0);
