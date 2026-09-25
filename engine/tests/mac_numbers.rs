@@ -32,3 +32,18 @@ fn flipping_an_unrotated_layer_leaves_its_rotation_at_zero_not_minus_zero() {
     assert!(!t.mirrored(true, 20.0).rotation.is_sign_negative());
     assert_eq!(LayerTransform { rotation: 30.0, ..t }.mirrored(false, 20.0).rotation, -30.0, "a real rotation still mirrors");
 }
+
+#[test]
+fn a_layer_at_opacity_0_saves_it_as_the_mac_writes_it() {
+    let mut doc = Document::new(3, 2);
+    let mut clear = Layer::with_pixels("Clear", Raster::from_premultiplied(3, 2, [40u8, 20, 10, 255].repeat(6)), Point { x: 0.0, y: 0.0 });
+    clear.opacity = 0.0;
+    let mut half = Layer::with_pixels("Half", Raster::from_premultiplied(3, 2, [40u8, 20, 10, 255].repeat(6)), Point { x: 0.0, y: 0.0 });
+    half.opacity = 0.25;
+    doc.layers = vec![clear, half];
+    let saved: Value = serde_json::from_str(&save_package(&doc).unwrap().manifest_json).unwrap();
+    // Value keeps 0 and 0.0 apart: Swift's JSONEncoder writes the whole number 0.
+    assert_eq!(saved["layers"][0]["opacity"], serde_json::json!(0));
+    assert_eq!(saved["layers"][1]["opacity"], serde_json::json!(0.25), "a fraction keeps its fraction");
+    assert_eq!(open_package(&save_package(&doc).unwrap()).unwrap().layers[0].opacity, 0.0, "and reads back");
+}

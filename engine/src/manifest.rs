@@ -87,7 +87,7 @@ pub struct LayerRecord {
     #[serde(rename = "imageFile", default, skip_serializing_if = "Option::is_none")] pub image_file: Option<String>,
     #[serde(rename = "parentID", default, with = "ids::upper_opt", skip_serializing_if = "Option::is_none")] pub parent_id: Option<Uuid>,
     #[serde(rename = "isGroup", default, skip_serializing_if = "Option::is_none")] pub is_group: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub opacity: Option<f64>,
+    #[serde(default, with = "crate::adjust::settings::mac_number_opt", skip_serializing_if = "Option::is_none")] pub opacity: Option<f64>,
     #[serde(rename = "blendMode", default, skip_serializing_if = "Option::is_none")] pub blend_mode: Option<BlendMode>,
     #[serde(rename = "maskFile", default, skip_serializing_if = "Option::is_none")] pub mask_file: Option<String>,
     #[serde(rename = "maskEnabled", default, skip_serializing_if = "Option::is_none")] pub mask_enabled: Option<bool>,
