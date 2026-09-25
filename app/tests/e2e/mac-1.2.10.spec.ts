@@ -242,3 +242,173 @@ test("the Black & White probe draws on the GPU as the Mac exported it", async ({
   await openProbe(page, "new-adjustment-layers");
   expect(worstOf(await glPixels(page), await macPixels(page, "new-adjustment-layers"))).toBeLessThanOrEqual(2);
 });
+
+/** How much a tone belongs to the shadows, midtones and highlights, transcribed independently
+ * from `tonal_weights` in Compositor-1.2.10/Compositor/Rendering/AdjustPixels.c:156-167 (not from
+ * the Rust port under review): three overlapping curves that sum to about one across the range. */
+function macTonalWeights(v: number): [number, number, number] {
+  const a = 0.25, b = 0.333, scale = 0.7;
+  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  const s = clamp01((v - b) / -a + 0.5);
+  const h = clamp01((v + b - 1) / a + 0.5);
+  const m1 = clamp01((v - b) / a + 0.5);
+  const m2 = clamp01((v + b - 1) / -a + 0.5);
+  return [s * scale, m1 * m2 * scale, h * scale];
+}
+
+type MacColorBalanceSettings = {
+  shadowCyanRed: number; shadowMagentaGreen: number; shadowYellowBlue: number;
+  midCyanRed: number; midMagentaGreen: number; midYellowBlue: number;
+  highlightCyanRed: number; highlightMagentaGreen: number; highlightYellowBlue: number;
+  preserveLuminosity: boolean;
+};
+/** One premultiplied pixel through `adjust_color_balance`, transcribed independently from
+ * Compositor-1.2.10/Compositor/Rendering/AdjustPixels.c:169-196 (not from the Rust port under
+ * review): an oracle the GPU/CPU parity check alone does not provide. */
+function macColorBalancePixel(p: [number, number, number, number], s: MacColorBalanceSettings): [number, number, number] {
+  const alpha = p[3];
+  if (alpha === 0) return [p[0], p[1], p[2]];
+  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  const c = [0, 1, 2].map((i) => Math.min(255, (p[i] * 255) / alpha) / 255);
+  const before = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  const shadows = [s.shadowCyanRed / 100, s.shadowMagentaGreen / 100, s.shadowYellowBlue / 100];
+  const midtones = [s.midCyanRed / 100, s.midMagentaGreen / 100, s.midYellowBlue / 100];
+  const highlights = [s.highlightCyanRed / 100, s.highlightMagentaGreen / 100, s.highlightYellowBlue / 100];
+  for (let i = 0; i < 3; i++) {
+    const [sw, mw, hw] = macTonalWeights(c[i]);
+    c[i] = clamp01(c[i] + shadows[i] * sw + midtones[i] * mw + highlights[i] * hw);
+  }
+  if (s.preserveLuminosity) {
+    const after = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    if (after > 0.0001) {
+      const ratio = before / after;
+      for (let i = 0; i < 3; i++) c[i] = clamp01(c[i] * ratio);
+    }
+  }
+  return c.map((v) => Math.min(alpha, Math.max(0, Math.round(v * alpha)))) as [number, number, number];
+}
+
+test("a Color Balance layer matches AdjustPixels.c's color balance, transcribed independently, at sample pixels", async ({ page }) => {
+  const doc = await setupNoise(page, 721);
+  // The noise layer's own stored pixels: an expectation that does not come from either renderer.
+  const noise = await page.evaluate((doc) => {
+    const api = (window as any).__compositor;
+    const id = api.engine.state(doc).layers[0].id;
+    return Array.from(api.engine.layerPixels(doc, id, 0)) as number[];
+  }, doc);
+  // Asymmetric, non-default indices across the 64x64 fixture (4096 pixels).
+  const samples = [3, 777, 2010, 4095];
+  const base = { shadowCyanRed: 40, shadowMagentaGreen: -20, shadowYellowBlue: 30, midCyanRed: -35, midMagentaGreen: 25, midYellowBlue: -15, highlightCyanRed: 20, highlightMagentaGreen: 45, highlightYellowBlue: -50 };
+  for (const preserveLuminosity of [true, false]) {
+    const settings: MacColorBalanceSettings = { ...base, preserveLuminosity };
+    const id = await addAdjustment(page, "Color Balance", { colorBalanceSettings: settings });
+    const gl = await glPixels(page);
+    for (const i of samples) {
+      const off = i * 4;
+      const p: [number, number, number, number] = [noise[off], noise[off + 1], noise[off + 2], noise[off + 3]];
+      const expected = macColorBalancePixel(p, settings);
+      for (let c = 0; c < 3; c++) {
+        expect(Math.abs(gl[off + c] - expected[c]), `preserveLuminosity ${preserveLuminosity}, pixel ${i}, channel ${c}`).toBeLessThanOrEqual(2);
+      }
+      expect(gl[off + 3], `preserveLuminosity ${preserveLuminosity}, pixel ${i}, alpha`).toBe(p[3]);
+    }
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+});
+
+/** A 64x64 fully-opaque mid-grey PNG: a flat, known baseline so Add Noise's statistics can be
+ * checked against a formula instead of against pre-existing per-pixel variation. Must be run via
+ * `page.evaluate(grayPngBase64)` as a standalone page function, same rule as helpers.ts's
+ * `noisePngBase64`. */
+async function grayPngBase64(): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(64, 64);
+  for (let i = 0; i < 64 * 64; i++) {
+    image.data[i * 4] = 128;
+    image.data[i * 4 + 1] = 128;
+    image.data[i * 4 + 2] = 128;
+    image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+/** A 64x64 fully-opaque mid-grey document at zoom 1, its own adjustment layer selected (721 pinning). */
+async function setupGray(page: Page): Promise<string> {
+  await page.setViewportSize({ width: 1280, height: 721 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(grayPngBase64);
+  return page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0)), "gray", { x: 32, y: 32 });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    return doc as string;
+  }, b64);
+}
+
+test("an Add Noise layer's statistics match AdjustPixels.c's noise_add_at, transcribed independently", async ({ page }) => {
+  await setupGray(page);
+  const GREY = 128;
+  const mean = (values: number[]) => values.reduce((a, v) => a + v, 0) / values.length;
+  const sd = (values: number[]) => { const m = mean(values); return Math.sqrt(mean(values.map((v) => (v - m) ** 2))); };
+  const channelOf = (pixels: number[], c: number) => { const out: number[] = []; for (let i = 0; i < pixels.length / 4; i++) out.push(pixels[i * 4 + c]); return out; };
+
+  // Uniform: amount 40 -> spread 51.0 (amount / 100 * 127.5, NoisePixels.c:23); the delta is
+  // uniform on [-spread, spread), whose standard deviation is spread / sqrt(3) (variance of a
+  // continuous uniform(-s, s) is (2s)^2 / 12 = s^2 / 3). Tolerance 3 (about 10% of 29.44): over
+  // 4096 pixels the standard error of the estimated sd is about spread / sqrt(2 * 4095) =~ 0.33,
+  // so 3 is generous slack for byte quantization and the hash's own structure while still catching
+  // a materially wrong scale (a missing /100, a missing *127.5, or an off-by-2 spread).
+  {
+    const id = await addAdjustment(page, "Add Noise", { noiseAmount: 40, noiseGaussian: false, noiseMonochromatic: false, noiseSeed: 999 });
+    const gl = await glPixels(page);
+    const spread = (40 / 100) * 127.5;
+    const expectedSd = spread / Math.sqrt(3);
+    for (let c = 0; c < 3; c++) {
+      const channel = channelOf(gl, c);
+      expect(Math.abs(mean(channel) - GREY), `uniform channel ${c} mean`).toBeLessThanOrEqual(1.5);
+      expect(Math.abs(sd(channel) - expectedSd), `uniform channel ${c} sd (expected ${expectedSd.toFixed(2)})`).toBeLessThanOrEqual(3);
+    }
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+
+  // Gaussian, monochromatic: amount 20 -> spread 25.5, and Box-Muller's normal is scaled by 2/3
+  // (NoisePixels.c:39), so its standard deviation is spread * 2/3 = 17.0. A smaller amount than
+  // the uniform case keeps 3 standard deviations inside 0..255 around grey 128 (128 +/- 51), so
+  // clamping at the channel's ends does not compress the measured spread. Tolerance 2 for the same
+  // sampling-error reasoning as above (a smaller expected sd has a smaller absolute standard
+  // error too).
+  {
+    const id = await addAdjustment(page, "Add Noise", { noiseAmount: 20, noiseGaussian: true, noiseMonochromatic: true, noiseSeed: 4242 });
+    const gl = await glPixels(page);
+    const spread = (20 / 100) * 127.5;
+    const expectedSd = spread * (2 / 3);
+    for (let c = 0; c < 3; c++) {
+      const channel = channelOf(gl, c);
+      expect(Math.abs(mean(channel) - GREY), `gaussian channel ${c} mean`).toBeLessThanOrEqual(1.5);
+      expect(Math.abs(sd(channel) - expectedSd), `gaussian channel ${c} sd (expected ${expectedSd.toFixed(2)})`).toBeLessThanOrEqual(2);
+    }
+    // Monochromatic: one key drives every channel, and every input pixel is the same grey, so R,
+    // G and B must land on exactly the same byte at every pixel, not just statistically close.
+    let maxChannelSpread = 0;
+    for (let i = 0; i < gl.length / 4; i++) {
+      const off = i * 4;
+      maxChannelSpread = Math.max(maxChannelSpread, Math.abs(gl[off] - gl[off + 1]), Math.abs(gl[off + 1] - gl[off + 2]));
+    }
+    expect(maxChannelSpread, "monochromatic: R, G, B equal at every pixel").toBe(0);
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+});
