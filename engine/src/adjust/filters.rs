@@ -146,28 +146,53 @@ fn noise_hash(mut x: u32) -> u32 {
 }
 fn noise_unit(key: u32) -> f32 { (noise_hash(key) >> 8) as f32 * (1.0 / 16_777_216.0) }
 
-/// `noise_add` from NoisePixels.c.
-pub fn add_noise(raster: &Raster, amount: f64, gaussian: bool, monochromatic: bool, seed: u32) -> Raster {
+/// The per-pixel key of NoisePixels.c:32: the field position hashed, not the pixel's index (Mac
+/// 1.2.6; the older kernel hashed y * width + x, R 5.4).
+pub fn noise_base(px: u32, py: u32, seed: u32) -> u32 {
+    noise_hash(seed ^ noise_hash(px.wrapping_mul(0x9e37_79b9) ^ noise_hash(py.wrapping_mul(0x85eb_ca6b))))
+}
+
+/// The noise added to one channel (NoisePixels.c:33-42), before clamping; `spread` is amount / 100 * 127.5.
+pub fn noise_offset(base: u32, channel: usize, spread: f32, gaussian: bool, monochromatic: bool) -> f32 {
+    let key = if monochromatic { base } else { base.wrapping_add((channel as u32).wrapping_mul(0x9e37_79b9)) };
+    if gaussian {
+        // Box-Muller: two uniform values make one normally distributed one.
+        let (u1, u2) = (noise_unit(key), noise_unit(key ^ 0x68e3_1da4));
+        (-2.0 * (1.0 - u1).ln()).sqrt() * (6.2831853 * u2).cos() * spread * (2.0 / 3.0)
+    } else {
+        (noise_unit(key) * 2.0 - 1.0) * spread
+    }
+}
+
+/// One premultiplied pixel through `noise_add_at` (NoisePixels.c:26-47) at field position (px, py).
+pub fn noise_pixel(p: [u8; 4], px: u32, py: u32, spread: f32, gaussian: bool, monochromatic: bool, seed: u32) -> [u8; 4] {
+    if p[3] == 0 { return p; }
+    let alpha = p[3] as f32;
+    let base = noise_base(px, py, seed);
+    let mut out = p;
+    for c in 0..3 {
+        let value = (p[c] as f32 * 255.0 / alpha + noise_offset(base, c, spread, gaussian, monochromatic)).clamp(0.0, 255.0);
+        out[c] = (value * alpha / 255.0).round() as u8;
+    }
+    out
+}
+
+/// `noise_add_at`: the raster's pixel (x, y) takes the noise at (origin_x + x, origin_y + y).
+pub fn add_noise_at(raster: &Raster, amount: f64, gaussian: bool, monochromatic: bool, seed: u32, origin_x: i64, origin_y: i64) -> Raster {
     let spread = amount as f32 / 100.0 * 127.5;
     let mut data = raster.bytes().to_vec();
+    let width = raster.width as usize;
     for (i, p) in data.chunks_exact_mut(4).enumerate() {
-        let alpha = p[3] as f32;
-        if alpha == 0.0 { continue; }
-        let base = noise_hash(seed ^ noise_hash(i as u32));
-        for c in 0..3 {
-            let key = if monochromatic { base } else { base.wrapping_add((c as u32).wrapping_mul(0x9e37_79b9)) };
-            let n = if gaussian {
-                // Box-Muller: two uniform values make one normally distributed one.
-                let (u1, u2) = (noise_unit(key), noise_unit(key ^ 0x68e3_1da4));
-                (-2.0 * (1.0 - u1).ln()).sqrt() * (6.2831853 * u2).cos() * spread * (2.0 / 3.0)
-            } else {
-                (noise_unit(key) * 2.0 - 1.0) * spread
-            };
-            let value = (p[c] as f32 * 255.0 / alpha + n).clamp(0.0, 255.0);
-            p[c] = (value * alpha / 255.0).round() as u8;
-        }
+        let (x, y) = ((i % width) as i64, (i / width) as i64);
+        let out = noise_pixel([p[0], p[1], p[2], p[3]], (origin_x + x) as u32, (origin_y + y) as u32, spread, gaussian, monochromatic, seed);
+        p.copy_from_slice(&out);
     }
     Raster::from_premultiplied(raster.width, raster.height, data)
+}
+
+/// `noise_add` (NoisePixels.c:15-18): the field in the raster's own grid, origin zero.
+pub fn add_noise(raster: &Raster, amount: f64, gaussian: bool, monochromatic: bool, seed: u32) -> Raster {
+    add_noise_at(raster, amount, gaussian, monochromatic, seed, 0, 0)
 }
 
 /// `lens_distort` from LensPixels.c: `scale = 1 - k r^2 / halfDiagonal^2`, bilinear, transparent outside.

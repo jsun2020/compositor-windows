@@ -75,6 +75,18 @@ impl PreparedAdjustment {
             }
         }
     }
+
+    /// One premultiplied pixel through the Mac's own 8-bit kernel, for the kinds that have one
+    /// (AdjustPixels.c, NoisePixels.c, PixelInvert.swift). The compositor uses it wherever the layer
+    /// applies at full strength in Normal, so an export matches the Mac to the level; `color` serves
+    /// every other case (partial strength, a blend mode, the GPU's mirror). None for the kinds whose
+    /// Mac kernel is not a per-pixel byte routine.
+    pub fn pixel(&self, p: [u8; 4], at: Point) -> Option<[u8; 4]> {
+        match self {
+            PreparedAdjustment::Grain { settings } => Some(grain_pixel(p, at.x, at.y, settings)),
+            _ => None,
+        }
+    }
 }
 
 /// The GPU's colour table for an adjustment layer: 256 RGBA rows for the kinds that map colour

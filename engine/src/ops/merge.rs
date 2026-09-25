@@ -28,11 +28,6 @@ pub fn merge_plan(doc: &Document, selected: &[Uuid]) -> Option<MergePlan> {
     Some(MergePlan { ids: vec![below.id, active.id], removed: vec![below.id, active.id], name: below.name.clone(), parent: active.parent_id, anchor: active.id, action: "Merge Down" })
 }
 
-/// The Grain kernel divergence (`Document::undrawn`'s "the Compositor 1.2.6 grain roughness")
-/// does not block a merge: that grain IS drawn, with the older kernel, so baking what the screen
-/// shows is the same thing Phase 3's merge already did for it.
-const GRAIN_ROUGHNESS: &str = "the Compositor 1.2.6 grain roughness";
-
 /// The layers composited as the canvas shows them into one pixel layer, trimmed, in their place.
 ///
 /// Refuses first, before anything is mutated, if any layer the merge would composite carries an
@@ -43,8 +38,8 @@ pub fn merge(doc: &mut Document, selected: &[Uuid]) -> Result<Uuid, CommandError
     let plan = merge_plan(doc, selected).ok_or(CommandError::Argument("nothing to merge".into()))?;
     for id in &plan.ids {
         let Some(layer) = doc.layer(*id) else { continue };
-        if let Some(feature) = layer.undrawn_features().into_iter().find(|f| f != GRAIN_ROUGHNESS) {
-            return Err(CommandError::Argument(format!("Merging would bake {feature}, which this build does not draw yet")));
+        if let Some(feature) = layer.undrawn_features().into_iter().next() {
+            return Err(CommandError::Argument(format!("Merging would bake {feature}, which this build does not draw yet, or draws differently")));
         }
     }
     let kept: HashSet<Uuid> = plan.ids.iter().copied().collect();

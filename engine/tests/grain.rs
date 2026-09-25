@@ -47,6 +47,43 @@ fn grain_is_strongest_in_the_midtones_and_bounded_by_its_amount() {
     assert!((grain_weight(0.5) - 1.0).abs() < 1e-6 && (grain_weight(0.0) - 0.4).abs() < 1e-6);
 }
 
+/// AdjustPixels.c:31-60 transcribed independently of grain.rs.
+fn c_mix32(mut x: u32) -> u32 {
+    x ^= x >> 16; x = x.wrapping_mul(0x7feb_352d); x ^= x >> 15; x = x.wrapping_mul(0x846c_a68b); x ^= x >> 16; x
+}
+fn c_lattice(ix: i64, iy: i64, seed: u32) -> f32 {
+    let h = c_mix32((ix as u32).wrapping_mul(0x9E37_79B1) ^ c_mix32((iy as u32).wrapping_mul(0x85EB_CA77) ^ seed));
+    (h & 0xFFFF) as f32 / 65535.0 + (h >> 16) as f32 / 65535.0 - 1.0
+}
+fn c_grain_field(u: f64, v: f64, scale: f64, seed: u32) -> f32 {
+    let (cell_x, cell_y) = ((u / scale).floor(), (v / scale).floor());
+    let (mut tx, mut ty) = ((u / scale - cell_x) as f32, (v / scale - cell_y) as f32);
+    tx = tx * tx * (3.0 - 2.0 * tx);
+    ty = ty * ty * (3.0 - 2.0 * ty);
+    let (ix, iy) = (cell_x as i64, cell_y as i64);
+    let (n00, n10) = (c_lattice(ix, iy, seed), c_lattice(ix + 1, iy, seed));
+    let (n01, n11) = (c_lattice(ix, iy + 1, seed), c_lattice(ix + 1, iy + 1, seed));
+    let top = n00 + (n10 - n00) * tx;
+    let bottom = n01 + (n11 - n01) * tx;
+    (top + (bottom - top) * ty) * 1.6
+}
+
+#[test]
+fn the_fine_detail_is_the_same_smooth_field_at_about_a_third_of_the_size() {
+    // Mac 1.2.6 (AdjustPixels.c:70-83): fine = grain_field(u, v, max(0.5, size * 0.35), mix32(seed ^ 0xA511E9B3)),
+    // where the older kernel took an un-interpolated lattice value per whole pixel.
+    for (size, roughness, seed) in [(1.5, 50.0, 0u32), (6.0, 100.0, 7), (0.5, 35.0, 99)] {
+        let rough = (roughness / 100.0) as f32;
+        let fine_seed = c_mix32(seed ^ 0xA511_E9B3);
+        for i in 0..40 {
+            let (u, v) = (i as f64 * 0.37 + 0.5, i as f64 * 0.61 + 0.5);
+            let smooth = c_grain_field(u, v, size, seed);
+            let fine = c_grain_field(u, v, f64::max(0.5, size * 0.35), fine_seed);
+            assert_eq!(grain_noise(u, v, size, roughness, seed), smooth + (fine - smooth) * rough, "size {size} at ({u}, {v})");
+        }
+    }
+}
+
 #[test]
 fn the_noise_field_is_smooth_and_repeatable() {
     let a = grain_noise(10.25, 4.75, 2.0, 40.0, 7);

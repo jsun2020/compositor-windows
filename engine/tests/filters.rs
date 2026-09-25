@@ -59,6 +59,43 @@ fn add_noise_changes_color_but_never_alpha_and_monochromatic_keeps_grays() {
     assert!((0..16).all(|x| { let p = mono.pixel(x, 0); p[0] == p[1] && p[1] == p[2] && p[3] == 255 }));
 }
 
+/// NoisePixels.c:5-49 transcribed independently of filters.rs: what noise_add_at writes into one
+/// channel of the pixel at field position (px, py).
+fn c_noise_channel(p: [u8; 4], c: usize, px: u32, py: u32, amount: f32, gaussian: bool, mono: bool, seed: u32) -> u8 {
+    let hash = |mut x: u32| { x ^= x >> 16; x = x.wrapping_mul(0x7feb_352d); x ^= x >> 15; x = x.wrapping_mul(0x846c_a68b); x ^= x >> 16; x };
+    let unit = |key: u32| (hash(key) >> 8) as f32 * (1.0 / 16_777_216.0);
+    let spread = amount / 100.0 * 127.5;
+    let base = hash(seed ^ hash(px.wrapping_mul(0x9e37_79b9) ^ hash(py.wrapping_mul(0x85eb_ca6b))));
+    let key = if mono { base } else { base.wrapping_add((c as u32).wrapping_mul(0x9e37_79b9)) };
+    let n = if gaussian {
+        (-2.0 * (1.0 - unit(key)).ln()).sqrt() * (6.2831853 * unit(key ^ 0x68e3_1da4)).cos() * spread * (2.0 / 3.0)
+    } else { (unit(key) * 2.0 - 1.0) * spread };
+    let alpha = p[3] as f32;
+    let value = (p[c] as f32 * 255.0 / alpha + n).clamp(0.0, 255.0);
+    (value * alpha / 255.0).round() as u8
+}
+
+#[test]
+fn add_noise_hashes_each_pixel_by_its_position_as_mac_1_2_6_does() {
+    // A translucent 7 x 3 raster: under the older index hash, (x, y) would take the noise of
+    // x + 7 * y, which differs from the position hash everywhere but the first row's first pixel.
+    let source = Raster::from_premultiplied(7, 3, [90u8, 60, 30, 200].repeat(21));
+    for (gaussian, mono, seed) in [(false, false, 7u32), (true, true, 1234)] {
+        let noisy = add_noise(&source, 35.0, gaussian, mono, seed);
+        for y in 0..3 { for x in 0..7 { for c in 0..3 {
+            assert_eq!(noisy.pixel(x, y)[c], c_noise_channel(source.pixel(x, y), c, x, y, 35.0, gaussian, mono, seed), "({x}, {y}) channel {c}");
+        }}}
+    }
+}
+
+#[test]
+fn add_noise_at_an_origin_is_that_part_of_the_same_field() {
+    let big = Raster::from_premultiplied(9, 6, [120u8, 120, 120, 255].repeat(54));
+    let whole = add_noise(&big, 20.0, false, false, 42);
+    let shifted = add_noise_at(&big.cropped(4, 2, 5, 4), 20.0, false, false, 42, 4, 2);
+    assert_eq!(shifted.bytes(), whole.cropped(4, 2, 5, 4).bytes());
+}
+
 #[test]
 fn remove_distortion_bends_about_the_center_and_only_pincushion_opens_the_corners() {
     // Four quadrants of distinct opaque colours.

@@ -53,6 +53,14 @@ fn the_new_blend_modes_match_the_mac_render() {
 }
 
 #[test]
+fn grain_at_its_defaults_matches_the_mac_render_exactly() {
+    // The probe results found the 1.2.6 kernel equal to the Mac on all 7200 pixels.
+    let (width, theirs) = mac("grain");
+    let (d, at) = worst(&ours("grain"), &theirs, width, 0..width);
+    assert_eq!(d, 0, "worst at {at:?}");
+}
+
+#[test]
 fn the_probes_this_port_already_matched_still_match() {
     for name in ["folder-opacity", "clipped-in-dimmed-folder", "guides"] {
         let (width, theirs) = mac(name);

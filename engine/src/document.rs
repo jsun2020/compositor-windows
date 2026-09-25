@@ -1,4 +1,4 @@
-use crate::{AdjustmentKind, BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
+use crate::{BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,14 +109,6 @@ impl Layer {
         let mut out = Vec::new();
         if let Some(a) = &self.extra.adjustment {
             if !a.kind.is_drawn() { out.push(format!("{} adjustment layers", a.kind.name())); }
-            // Mac 1.2.6 changed the Grain fine-noise kernel (smoothstep-interpolated lattice
-            // instead of un-interpolated) whenever roughness contributes at all; at roughness
-            // 0 the two kernels agree (`noise = smooth + (fine - smooth) * rough`, AdjustPixels.c).
-            // This build still draws the old kernel (Phase 3.5b), so disclose the divergence
-            // rather than silently rendering every default-roughness Grain layer wrong.
-            if a.kind == AdjustmentKind::Grain && a.grain().roughness > 0.0 {
-                out.push("the Compositor 1.2.6 grain roughness".to_string());
-            }
         }
         if let Some(serde_json::Value::Object(effects)) = &self.extra.effects {
             if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.push("layer effects".to_string()); }

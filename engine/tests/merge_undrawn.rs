@@ -1,7 +1,5 @@
 //! I1: merge refuses to bake an undrawn feature into merged pixels, permanently, without notice
-//! (`Document::undrawn`'s per-layer phrases, via `Layer::undrawn_features`). The Compositor 1.2.6
-//! grain roughness kernel divergence is excluded on purpose: that grain IS drawn, with the older
-//! kernel, so baking what the screen shows is the Phase 3 behaviour, not a new loss.
+//! (`Document::undrawn`'s per-layer phrases, via `Layer::undrawn_features`).
 
 use compositor_engine::*;
 use serde_json::json;
@@ -34,7 +32,7 @@ fn merging_a_folder_holding_an_undrawn_adjustment_kind_is_refused() {
     doc.active_layer_id = Some(folder_id);
     let before = doc.clone();
     let err = ops::merge::merge(&mut doc, &[folder_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake Black & White adjustment layers, which this build does not draw yet".into()));
+    assert_eq!(err, CommandError::Argument("Merging would bake Black & White adjustment layers, which this build does not draw yet, or draws differently".into()));
     assert_eq!(doc, before, "a refused merge leaves the document untouched");
 }
 
@@ -49,7 +47,7 @@ fn merging_enabled_effects_is_refused_but_all_disabled_effects_merge_fine() {
     doc.active_layer_id = Some(above_id);
     let before = doc.clone();
     let err = ops::merge::merge(&mut doc, &[above_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake layer effects, which this build does not draw yet".into()));
+    assert_eq!(err, CommandError::Argument("Merging would bake layer effects, which this build does not draw yet, or draws differently".into()));
     assert_eq!(doc, before, "a refused merge leaves the document untouched");
 
     let mut doc2 = Document::new(4, 4);
@@ -68,11 +66,8 @@ fn merging_plain_layers_with_a_default_grain_adjustment_still_succeeds() {
     let a = pixel_layer(); let a_id = a.id;
     let b = pixel_layer(); let b_id = b.id;
     let mut grain = Layer::blank("Grain", doc.size());
-    // Default settings (roughness 50 > 0) report "the Compositor 1.2.6 grain roughness" from
-    // `undrawn_features`, but that phrase is specifically excluded from the merge guard.
     grain.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::Grain));
     let grain_id = grain.id;
-    assert!(grain.undrawn_features().contains(&"the Compositor 1.2.6 grain roughness".to_string()));
     doc.layers = vec![a, b, grain];
     assert!(ops::merge::merge(&mut doc, &[a_id, b_id, grain_id]).is_ok(), "the grain kernel divergence does not block a merge");
 }

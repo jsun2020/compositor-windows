@@ -54,12 +54,12 @@ fn a_newer_document_level_setting_is_reported() {
 }
 
 #[test]
-fn a_grain_layer_at_the_default_roughness_reports_the_kernel_difference() {
+fn a_grain_layer_at_the_default_roughness_reports_nothing() {
     let mut doc = Document::new(4, 4);
     let mut g = Layer::blank("Grain", doc.size());
     g.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::Grain)); // grainSettings absent, so roughness defaults to 50
     doc.layers = vec![g];
-    assert_eq!(doc.undrawn(), vec!["the Compositor 1.2.6 grain roughness".to_string()]);
+    assert!(doc.undrawn().is_empty(), "the 1.2.6 kernel is drawn");
 }
 
 #[test]

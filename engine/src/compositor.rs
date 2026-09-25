@@ -233,6 +233,13 @@ fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &
         let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
         if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
         if k <= 0.0 { continue; }
+        // Full strength in Normal: the Mac's own 8-bit kernel, so an export matches it to the level.
+        // Not for a layer whose own mode is not Normal (`keeps_alpha`): the Mac takes its
+        // full-coverage path there even when the Core Graphics mode is Normal.
+        if k >= 1.0 && blend == BlendMode::Normal && !draw.keeps_alpha {
+            let px = [target.data[i], target.data[i + 1], target.data[i + 2], target.data[i + 3]];
+            if let Some(out) = prepared.pixel(px, p) { target.data[i..i + 4].copy_from_slice(&out); continue; }
+        }
         let original = [target.data[i] as f32 / alpha, target.data[i + 1] as f32 / alpha, target.data[i + 2] as f32 / alpha];
         let mut adjusted = prepared.color(original, p);
         if blend != BlendMode::Normal { adjusted = blend_rgb(blend, original, adjusted); }

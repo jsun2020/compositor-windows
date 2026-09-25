@@ -131,8 +131,8 @@ uniform float cell;
 out vec4 color;
 void main() { vec2 p = floor(uv * sizePx / cell); float c = mod(p.x + p.y, 2.0) < 1.0 ? 0.80 : 0.95; color = vec4(c, c, c, 1.0); }`;
 
-// Ports rgb_to_hsl/hsl_to_rgb/adjust_rgb from engine/src/adjust/hsv.rs and mix32/lattice from
-// engine/src/adjust/grain.rs. Every constant here must match those files exactly: the CPU
+// Ports rgb_to_hsl/hsl_to_rgb/adjust_rgb from engine/src/adjust/hsv.rs and mix32/lattice/grain_field
+// from engine/src/adjust/grain.rs. Every constant here must match those files exactly: the CPU
 // compositor is the single definition of the maths, and this is the shader's mirror of it.
 const ADJUST_GLSL = `
 vec3 rgbToHsl(vec3 c) {
@@ -178,6 +178,17 @@ uint mix32(uint x) {
 float lattice(int ix, int iy, uint seed) {
   uint h = mix32(uint(ix) * 0x9E3779B1u ^ mix32(uint(iy) * 0x85EBCA77u ^ seed));
   return float(h & 0xFFFFu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
+}
+// grain_field in engine/src/adjust/grain.rs (AdjustPixels.c:47-60).
+float grainField(vec2 at, float scale, uint seed) {
+  vec2 cell = floor(at / scale);
+  vec2 t = at / scale - cell;
+  t = t * t * (3.0 - 2.0 * t);
+  int ix = int(cell.x), iy = int(cell.y);
+  float n00 = lattice(ix, iy, seed), n10 = lattice(ix + 1, iy, seed);
+  float n01 = lattice(ix, iy + 1, seed), n11 = lattice(ix + 1, iy + 1, seed);
+  float top = n00 + (n10 - n00) * t.x, bottom = n01 + (n11 - n01) * t.x;
+  return (top + (bottom - top) * t.y) * 1.6;
 }`;
 
 const FRAG_ADJUST = `#version 300 es
@@ -232,15 +243,8 @@ vec3 throughGrain(vec3 c, vec2 at) {
   float size = grain.x > 0.0 ? grain.x : 1.0;
   float rough = clamp(grain.y / 100.0, 0.0, 1.0);
   uint fineSeed = mix32(grainSeed ^ 0xA511E9B3u);
-  vec2 cell = floor(at / size);
-  vec2 t = at / size - cell;
-  t = t * t * (3.0 - 2.0 * t);
-  int ix = int(cell.x), iy = int(cell.y);
-  float n00 = lattice(ix, iy, grainSeed), n10 = lattice(ix + 1, iy, grainSeed);
-  float n01 = lattice(ix, iy + 1, grainSeed), n11 = lattice(ix + 1, iy + 1, grainSeed);
-  float top = n00 + (n10 - n00) * t.x, bottom = n01 + (n11 - n01) * t.x;
-  float smoothNoise = (top + (bottom - top) * t.y) * 1.6;
-  float fine = lattice(int(floor(at.x)), int(floor(at.y)), fineSeed);
+  float smoothNoise = grainField(at, size, grainSeed);
+  float fine = grainField(at, max(0.5, size * 0.35), fineSeed);
   float noise = smoothNoise + (fine - smoothNoise) * rough;
   float level = min(1.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
   float delta = noise * grain.z * (0.4 + 2.4 * level * (1.0 - level)) / 255.0;
