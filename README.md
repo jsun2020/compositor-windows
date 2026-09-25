@@ -105,11 +105,13 @@ Photoshop.
   Until that difference is measured, a project with a Motion Blur adjustment layer names it in
   the notice as drawn approximately, and merging it is refused.
 - Note: a Gaussian Blur reaching more than 48 screen pixels, or a Motion Blur reaching more than
-  12, is computed on a reduced copy. Measured against the exact blur: within 1 level away from
-  the edges, up to 4 levels along the canvas edge and along hard edges of transparency, and a
-  long Motion Blur loses fine detail across the streak (up to 20 levels on pixel-sized noise,
-  and 17 at the canvas edge). Every view of it, and the export, shows the same result. Zoomed
-  far into a very large blur, its edge can show at the window's edge.
+  12, is computed on a reduced copy. Measured against the exact blur: away from the edges,
+  within 1 level for a Gaussian Blur and 2 for a Motion Blur; up to 4 levels along the canvas
+  edge and along hard edges of transparency; and a long Motion Blur loses fine detail across the
+  streak (up to 20 levels on pixel-sized noise, and 17 at the canvas edge). At export (100%), a
+  Gaussian Blur up to radius 16 and a Motion Blur up to 24 px are exact. Every view of it, and
+  the export, shows the same result. Zoomed far into a very large blur, its edge can show at the
+  window's edge.
 - Note: projects are limited to 100 megapixels of layer images (and of masks). Compositor for
   Mac allows more on a Mac with more memory; such a project is refused with a message saying so.
 - Note: layer effects are kept exactly as they are and listed in a notice; they are drawn in the
