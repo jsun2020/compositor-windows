@@ -199,3 +199,146 @@ fn the_metal_path_draws_a_stroke_only_at_a_size_and_opacity_above_zero_and_round
     hidden.stroke.as_mut().unwrap().enabled = Some(false);
     assert_eq!(EffectPasses::from_effects(&hidden), EffectPasses::default());
 }
+
+fn shadow(dx: f32, dy: f32, sigma: f32) -> ShadowPass { ShadowPass { dx, dy, sigma, color: [0.0, 0.1, 0.4], opacity: 0.6 } }
+fn glow(sigma: f32) -> GlowPass { GlowPass { sigma, color: [1.0, 0.9, 0.2], opacity: 0.75 } }
+fn all_six(sigma: f32, reach: usize, inside: bool) -> EffectPasses {
+    EffectPasses { stroke: Some(stroke(reach, inside)), shadow: Some(shadow(-7.3, 11.6, sigma)), overlay: Some(OVERLAY),
+        inner_shadow: Some(ShadowPass { dx: 4.25, dy: -3.5, sigma: sigma * 0.6, color: [0.2, 0.0, 0.0], opacity: 0.7 }),
+        outer_glow: Some(glow(sigma * 0.8)), inner_glow: Some(GlowPass { sigma: sigma * 0.5, color: [1.0, 1.0, 1.0], opacity: 0.6 }) }
+}
+
+#[test]
+fn shadows_and_glows_equal_the_metal_transcription_to_the_bit_up_to_the_reach_limit() {
+    // Sigma 16 is the last exact one: 3 x 16 = 48 = EFFECTS_REACH_LIMIT.
+    let fixtures = [("blob", blob(53, 37), 53, 37), ("translucent rect", rect(41, 29, [150, 90, 20, 200]), 41, 29)];
+    for (name, px, w, h) in &fixtures {
+        for (sigma, reach, inside) in [(0.005f32, 1usize, false), (3.0, 4, false), (5.5, 7, true), (10.0, 30, true), (16.0, 12, false)] {
+            let p = all_six(sigma, reach, inside);
+            let d = worst(&render(px, *w, *h, 60, &p), &metal::render(px, *w, *h, 60, &p));
+            assert_eq!(d, 0, "{name}: sigma {sigma}");
+        }
+    }
+    // A ring deeper than the image is tall.
+    let p = all_six(8.0, 20, true);
+    assert_eq!(worst(&render(&blob(9, 5), 9, 5, 2, &p), &metal::render(&blob(9, 5), 9, 5, 2, &p)), 0, "tiny");
+}
+
+#[test]
+fn a_blur_past_the_reach_limit_stays_within_one_level_of_the_exact_kernel() {
+    // Measured 2026-09-25 (scratch p35c-scratch, sigma 16.5 to 125, both fixtures): 1 at most.
+    // Small layers keep the whole-plane reference quick; one case below is several kernels wide.
+    for (name, px, w, h) in [("rect", rect(30, 20, [200, 60, 30, 255]), 30, 20), ("blob", blob(30, 20), 30, 20)] {
+        for sigma in [16.5f32, 25.0, 40.0] {
+            let inset = (sigma * 3.0).ceil() as usize + 20;
+            let black = [0.0f32; 3];
+            let cases = [
+                ("drop shadow", EffectPasses { shadow: Some(ShadowPass { dx: -7.3, dy: 11.6, sigma, color: black, opacity: 1.0 }), ..Default::default() }),
+                ("inner shadow", EffectPasses { inner_shadow: Some(ShadowPass { dx: -7.3, dy: 11.6, sigma, color: black, opacity: 1.0 }), ..Default::default() }),
+                ("outer glow", EffectPasses { outer_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() }),
+                ("inner glow", EffectPasses { inner_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() }),
+            ];
+            for (label, p) in cases {
+                let d = worst(&render(&px, w, h, inset, &p), &metal::render(&px, w, h, inset, &p));
+                assert!(d <= 1, "{name} {label} sigma {sigma} (level {}): {d}", effects_level(sigma));
+            }
+        }
+    }
+    // A layer several kernels wide at the first halved sigma, so the blurred edge reaches its full
+    // slope, where a halved blur's error is largest (pre-flight D-M2; 1 at most, measured on the
+    // p35c-planfix copy).
+    let (px, sigma) = (rect(240, 120, [200, 60, 30, 255]), 16.5f32);
+    for p in [EffectPasses { shadow: Some(ShadowPass { dx: -7.3, dy: 11.6, sigma, color: [0.0; 3], opacity: 1.0 }), ..Default::default() },
+              EffectPasses { inner_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() }] {
+        let d = worst(&render(&px, 240, 120, 70, &p), &metal::render(&px, 240, 120, 70, &p));
+        assert!(d <= 1, "240 x 120, sigma {sigma}: {d}");
+    }
+    // Three halvings.
+    let p = EffectPasses { shadow: Some(ShadowPass { dx: 5.0, dy: 9.5, sigma: 65.0, color: [0.0; 3], opacity: 1.0 }), ..Default::default() };
+    let px = rect(24, 16, [30, 200, 90, 255]);
+    assert_eq!(effects_level(65.0), 3);
+    assert!(worst(&render(&px, 24, 16, 225, &p), &metal::render(&px, 24, 16, 225, &p)) <= 1);
+}
+
+#[test]
+fn the_reach_limit_halves_until_three_sigma_fits_it() {
+    // The smallest k with 3 sigma / 2^k <= 48.
+    let want = |sigma: f32| ((3.0 * sigma / EFFECTS_REACH_LIMIT).log2().ceil().max(0.0)) as u32;
+    for sigma in [1.0f32, 16.0, 16.01, 32.0, 32.1, 100.0, 250.0] { assert_eq!(effects_level(sigma), want(sigma), "sigma {sigma}"); }
+    assert_eq!(effects_level(250.0), 4, "a 500 px blur, the Mac's largest, halves four times");
+}
+
+/// The drop shadow as the Mac's settings give it (`from_effects`): angle, distance, blur 0.
+fn drop_shadow(angle: f64, distance: f64) -> EffectPasses {
+    let e: LayerEffects = serde_json::from_value(serde_json::json!({ "shadow": {
+        "angle": angle, "blue": 0.5, "blur": 0, "distance": distance, "green": 0.25, "opacity": 0.8, "red": 0 } })).unwrap();
+    EffectPasses::from_effects(&e)
+}
+
+#[test]
+fn the_drop_shadow_falls_away_from_the_light() {
+    // An oblong opaque layer; angle 90 is light from above (shadow below), angle 0 light from the
+    // right (shadow to the left): LayerEffects.swift:28-43.
+    let (w, h, inset) = (30, 10, 20);
+    let px = rect(w, h, [255, 255, 255, 255]);
+    let pw = w + 2 * inset;
+    let shadowed = [byte(0.0 * 0.8), byte(0.25 * 0.8), byte(0.5 * 0.8), byte(0.8)];
+    let below = render(&px, w, h, inset, &drop_shadow(90.0, 12.0));
+    assert_eq!(at(&below, pw, inset + 15, inset + h + 5), shadowed, "5 px below the bottom edge");
+    assert_eq!(at(&below, pw, inset + 15, inset - 5), [0, 0, 0, 0], "nothing above the top edge");
+    let left = render(&px, w, h, inset, &drop_shadow(0.0, 12.0));
+    assert_eq!(at(&left, pw, inset - 5, inset + 5), shadowed, "5 px left of the left edge");
+    assert_eq!(at(&left, pw, inset + w + 5, inset + 5), [0, 0, 0, 0], "nothing right of the right edge");
+    assert_eq!(at(&left, pw, inset + 15, inset + 5), [255, 255, 255, 255], "the opaque layer covers its own shadow");
+}
+
+#[test]
+fn an_inner_shadow_darkens_the_edge_the_light_comes_from() {
+    let (w, h, inset) = (30, 20, 2);
+    let e: LayerEffects = serde_json::from_value(serde_json::json!({ "innerShadow": {
+        "angle": 90, "blue": 0, "blur": 0, "distance": 6, "green": 0, "opacity": 1, "red": 0 } })).unwrap();
+    let out = render(&rect(w, h, [255, 255, 255, 255]), w, h, inset, &EffectPasses::from_effects(&e));
+    let pw = w + 2 * inset;
+    assert_eq!(at(&out, pw, inset + 15, inset + 2), [0, 0, 0, 255], "the top rows, which the moved shape leaves");
+    assert_eq!(at(&out, pw, inset + 15, inset + 12), [255, 255, 255, 255], "lower down the moved shape still covers");
+}
+
+#[test]
+fn an_outer_glow_reaches_every_side_alike() {
+    // Square on purpose: the four sides must match (OuterGlowTests.swift, omnidirectional).
+    let (w, inset) = (20, 32);
+    let p = EffectPasses { outer_glow: Some(GlowPass { sigma: 5.0, color: [0.0, 1.0, 0.0], opacity: 1.0 }), ..Default::default() };
+    let out = render(&rect(w, w, [255, 255, 255, 255]), w, w, inset, &p);
+    let pw = w + 2 * inset;
+    let (c, near) = (inset + 10, inset - 5);
+    let far = inset + w + 4;
+    let sides = [at(&out, pw, near, c), at(&out, pw, far, c), at(&out, pw, c, near), at(&out, pw, c, far)];
+    assert!(sides[0][3] > 25 && sides[0][1] == sides[0][3], "a green glow 5 px out: {:?}", sides[0]);
+    for s in &sides[1..] { assert!(s[3].abs_diff(sides[0][3]) <= 1, "{sides:?}"); }
+    assert_eq!(at(&out, pw, c, c), [255, 255, 255, 255], "the glow stays outside");
+}
+
+#[test]
+fn an_inner_glow_lights_the_edge_and_leaves_the_middle() {
+    let (w, inset) = (40, 2);
+    let e: LayerEffects = serde_json::from_value(serde_json::json!({ "innerGlow": {
+        "blue": 1, "green": 1, "opacity": 1, "red": 1, "size": 8 } })).unwrap();
+    let out = render(&rect(w, w, [0, 0, 255, 255]), w, w, inset, &EffectPasses::from_effects(&e));
+    let pw = w + 2 * inset;
+    let edge = at(&out, pw, inset, inset + 20);
+    assert!(edge[0] > 100 && edge[2] == 255, "white glow at the edge: {edge:?}");
+    assert_eq!(at(&out, pw, inset + 20, inset + 20), [0, 0, 255, 255], "the blurred shape is 1 in the middle, so no glow");
+}
+
+#[test]
+fn the_metal_path_skips_effects_at_opacity_zero_and_glows_of_size_zero() {
+    let e: LayerEffects = serde_json::from_value(serde_json::json!({
+        "shadow": { "angle": 90, "blue": 0, "blur": 0, "distance": 0, "green": 0, "opacity": 0.5, "red": 0 },
+        "innerShadow": { "angle": 90, "blue": 0, "blur": 10, "distance": 10, "green": 0, "opacity": 0, "red": 0 },
+        "outerGlow": { "blue": 1, "green": 1, "opacity": 0.75, "red": 1, "size": 0 },
+        "innerGlow": { "blue": 1, "green": 1, "opacity": 0.75, "red": 1, "size": 0.5 } })).unwrap();
+    let p = EffectPasses::from_effects(&e);
+    assert!(p.shadow.is_some(), "a shadow with no distance and no blur still draws, under the layer");
+    assert_eq!((p.inner_shadow, p.outer_glow), (None, None));
+    assert_eq!(p.inner_glow.unwrap().sigma, 0.25);
+}
