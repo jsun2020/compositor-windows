@@ -2,7 +2,7 @@
 //! rules here, so they blur the same image: how much of the work runs at full resolution
 //! (`spatial_blur`), and the lattice the reduced copies are cut on and how far a render pads
 //! (`spatial_grid`, `spatial_span`). The GPU asks for all three through wasm.
-use crate::{compositor::sample, gaussian_blur, motion_blur, AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
+use crate::{compositor::sample, gaussian_blur, gaussian_blur_in_place, motion_blur,AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
 use serde::Serialize;
 
 /// Output pixels a Gaussian may reach (3 sigma) at full resolution. A longer reach runs on a copy
@@ -118,11 +118,13 @@ fn reduced(raster: &Raster, level: u32) -> Raster {
     r
 }
 
-/// The reduced copy back at `width` x `height`: each pixel samples it bilinearly at its own centre,
-/// clamped to the edge, as the GPU's mixing pass does. Colour never exceeds alpha.
-fn enlarged(small: &Raster, level: u32, width: u32, height: u32) -> Raster {
+/// The reduced copy back at the size of `full`, written over `full`'s own pixels (the reduced copy
+/// no longer needs them): each pixel samples it bilinearly at its own centre, clamped to the edge,
+/// as the GPU's mixing pass does. Colour never exceeds alpha.
+fn enlarged(small: &Raster, level: u32, full: Raster) -> Raster {
+    let (width, height) = (full.width, full.height);
     let f = (1u32 << level) as f64;
-    let mut data = vec![0u8; (width as usize) * (height as usize) * 4];
+    let mut data = full.into_bytes();
     for y in 0..height { for x in 0..width {
         let s = sample(small, (x as f64 + 0.5) / f, (y as f64 + 0.5) / f, false);
         let i = ((y * width + x) * 4) as usize;
@@ -134,17 +136,23 @@ fn enlarged(small: &Raster, level: u32, width: u32, height: u32) -> Raster {
 }
 
 /// A Gaussian of `sigma` output pixels, transparent beyond the raster (Filters.swift:199-201).
-pub fn blur_for_layer(raster: &Raster, sigma: f64) -> Raster {
+/// Takes the raster to blur its pixels in place: a canvas-size render holds no second full frame.
+pub fn blur_for_layer(raster: Raster, sigma: f64) -> Raster {
     let level = spatial_level(sigma * 3.0);
-    if level == 0 { return gaussian_blur(raster, sigma); }
-    let small = gaussian_blur(&reduced(raster, level), sigma / (1u32 << level) as f64);
-    enlarged(&small, level, raster.width, raster.height)
+    if level == 0 {
+        let (width, height) = (raster.width, raster.height);
+        let mut data = raster.into_bytes();
+        gaussian_blur_in_place(&mut data, width, height, sigma);
+        return Raster::from_premultiplied(width, height, data);
+    }
+    let small = gaussian_blur(&reduced(&raster, level), sigma / (1u32 << level) as f64);
+    enlarged(&small, level, raster)
 }
 
 /// A streak of `distance` output pixels along `angle` degrees (the Phase 3 filter's even streak).
-pub fn streak_for_layer(raster: &Raster, angle: f64, distance: f64) -> Raster {
+pub fn streak_for_layer(raster: Raster, angle: f64, distance: f64) -> Raster {
     let level = motion_level(distance / 2.0);
-    if level == 0 { return motion_blur(raster, angle, distance); }
-    let small = motion_blur(&reduced(raster, level), angle, distance / (1u32 << level) as f64);
-    enlarged(&small, level, raster.width, raster.height)
+    if level == 0 { return motion_blur(&raster, angle, distance); }
+    let small = motion_blur(&reduced(&raster, level), angle, distance / (1u32 << level) as f64);
+    enlarged(&small, level, raster)
 }

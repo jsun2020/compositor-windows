@@ -78,39 +78,62 @@ fn sample_zero(raster: &Raster, x: f64, y: f64) -> [f32; 4] {
 /// Separable Gaussian on premultiplied channels, transparent beyond the raster.
 pub fn gaussian_blur(raster: &Raster, sigma: f64) -> Raster {
     if !(sigma > 0.0) || raster.width == 0 || raster.height == 0 { return raster.clone(); }
+    let mut data = raster.bytes().to_vec();
+    gaussian_blur_in_place(&mut data, raster.width, raster.height, sigma);
+    Raster::from_premultiplied(raster.width, raster.height, data)
+}
+
+/// `gaussian_blur` over `width` x `height` premultiplied RGBA8 `data`, written back into it.
+///
+/// The horizontal pass keeps only the rows the vertical pass can still read: a band of
+/// `2 * radius + 1` rows, reused as a ring, never a full-frame f32 copy (16 bytes per pixel, which
+/// at the 100 MP export limit would not fit a wasm32 heap). Output row y is written once the
+/// horizontal rows up to y + radius are in the band; the source rows those came from are never
+/// read again, so the output can take their place. Same sums in the same order as a full-frame
+/// pass, so the same bytes (tests/filters.rs keeps that form as its reference).
+pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f64) {
+    if !(sigma > 0.0) || width == 0 || height == 0 { return; }
+    assert_eq!(data.len(), (width as usize) * (height as usize) * 4);
     let radius = (sigma * 3.0).ceil() as i64;
     let kernel: Vec<f32> = (-radius..=radius).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp() as f32).collect();
     let sum: f32 = kernel.iter().sum();
-    let (w, h) = (raster.width as i64, raster.height as i64);
-    let src = raster.bytes();
-    let mut tmp = vec![0f32; (w * h * 4) as usize];
-    for y in 0..h { for x in 0..w {
-        let mut acc = [0f32; 4];
-        for (k, weight) in kernel.iter().enumerate() {
-            let sx = x + k as i64 - radius;
-            if sx < 0 || sx >= w { continue; }
-            let i = ((y * w + sx) * 4) as usize;
-            for c in 0..4 { acc[c] += src[i + c] as f32 * weight; }
+    let (w, h) = (width as i64, height as i64);
+    let band = (2 * radius + 1).min(h);
+    let mut tmp = vec![0f32; (band * w * 4) as usize];
+    // The next source row the horizontal pass reads.
+    let mut next = 0i64;
+    for y in 0..h {
+        while next < h && next <= y + radius {
+            let row = (next * w * 4) as usize;
+            let slot = ((next % band) * w * 4) as usize;
+            for x in 0..w {
+                let mut acc = [0f32; 4];
+                for (k, weight) in kernel.iter().enumerate() {
+                    let sx = x + k as i64 - radius;
+                    if sx < 0 || sx >= w { continue; }
+                    let i = row + (sx * 4) as usize;
+                    for c in 0..4 { acc[c] += data[i + c] as f32 * weight; }
+                }
+                let i = slot + (x * 4) as usize;
+                for c in 0..4 { tmp[i + c] = acc[c] / sum; }
+            }
+            next += 1;
         }
-        let i = ((y * w + x) * 4) as usize;
-        for c in 0..4 { tmp[i + c] = acc[c] / sum; }
-    }}
-    let mut out = vec![0u8; (w * h * 4) as usize];
-    for y in 0..h { for x in 0..w {
-        let mut acc = [0f32; 4];
-        for (k, weight) in kernel.iter().enumerate() {
-            let sy = y + k as i64 - radius;
-            if sy < 0 || sy >= h { continue; }
-            let i = ((sy * w + x) * 4) as usize;
-            for c in 0..4 { acc[c] += tmp[i + c] * weight; }
+        for x in 0..w {
+            let mut acc = [0f32; 4];
+            for (k, weight) in kernel.iter().enumerate() {
+                let sy = y + k as i64 - radius;
+                if sy < 0 || sy >= h { continue; }
+                let i = (((sy % band) * w + x) * 4) as usize;
+                for c in 0..4 { acc[c] += tmp[i + c] * weight; }
+            }
+            let i = ((y * w + x) * 4) as usize;
+            let alpha = (acc[3] / sum).round().clamp(0.0, 255.0);
+            data[i + 3] = alpha as u8;
+            // Premultiplied colour can never exceed alpha, or the result reads as over-bright.
+            for c in 0..3 { data[i + c] = (acc[c] / sum).round().clamp(0.0, alpha) as u8; }
         }
-        let i = ((y * w + x) * 4) as usize;
-        let alpha = (acc[3] / sum).round().clamp(0.0, 255.0);
-        out[i + 3] = alpha as u8;
-        // Premultiplied colour can never exceed alpha, or the result reads as over-bright.
-        for c in 0..3 { out[i + c] = (acc[c] / sum).round().clamp(0.0, alpha) as u8; }
-    }}
-    Raster::from_premultiplied(raster.width, raster.height, out)
+    }
 }
 
 /// An even streak of `distance` pixels along `angle` degrees, counter-clockwise from horizontal on

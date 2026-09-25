@@ -291,11 +291,13 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
             input[i..i + 4].fill(0);
         }
     }}
+    // Handed over, not borrowed: the blur writes its result over this copy where it can, so the
+    // target and one working copy are the only full frames held.
     let input = Raster::from_premultiplied(target.w, target.h, input);
     let b = spatial_blur(adjustment, scale);
     let blurred = match adjustment.kind {
-        AdjustmentKind::GaussianBlur => blur_for_layer(&input, b.sigma),
-        AdjustmentKind::MotionBlur => streak_for_layer(&input, b.angle, b.distance),
+        AdjustmentKind::GaussianBlur => blur_for_layer(input, b.sigma),
+        AdjustmentKind::MotionBlur => streak_for_layer(input, b.angle, b.distance),
         _ => return,
     };
     let blurred = blurred.bytes();

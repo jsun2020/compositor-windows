@@ -133,3 +133,107 @@ fn filter_params_carry_their_name_margin_and_preview_scaling() {
     assert_eq!(json, r#"{"filter":"MotionBlur","angle":30.0,"distance":20.0}"#);
     assert_eq!(serde_json::from_str::<FilterParams>(&json).unwrap(), motion);
 }
+
+/// Premultiplied bytes from a fixed linear congruential generator: a third clear, a third
+/// translucent, so every rounding and the colour-under-alpha clamp are exercised.
+fn noisy(width: u32, height: u32, mut s: u32) -> Raster {
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for _ in 0..width * height {
+        let mut next = || { s = s.wrapping_mul(1_103_515_245).wrapping_add(12_345) & 0x7fff_ffff; (s >> 16) & 0xff };
+        let (r, g, b, pick) = (next(), next(), next(), next());
+        let a = match pick % 3 { 0 => 0, 1 => 255, _ => 40 + pick % 200 };
+        data.extend_from_slice(&[(r * a / 255) as u8, (g * a / 255) as u8, (b * a / 255) as u8, a as u8]);
+    }
+    Raster::from_premultiplied(width, height, data)
+}
+
+/// The full-frame Gaussian this crate ran before its horizontal pass was banded (16 bytes of f32
+/// per pixel), kept as the reference the banded one must equal to the bit.
+fn full_frame_gaussian(raster: &Raster, sigma: f64) -> Raster {
+    if !(sigma > 0.0) || raster.width == 0 || raster.height == 0 { return raster.clone(); }
+    let radius = (sigma * 3.0).ceil() as i64;
+    let kernel: Vec<f32> = (-radius..=radius).map(|i| (-(i * i) as f64 / (2.0 * sigma * sigma)).exp() as f32).collect();
+    let sum: f32 = kernel.iter().sum();
+    let (w, h) = (raster.width as i64, raster.height as i64);
+    let src = raster.bytes();
+    let mut tmp = vec![0f32; (w * h * 4) as usize];
+    for y in 0..h { for x in 0..w {
+        let mut acc = [0f32; 4];
+        for (k, weight) in kernel.iter().enumerate() {
+            let sx = x + k as i64 - radius;
+            if sx < 0 || sx >= w { continue; }
+            let i = ((y * w + sx) * 4) as usize;
+            for c in 0..4 { acc[c] += src[i + c] as f32 * weight; }
+        }
+        let i = ((y * w + x) * 4) as usize;
+        for c in 0..4 { tmp[i + c] = acc[c] / sum; }
+    }}
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h { for x in 0..w {
+        let mut acc = [0f32; 4];
+        for (k, weight) in kernel.iter().enumerate() {
+            let sy = y + k as i64 - radius;
+            if sy < 0 || sy >= h { continue; }
+            let i = ((sy * w + x) * 4) as usize;
+            for c in 0..4 { acc[c] += tmp[i + c] * weight; }
+        }
+        let i = ((y * w + x) * 4) as usize;
+        let alpha = (acc[3] / sum).round().clamp(0.0, 255.0);
+        out[i + 3] = alpha as u8;
+        for c in 0..3 { out[i + c] = (acc[c] / sum).round().clamp(0.0, alpha) as u8; }
+    }}
+    Raster::from_premultiplied(raster.width, raster.height, out)
+}
+
+/// The halved path as it ran before it wrote over its input: `level` halvings, the kernel, then a
+/// fresh full-size raster sampled bilinearly from the reduced one.
+fn full_frame_halved(raster: &Raster, level: u32, blur: impl Fn(&Raster) -> Raster) -> Raster {
+    let mut small = raster.clone();
+    for _ in 0..level { small = small.halved(); }
+    let small = blur(&small);
+    let f = (1u32 << level) as f64;
+    let (width, height) = (raster.width, raster.height);
+    let mut data = vec![0u8; (width as usize) * (height as usize) * 4];
+    for y in 0..height { for x in 0..width {
+        let s = sample(&small, (x as f64 + 0.5) / f, (y as f64 + 0.5) / f, false);
+        let i = ((y * width + x) * 4) as usize;
+        let alpha = (s[3] * 255.0).round().clamp(0.0, 255.0);
+        data[i + 3] = alpha as u8;
+        for c in 0..3 { data[i + c] = (s[c] * 255.0).round().clamp(0.0, alpha) as u8; }
+    }}
+    Raster::from_premultiplied(width, height, data)
+}
+
+#[test]
+fn the_banded_gaussian_equals_the_full_frame_one_to_the_bit() {
+    // Radii 1, 3, 8, 9, 10 and 24 taps each side; heights either side of the band (2 * radius + 1
+    // rows), a single row, and several bands deep; widths oblong and odd, and a single column.
+    for (n, sigma) in [0.3, 1.0, 2.5, 3.0, 10.0 / 3.0, 7.7].into_iter().enumerate() {
+        let radius = (sigma * 3.0_f64).ceil() as u32;
+        let band = 2 * radius + 1;
+        for height in [1, 2, radius, band - 1, band, band + 1, 3 * band + 2] {
+            for width in [1, 13, 2 * band + 3] {
+                let source = noisy(width, height, 7 + n as u32 * 31 + height * 5 + width);
+                assert_eq!(gaussian_blur(&source, sigma).bytes(), full_frame_gaussian(&source, sigma).bytes(), "sigma {sigma}, {width} x {height}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_blur_layer_written_over_its_input_equals_the_full_frame_path_to_the_bit() {
+    let source = noisy(151, 97, 99);
+    // Level 0 (reach 30), 1 (reach 60) and 2 (reach 120) of `spatial_level`.
+    assert_eq!(blur_for_layer(source.clone(), 10.0).bytes(), full_frame_gaussian(&source, 10.0).bytes(), "level 0");
+    for (sigma, level) in [(20.0, 1), (40.0, 2)] {
+        assert_eq!(spatial_level(sigma * 3.0), level);
+        let expected = full_frame_halved(&source, level, |r| full_frame_gaussian(r, sigma / (1u32 << level) as f64));
+        assert_eq!(blur_for_layer(source.clone(), sigma).bytes(), expected.bytes(), "Gaussian at level {level}");
+    }
+    // A Motion Blur halves past a reach of 12: 40 px is level 1, 100 px level 3.
+    for (distance, level) in [(40.0, 1), (100.0, 3)] {
+        assert_eq!(motion_level(distance / 2.0), level);
+        let expected = full_frame_halved(&source, level, |r| motion_blur(r, 30.0, distance / (1u32 << level) as f64));
+        assert_eq!(streak_for_layer(source.clone(), 30.0, distance).bytes(), expected.bytes(), "Motion Blur at level {level}");
+    }
+}

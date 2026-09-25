@@ -47,6 +47,11 @@ impl Raster {
         Raster::from_premultiplied(width, height, data)
     }
     pub fn bytes(&self) -> &[u8] { &self.inner.data }
+    /// The pixels themselves when nothing else shares them (the halving cache goes with the
+    /// raster), else a copy.
+    pub fn into_bytes(self) -> Vec<u8> {
+        match Arc::try_unwrap(self.inner) { Ok(inner) => inner.data, Err(shared) => shared.data.clone() }
+    }
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let i = ((y * self.width + x) * 4) as usize;
         let d = &self.inner.data;
