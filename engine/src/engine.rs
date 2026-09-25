@@ -66,7 +66,7 @@ pub struct DocumentState {
 const PREVIEW_REVISION_BASE: u64 = 1 << 40;
 
 #[derive(Default)]
-pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64 }
+pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, effects: EffectsCache }
 
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
@@ -77,6 +77,10 @@ fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
 
 impl Engine {
     pub fn new() -> Engine { Engine::default() }
+    /// An engine keeping its effects images in `effects` (tests give it small limits).
+    pub fn with_effects_cache(effects: EffectsCache) -> Engine { Engine { effects, ..Engine::default() } }
+    /// The effects images this engine keeps (`EffectsCache`).
+    pub fn effects_cache(&self) -> &EffectsCache { &self.effects }
     pub fn version() -> &'static str { env!("CARGO_PKG_VERSION") }
 
     /// Sessions are keyed by a fresh handle, independent of `Document.id` (the stable manifest
@@ -322,19 +326,20 @@ impl Engine {
         }
     }
 
-    pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png(&self.session(id)?.document)?) }
+    // Exports and every render below find effects images in, and leave them in, the engine's cache.
+    pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png_with(&self.session(id)?.document, &self.effects)?) }
     pub fn export_jpeg(&self, id: Uuid, quality: f64, matte: [f64; 3]) -> Result<Vec<u8>, CommandError> {
-        Ok(compositor::export_jpeg(&self.session(id)?.document, quality, matte)?)
+        Ok(compositor::export_jpeg_with(&self.session(id)?.document, quality, matte, &self.effects)?)
     }
     pub fn export_jpeg_preview(&self, id: Uuid, quality: f64, matte: [f64; 3], max_side: u32) -> Result<Vec<u8>, CommandError> {
-        Ok(compositor::export_jpeg_preview(&self.session(id)?.document, quality, matte, max_side)?)
+        Ok(compositor::export_jpeg_preview_with(&self.session(id)?.document, quality, matte, max_side, &self.effects)?)
     }
     pub fn composite(&self, id: Uuid, region: Rect, width: u32, height: u32) -> Result<Raster, CommandError> {
-        Ok(compositor::composite(&*self.render_document(id)?, region, width, height))
+        Ok(compositor::composite_edit_with(&*self.render_document(id)?, None, region, width, height, &self.effects))
     }
 
     pub fn render_plan(&self, id: Uuid, edit: Option<&PreviewEdit>) -> Result<RenderPlan, CommandError> { Ok(plan::render_plan(&*self.render_document(id)?, edit)) }
-    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit(&*self.render_document(id)?, edit, region, w, h)) }
+    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit_with(&*self.render_document(id)?, edit, region, w, h, &self.effects)) }
     pub fn clip_dependents(&self, id: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, CommandError> { Ok(ops::hierarchy::clip_dependents(&self.session(id)?.document, ids)) }
     pub fn merge_action(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<&'static str>, CommandError> { Ok(ops::merge::merge_plan(&self.session(id)?.document, ids).map(|p| p.action)) }
     pub fn group_box(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<LayerTransform>, CommandError> { Ok(ops::transform::group_box(&self.session(id)?.document, ids)) }
@@ -366,7 +371,7 @@ impl Engine {
     /// histogram reads. A full composite, so a panel computes it once, when it opens.
     pub fn adjustment_source(&self, id: Uuid, layer: Uuid) -> Result<Raster, CommandError> {
         let below = self.beneath(id, layer)?;
-        Ok(compositor::composite(&below, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height))
+        Ok(compositor::composite_edit_with(&below, None, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height, &self.effects))
     }
     /// A panel's histogram: an adjustment layer reads what lies beneath it, any other layer its
     /// own stored pixels (never the preview, or the graph would chase itself).
@@ -391,7 +396,7 @@ impl Engine {
             (None, true) => {
                 if at.x < 0.0 || at.y < 0.0 || at.x >= doc.width as f64 || at.y >= doc.height as f64 { return Ok(None); }
                 let below = self.beneath(id, layer)?;
-                let pixel = compositor::composite(&below, Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 }, 1, 1).pixel(0, 0);
+                let pixel = compositor::composite_edit_with(&below, None, Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 }, 1, 1, &self.effects).pixel(0, 0);
                 if pixel[3] == 0 { return Ok(None); }
                 return Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))));
             }
@@ -422,7 +427,7 @@ impl Engine {
     pub fn sample_color(&self, id: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
         let doc = &self.session(id)?.document;
         let region = Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 };
-        let pixel = compositor::composite(doc, region, 1, 1).pixel(0, 0);
+        let pixel = compositor::composite_edit_with(doc, None, region, 1, 1, &self.effects).pixel(0, 0);
         if pixel[3] == 0 { return Ok(None); }
         Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
     }

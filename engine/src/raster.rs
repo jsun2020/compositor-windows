@@ -136,6 +136,8 @@ impl GrayRaster {
         GrayRaster { width, height, data: Arc::new(data) }
     }
     pub fn bytes(&self) -> &[u8] { &self.data }
+    /// The very same pixel buffer (a clone of this raster), not merely equal pixels.
+    pub fn same_pixels(&self, other: &GrayRaster) -> bool { Arc::ptr_eq(&self.data, &other.data) }
     pub fn is_uniform(&self) -> Option<u8> {
         let first = *self.data.first()?;
         self.data.iter().all(|&v| v == first).then_some(first)

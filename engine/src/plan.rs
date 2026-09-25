@@ -36,6 +36,10 @@ pub struct LayerDraw {
     pub coverages: Vec<Coverage>,
     #[serde(with = "ids::upper_opt")] pub clip: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
+    /// The layer drawn with its effects (`effects_draw`): then `transform` and `corners` are grown
+    /// by `inset` on every side, `pixels_width` and `pixels_height` are the padded image's, and
+    /// `coverages` hold no mask of the layer's own (it is in the image). Null for every other draw.
+    pub effects: Option<EffectsDraw>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -116,7 +120,7 @@ pub fn displayed_adjustment(layer: &Layer, edit: Option<&PreviewEdit>) -> Option
     }
 }
 
-fn own_coverage(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<Coverage> {
+pub(crate) fn own_coverage(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<Coverage> {
     let mask = layer.mask.as_ref()?;
     if !mask.enabled { return None; }
     let (transform, corners) = displayed_transform(layer, edit);
@@ -165,9 +169,15 @@ fn effective_opacity(by_id: &HashMap<Uuid, &Layer>, layer: &Layer) -> f64 {
 
 pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &Layer, edit: Option<&PreviewEdit>, with_folders: bool) -> LayerDraw {
     let (transform, corners) = displayed_transform(layer, edit);
-    let mut coverages: Vec<Coverage> = own_coverage(layer, edit).into_iter().collect();
+    let effects = effects_draw(layer, edit);
+    // Drawn with its effects, the layer's own mask is already in the image (R 4.2 step 1).
+    let mut coverages: Vec<Coverage> = if effects.is_some() { Vec::new() } else { own_coverage(layer, edit).into_iter().collect() };
     if with_folders { coverages.extend(folder_coverages(by_id, layer, edit)); }
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
+    let (transform, corners, pw, ph) = match &effects {
+        Some(fx) => (grown_transform(&transform, pw, ph, fx.inset), corners.map(|c| grown_corners(&c, pw, ph, fx.inset)), pw + 2 * fx.inset, ph + 2 * fx.inset),
+        None => (transform, corners, pw, ph),
+    };
     LayerDraw {
         id: layer.id, transform, corners, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
         opacity: effective_opacity(by_id, layer),
@@ -176,6 +186,7 @@ pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &L
         keeps_alpha: layer.is_adjustment() && layer.blend_mode != BlendMode::Normal,
         coverages, clip: layer.mask_source_id,
         adjustment: displayed_adjustment(layer, edit),
+        effects,
     }
 }
 

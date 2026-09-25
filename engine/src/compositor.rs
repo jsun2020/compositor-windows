@@ -67,7 +67,7 @@ pub fn alpha_bounds(r: &Raster) -> Option<(u32, u32, u32, u32)> {
 }
 
 /// Maps a document point into a layer's pixel grid: through the distortion when there is one, else the affine inverse.
-fn to_pixels(transform: &LayerTransform, corners: Option<&[Point; 4]>, w: u32, h: u32, p: Point) -> Option<Point> {
+pub(crate) fn to_pixels(transform: &LayerTransform, corners: Option<&[Point; 4]>, w: u32, h: u32, p: Point) -> Option<Point> {
     if let Some(c) = corners {
         let inv = Homography::unit_to(c).invert()?;
         let u = inv.apply(p);
@@ -88,7 +88,7 @@ pub type SourceRasters = std::collections::HashMap<Uuid, (Raster, f64)>;
 /// output pixels per document unit. macOS reduces a clipping source exactly like any other
 /// draw: `LiveMaskRenderer` paints it through the same `drawOwn` closure the canvas uses, which
 /// goes through `LayerRenderer.draw` and its sharp halvings (EditorCanvas.swift).
-pub fn clip_source_rasters(doc: &Document, plan: &RenderPlan, source: Uuid, out_per_doc: f64) -> SourceRasters {
+pub fn clip_source_rasters(doc: &Document, plan: &RenderPlan, source: Uuid, out_per_doc: f64, cache: &EffectsCache) -> SourceRasters {
     let mut out = SourceRasters::new();
     let mut next = Some(source);
     let mut depth = 0;
@@ -96,8 +96,8 @@ pub fn clip_source_rasters(doc: &Document, plan: &RenderPlan, source: Uuid, out_
         if depth > 256 || out.contains_key(&id) { break; }
         depth += 1;
         let Some(draw) = plan.sources.iter().find(|s| s.id == id) else { break; };
-        if let Some(raster) = doc.layer(id).and_then(|l| l.pixels.as_ref()) {
-            out.insert(id, reduced_for(raster, draw, out_per_doc));
+        if let Some(raster) = draw_raster(doc, draw, cache) {
+            out.insert(id, reduced_for(&raster, draw, out_per_doc));
         }
         next = draw.clip;
     }
@@ -111,24 +111,33 @@ fn reduced_for(raster: &Raster, draw: &LayerDraw, out_per_doc: f64) -> (Raster, 
     prefiltered(raster, source_per_output)
 }
 
+/// The raster a draw samples: the layer's pixels, or, when the plan draws its effects, the layer
+/// with its effects around it (`EffectsCache::image`), `effects.inset` pixels larger each side.
+pub fn draw_raster(doc: &Document, draw: &LayerDraw, cache: &EffectsCache) -> Option<Raster> {
+    let layer = doc.layer(draw.id)?;
+    match &draw.effects { Some(fx) => cache.image(layer, fx), None => layer.pixels.clone() }
+}
+
 /// The layer's premultiplied colour at a document point (no opacity, no coverage); transparent
 /// outside. Samples the full-resolution raster; `sample_draw_reduced` takes a prefiltered one.
-pub fn sample_draw(doc: &Document, draw: &LayerDraw, p: Point) -> [f32; 4] {
-    sample_draw_reduced(doc, draw, p, None)
+pub fn sample_draw(doc: &Document, draw: &LayerDraw, p: Point, cache: &EffectsCache) -> [f32; 4] {
+    match draw_raster(doc, draw, cache) { Some(raster) => sample_draw_reduced(draw, p, Some(&(raster, 1.0))), None => [0.0; 4] }
 }
 
-fn sample_draw_reduced(doc: &Document, draw: &LayerDraw, p: Point, reduced: Option<&(Raster, f64)>) -> [f32; 4] {
-    let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return [0.0; 4]; };
-    let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { return [0.0; 4]; };
-    if px.x < 0.0 || px.y < 0.0 || px.x >= raster.width as f64 || px.y >= raster.height as f64 { return [0.0; 4]; }
-    let nearest = draw.transform.sampling == Sampling::Nearest;
-    match reduced {
-        Some((source, scale)) => sample(source, px.x * scale, px.y * scale, nearest),
-        None => sample(raster, px.x, px.y, nearest),
-    }
+/// `reduced` is the raster the draw samples and the factor onto it; None samples nothing, as a
+/// draw without a raster has nothing to sample. The raster is looked up once by the caller
+/// (`clip_source_rasters`), never here for every pixel.
+fn sample_draw_reduced(draw: &LayerDraw, p: Point, reduced: Option<&(Raster, f64)>) -> [f32; 4] {
+    // The plan's own size of the raster the draw samples (padded when it has effects).
+    let (w, h) = (draw.pixels_width, draw.pixels_height);
+    if w == 0 || h == 0 { return [0.0; 4]; }
+    let Some((source, scale)) = reduced else { return [0.0; 4]; };
+    let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), w, h, p) else { return [0.0; 4]; };
+    if px.x < 0.0 || px.y < 0.0 || px.x >= w as f64 || px.y >= h as f64 { return [0.0; 4]; }
+    sample(source, px.x * scale, px.y * scale, draw.transform.sampling == Sampling::Nearest)
 }
 
-fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f32 {
+pub(crate) fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f32 {
     let w = mask.width as i64; let h = mask.height as i64;
     let fetch = |px: i64, py: i64| mask.bytes()[(py.clamp(0, h - 1) * w + px.clamp(0, w - 1)) as usize] as f32 / 255.0;
     if nearest { return fetch(x.floor() as i64, y.floor() as i64); }
@@ -152,13 +161,13 @@ fn coverages_at(doc: &Document, covs: &[Coverage], p: Point) -> f32 {
 }
 
 /// A clipping source's coverage at a document point: its alpha times opacity, own mask and its own
-/// clipping chain. `reduced` carries the prefiltered raster per source (see `source_rasters`);
-/// pass an empty map to sample every source at full resolution.
+/// clipping chain. `reduced` carries the prefiltered raster per source, as `clip_source_rasters`
+/// builds it; a source missing from it has no raster and covers nothing.
 pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, reduced: &SourceRasters) -> f32 {
     fn inner(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, depth: u32, reduced: &SourceRasters) -> f32 {
         if depth > 256 { return 1.0; }
         let Some(draw) = plan.sources.iter().find(|s| s.id == source) else { return 1.0; };
-        let a = sample_draw_reduced(doc, draw, p, reduced.get(&source))[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        let a = sample_draw_reduced(draw, p, reduced.get(&source))[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
         match draw.clip { Some(c) => a * inner(doc, plan, c, p, depth + 1, reduced), None => a }
     }
     inner(doc, plan, source, p, 0, reduced)
@@ -186,18 +195,18 @@ impl<'a> Target<'a> {
 }
 
 /// Draws one layer with its opacity, coverages and clip, blended with its mode.
-fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
+fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool, cache: &EffectsCache) {
     if let Some(adjustment) = &draw.adjustment {
-        if adjustment.kind.is_spatial() { return spatial_target(doc, plan, target, draw, adjustment, blend, use_clip); }
-        return adjust_target(doc, plan, target, draw, blend, use_clip);
+        if adjustment.kind.is_spatial() { return spatial_target(doc, plan, target, draw, adjustment, blend, use_clip, cache); }
+        return adjust_target(doc, plan, target, draw, blend, use_clip, cache);
     }
-    let Some(raster) = doc.layer(draw.id).and_then(|l| l.pixels.as_ref()) else { return; };
+    let Some(raster) = draw_raster(doc, draw, cache) else { return; };
     // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
-    let (source, scale) = reduced_for(raster, draw, out_per_doc);
+    let (source, scale) = reduced_for(&raster, draw, out_per_doc);
     // The clipping chain reduces at the same scale, built once here rather than per pixel.
     let clip_sources = match (use_clip, draw.clip) {
-        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc),
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc, cache),
         _ => SourceRasters::new(),
     };
     let nearest = draw.transform.sampling == Sampling::Nearest;
@@ -220,12 +229,12 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
 /// An adjustment layer: the colours already in the target, mapped where this layer's coverage
 /// reaches. Nothing is sampled from the layer itself - it has no pixels - and the target's alpha
 /// is kept, so a soft edge below stays exactly as soft (macOS's LiveMaskRenderer.adjust).
-fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool) {
+fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, blend: BlendMode, use_clip: bool, cache: &EffectsCache) {
     let Some(adjustment) = &draw.adjustment else { return; };
     let prepared = PreparedAdjustment::prepare(adjustment);
     let out_per_doc = target.w as f64 / target.region.width;
     let clip_sources = match (use_clip, draw.clip) {
-        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc),
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, out_per_doc, cache),
         _ => SourceRasters::new(),
     };
     for oy in 0..target.h { for ox in 0..target.w {
@@ -281,7 +290,7 @@ fn blended_keeping_alpha(mode: BlendMode, original: [u8; 4], adjusted: [u8; 4]) 
 /// whole with alpha, then put back where this layer's coverage reaches, weighted by it. Anything
 /// outside the canvas is transparent to the blur and takes nothing from it, as the Mac's
 /// canvas-sized context is empty there.
-fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, adjustment: &LayerAdjustment, blend: BlendMode, use_clip: bool) {
+fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &LayerDraw, adjustment: &LayerAdjustment, blend: BlendMode, use_clip: bool, cache: &EffectsCache) {
     let scale = target.w as f64 / target.region.width;
     let on_canvas = |p: Point| p.x >= 0.0 && p.y >= 0.0 && p.x < doc.width as f64 && p.y < doc.height as f64;
     let mut input = target.data.to_vec();
@@ -302,7 +311,7 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
     };
     let blurred = blurred.bytes();
     let clip_sources = match (use_clip, draw.clip) {
-        (true, Some(c)) => clip_source_rasters(doc, plan, c, scale),
+        (true, Some(c)) => clip_source_rasters(doc, plan, c, scale, cache),
         _ => SourceRasters::new(),
     };
     for oy in 0..target.h { for ox in 0..target.w {
@@ -321,12 +330,12 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
     }}
 }
 
-fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &LayerDraw, children: &[LayerDraw], folder: &[Coverage]) {
+fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &LayerDraw, children: &[LayerDraw], folder: &[Coverage], cache: &EffectsCache) {
     let (w, h) = (target.w, target.h);
     let mut temp = vec![0u8; (w * h * 4) as usize];
     {
         let mut t = Target { data: &mut temp, w, h, region: target.region };
-        draw_layer(doc, plan, &mut t, base, BlendMode::Normal, true);
+        draw_layer(doc, plan, &mut t, base, BlendMode::Normal, true, cache);
     }
     let base_alpha: Vec<u8> = temp.chunks_exact(4).map(|p| p[3]).collect();
     // The whole surface opaque, a clear pixel becoming opaque black, as layer_unpremultiply_opaque
@@ -340,7 +349,7 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
     }
     {
         let mut t = Target { data: &mut temp, w, h, region: target.region };
-        for child in children { draw_layer(doc, plan, &mut t, child, child.blend, false); }
+        for child in children { draw_layer(doc, plan, &mut t, child, child.blend, false, cache); }
     }
     // Restore the base alpha, then composite with the base's blend mode under its folder masks.
     for (i, px) in temp.chunks_exact_mut(4).enumerate() {
@@ -391,20 +400,26 @@ fn padding(doc: &Document, plan: &RenderPlan, region: Rect, w: u32, h: u32) -> O
 }
 
 pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
+    composite_plan_with(doc, plan, region, out_width, out_height, &EffectsCache::default())
+}
+
+/// `composite_plan`, finding and keeping effects images in `cache` (the engine's). The functions
+/// without `_with` make each image once for their own render and keep none afterwards.
+pub fn composite_plan_with(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32, cache: &EffectsCache) -> Raster {
     match padding(doc, plan, region, out_width, out_height) {
-        Some(p) => composite_region(doc, plan, p.region, p.width, p.height).cropped(p.left, p.top, out_width, out_height),
-        None => composite_region(doc, plan, region, out_width, out_height),
+        Some(p) => composite_region(doc, plan, p.region, p.width, p.height, cache).cropped(p.left, p.top, out_width, out_height),
+        None => composite_region(doc, plan, region, out_width, out_height, cache),
     }
 }
 
-fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32) -> Raster {
+fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32, cache: &EffectsCache) -> Raster {
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
         let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
         for node in &plan.nodes {
             match node {
-                PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true),
-                PlanNode::Stack { base, children, folder_coverages } => draw_stack(doc, plan, &mut target, base, children, folder_coverages),
+                PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true, cache),
+                PlanNode::Stack { base, children, folder_coverages } => draw_stack(doc, plan, &mut target, base, children, folder_coverages, cache),
             }
         }
     }
@@ -412,7 +427,10 @@ fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: 
 }
 
 pub fn composite_edit(doc: &Document, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Raster {
-    composite_plan(doc, &render_plan(doc, edit), region, w, h)
+    composite_edit_with(doc, edit, region, w, h, &EffectsCache::default())
+}
+pub fn composite_edit_with(doc: &Document, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32, cache: &EffectsCache) -> Raster {
+    composite_plan_with(doc, &render_plan(doc, edit), region, w, h, cache)
 }
 
 pub fn composite(doc: &Document, region: Rect, w: u32, h: u32) -> Raster { composite_edit(doc, None, region, w, h) }
@@ -424,9 +442,9 @@ pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &L
     let plan = RenderPlan { nodes: vec![], sources: vec![], spatial_margin: 0.0 };
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
-        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, keeps_alpha: false, coverages: vec![], clip: None, adjustment: None };
+        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, keeps_alpha: false, coverages: vec![], clip: None, adjustment: None, effects: None };
     let mut t = Target { data: target, w: tw, h: th, region };
-    draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false);
+    draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false, &EffectsCache::default());
 }
 
 fn check_export_size(doc: &Document) -> Result<(), ExportError> {
@@ -435,18 +453,21 @@ fn check_export_size(doc: &Document) -> Result<(), ExportError> {
     Ok(())
 }
 
-pub fn render_full(doc: &Document) -> Result<Raster, ExportError> {
+pub fn render_full(doc: &Document) -> Result<Raster, ExportError> { render_full_with(doc, &EffectsCache::default()) }
+pub fn render_full_with(doc: &Document, cache: &EffectsCache) -> Result<Raster, ExportError> {
     check_export_size(doc)?;
-    Ok(composite(doc, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height))
+    Ok(composite_edit_with(doc, None, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height, cache))
 }
 
-pub fn export_png(doc: &Document) -> Result<Vec<u8>, ExportError> {
-    let raster = render_full(doc)?;
+pub fn export_png(doc: &Document) -> Result<Vec<u8>, ExportError> { export_png_with(doc, &EffectsCache::default()) }
+pub fn export_png_with(doc: &Document, cache: &EffectsCache) -> Result<Vec<u8>, ExportError> {
+    let raster = render_full_with(doc, cache)?;
     encode_png(&raster, doc.resolution).map_err(|_| ExportError::Encode)
 }
 
-pub fn export_jpeg(doc: &Document, quality: f64, matte: [f64; 3]) -> Result<Vec<u8>, ExportError> {
-    let raster = render_full(doc)?;
+pub fn export_jpeg(doc: &Document, quality: f64, matte: [f64; 3]) -> Result<Vec<u8>, ExportError> { export_jpeg_with(doc, quality, matte, &EffectsCache::default()) }
+pub fn export_jpeg_with(doc: &Document, quality: f64, matte: [f64; 3], cache: &EffectsCache) -> Result<Vec<u8>, ExportError> {
+    let raster = render_full_with(doc, cache)?;
     encode_jpeg(&raster, quality, matte, doc.resolution)
 }
 
@@ -455,6 +476,9 @@ pub fn export_jpeg(doc: &Document, quality: f64, matte: [f64; 3]) -> Result<Vec<
 /// canvas: the compositor already accepts an arbitrary output size, so the preview is rendered
 /// directly at that size instead of downscaling a full-resolution raster afterward.
 pub fn export_jpeg_preview(doc: &Document, quality: f64, matte: [f64; 3], max_side: u32) -> Result<Vec<u8>, ExportError> {
+    export_jpeg_preview_with(doc, quality, matte, max_side, &EffectsCache::default())
+}
+pub fn export_jpeg_preview_with(doc: &Document, quality: f64, matte: [f64; 3], max_side: u32, cache: &EffectsCache) -> Result<Vec<u8>, ExportError> {
     check_export_size(doc)?;
     let max_side = max_side.max(1) as f64;
     let longest = (doc.width.max(doc.height)) as f64;
@@ -462,6 +486,6 @@ pub fn export_jpeg_preview(doc: &Document, quality: f64, matte: [f64; 3], max_si
     let out_width = ((doc.width as f64 * scale).round() as u32).max(1);
     let out_height = ((doc.height as f64 * scale).round() as u32).max(1);
     let region = Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 };
-    let raster = composite(doc, region, out_width, out_height);
+    let raster = composite_edit_with(doc, None, region, out_width, out_height, cache);
     encode_jpeg(&raster, quality, matte, doc.resolution)
 }

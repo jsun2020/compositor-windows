@@ -197,7 +197,9 @@ pub fn bake_clip(doc: &Document, target: Uuid) -> Option<Raster> {
     let to_doc = layer.transform.pixel_to_document(raster.width, raster.height);
     // Baking writes the target's own pixel grid, so the output scale is that grid's density.
     let out_per_doc = raster.width as f64 / layer.transform.size.width.max(1e-9);
-    let sources = crate::compositor::clip_source_rasters(doc, &plan, source, out_per_doc);
+    // A delete is a one-off: its own cache makes each source's effects image once for the bake.
+    let cache = EffectsCache::default();
+    let sources = crate::compositor::clip_source_rasters(doc, &plan, source, out_per_doc, &cache);
     let mut data = raster.bytes().to_vec();
     for y in 0..raster.height { for x in 0..raster.width {
         let p = to_doc.apply(Point { x: x as f64 + 0.5, y: y as f64 + 0.5 });
