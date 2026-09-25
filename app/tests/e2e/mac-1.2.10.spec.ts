@@ -1,5 +1,94 @@
-import { test, expect } from "@playwright/test";
-import { claimedPngBase64, clickMenu } from "./helpers";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { test, expect, type Page } from "@playwright/test";
+import { claimedPngBase64, clickMenu, hueSafeNoisePngBase64, noisePngBase64 } from "./helpers";
+
+const PROBES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "engine", "tests", "fixtures", "mac-1.2.10-probes");
+
+/** adjust-render.spec.ts's setup: a 64 x 64 noise layer at zoom 1, checkerboard off, on a pinned
+ * viewport: 720 tall while a pixel layer is selected, 721 while an adjustment layer is (the chrome
+ * differs by 21 px, adjust-render.spec.ts:14-29), so the document sits on whole device pixels. */
+async function setupNoise(page: Page, height: 720 | 721): Promise<string> {
+  await page.setViewportSize({ width: 1280, height });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(hueSafeNoisePngBase64);
+  return page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0)), "noise", { x: 32, y: 32 });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    return doc as string;
+  }, b64);
+}
+
+const run = (page: Page, cmd: unknown) => page.evaluate((cmd) => {
+  const api = (window as any).__compositor; const s = api.store.getState();
+  api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate();
+}, cmd);
+
+/** What the GPU drew for the document, premultiplied, after two frames. */
+async function glPixels(page: Page): Promise<number[]> {
+  return page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return Array.from(api.readDocumentPixels()) as number[];
+  });
+}
+
+/** The GPU against the CPU compositor for the whole document, through the open panel's edit. */
+async function expectMatchesCpu(page: Page, label: string, tolerance = 2) {
+  const r = await page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    const s = api.store.getState(); const d = s.documents[s.activeId];
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const gl = Array.from(api.readDocumentPixels()) as number[];
+    const cpu = Array.from(api.engine.compositeEdit(d.id, s.previewEdit(), { x: 0, y: 0, width: d.width, height: d.height }, d.width, d.height)) as number[];
+    return { gl, cpu, kind: s.rendererKind };
+  });
+  expect(r.kind, "the GPU renderer, not the CPU fallback").toBe("gl");
+  expect(r.gl.length).toBe(r.cpu.length);
+  const worst = r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0);
+  expect(worst, `${label}: max byte diff`).toBeLessThanOrEqual(tolerance);
+}
+
+/** Opens a committed Mac probe and selects its bottom layer, a pixel layer, for the 720 pinning. */
+async function openProbe(page: Page, name: string): Promise<void> {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const dir = path.join(PROBES, `${name}.comp`);
+  const manifest = fs.readFileSync(path.join(dir, "manifest.json"), "utf8");
+  const images = fs.readdirSync(path.join(dir, "images")).map((file) => ({ name: file, b64: fs.readFileSync(path.join(dir, "images", file)).toString("base64") }));
+  await page.evaluate(async ({ manifest, images }) => {
+    const api = (window as any).__compositor;
+    const files = { manifest, images: images.map((i: { name: string; b64: string }) => ({ name: i.name, bytes: Uint8Array.from(atob(i.b64), (c: string) => c.charCodeAt(0)) })) };
+    const doc = api.engine.openPackage(files, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    const bottom = api.engine.state(doc).layers[0].id;
+    api.store.getState().selectLayers([bottom], bottom);
+  }, { manifest, images });
+}
+
+/** The Mac's export of a probe, premultiplied, decoded by this build's importer into a scratch document. */
+async function macPixels(page: Page, name: string): Promise<number[]> {
+  const b64 = fs.readFileSync(path.join(PROBES, `${name}.mac-1.2.10.png`)).toString("base64");
+  return page.evaluate((b64) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.importImage(null, Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0)), "mac", null);
+    const d = api.engine.state(doc);
+    const px = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: d.width, height: d.height }, d.width, d.height)) as number[];
+    api.engine.closeDocument(doc);
+    return px;
+  }, b64);
+}
+
+const worstOf = (a: number[], b: number[]) => { expect(a.length).toBe(b.length); return a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0); };
 
 test("opening a project over 100 megapixels says so in the error banner", async ({ page }) => {
   await page.goto("/");
@@ -77,4 +166,29 @@ test("importing an image over 100 megapixels says so in the error banner, before
   await expect(banner).toContainText("larger than Compositor for Windows supports");
   await expect(banner).toContainText("100 megapixels");
   expect(await page.evaluate(() => Object.keys((window as any).__compositor.store.getState().documents).length)).toBe(0);
+});
+
+const NEW_MODES = ["Linear Burn", "Linear Dodge (Add)", "Soft Light", "Hard Light", "Vivid Light", "Linear Light", "Pin Light", "Hard Mix", "Exclusion", "Subtract", "Divide"];
+
+test("the eleven blend modes Mac 1.2.6 added draw on the GPU as on the CPU, through a translucent layer", async ({ page }) => {
+  await setupNoise(page, 720);
+  // A second, different noise on top at 60%: every mode meets many backdrop and source values.
+  const b64 = await page.evaluate(noisePngBase64);
+  const top = await page.evaluate((data) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    api.engine.importImage(s.activeId, Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0)), "top", { x: 32, y: 32 });
+    const id = api.engine.state(s.activeId).activeLayerId;
+    api.engine.execute(s.activeId, { type: "SetLayerOpacity", id, opacity: 0.6 });
+    s.refresh(); s.invalidate();
+    return id as string;
+  }, b64);
+  for (const mode of NEW_MODES) {
+    await run(page, { type: "SetLayerBlendMode", id: top, mode });
+    await expectMatchesCpu(page, mode);
+  }
+});
+
+test("the new-blend-modes probe draws on the GPU as the Mac exported it", async ({ page }) => {
+  await openProbe(page, "new-blend-modes");
+  expect(worstOf(await glPixels(page), await macPixels(page, "new-blend-modes"))).toBeLessThanOrEqual(2);
 });

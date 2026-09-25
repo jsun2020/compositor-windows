@@ -26,22 +26,17 @@ async function setup(page: Page) {
 }
 const state = (page: Page) => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
 
-test("a layer using a blend mode this build does not draw yet shows it, disabled", async ({ page }) => {
+test("the Blend menu offers all 24 modes in the Mac's order, and Soft Light is chosen from it", async ({ page }) => {
   await setup(page);
-  await page.evaluate(() => {
-    const api = (window as any).__compositor; const s = api.store.getState();
-    const id = api.engine.state(s.activeId).layers[0].id;
-    api.engine.execute(s.activeId, { type: "SetLayerBlendMode", id, mode: "Soft Light" });
-    s.refresh(); s.invalidate();
-  });
-  expect((await state(page)).layers[0].blendMode).toBe("Soft Light");
   const select = page.getByRole("combobox", { name: "Blend mode", exact: true });
-  await expect(select).toHaveValue("Soft Light");
-  // Not toBeDisabled(): that assertion's "follow-label" retargeting walks from the <option>,
-  // which is not itself a labelable element, up through the enclosing <label>Blend <select>...
-  // to the label's control (the <select>), and reports the SELECT's disabled state instead of
-  // the option's. Checking the attribute directly targets the option itself.
-  await expect(select.locator("option[value='Soft Light']")).toHaveAttribute("disabled", "");
+  expect(await select.locator("option").allTextContents()).toEqual(["Normal", "Darken", "Multiply", "Color Burn", "Linear Burn",
+    "Lighten", "Screen", "Color Dodge", "Linear Dodge (Add)", "Overlay", "Soft Light", "Hard Light", "Vivid Light", "Linear Light",
+    "Pin Light", "Hard Mix", "Difference", "Exclusion", "Subtract", "Divide", "Hue", "Saturation", "Color", "Luminosity"]);
+  const depth = (await state(page)).undoDepth;
+  await select.selectOption("Soft Light");
+  const d = await state(page);
+  expect(d.layers[0].blendMode).toBe("Soft Light");
+  expect(d.undoDepth).toBe(depth + 1);
 });
 
 test("merging onto a layer with layer effects is refused, with the feature named in the error banner", async ({ page }) => {

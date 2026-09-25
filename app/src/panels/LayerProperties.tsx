@@ -32,7 +32,6 @@ export function LayerProperties() {
         onBlur={commitOpacity}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitOpacity(); } }} /> %</label>
       <label>Blend <select aria-label="Blend mode" value={layer.blendMode} disabled={folder} onChange={(e) => setBlendModeOfActive(e.target.value as BlendMode)}>
-        {!BLEND_MODES.includes(layer.blendMode) && <option value={layer.blendMode} disabled>{layer.blendMode} (not drawn yet)</option>}
         {BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
       </select></label>
       <div className="mask-buttons">

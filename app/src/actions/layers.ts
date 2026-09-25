@@ -4,7 +4,12 @@ import type { AdjustmentKind, BlendMode } from "../engine/types";
 import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
 import type { DropTarget } from "../panels/layer-rows";
 
-export const BLEND_MODES: BlendMode[] = ["Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten", "Difference", "Color Dodge", "Color Burn", "Hue", "Saturation", "Color", "Luminosity"];
+/** Every blend mode in the order the Mac's menu lists them and Shift+= / Shift+- steps through them
+ * (`LayerBlendMode.allCases`, LayerAppearance.swift:4-13): Normal, then the darkening, lightening,
+ * contrast, comparative and component groups. */
+export const BLEND_MODES: BlendMode[] = ["Normal", "Darken", "Multiply", "Color Burn", "Linear Burn", "Lighten", "Screen", "Color Dodge",
+  "Linear Dodge (Add)", "Overlay", "Soft Light", "Hard Light", "Vivid Light", "Linear Light", "Pin Light", "Hard Mix",
+  "Difference", "Exclusion", "Subtract", "Divide", "Hue", "Saturation", "Color", "Luminosity"];
 
 function ctx() { const s = useEditor.getState(); const doc = s.activeId ? s.documents[s.activeId] : null; return doc && s.engine ? { s, doc, engine: s.engine, selected: s.selectedLayerIds, active: activeLayer(doc) } : null; }
 

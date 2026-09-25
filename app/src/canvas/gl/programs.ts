@@ -1,8 +1,9 @@
 import type { BlendMode } from "../../engine/types";
 
-// Mac 1.2.6 additions all map to Normal (0) for now; Phase 3.5b gives them real indices.
+// Mirrors BlendMode in engine/src/blend.rs. An adjustment layer's and a stack base's draw arrive
+// already mapped to their Core Graphics mode by the plan (BlendMode::cg_mode).
 export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12,
-  "Linear Burn": 0, "Linear Dodge (Add)": 0, "Soft Light": 0, "Hard Light": 0, "Vivid Light": 0, "Linear Light": 0, "Pin Light": 0, "Hard Mix": 0, Exclusion: 0, Subtract: 0, Divide: 0 };
+  "Linear Burn": 13, "Linear Dodge (Add)": 14, "Soft Light": 15, "Hard Light": 16, "Vivid Light": 17, "Linear Light": 18, "Pin Light": 19, "Hard Mix": 20, Exclusion: 21, Subtract: 22, Divide: 23 };
 export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4 };
 
 const VERT_UNIT = `#version 300 es
@@ -47,6 +48,24 @@ float sep(int mode, float cb, float cs) {
   if (mode == 6) return abs(cb - cs);
   if (mode == 7) return cb <= 0.0 ? 0.0 : (cs >= 1.0 ? 1.0 : min(1.0, cb / (1.0 - cs)));
   if (mode == 8) return cb >= 1.0 ? 1.0 : (cs <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / cs));
+  if (mode == 13) return max(0.0, cb + cs - 1.0);
+  if (mode == 14) return min(1.0, cb + cs);
+  if (mode == 15) {
+    if (cs <= 0.5) return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);
+    float d = cb <= 0.25 ? ((16.0 * cb - 12.0) * cb + 4.0) * cb : sqrt(cb);
+    return cb + (2.0 * cs - 1.0) * (d - cb);
+  }
+  if (mode == 16) { if (cs <= 0.5) return cb * 2.0 * cs; float s = 2.0 * cs - 1.0; return cb + s - cb * s; }
+  if (mode == 17) {
+    if (cs <= 0.5) { float s = 2.0 * cs; return cb >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / s)); }
+    float s = 2.0 * cs - 1.0; return cb <= 0.0 ? 0.0 : (s >= 1.0 ? 1.0 : min(1.0, cb / (1.0 - s)));
+  }
+  if (mode == 18) return clamp(cb + 2.0 * cs - 1.0, 0.0, 1.0);
+  if (mode == 19) return cs <= 0.5 ? min(cb, 2.0 * cs) : max(cb, 2.0 * cs - 1.0);
+  if (mode == 20) return cb + cs > 1.0 + 0.5 / 255.0 ? 1.0 : 0.0;   // HARD_MIX_MARGIN
+  if (mode == 21) return cb + cs - 2.0 * cb * cs;
+  if (mode == 22) return max(0.0, cb - cs);
+  if (mode == 23) return cs <= 0.0 ? (cb > 0.0 ? 1.0 : 0.0) : min(1.0, cb / cs);
   return cs;
 }
 vec3 blendRgb(int mode, vec3 cb, vec3 cs) {

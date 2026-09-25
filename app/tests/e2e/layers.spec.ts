@@ -125,8 +125,12 @@ test("layer menu and shortcuts: duplicate, blend cycling, opacity digits, merge,
   await freshWithPixels(page);
   await page.keyboard.press("Control+j");
   expect((await names(page)).length).toBe(2);
+  // LayerBlendMode.allCases order: Normal, Darken, Multiply, Color Burn, Linear Burn, Lighten,
+  // Screen, Color Dodge, Linear Dodge (Add), Overlay, Soft Light, Hard Light, Vivid Light,
+  // Linear Light, Pin Light, Hard Mix, Difference, Exclusion, Subtract, Divide, Hue, Saturation,
+  // Color, Luminosity.
   await page.keyboard.press("Shift+=");
-  expect((await state(page)).layers[1].blendMode).toBe("Multiply");
+  expect((await state(page)).layers[1].blendMode).toBe("Darken");
   await page.keyboard.press("Shift+-");
   await page.keyboard.press("Shift+-");
   expect((await state(page)).layers[1].blendMode).toBe("Luminosity");
