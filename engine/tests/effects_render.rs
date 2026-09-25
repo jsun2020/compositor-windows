@@ -228,7 +228,8 @@ fn shadows_and_glows_equal_the_metal_transcription_to_the_bit_up_to_the_reach_li
 fn a_blur_past_the_reach_limit_stays_within_one_level_of_the_exact_kernel() {
     // Measured 2026-09-25 (scratch p35c-scratch, sigma 16.5 to 125, both fixtures): 1 at most.
     // Small layers keep the whole-plane reference quick (the insets below, not the layer, dominate
-    // its cost); one case below is several kernels wide.
+    // its cost) but do NOT catch a sampling-phase error (`fy = y / f` or `fx = x / f`): only the
+    // 160 x 100 case below is wide enough for that, so it alone carries that bite (re-review N1).
     for (name, px, w, h) in [("rect", rect(18, 12, [200, 60, 30, 255]), 18, 12), ("blob", blob(18, 12), 18, 12)] {
         for sigma in [16.5f32, 25.0, 40.0] {
             let inset = (sigma * 3.0).ceil() as usize + 20;
@@ -292,6 +293,122 @@ fn a_halved_blur_repeats_the_padded_edge_pixel_not_the_reduced_edge_cell() {
     let blob60 = blob(60, 40);
     let d = worst(&render(&blob60, 60, 40, 2, &inner_shadow(70.0)), &metal::render(&blob60, 60, 40, 2, &inner_shadow(70.0)));
     assert!(d <= 1, "blob inner shadow sigma 70 at inset 2 (level {}): {d}", effects_level(70.0));
+}
+
+#[test]
+fn an_inner_glow_on_a_wide_opaque_layer_stays_within_one_level_at_its_real_margin() {
+    // Re-review of 86ef16b..712a976 (C1 not yet addressed): the fix above still left the halved
+    // blur up to 3 levels off `metal::render` right where an inner glow or inner shadow really
+    // lands -- inset 2, its real margin -- once the layer is wide enough for the blurred edge to
+    // reach its full slope. The committed 60x40 fixture above is too narrow for that; this one
+    // (and the padded height 204 = 25 x 8 + 4 it produces at level 3, not a multiple of 2^level) is
+    // exactly the re-review's counterexample.
+    let opaque = rect(300, 200, [180, 90, 40, 255]);
+    for sigma in [64.5f32, 70.0] {
+        let p = EffectPasses { inner_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() };
+        let d = worst(&render(&opaque, 300, 200, 2, &p), &metal::render(&opaque, 300, 200, 2, &p));
+        assert!(d <= 1, "inner glow sigma {sigma} on 300x200 at inset 2 (level {}): {d}", effects_level(sigma));
+    }
+}
+
+/// A tiny, fixed-seed PRNG (SplitMix64) so the sweep below is exactly reproducible: same cases,
+/// same order, on every run and every machine.
+struct Lcg(u64);
+impl Lcg {
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E3779B97F4A7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z ^ (z >> 31)
+    }
+    fn f32(&mut self) -> f32 { (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32 }
+    fn range(&mut self, lo: f32, hi: f32) -> f32 { lo + self.f32() * (hi - lo) }
+    fn usize_range(&mut self, lo: usize, hi: usize) -> usize { lo + (self.f32() * (hi - lo) as f32) as usize }
+    fn bool(&mut self) -> bool { self.f32() < 0.5 }
+}
+
+#[test]
+fn a_randomized_sweep_of_the_four_gaussian_effects_stays_within_one_level() {
+    // Re-review: fixing only the partial-last-cell average (`HalvedBlur::new`) or only the
+    // enlargement's halo ring (`HalvedBlur::row`) alone still left 3 levels of error; the reviewer
+    // measured <= 1 over 5164 randomized cases only with both fixes. This is a much smaller, fully
+    // deterministic version of that sweep: a fixed seed, ~180 cases, over all four Gaussian effects,
+    // levels 0-3, insets from 0 (inner effects) to the Mac's own margin (drop shadow, outer glow),
+    // fractional and negative offsets, rect/blob/translucent shapes, and sizes not a multiple of
+    // 2^level. Small layers and modest sigmas within each level keep this well under 30 s in debug:
+    // the exact `metal::render` reference is O(padded area x radius) with no shortcut, and a real
+    // margin at level 3 (sigma > 64, so radius > 192) makes the reference itself the expensive part,
+    // not the fix being tested -- the drop-shadow/outer-glow loop below only reaches level 1 for
+    // that reason (see the fix round 2 report for the cost measurement and why that is still enough
+    // coverage: the reviewer's own larger sweep already found both effects safe at every level and
+    // every margin, this round's regression is entirely in the two inner effects).
+    let mut rng = Lcg(0xC0FFEE_5EED_u64);
+    let sigma_range = |level: u32| match level { 0 => (0.5f32, 16.0), 1 => (16.5, 20.0), 2 => (33.0, 40.0), 3 => (65.0, 72.0), _ => unreachable!() };
+    let mut worst_overall = 0u8;
+
+    // The bulk: inner glow and inner shadow, which get no margin of their own (`LayerEffects::margin`)
+    // and so are where the Mac's own layers actually reach the halved edge (re-review C1).
+    for i in 0..176 {
+        let level = (i % 4) as u32;
+        let (lo, hi) = sigma_range(level);
+        let sigma = rng.range(lo, hi);
+        let f = 1usize << level;
+        let mut w = rng.usize_range(18, 50);
+        let mut h = rng.usize_range(14, 40);
+        if w % f == 0 { w += 1; }
+        if h % f == 0 { h += 1; }
+        let inset = rng.usize_range(0, 21);
+        let (dx, dy) = (rng.range(-15.0, 15.0), rng.range(-15.0, 15.0));
+        let opacity = rng.range(0.3, 1.0);
+        let color = [rng.f32(), rng.f32(), rng.f32()];
+        let px = match rng.usize_range(0, 3) {
+            0 => rect(w, h, [200, 60, 30, 255]),
+            1 => rect(w, h, [200, 60, 30, rng.usize_range(1, 255) as u8]),
+            _ => blob(w, h),
+        };
+        let inner_glow = i % 2 == 0;
+        let p = if inner_glow {
+            EffectPasses { inner_glow: Some(GlowPass { sigma, color, opacity }), ..Default::default() }
+        } else {
+            EffectPasses { inner_shadow: Some(ShadowPass { dx, dy, sigma, color, opacity }), ..Default::default() }
+        };
+        let d = worst(&render(&px, w, h, inset, &p), &metal::render(&px, w, h, inset, &p));
+        assert!(d <= 1, "case {i}: {} sigma {sigma} level {level} {w}x{h} inset {inset} offset ({dx}, {dy}): {d}",
+            if inner_glow { "inner glow" } else { "inner shadow" });
+        worst_overall = worst_overall.max(d);
+    }
+
+    // Drop shadow and outer glow at the Mac's own margin (`LayerEffects::margin`, settings.rs:177-184):
+    // distance + 3 x blur (= 6 x sigma), or 3 x the glow's size (= 6 x sigma) alone, rounded up, plus
+    // 2. Both stayed within 1 level even before this round's fix (the plane is flat 0 near the edge
+    // at their real margin), so a handful is enough to keep them covered; levels 2 and 3 are left to
+    // the reviewer's own larger, one-off sweep (see the comment above `worst_overall`).
+    for level in 0..2u32 {
+        let (lo, hi) = sigma_range(level);
+        for outer_glow in [false, true] {
+            let sigma = rng.range(lo, hi);
+            let f = 1usize << level;
+            let (mut w, mut h) = (rng.usize_range(16, 30), rng.usize_range(12, 24));
+            if w % f == 0 { w += 1; }
+            if h % f == 0 { h += 1; }
+            let (dx, dy) = if outer_glow { (0.0, 0.0) } else { (rng.range(-9.0, 9.0), rng.range(-9.0, 9.0)) };
+            let distance = (dx * dx + dy * dy).sqrt();
+            let opacity = rng.range(0.3, 1.0);
+            let color = [rng.f32(), rng.f32(), rng.f32()];
+            let margin = if outer_glow { (sigma * 6.0).ceil() as usize + 2 } else { (distance + sigma * 6.0).ceil() as usize + 2 };
+            let px = if rng.bool() { rect(w, h, [200, 60, 30, 255]) } else { blob(w, h) };
+            let p = if outer_glow {
+                EffectPasses { outer_glow: Some(GlowPass { sigma, color, opacity }), ..Default::default() }
+            } else {
+                EffectPasses { shadow: Some(ShadowPass { dx, dy, sigma, color, opacity }), ..Default::default() }
+            };
+            let d = worst(&render(&px, w, h, margin, &p), &metal::render(&px, w, h, margin, &p));
+            assert!(d <= 1, "{} sigma {sigma} level {level} margin {margin}: {d}", if outer_glow { "outer glow" } else { "drop shadow" });
+            worst_overall = worst_overall.max(d);
+        }
+    }
+    println!("sweep worst level: {worst_overall}");
 }
 
 #[test]

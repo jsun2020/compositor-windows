@@ -69,9 +69,11 @@ impl EffectPasses {
 
 /// A Gaussian whose reach (3 sigma) passes this many layer pixels runs on a copy reduced by a power
 /// of two, as 3.5b's blur layers do past SPATIAL_REACH_LIMIT: at most 97 taps a pass at any size.
-/// Measured against the exact kernel (tests/effects_render.rs): within 1 level, at any inset --
-/// including an inner glow's or inner shadow's, which `LayerEffects::margin` gives no room of its
-/// own, so it can sit right at the padded image's edge.
+/// Measured against the exact kernel (tests/effects_render.rs, a randomized sweep of about 200
+/// cases): within 1 level, at any inset -- including an inner glow's or inner shadow's, which
+/// `LayerEffects::margin` gives no room of its own, so it can sit right at the padded image's edge.
+/// Getting there needs both a partial edge cell (`HalvedBlur::new`) and the enlargement
+/// (`HalvedBlur::row`) to extend past the real image the way Metal's own clamp-to-edge does.
 pub const EFFECTS_REACH_LIMIT: f32 = 48.0;
 
 /// How many times a Gaussian of `sigma` layer pixels is halved first: 0 is the exact kernel.
@@ -218,11 +220,17 @@ impl ExactBlur {
 /// pixels it covers), extended by a halo of the reduced kernel's own radius on every side so its
 /// blur clamps to the padded image's edge PIXEL, not to the mean of its edge CELL (`effects_blur_rows`
 /// and `_columns` clamp to the padded image itself, whatever grid computes the sum), blurred with
-/// sigma / 2^level through the exact kernel, and enlarged bilinearly at each pixel's centre, clamped
-/// to the edge, as 3.5b's `blur_for_layer` enlarges. It keeps its blurred reduced plane (4 bytes a
-/// cell, a cell being 2^level x 2^level padded pixels) for the whole render; the reduced plane and
-/// its halo, and the plane it blurred from, are freed when `new` returns.
-struct HalvedBlur { level: u32, width: usize, cells: Vec<f32>, cw: usize, ch: usize }
+/// sigma / 2^level through the exact kernel, and enlarged bilinearly at each pixel's centre. Both the
+/// reduced grid (`new`) and the enlargement (`row`) extend past the real image the way Metal's own
+/// clamp-to-edge does: a partial edge cell averages over its FULL 2^level x 2^level block, the part
+/// past the image repeating the edge pixel (not just its real pixels), and the enlargement reads one
+/// ring of already-blurred halo cells rather than re-clamping to the interior's own edge cell -- a
+/// partial cell dividing by its real pixel count, or a clamped edge cell dropping its neighbour's
+/// blur, both bias a wide layer's edge by multiple levels (re-review of 86ef16b..712a976, C1). It
+/// keeps its blurred reduced plane plus a 1-cell halo ring (4 bytes a cell, a cell being
+/// 2^level x 2^level padded pixels) for the whole render; every other local plane, including its own
+/// wider construction halo, is freed when `new` returns.
+struct HalvedBlur { level: u32, width: usize, cells: Vec<f32>, cw: usize }
 
 impl HalvedBlur {
     fn new(sigma: f32, level: u32, width: usize, height: usize, source: &mut dyn FnMut(usize, &mut [f32])) -> HalvedBlur {
@@ -233,7 +241,9 @@ impl HalvedBlur {
         // The padded image's own edge row and column: a halo cell past the image repeats one of
         // these (clamp-to-edge saturates immediately, so every halo cell at a given distance from
         // the interior shares the one value the true edge pixel gives), and a corner halo cell
-        // repeats the one corner pixel, clamped on both axes at once.
+        // repeats the one corner pixel, clamped on both axes at once. A partial edge cell (width or
+        // height not a multiple of f) needs the same edge values, for the part of its own block that
+        // falls past the image.
         let (mut top_row, mut bottom_row) = (vec![0.0f32; width], vec![0.0f32; width]);
         let (mut left_col, mut right_col) = (vec![0.0f32; height], vec![0.0f32; height]);
         for y in 0..height {
@@ -245,23 +255,33 @@ impl HalvedBlur {
             if y == 0 { top_row.copy_from_slice(&row); }
             if y == height - 1 { bottom_row.copy_from_slice(&row); }
         }
+        let (tl, tr, bl, br) = (top_row[0], top_row[width - 1], bottom_row[0], bottom_row[width - 1]);
+        // Every cell -- including a partial one at the real edge -- averages over the FULL f x f
+        // block of the clamp-extended image, not just its real pixels: dividing by the real count
+        // alone (as if the missing part were simply absent) shifts the cell toward the interior
+        // instead of toward the edge pixel Metal actually repeats there (re-review cause 1).
         for cy in 0..ch { for cx in 0..cw {
-            let covered = ((width - cx * f).min(f) * (height - cy * f).min(f)) as f32;
-            sums[cy * cw + cx] /= covered;
+            let (px, py) = ((width - cx * f).min(f), (height - cy * f).min(f));
+            let (mx, my) = (f - px, f - py);
+            let mut sum = sums[cy * cw + cx];
+            if mx > 0 { sum += mx as f32 * right_col[cy * f..cy * f + py].iter().sum::<f32>(); }
+            if my > 0 { sum += my as f32 * bottom_row[cx * f..cx * f + px].iter().sum::<f32>(); }
+            if mx > 0 && my > 0 { sum += (mx * my) as f32 * br; }
+            sums[cy * cw + cx] = sum / (f * f) as f32;
         }}
-        // The edge row or column, reduced along its own length the same way `sums` reduces both
-        // axes, gives what a halo cell just off that edge would average to.
-        let reduce_1d = |src: &[f32], n: usize, cn: usize| -> Vec<f32> {
+        // The edge row or column, reduced along its own length the same clamped way, gives what a
+        // halo cell just off that edge averages to; past its own end it repeats its own corner.
+        let reduce_1d = |src: &[f32], n: usize, cn: usize, edge: f32| -> Vec<f32> {
             (0..cn).map(|c| {
                 let (lo, hi) = (c * f, (c * f + f).min(n));
-                src[lo..hi].iter().sum::<f32>() / (hi - lo) as f32
+                let missing = f - (hi - lo);
+                (src[lo..hi].iter().sum::<f32>() + missing as f32 * edge) / f as f32
             }).collect()
         };
-        let top_reduced = reduce_1d(&top_row, width, cw);
-        let bottom_reduced = reduce_1d(&bottom_row, width, cw);
-        let left_reduced = reduce_1d(&left_col, height, ch);
-        let right_reduced = reduce_1d(&right_col, height, ch);
-        let (tl, tr, bl, br) = (top_row[0], top_row[width - 1], bottom_row[0], bottom_row[width - 1]);
+        let top_reduced = reduce_1d(&top_row, width, cw, tr);
+        let bottom_reduced = reduce_1d(&bottom_row, width, cw, br);
+        let left_reduced = reduce_1d(&left_col, height, ch, bl);
+        let right_reduced = reduce_1d(&right_col, height, ch, br);
 
         let k = Kernel::new(sigma / f as f32);
         let r = k.radius;
@@ -289,23 +309,35 @@ impl HalvedBlur {
         let mut ext_cells = vec![0.0f32; ecw * ech];
         let mut from_ext = |y: usize, out: &mut [f32]| out.copy_from_slice(&extended[y * ecw..(y + 1) * ecw]);
         for y in 0..ech { blur.row(y, &mut from_ext, &mut ext_cells[y * ecw..(y + 1) * ecw]); }
-        let mut cells = vec![0.0f32; cw * ch];
-        for cy in 0..ch { cells[cy * cw..(cy + 1) * cw].copy_from_slice(&ext_cells[(cy + r) * ecw + r..(cy + r) * ecw + r + cw]); }
-        HalvedBlur { level, width, cells, cw, ch }
+        // Keep one ring of already-blurred halo cells around the interior (cw+2 x ch+2, cropped from
+        // ext_cells at r-1): `row` below reads it directly at the edge instead of clamping the
+        // enlargement to the interior's own edge cell, which would flatten the last 1-2 layer pixels
+        // at a wide, steep edge (re-review cause 2). The wider construction halo (`extended`,
+        // `ext_cells`) is freed when `new` returns; only this narrow ring is kept.
+        let (cw2, ch2) = (cw + 2, ch + 2);
+        let mut cells = vec![0.0f32; cw2 * ch2];
+        for cy in 0..ch2 {
+            let src = (r - 1 + cy) * ecw + r - 1;
+            cells[cy * cw2..cy * cw2 + cw2].copy_from_slice(&ext_cells[src..src + cw2]);
+        }
+        HalvedBlur { level, width, cells, cw }
     }
     fn row(&self, y: usize, out: &mut [f32]) {
         let f = (1u32 << self.level) as f32;
+        let cw2 = self.cw + 2;
         let fy = (y as f32 + 0.5) / f - 0.5;
         let ty = fy - fy.floor();
-        let clamp_y = |v: i64| v.clamp(0, self.ch as i64 - 1) as usize;
-        let (ya, yb) = (clamp_y(fy.floor() as i64), clamp_y(fy.floor() as i64 + 1));
+        // +1 shifts from cell space into `cells`' own index space, which keeps one halo cell before
+        // index 0: `floor(fy)` never goes below -1 or above ch-1, so this never needs clamping.
+        let ya = (fy.floor() as i64 + 1) as usize;
+        let yb = ya + 1;
         for x in 0..self.width {
             let fx = (x as f32 + 0.5) / f - 0.5;
             let tx = fx - fx.floor();
-            let clamp_x = |v: i64| v.clamp(0, self.cw as i64 - 1) as usize;
-            let (xa, xb) = (clamp_x(fx.floor() as i64), clamp_x(fx.floor() as i64 + 1));
-            let top = mix(self.cells[ya * self.cw + xa], self.cells[ya * self.cw + xb], tx);
-            let bottom = mix(self.cells[yb * self.cw + xa], self.cells[yb * self.cw + xb], tx);
+            let xa = (fx.floor() as i64 + 1) as usize;
+            let xb = xa + 1;
+            let top = mix(self.cells[ya * cw2 + xa], self.cells[ya * cw2 + xb], tx);
+            let bottom = mix(self.cells[yb * cw2 + xa], self.cells[yb * cw2 + xb], tx);
             out[x] = mix(top, bottom, ty);
         }
     }
