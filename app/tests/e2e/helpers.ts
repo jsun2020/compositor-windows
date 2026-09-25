@@ -233,3 +233,37 @@ export async function ringPngBase64(): Promise<string> {
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
 }
+
+/**
+ * A PNG whose header claims `width` x `height` RGBA8 but whose data is one empty zlib block, as
+ * base64: a reader that sizes images from their headers before decoding never reads further, so
+ * a test can present a 60-megapixel image without making one. Same standalone-page-function rule
+ * as `redSquarePngBase64`; the size is the evaluate argument.
+ */
+export async function claimedPngBase64(size: { width: number; height: number }): Promise<string> {
+  const crcTable: number[] = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crcTable[n] = c >>> 0;
+  }
+  const crc32 = (bytes: number[]) => {
+    let c = 0xffffffff;
+    for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const be32 = (v: number) => [(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff];
+  const chunk = (type: string, data: number[]) => {
+    const name = [...type].map((ch) => ch.charCodeAt(0));
+    return [...be32(data.length), ...name, ...data, ...be32(crc32([...name, ...data]))];
+  };
+  const png = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk("IHDR", [...be32(size.width), ...be32(size.height), 8, 6, 0, 0, 0]),
+    ...chunk("IDAT", [0x78, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01]),
+    ...chunk("IEND", []),
+  ];
+  let binary = "";
+  for (const v of png) binary += String.fromCharCode(v);
+  return btoa(binary);
+}

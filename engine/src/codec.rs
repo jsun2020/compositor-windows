@@ -41,6 +41,12 @@ fn png_header(bytes: &[u8]) -> Result<png::Info<'static>, ProjectError> {
     Ok(info.clone())
 }
 
+/// A package image's size, read from its PNG header alone (the checks `decode_package_png` makes first).
+pub fn package_png_size(bytes: &[u8]) -> Result<(u32, u32), ProjectError> {
+    let info = png_header(bytes)?;
+    Ok((info.width, info.height))
+}
+
 /// Package assets are PNG only, at most 8 bits per channel, one frame.
 pub fn decode_package_png(bytes: &[u8]) -> Result<Raster, ProjectError> {
     png_header(bytes)?;

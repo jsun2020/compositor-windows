@@ -10,6 +10,11 @@ pub enum ProjectError {
     MissingImage,
     #[error("This project exceeds the supported canvas, layer, file-size, or 100-megapixel image limit.")]
     TooLarge,
+    /// Over this build's pixel budget. Compositor for Mac 1.2.10 allows min(800 MP, max(200 MP,
+    /// RAM / 16)) (DocumentLimits.swift:36-37); a wasm32 heap cannot hold that, so this build keeps
+    /// 100 MP of layer images and 100 MP of masks, and says so (Phase 3.5b ruling).
+    #[error("This project is larger than Compositor for Windows supports: its layer images, or its masks, add up to more than 100 megapixels. Compositor for Mac can open larger projects, depending on the Mac's memory.")]
+    OverBudget,
     #[error("An image could not be saved. The previous project has not been replaced.")]
     Encode,
 }

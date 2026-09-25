@@ -288,7 +288,9 @@ impl Manifest {
 /// `LayerTextStyle.isValid` (TypeTool.swift:25-36), read from the verbatim value. Swift's
 /// synthesized decode requires every key but `boxSize`, so a missing required key or a wrong type
 /// makes the text invalid, as it makes the Mac refuse the project. `boxSize` is a CGSize, which
-/// Swift encodes as `[width, height]`.
+/// Swift encodes as `[width, height]`. Its area follows 1.2.10's `boxIsValid` (200,000,000,
+/// TypeTool.swift:28), not this build's 100 MP image budget: it validates a value the port never
+/// renders, and refusing it would stop a 1.2.10 file opening.
 fn text_is_valid(text: &Value) -> bool {
     let number = |key: &str, range: std::ops::RangeInclusive<f64>| {
         text.get(key).and_then(Value::as_f64).is_some_and(|v| v.is_finite() && range.contains(&v))
@@ -298,7 +300,7 @@ fn text_is_valid(text: &Value) -> bool {
         None | Some(Value::Null) => true,
         Some(b) => match b.as_array().map(|a| a.iter().map(Value::as_f64).collect::<Option<Vec<f64>>>()) {
             Some(Some(s)) if s.len() == 2 => {
-                s.iter().all(|v| v.is_finite() && (16.0..=30_000.0).contains(v)) && s[0] * s[1] <= 100_000_000.0
+                s.iter().all(|v| v.is_finite() && (16.0..=30_000.0).contains(v)) && s[0] * s[1] <= 200_000_000.0
             }
             _ => false,
         },
