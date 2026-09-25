@@ -42,4 +42,5 @@ pub use blend::*;
 pub use plan::*;
 pub use preview::*;
 pub use effects::settings::*;
+pub use effects::render::*;
 pub use ops::masks::blur_gray;
