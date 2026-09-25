@@ -27,6 +27,11 @@ pub enum ImportError {
     Unsupported,
     #[error("This import exceeds the current 100-megapixel document budget or 30,000-pixel side limit.")]
     TooLarge,
+    /// Over the single-image budget, read from the header before decoding. Same wording as
+    /// `ProjectError::OverBudget` (Phase 3.5b fix round 1), so an over-budget image reads the
+    /// same whether it arrives by package open or by import.
+    #[error("This project is larger than Compositor for Windows supports: its layer images, or its masks, add up to more than 100 megapixels. Compositor for Mac can open larger projects, depending on the Mac's memory.")]
+    OverBudget,
 }
 
 #[derive(Debug, Error, Clone, PartialEq)]

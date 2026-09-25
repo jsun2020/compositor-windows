@@ -1,4 +1,4 @@
-use crate::{ExportError, GrayRaster, ImportError, ProjectError, Raster};
+use crate::{ExportError, GrayRaster, ImportError, ProjectError, Raster, MAX_PIXELS};
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use std::io::Cursor;
 
@@ -17,6 +17,12 @@ impl std::fmt::Debug for DecodedImage {
 const SUPPORTED: [ImageFormat; 5] = [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::Tiff, ImageFormat::WebP, ImageFormat::Bmp];
 
 /// Decodes an import, applies EXIF orientation and returns premultiplied RGBA8.
+///
+/// `decoder.dimensions()` is populated from the header alone, for every format in `SUPPORTED`
+/// (that is what already lets the side-limit check below run before `DynamicImage::from_decoder`
+/// does the real decode) so the single-image budget check that follows it is header-only for
+/// PNG, JPEG, TIFF, WebP and BMP alike, not just PNG: no second, format-specific header reader
+/// (such as `ImageReader::into_dimensions`) is needed on top of it.
 pub fn decode_image(bytes: &[u8]) -> Result<DecodedImage, ImportError> {
     let format = image::guess_format(bytes).map_err(|_| ImportError::Unreadable)?;
     if !SUPPORTED.contains(&format) { return Err(ImportError::Unsupported); }
@@ -25,6 +31,9 @@ pub fn decode_image(bytes: &[u8]) -> Result<DecodedImage, ImportError> {
     let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
     let (w, h) = decoder.dimensions();
     if w == 0 || h == 0 || w > 30_000 || h > 30_000 { return Err(ImportError::TooLarge); }
+    // Over this build's single-image budget: refused before decoding (w and h are each already
+    // bounded to 30,000 by the check above, so this u64 product cannot overflow).
+    if (w as u64) * (h as u64) > MAX_PIXELS { return Err(ImportError::OverBudget); }
     let mut img = DynamicImage::from_decoder(decoder).map_err(|_| ImportError::Unreadable)?;
     img.apply_orientation(orientation);
     let rgba = img.into_rgba8();

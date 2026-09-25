@@ -71,6 +71,16 @@ fn the_refusal_names_this_app_and_its_limit() {
     assert!(text.is_ascii());
 }
 
+/// Fix round 1 (task-5-review.md, Important finding 1): `decode_image` (single-image import and
+/// paste) must refuse an over-budget image from its header too, not just package open/save.
+/// The claimed body is one empty zlib block: decoding it fully would fail with `Unreadable`
+/// instead, so `OverBudget` proves the header check runs before any decode is attempted.
+#[test]
+fn a_single_import_over_100_megapixels_is_refused_before_decoding_it() {
+    let png = claimed_png(10_000, 10_001, 6); // 100,010,000 pixels: just over budget.
+    assert_eq!(decode_image(&png).unwrap_err(), ImportError::OverBudget);
+}
+
 #[test]
 fn a_text_box_up_to_200_million_square_pixels_is_valid_as_in_mac_1_2_10() {
     let png = encode_png(&Raster::from_premultiplied(2, 2, [9u8, 9, 9, 255].repeat(4)), 72.0).unwrap();
