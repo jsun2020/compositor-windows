@@ -1,12 +1,13 @@
-//! Probe `.comp` projects for the user to open in Compositor 1.2.6 on the Mac (Task 7). Each
-//! one is built and saved through this build's own `save_package`, so it is a real, valid v9
+//! Probe `.comp` projects for the user to open in Compositor for Mac (1.2.10 or later) (Task 7).
+//! Each one is built and saved through this build's own `save_package`, so it is a real, valid v9
 //! project; the ignored test below re-opens every one with `open_package` as a sanity floor,
 //! then writes it (and a README telling the user what to do with it) to
 //! `build-artifacts/mac-probes/`, which is git-ignored.
 //!
-//! Two of these are Phase 3.5b oracles that cannot be checked from Rust alone (R 4.1's clipped-
-//! child-in-a-dimmed-folder math, and the Mac's 1.2.6 grain roughness kernel): the user renders
-//! them on the Mac and sends the PNGs back.
+//! The Mac's renders of the first seven are committed under tests/fixtures/mac-1.2.10-probes
+//! and compared in mac_1_2_10.rs. The rest settle what those could not (the light blend modes,
+//! Color Balance, the blurs, Add Noise, the cgMode path of adjustment layers and clipped groups)
+//! and join mac_1_2_10.rs when their renders come back.
 
 use compositor_engine::*;
 use std::fs;
@@ -130,8 +131,8 @@ fn new_blend_modes_doc() -> Document {
     doc
 }
 
-/// 5. A colourful gradient with a default Black & White adjustment layer on top -- an
-/// adjustment kind this build parses and preserves but does not yet draw. A Phase 3.5b oracle.
+/// 5. A colourful gradient with a default Black & White adjustment layer on top. Its Mac render
+/// is black_and_white_at_its_defaults_matches_the_mac_render_exactly (mac_1_2_10.rs).
 fn new_adjustment_layers_doc() -> Document {
     let mut doc = Document::new(120, 60);
     let backdrop = Layer::with_pixels("Gradient", colourful_gradient(120, 60), Point { x: 0.0, y: 0.0 });
@@ -141,9 +142,8 @@ fn new_adjustment_layers_doc() -> Document {
     doc
 }
 
-/// 6. A colourful gradient with a default Grain adjustment layer on top (RULING, added to
-/// Task 7): a Phase 3.5b oracle for the 1.2.6 grain roughness kernel (`Document::undrawn`'s
-/// "the Compositor 1.2.6 grain roughness" disclosure fires for this exact case).
+/// 6. A colourful gradient with a default Grain adjustment layer on top. Its Mac render is
+/// grain_at_its_defaults_matches_the_mac_render_exactly (mac_1_2_10.rs).
 fn grain_doc() -> Document {
     let mut doc = Document::new(120, 60);
     let backdrop = Layer::with_pixels("Gradient", colourful_gradient(120, 60), Point { x: 0.0, y: 0.0 });
@@ -153,12 +153,138 @@ fn grain_doc() -> Document {
     doc
 }
 
+/// A hue sweep across x with brightness rising down y, for the adjustment probes that act on
+/// shadows, midtones and highlights differently.
+fn tonal_sweep(width: u32, height: u32) -> Raster {
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height { for x in 0..width {
+        let (r, g, b) = hsv_to_rgb(360.0 * x as f64 / width as f64, 0.8, 0.08 + 0.9 * y as f64 / (height - 1).max(1) as f64);
+        data.extend_from_slice(&[r, g, b, 255]);
+    }}
+    Raster::from_premultiplied(width, height, data)
+}
+
+/// 8. Six 60-row bands over a 240 x 360 hue sweep, one per mode the first render could not separate
+/// (probe results "Blend modes"): Soft Light, Hard Light, Linear Light, Pin Light, Vivid Light,
+/// Hard Mix. Each band holds six 40-px grey columns: 25%, 50%, 75% opaque, then the same at half alpha.
+fn blend_greys_doc() -> Document {
+    const MODES: [BlendMode; 6] = [BlendMode::SoftLight, BlendMode::HardLight, BlendMode::LinearLight, BlendMode::PinLight, BlendMode::VividLight, BlendMode::HardMix];
+    const GREYS: [(u32, u32); 6] = [(64, 255), (128, 255), (191, 255), (64, 128), (128, 128), (191, 128)];
+    let mut doc = Document::new(240, 360);
+    let mut layers = vec![Layer::with_pixels("Hue sweep", colourful_gradient(240, 360), Point { x: 0.0, y: 0.0 })];
+    for (band, mode) in MODES.iter().enumerate() {
+        for (column, (grey, alpha)) in GREYS.iter().enumerate() {
+            let v = ((grey * alpha + 127) / 255) as u8;
+            let mut l = solid_rect(&format!("{mode:?} {column}"), [v, v, v, *alpha as u8], 40, 60, column as f64 * 40.0, band as f64 * 60.0);
+            l.blend_mode = *mode;
+            layers.push(l);
+        }
+    }
+    doc.layers = layers;
+    doc
+}
+
+/// 9-10. Color Balance with every tone moved, Preserve Luminosity on or off.
+fn color_balance_doc(preserve: bool) -> Document {
+    let mut doc = Document::new(240, 120);
+    let mut adjustment = Layer::blank("Color Balance", doc.size());
+    let mut a = LayerAdjustment::new(AdjustmentKind::ColorBalance);
+    a.color_balance_settings = Some(ColorBalanceSettings { shadow_cyan_red: 40.0, shadow_magenta_green: -20.0, shadow_yellow_blue: 30.0,
+        mid_cyan_red: -35.0, mid_magenta_green: 25.0, mid_yellow_blue: -15.0, highlight_cyan_red: 20.0, highlight_magenta_green: 45.0,
+        highlight_yellow_blue: -50.0, preserve_luminosity: preserve });
+    adjustment.extra.adjustment = Some(a);
+    doc.layers = vec![Layer::with_pixels("Tonal sweep", tonal_sweep(240, 120), Point { x: 0.0, y: 0.0 }), adjustment];
+    doc
+}
+
+/// What the blur probes blur: a hue-sweep block running 12 px off the canvas's left edge (the part
+/// off the canvas must not spread back in, R 3.4) and a half-alpha grey bar, over nothing.
+fn blur_probe(adjustment: LayerAdjustment) -> Document {
+    let mut doc = Document::new(160, 100);
+    let block = Layer::with_pixels("Block", colourful_gradient(92, 60), Point { x: -12.0, y: 20.0 });
+    let bar = solid_rect("Bar", [128, 128, 128, 128], 30, 80, 110.0, 10.0);
+    let mut layer = Layer::blank(adjustment.kind.name(), doc.size());
+    layer.extra.adjustment = Some(adjustment);
+    doc.layers = vec![block, bar, layer];
+    doc
+}
+/// 11-12. Gaussian Blur at radius 6 (the exact kernel) and 40 (a halved copy, spatial_level 2).
+fn gaussian_doc(radius: f64) -> Document {
+    let mut a = LayerAdjustment::new(AdjustmentKind::GaussianBlur); a.blur_radius = Some(radius); blur_probe(a)
+}
+/// 13. Motion Blur, 30 degrees, 24 px: settles CIMotionBlur's taper against this port's even streak.
+fn motion_doc() -> Document {
+    let mut a = LayerAdjustment::new(AdjustmentKind::MotionBlur); a.motion_angle = Some(30.0); a.motion_distance = Some(24.0); blur_probe(a)
+}
+/// 14-15. Add Noise over the tonal sweep: uniform colour noise, and Gaussian monochromatic noise.
+fn noise_doc(amount: f64, gaussian: bool, monochromatic: bool, seed: u32) -> Document {
+    let mut doc = Document::new(120, 60);
+    let mut a = LayerAdjustment::new(AdjustmentKind::AddNoise);
+    a.noise_amount = Some(amount); a.noise_gaussian = Some(gaussian); a.noise_monochromatic = Some(monochromatic); a.noise_seed = Some(seed);
+    let mut layer = Layer::blank("Add Noise", doc.size());
+    layer.extra.adjustment = Some(a);
+    doc.layers = vec![Layer::with_pixels("Tonal sweep", tonal_sweep(120, 60), Point { x: 0.0, y: 0.0 }), layer];
+    doc
+}
+
+/// One adjustment layer over the tonal sweep, in `mode` at `opacity`.
+fn over_sweep(adjustment: LayerAdjustment, mode: BlendMode, opacity: f64) -> Document {
+    let mut doc = Document::new(120, 60);
+    let mut layer = Layer::blank(adjustment.kind.name(), doc.size());
+    layer.extra.adjustment = Some(adjustment);
+    layer.blend_mode = mode;
+    layer.opacity = opacity;
+    doc.layers = vec![Layer::with_pixels("Tonal sweep", tonal_sweep(120, 60), Point { x: 0.0, y: 0.0 }), layer];
+    doc
+}
+/// Levels sending every channel to mid grey: in any mode but Normal the blend shows.
+fn levels_to_mid_grey() -> LayerAdjustment {
+    let mut a = LayerAdjustment::new(AdjustmentKind::Levels);
+    a.levels.ranges[0].output_black = 128.0;
+    a.levels.ranges[0].output_white = 128.0;
+    a
+}
+/// 16. A Gaussian Blur layer (radius 6) in Linear Burn, a Core-Image-only mode: the Mac takes the
+/// full-coverage path that keeps the original alpha (LiveMaskRenderer.swift:24) and draws it in
+/// Normal (cgMode, :40), so the canvas edge should not fade (ruling E-I1).
+fn cgmode_blur_doc() -> Document {
+    let mut doc = gaussian_doc(6.0);
+    doc.layers[2].blend_mode = BlendMode::LinearBurn;
+    doc
+}
+/// 19. Two clipping stacks over the hue sweep, each a translucent child on an opaque base: the base
+/// in Subtract (Core Image only, so the group composites as Normal) and in Color Burn (Core
+/// Graphics' own formula, which the Mac calls wrong, LayerAppearance.swift:51-52).
+fn cgmode_stack_bases_doc() -> Document {
+    let mut doc = Document::new(240, 120);
+    let mut layers = vec![Layer::with_pixels("Hue sweep", colourful_gradient(240, 120), Point { x: 0.0, y: 0.0 })];
+    for (i, mode) in [BlendMode::Subtract, BlendMode::ColorBurn].into_iter().enumerate() {
+        let mut base = solid_rect(&format!("{mode:?} base"), [60, 150, 110, 255], 100, 100, 10.0 + 120.0 * i as f64, 10.0);
+        base.blend_mode = mode;
+        let mut child = solid_rect(&format!("{mode:?} child"), [40, 20, 90, 128], 60, 100, 30.0 + 120.0 * i as f64, 10.0);
+        child.mask_source_id = Some(base.id);
+        layers.push(base);
+        layers.push(child);
+    }
+    doc.layers = layers;
+    doc
+}
+/// 22. The radius-6 blur at 60% under a horizontal ramp mask: a soft mask and partial opacity
+/// together (toward, R 3.4 steps 4-5).
+fn blur_soft_mask_doc() -> Document {
+    let mut doc = gaussian_doc(6.0);
+    let ramp: Vec<u8> = (0..100).flat_map(|_| (0..160u32).map(|x| (x * 255 / 159) as u8)).collect();
+    doc.layers[2].mask = Some(Mask { pixels: GrayRaster::from_bytes(160, 100, ramp), enabled: true, placement: None, linked: None });
+    doc.layers[2].opacity = 0.6;
+    doc
+}
+
 const README_TXT: &str = "\
 This folder holds test projects for Compositor on the Mac.
 
 For each project listed below:
 
-1. Open it in Compositor 1.2.6 on the Mac.
+1. Open it in Compositor for Mac (1.2.10 or later).
 2. Confirm it opens without an error.
 3. File > Export > PNG, at 100%, into a folder named mac-exports, using the file name given below.
 4. Send the mac-exports folder back.
@@ -172,6 +298,24 @@ Projects:
 - new-adjustment-layers.comp    -> new-adjustment-layers.png
 - grain.comp                    -> grain.png
 - edited-rich-file.comp         -> edited-rich-file.png (confirm it opens, and export a PNG)
+
+New in this set (Phase 3.5b follow-up):
+
+- blend-greys.comp               -> blend-greys.png
+- color-balance-preserve.comp    -> color-balance-preserve.png
+- color-balance-no-preserve.comp -> color-balance-no-preserve.png
+- gaussian-blur-6.comp           -> gaussian-blur-6.png
+- gaussian-blur-40.comp          -> gaussian-blur-40.png
+- motion-blur-30-24.comp         -> motion-blur-30-24.png
+- add-noise-uniform.comp         -> add-noise-uniform.png
+- add-noise-gaussian-mono.comp   -> add-noise-gaussian-mono.png
+- cgmode-blur-linear-burn.comp   -> cgmode-blur-linear-burn.png
+- cgmode-levels-divide.comp      -> cgmode-levels-divide.png
+- color-dodge-adjustment.comp    -> color-dodge-adjustment.png
+- cgmode-stack-bases.comp        -> cgmode-stack-bases.png
+- black-white-tint.comp          -> black-white-tint.png
+- invert.comp                    -> invert.png
+- blur-soft-mask.comp            -> blur-soft-mask.png
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -237,6 +381,7 @@ fn edited_rich_file_doc() -> Document {
 fn write_probe(dir: &Path, filename: &str, doc: &Document) {
     let package = save_package(doc).unwrap_or_else(|e| panic!("{filename}: failed to save: {e:?}"));
     let comp_dir = dir.join(filename);
+    if comp_dir.exists() { fs::remove_dir_all(&comp_dir).unwrap_or_else(|e| panic!("{filename}: failed to clear {comp_dir:?}: {e}")); }
     let images_dir = comp_dir.join("images");
     fs::create_dir_all(&images_dir).unwrap_or_else(|e| panic!("{filename}: failed to create {images_dir:?}: {e}"));
     fs::write(comp_dir.join("manifest.json"), &package.manifest_json).unwrap_or_else(|e| panic!("{filename}: failed to write manifest.json: {e}"));
@@ -260,6 +405,45 @@ fn write_mac_probes() {
     write_probe(&dir, "grain.comp", &grain_doc());
     write_probe(&dir, "edited-rich-file.comp", &edited_rich_file_doc());
 
+    write_probe(&dir, "blend-greys.comp", &blend_greys_doc());
+    write_probe(&dir, "color-balance-preserve.comp", &color_balance_doc(true));
+    write_probe(&dir, "color-balance-no-preserve.comp", &color_balance_doc(false));
+    write_probe(&dir, "gaussian-blur-6.comp", &gaussian_doc(6.0));
+    write_probe(&dir, "gaussian-blur-40.comp", &gaussian_doc(40.0));
+    write_probe(&dir, "motion-blur-30-24.comp", &motion_doc());
+    write_probe(&dir, "add-noise-uniform.comp", &noise_doc(25.0, false, false, 12_345));
+    write_probe(&dir, "add-noise-gaussian-mono.comp", &noise_doc(40.0, true, true, 777));
+    // 16-22: the cgMode path (ruling E-I1), Core Graphics' Color Dodge and Color Burn (audit E-M2),
+    // and what else 3.5b draws without a Mac render yet (audit G-M5).
+    write_probe(&dir, "cgmode-blur-linear-burn.comp", &cgmode_blur_doc());
+    write_probe(&dir, "cgmode-levels-divide.comp", &over_sweep(levels_to_mid_grey(), BlendMode::Divide, 0.6));
+    write_probe(&dir, "color-dodge-adjustment.comp", &over_sweep(levels_to_mid_grey(), BlendMode::ColorDodge, 1.0));
+    write_probe(&dir, "cgmode-stack-bases.comp", &cgmode_stack_bases_doc());
+    let mut tinted = LayerAdjustment::new(AdjustmentKind::BlackWhite);
+    tinted.black_white_settings = Some(BlackWhiteSettings { reds: 115.0, yellows: -40.0, greens: 70.0, cyans: 180.0, blues: -90.0, magentas: 20.0,
+        tint: true, tint_hue: 205.0, tint_saturation: 45.0 });
+    write_probe(&dir, "black-white-tint.comp", &over_sweep(tinted, BlendMode::Normal, 1.0));
+    write_probe(&dir, "invert.comp", &over_sweep(LayerAdjustment::new(AdjustmentKind::Invert), BlendMode::Normal, 1.0));
+    write_probe(&dir, "blur-soft-mask.comp", &blur_soft_mask_doc());
+
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
+}
+
+#[test]
+fn writing_a_probe_replaces_what_an_earlier_run_left() {
+    // An earlier run wrote images under other UUIDs; the Mac opened the folder with them in it.
+    let dir = std::env::temp_dir().join(format!("compositor-probe-test-{}", std::process::id()));
+    let stale = dir.join("guides.comp").join("images").join("STALE.png");
+    fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    fs::write(&stale, b"left over").unwrap();
+    write_probe(&dir, "guides.comp", &guides_doc());
+    assert!(!stale.exists(), "an image from an earlier run is gone");
+    assert!(dir.join("guides.comp").join("manifest.json").exists());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_readme_names_the_mac_version_the_probes_are_for() {
+    assert!(README_TXT.contains("Compositor for Mac (1.2.10 or later)") && !README_TXT.contains("1.2.6"));
 }
