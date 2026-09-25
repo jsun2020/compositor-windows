@@ -11,10 +11,8 @@ export type PointTuple = [number, number];
 export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
 export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain"
-  // Mac 1.2.6 additions (R 3). Parsed and preserved now; drawn from Phase 3.5b.
+  // Mac 1.2.6 additions (R 3).
   | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
-/** The kinds this build draws and can edit. The 1.2.6 additions are not in it (Phase 3.5b). */
-export const DRAWN_ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain"];
 /** Every adjustment kind, in the order the Mac's New Adjustment Layer menu lists them
  * (`AdjustmentKind.allCases`, LayerAdjustment.swift:4-9). */
 export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain",

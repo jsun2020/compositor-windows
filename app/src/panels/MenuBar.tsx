@@ -8,7 +8,7 @@ import {
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
   mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
-import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
+import { ADJUSTMENT_KINDS, isEditableKind } from "../engine/types";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -59,9 +59,10 @@ export function MenuBar() {
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: editable },
       "separator",
-      ...DRAWN_ADJUSTMENT_KINDS.map((kind) => ({
+      ...ADJUSTMENT_KINDS.map((kind) => ({
         id: `layer-adjustment-${kind.toLowerCase().replace(/[^a-z]+/g, "-")}`,
-        label: `New ${kind} Adjustment...`, run: () => addAdjustmentLayer(kind), enabled: editable,
+        // "..." only where a panel follows, as the Mac's menu (CompositorApp.swift:271).
+        label: `New ${kind} Adjustment${isEditableKind(kind) ? "..." : ""}`, run: () => addAdjustmentLayer(kind), enabled: editable,
       })),
       { id: "layer-edit-adjustment", label: "Edit Adjustment...", run: () => editAdjustmentLayer(), enabled: canEditAdjustment() },
       "separator",
@@ -97,6 +98,8 @@ export function MenuBar() {
       { id: "image-levels", label: "Levels...", run: () => runAction("levels"), enabled: s.canAdjust() },
       { id: "image-curves", label: "Curves...", run: () => runAction("curves"), enabled: s.canAdjust() },
       { id: "image-hue-saturation", label: "Hue/Saturation...", run: () => runAction("hue-saturation"), enabled: s.canAdjust() },
+      { id: "image-black-white", label: "Black & White...", run: () => s.beginAdjust({ kind: "Black & White" }), enabled: s.canAdjust() },
+      { id: "image-color-balance", label: "Color Balance...", run: () => s.beginAdjust({ kind: "Color Balance" }), enabled: s.canAdjust() },
       { id: "image-exposure", label: "Exposure...", run: () => s.beginAdjust({ kind: "Exposure" }), enabled: s.canAdjust() },
       { id: "image-gradient-map", label: "Gradient Map...", run: () => s.beginAdjust({ kind: "Gradient Map" }), enabled: s.canAdjust() },
       { id: "image-grain", label: "Grain...", run: () => s.beginAdjust({ kind: "Grain" }), enabled: s.canAdjust() },

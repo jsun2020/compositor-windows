@@ -25,6 +25,9 @@ async function setupNoise(page: Page, height: 720 | 721): Promise<string> {
   }, b64);
 }
 
+const state = (page: Page) => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId]; });
+const field = (page: Page, name: string) => page.getByRole("spinbutton", { name, exact: true });
+
 const run = (page: Page, cmd: unknown) => page.evaluate((cmd) => {
   const api = (window as any).__compositor; const s = api.store.getState();
   api.engine.execute(s.activeId, cmd); s.refresh(); s.invalidate();
@@ -690,5 +693,127 @@ test("a step edge on the lattice blurs on the GPU to the closed form, halved or 
     expect(Math.abs(alpha(127) + alpha(128) - 255), `${label}: alpha at 127 + 128`).toBeLessThanOrEqual(tolerance);
     await expectMatchesCpu(page, label, tolerance);
     await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+});
+
+test("Layer > New Adjustment lists all twelve kinds in the Mac's order, with no ellipsis for Invert", async ({ page }) => {
+  await setupNoise(page, 720);
+  await page.getByRole("button", { name: "Layer", exact: true }).click();
+  expect(await page.locator("[data-testid^='menu-layer-adjustment-']").allTextContents()).toEqual([
+    "New Hue/Saturation Adjustment...", "New Levels Adjustment...", "New Curves Adjustment...", "New Exposure Adjustment...",
+    "New Gradient Map Adjustment...", "New Grain Adjustment...", "New Add Noise Adjustment...", "New Gaussian Blur Adjustment...",
+    "New Motion Blur Adjustment...", "New Invert Adjustment", "New Black & White Adjustment...", "New Color Balance Adjustment...",
+  ]);
+});
+
+test("a new Black & White layer opens its panel, previews live, and OK records one step", async ({ page }) => {
+  await setupNoise(page, 720);
+  await clickMenu(page, "Layer", "layer-adjustment-black-white");
+  await expect(page.getByTestId("adjust-title")).toHaveText("Black & White");
+  const depth = (await state(page)).undoDepth;   // the New Black & White Adjustment step is already in
+  const before = await glPixels(page);
+  await expect(field(page, "Reds")).toHaveValue("40");
+  await field(page, "Reds").fill("150");
+  expect(await glPixels(page), "the canvas shows the edit before OK").not.toEqual(before);
+  expect((await state(page)).undoDepth).toBe(depth);
+  await expect(field(page, "Hue")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Tint", exact: true }).check();
+  await expect(field(page, "Hue")).toHaveValue("40");
+  await page.getByTestId("adjust-ok").click();
+  const d = await state(page);
+  expect(d.undoDepth).toBe(depth + 1);
+  const bw = d.layers.find((l: any) => l.adjustment?.kind === "Black & White").adjustment.blackWhiteSettings;
+  expect([bw.reds, bw.yellows, bw.tint]).toEqual([150, 60, true]);
+});
+
+test("Color Balance names each field by its tone, and Preserve Luminosity is a checkbox", async ({ page }) => {
+  await setupNoise(page, 720);
+  await clickMenu(page, "Layer", "layer-adjustment-color-balance");
+  for (const tone of ["Shadows", "Midtones", "Highlights"]) for (const pair of ["Cyan / Red", "Magenta / Green", "Yellow / Blue"]) {
+    await expect(field(page, `${tone} ${pair}`)).toHaveValue("0");
+  }
+  const depth = (await state(page)).undoDepth;
+  await field(page, "Midtones Yellow / Blue").fill("-40");
+  await page.getByRole("checkbox", { name: "Preserve Luminosity", exact: true }).uncheck();
+  await page.getByTestId("adjust-ok").click();
+  const d = await state(page);
+  expect(d.undoDepth).toBe(depth + 1);
+  const cb = d.layers.find((l: any) => l.adjustment?.kind === "Color Balance").adjustment.colorBalanceSettings;
+  expect(cb).toMatchObject({ midYellowBlue: -40, shadowCyanRed: 0, highlightYellowBlue: 0, preserveLuminosity: false });
+});
+
+test("the blur and noise editors show the Mac's defaults and write their own keys", async ({ page }) => {
+  await setupNoise(page, 720);
+  const layerOf = async (kind: string) => (await state(page)).layers.find((l: any) => l.adjustment?.kind === kind).adjustment;
+  await clickMenu(page, "Layer", "layer-adjustment-gaussian-blur");
+  await expect(field(page, "Radius")).toHaveValue("10");
+  await field(page, "Radius").fill("3.5");
+  await page.getByTestId("adjust-ok").click();
+  expect((await layerOf("Gaussian Blur")).blurRadius).toBe(3.5);
+  await clickMenu(page, "Layer", "layer-adjustment-motion-blur");
+  await expect(field(page, "Angle")).toHaveValue("0");
+  await expect(field(page, "Distance")).toHaveValue("10");
+  await field(page, "Angle").fill("-35");
+  await field(page, "Distance").fill("48");
+  await page.getByTestId("adjust-ok").click();
+  expect(await layerOf("Motion Blur")).toMatchObject({ motionAngle: -35, motionDistance: 48 });
+  await clickMenu(page, "Layer", "layer-adjustment-add-noise");
+  const seed = (await layerOf("Add Noise")).noiseSeed;
+  expect(typeof seed).toBe("number");
+  await expect(field(page, "Amount")).toHaveValue("10");
+  await field(page, "Amount").fill("33.5");
+  await page.getByRole("combobox", { name: "Distribution", exact: true }).selectOption("Gaussian");
+  await page.getByRole("checkbox", { name: "Monochromatic", exact: true }).check();
+  await page.getByTestId("adjust-ok").click();
+  expect(await layerOf("Add Noise")).toMatchObject({ noiseAmount: 33.5, noiseGaussian: true, noiseMonochromatic: true, noiseSeed: seed });
+});
+
+test("a new Invert layer applies at once, opens nothing, and cannot be edited", async ({ page }) => {
+  await setupNoise(page, 720);
+  const depth = (await state(page)).undoDepth;
+  await clickMenu(page, "Layer", "layer-adjustment-invert");
+  await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+  expect((await state(page)).undoDepth).toBe(depth + 1);
+  await page.getByRole("button", { name: "Layer", exact: true }).click();
+  await expect(page.getByTestId("menu-layer-edit-adjustment")).toBeDisabled();
+});
+
+test("Cancel on an edited Black & White layer puts its settings back and records nothing", async ({ page }) => {
+  await setupNoise(page, 720);
+  await clickMenu(page, "Layer", "layer-adjustment-black-white");
+  await field(page, "Greens").fill("-120");
+  await page.getByTestId("adjust-ok").click();
+  const d0 = await state(page);
+  await page.getByTestId("layer-row").nth(0).dblclick();
+  await expect(page.getByTestId("adjust-title")).toHaveText("Black & White");
+  await field(page, "Greens").fill("250");
+  await page.getByTestId("adjust-cancel").click();
+  const d = await state(page);
+  expect(d.undoDepth).toBe(d0.undoDepth);
+  expect(d.layers.find((l: any) => l.adjustment).adjustment.blackWhiteSettings.greens).toBe(-120);
+});
+
+test("Image > Black & White and Color Balance preview on the layer and OK changes its own pixels, one step each", async ({ page }) => {
+  const doc = await setupNoise(page, 720);
+  // The layer's pixels as the engine renders them (a preview substituted while one is open,
+  // engine.rs:345-347), read here only before the panel opens and after OK.
+  const stored = () => page.evaluate((doc) => {
+    const api = (window as any).__compositor;
+    const id = api.engine.state(doc).layers[0].id;
+    return Array.from(api.engine.layerPixels(doc, id, 0)) as number[];
+  }, doc);
+  for (const [id, title, name, value] of [["image-black-white", "Black & White", "Reds", "150"], ["image-color-balance", "Color Balance", "Midtones Yellow / Blue", "-40"]] as const) {
+    const depth = (await state(page)).undoDepth;
+    const before = await stored();
+    const shown = await glPixels(page);
+    await clickMenu(page, "Image", id);
+    await expect(page.getByTestId("adjust-title")).toHaveText(title);
+    await field(page, name).fill(value);
+    await expect.poll(() => glPixels(page), { message: `${title}: the canvas previews the edit` }).not.toEqual(shown);
+    expect((await state(page)).undoDepth, `${title}: nothing recorded before OK`).toBe(depth);
+    await page.getByTestId("adjust-ok").click();
+    await expect(page.getByTestId("adjust-panel")).toHaveCount(0);
+    expect((await state(page)).undoDepth, `${title}: OK records one step`).toBe(depth + 1);
+    expect(await stored(), `${title}: the layer's own pixels changed`).not.toEqual(before);
   }
 });

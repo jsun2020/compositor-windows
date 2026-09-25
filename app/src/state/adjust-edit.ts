@@ -1,4 +1,5 @@
 import type { AdjustmentKind, FilterKind, FilterParams, LayerAdjustment, PreviewRequest } from "../engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { defaultHsv } from "../tools/hue-band";
 
 /** Which eyedropper is armed: the Levels three, or the Hue/Saturation band tools. */
@@ -112,6 +113,18 @@ export function resetAdjustment(current: LayerAdjustment, original: LayerAdjustm
     case "Exposure": if (original.exposureSettings) out.exposureSettings = fresh.exposureSettings; break;
     case "Gradient Map": if (original.gradientMapSettings) out.gradientMapSettings = { ...original.gradientMapSettings, reversed: false }; break;
     case "Grain": if (original.grainSettings) out.grainSettings = fresh.grainSettings; break;
+    case "Black & White": if (original.blackWhiteSettings) out.blackWhiteSettings = { ...DEFAULT_BLACK_WHITE }; break;
+    case "Color Balance": if (original.colorBalanceSettings) out.colorBalanceSettings = { ...DEFAULT_COLOR_BALANCE }; break;
+    case "Gaussian Blur": if (original.blurRadius !== undefined) out.blurRadius = 10; break;
+    case "Motion Blur":
+      if (original.motionAngle !== undefined) out.motionAngle = 0;
+      if (original.motionDistance !== undefined) out.motionDistance = 10;
+      break;
+    case "Add Noise":
+      if (original.noiseAmount !== undefined) out.noiseAmount = 10;
+      if (original.noiseGaussian !== undefined) out.noiseGaussian = false;
+      if (original.noiseMonochromatic !== undefined) out.noiseMonochromatic = false;
+      break;
   }
   return out;
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SETTLE_MS, useEditor } from "../../src/state/store";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, previewRequestFor, resetAdjustment } from "../../src/state/adjust-edit";
 import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewRequest } from "../../src/engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { ShellBridge } from "../../src/shell/bridge";
 import { closeProject, importImages } from "../../src/actions/files";
@@ -228,6 +229,26 @@ describe("adjustment panels", () => {
     delete exposureLayer.exposureSettings;   // as AddAdjustmentLayer makes it: absent means neutral
     const edited = { ...exposureLayer, exposureSettings: { exposure: 2, offset: 0, gamma: 1 } };
     expect(resetAdjustment(edited, exposureLayer)).toEqual(exposureLayer);
+  });
+
+  it("resets the 1.2.6 kinds to the Mac's defaults, keeping Add Noise's seed and adding no key the layer lacked", () => {
+    // The Mac's literal defaults (ImageAdjustments.swift:117-126, :148-157), not the constants
+    // under test, so a wrong default in types.ts fails here.
+    const macBlackWhite = { reds: 40, yellows: 60, greens: 40, cyans: 60, blues: 20, magentas: 80, tint: false, tintHue: 40, tintSaturation: 20 };
+    const macColorBalance = { shadowCyanRed: 0, shadowMagentaGreen: 0, shadowYellowBlue: 0, midCyanRed: 0, midMagentaGreen: 0, midYellowBlue: 0,
+      highlightCyanRed: 0, highlightMagentaGreen: 0, highlightYellowBlue: 0, preserveLuminosity: true };
+    const bw = { ...defaultAdjustment("Black & White"), blackWhiteSettings: { ...DEFAULT_BLACK_WHITE, reds: 150, tint: true } };
+    expect(resetAdjustment(bw, bw).blackWhiteSettings).toEqual(macBlackWhite);
+    const fresh = defaultAdjustment("Black & White");
+    expect(resetAdjustment({ ...fresh, blackWhiteSettings: { ...DEFAULT_BLACK_WHITE, reds: 150 } }, fresh).blackWhiteSettings).toBeUndefined();
+    const cb = { ...defaultAdjustment("Color Balance"), colorBalanceSettings: { ...DEFAULT_COLOR_BALANCE, midYellowBlue: -40, preserveLuminosity: false } };
+    expect(resetAdjustment(cb, cb).colorBalanceSettings).toEqual(macColorBalance);
+    const blur = { ...defaultAdjustment("Gaussian Blur"), blurRadius: 24 };
+    expect(resetAdjustment(blur, blur).blurRadius).toBe(10);
+    const motion = { ...defaultAdjustment("Motion Blur"), motionAngle: 30, motionDistance: 80 };
+    expect(resetAdjustment(motion, motion)).toMatchObject({ motionAngle: 0, motionDistance: 10 });
+    const noise = { ...defaultAdjustment("Add Noise"), noiseAmount: 60, noiseGaussian: true, noiseMonochromatic: true, noiseSeed: 4242 };
+    expect(resetAdjustment(noise, noise)).toMatchObject({ noiseAmount: 10, noiseGaussian: false, noiseMonochromatic: false, noiseSeed: 4242 });
   });
 
   it("Reset then OK on an untouched adjustment layer records nothing", () => {

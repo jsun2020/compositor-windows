@@ -87,7 +87,7 @@ function adjustmentManifest(kind: string, id: string) {
   };
 }
 
-test("an adjustment layer of a kind with no editor yet cannot be opened for editing", async ({ page }) => {
+test("an Invert adjustment layer has nothing to edit, so it opens no panel, as on the Mac", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
   await page.evaluate(async (manifest) => {

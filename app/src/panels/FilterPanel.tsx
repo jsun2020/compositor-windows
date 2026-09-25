@@ -1,5 +1,6 @@
 import { useEditor } from "../state/store";
-import type { AdjustmentColor, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
+import type { AdjustmentColor, BlackWhiteSettings, ColorBalanceSettings, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { NumberInput } from "./NumberInput";
 
 // A plain <span> caption, not a <label>, wraps the pair: a <label> would give the range
@@ -8,13 +9,13 @@ import { NumberInput } from "./NumberInput";
 // focusable content, so aria-hidden alone does not stop it inheriting the wrapping label's
 // name). getByLabel("Radius") then resolved two elements instead of one. Kept out of any
 // label and given no name of its own, the slider is invisible to getByLabel either way.
-function NumberField(props: { label: string; value: number; min: number; max: number; step: number; onChange(v: number): void }) {
+function NumberField(props: { label: string; name?: string; value: number; min: number; max: number; step: number; onChange(v: number): void }) {
   return (
     <span className="number-field">
       <span className="number-field-label">{props.label}</span>
       <input type="range" aria-hidden tabIndex={-1} min={props.min} max={props.max} step={props.step} value={props.value}
         onChange={(e) => props.onChange(Number(e.target.value))} />
-      <NumberInput label={props.label} value={props.value} min={props.min} max={props.max} step={props.step} onChange={props.onChange} />
+      <NumberInput label={props.name ?? props.label} value={props.value} min={props.min} max={props.max} step={props.step} onChange={props.onChange} />
     </span>
   );
 }
@@ -60,6 +61,53 @@ export function FilterPanel() {
       <label><input type="checkbox" aria-label="Reverse" checked={g.reversed} onChange={(e) => set({ reversed: e.target.checked })} /> Reverse</label>
     </>);
   }
+  // FilterSheet.swift:28-41: six weights (BlackWhiteSettings.range, whole percents), Tint, and the
+  // tint's Hue and Saturation only while Tint is on.
+  if (a.kind === "Black & White") {
+    const bw: BlackWhiteSettings = a.blackWhiteSettings ?? DEFAULT_BLACK_WHITE;
+    const set = (patch: Partial<BlackWhiteSettings>) => setAdjustment({ blackWhiteSettings: { ...bw, ...patch } });
+    const weights = [["Reds", "reds"], ["Yellows", "yellows"], ["Greens", "greens"], ["Cyans", "cyans"], ["Blues", "blues"], ["Magentas", "magentas"]] as const;
+    return (<>
+      {weights.map(([label, key]) => <NumberField key={key} label={label} value={bw[key]} min={-200} max={300} step={1} onChange={(v) => set({ [key]: v } as never)} />)}
+      <label><input type="checkbox" aria-label="Tint" checked={bw.tint} onChange={(e) => set({ tint: e.target.checked })} /> Tint</label>
+      {bw.tint && <>
+        <NumberField label="Hue" value={bw.tintHue} min={0} max={360} step={1} onChange={(tintHue) => set({ tintHue })} />
+        <NumberField label="Saturation" value={bw.tintSaturation} min={0} max={100} step={1} onChange={(tintSaturation) => set({ tintSaturation })} />
+      </>}
+    </>);
+  }
+  // FilterSheet.swift:45-59: three rows per tone. The captions repeat across tones, so each field's
+  // accessible name carries its tone.
+  if (a.kind === "Color Balance") {
+    const cb: ColorBalanceSettings = a.colorBalanceSettings ?? DEFAULT_COLOR_BALANCE;
+    const set = (patch: Partial<ColorBalanceSettings>) => setAdjustment({ colorBalanceSettings: { ...cb, ...patch } });
+    const tone = (title: string, prefix: "shadow" | "mid" | "highlight") => (
+      <div key={prefix}>
+        <div>{title}</div>
+        {([["Cyan / Red", "CyanRed"], ["Magenta / Green", "MagentaGreen"], ["Yellow / Blue", "YellowBlue"]] as const).map(([label, suffix]) => {
+          const key = `${prefix}${suffix}` as const;
+          return <NumberField key={key} label={label} name={`${title} ${label}`} value={cb[key]} min={-100} max={100} step={1} onChange={(v) => set({ [key]: v } as never)} />;
+        })}
+      </div>
+    );
+    return (<>
+      {tone("Shadows", "shadow")}{tone("Midtones", "mid")}{tone("Highlights", "highlight")}
+      <label><input type="checkbox" aria-label="Preserve Luminosity" checked={cb.preserveLuminosity} onChange={(e) => set({ preserveLuminosity: e.target.checked })} /> Preserve Luminosity</label>
+    </>);
+  }
+  // The filters' own controls (FilterSheet.swift:84-96) on the layer's flat keys; absent keys show
+  // the Mac's resolved defaults (LayerAdjustment.swift:92-119).
+  if (a.kind === "Gaussian Blur") return <NumberField label="Radius" value={a.blurRadius ?? 10} min={0.1} max={250} step={0.1} onChange={(blurRadius) => setAdjustment({ blurRadius })} />;
+  if (a.kind === "Motion Blur") return (<>
+    <NumberField label="Angle" value={a.motionAngle ?? 0} min={-90} max={90} step={1} onChange={(motionAngle) => setAdjustment({ motionAngle })} />
+    <NumberField label="Distance" value={a.motionDistance ?? 10} min={1} max={2000} step={1} onChange={(motionDistance) => setAdjustment({ motionDistance })} />
+  </>);
+  if (a.kind === "Add Noise") return (<>
+    <NumberField label="Amount" value={a.noiseAmount ?? 10} min={0.1} max={400} step={0.1} onChange={(noiseAmount) => setAdjustment({ noiseAmount })} />
+    <label>Distribution <select aria-label="Distribution" value={a.noiseGaussian ? "Gaussian" : "Uniform"} onChange={(e) => setAdjustment({ noiseGaussian: e.target.value === "Gaussian" })}>
+      <option>Uniform</option><option>Gaussian</option></select></label>
+    <label><input type="checkbox" aria-label="Monochromatic" checked={a.noiseMonochromatic ?? false} onChange={(e) => setAdjustment({ noiseMonochromatic: e.target.checked })} /> Monochromatic</label>
+  </>);
   const grain: GrainSettings = a.grainSettings ?? { amount: 25, size: 1.5, roughness: 50, seed: 0 };
   const set = (patch: Partial<GrainSettings>) => setAdjustment({ grainSettings: { ...grain, ...patch } });
   return (<>

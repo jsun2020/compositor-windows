@@ -1,7 +1,7 @@
 import { useEditor } from "../state/store";
 import { activeLayer } from "../state/selection";
 import type { AdjustmentKind, BlendMode } from "../engine/types";
-import { DRAWN_ADJUSTMENT_KINDS } from "../engine/types";
+import { isEditableKind } from "../engine/types";
 import type { DropTarget } from "../panels/layer-rows";
 
 /** Every blend mode in the order the Mac's menu lists them and Shift+= / Shift+- steps through them
@@ -89,18 +89,19 @@ export function addAdjustmentLayer(kind: AdjustmentKind): void {
   const c = ctx(); if (!c) return;
   const seed = Math.floor(Math.random() * 0xffffffff);
   c.s.run({ type: "AddAdjustmentLayer", kind, seed, shadows: null, highlights: null });
-  // The new layer is active; open its panel straight away, as macOS does.
+  // The new layer is active; open its panel straight away, as macOS does; Invert has nothing to
+  // set, so it just applies (LayerAdjustment.swift:203-204).
   const created = activeLayer(useEditor.getState().documents[c.doc.id]);
-  if (created?.adjustment) useEditor.getState().beginAdjust({ kind, layerId: created.id, target: "adjustmentLayer" });
+  if (created?.adjustment && isEditableKind(kind)) useEditor.getState().beginAdjust({ kind, layerId: created.id, target: "adjustmentLayer" });
 }
 export function editAdjustmentLayer(id?: string): void {
   const c = ctx(); if (!c) return;
   const layer = id ? c.doc.layers.find((l) => l.id === id) : c.active;
-  // A kind this build does not draw has no panel yet (Phase 3.5b).
-  if (!layer?.adjustment || !DRAWN_ADJUSTMENT_KINDS.includes(layer.adjustment.kind)) return;
+  // Invert has nothing to set, so no panel (AdjustmentKind.isEditable, LayerAdjustment.swift:28).
+  if (!layer?.adjustment || !isEditableKind(layer.adjustment.kind)) return;
   c.s.beginAdjust({ kind: layer.adjustment.kind, layerId: layer.id, target: "adjustmentLayer" });
 }
 export function canEditAdjustment(): boolean {
   const c = ctx();
-  return !!c?.active?.adjustment && DRAWN_ADJUSTMENT_KINDS.includes(c.active.adjustment.kind) && !c.s.panelOwnsDocument();
+  return !!c?.active?.adjustment && isEditableKind(c.active.adjustment.kind) && !c.s.panelOwnsDocument();
 }
