@@ -147,10 +147,15 @@ pnpm build:portable   # build and package the portable Windows zip
 
 Projects are `.comp` folder packages, compatible with Compositor for macOS. This app opens
 projects from Compositor for Mac 1.2.10 (format version 9) and every earlier format (1 to 9),
-writes version 9 as the Mac does, and saves them back without losing anything; everything they
-contain is drawn as the Mac draws it except layer effects, which are kept and listed in a
-notice until the next update, and Motion Blur adjustment layers, which are drawn approximately
-and named in the same notice.
+writes version 9 as the Mac does, and saves them back without losing anything. What they
+contain is drawn as the Mac draws it, within the reduced-copy blur note above, except:
+
+- layer effects, which are kept and listed in a notice until the next update;
+- Motion Blur adjustment layers, which are drawn approximately and named in the same notice;
+- until follow-up measurements on the Mac are back: Color Burn and Color Dodge on an adjustment
+  layer or a clipped group, where the Mac uses Core Graphics' own formulas and this app the
+  W3C ones; and Soft Light, whose exact variant is not settled yet (within 1 level on the only
+  measurement so far).
 
 ## Further reading
 
