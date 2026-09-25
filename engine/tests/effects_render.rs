@@ -227,8 +227,9 @@ fn shadows_and_glows_equal_the_metal_transcription_to_the_bit_up_to_the_reach_li
 #[test]
 fn a_blur_past_the_reach_limit_stays_within_one_level_of_the_exact_kernel() {
     // Measured 2026-09-25 (scratch p35c-scratch, sigma 16.5 to 125, both fixtures): 1 at most.
-    // Small layers keep the whole-plane reference quick; one case below is several kernels wide.
-    for (name, px, w, h) in [("rect", rect(30, 20, [200, 60, 30, 255]), 30, 20), ("blob", blob(30, 20), 30, 20)] {
+    // Small layers keep the whole-plane reference quick (the insets below, not the layer, dominate
+    // its cost); one case below is several kernels wide.
+    for (name, px, w, h) in [("rect", rect(18, 12, [200, 60, 30, 255]), 18, 12), ("blob", blob(18, 12), 18, 12)] {
         for sigma in [16.5f32, 25.0, 40.0] {
             let inset = (sigma * 3.0).ceil() as usize + 20;
             let black = [0.0f32; 3];
@@ -247,17 +248,68 @@ fn a_blur_past_the_reach_limit_stays_within_one_level_of_the_exact_kernel() {
     // A layer several kernels wide at the first halved sigma, so the blurred edge reaches its full
     // slope, where a halved blur's error is largest (pre-flight D-M2; 1 at most, measured on the
     // p35c-planfix copy).
-    let (px, sigma) = (rect(240, 120, [200, 60, 30, 255]), 16.5f32);
+    let (px, sigma) = (rect(160, 100, [200, 60, 30, 255]), 16.5f32);
     for p in [EffectPasses { shadow: Some(ShadowPass { dx: -7.3, dy: 11.6, sigma, color: [0.0; 3], opacity: 1.0 }), ..Default::default() },
               EffectPasses { inner_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() }] {
-        let d = worst(&render(&px, 240, 120, 70, &p), &metal::render(&px, 240, 120, 70, &p));
-        assert!(d <= 1, "240 x 120, sigma {sigma}: {d}");
+        let d = worst(&render(&px, 160, 100, 70, &p), &metal::render(&px, 160, 100, 70, &p));
+        assert!(d <= 1, "160 x 100, sigma {sigma}: {d}");
     }
     // Three halvings.
     let p = EffectPasses { shadow: Some(ShadowPass { dx: 5.0, dy: 9.5, sigma: 65.0, color: [0.0; 3], opacity: 1.0 }), ..Default::default() };
     let px = rect(24, 16, [30, 200, 90, 255]);
     assert_eq!(effects_level(65.0), 3);
     assert!(worst(&render(&px, 24, 16, 225, &p), &metal::render(&px, 24, 16, 225, &p)) <= 1);
+}
+
+#[test]
+fn a_halved_blur_repeats_the_padded_edge_pixel_not_the_reduced_edge_cell() {
+    // C1: the halved blur must clamp to the padded image's own edge PIXEL, as Metal's
+    // `effects_blur_rows` and `_columns` do, not to the mean of the reduced grid's edge CELL.
+    // Inner glow and inner shadow get no margin of their own (`LayerEffects::margin`), so an
+    // ordinary layer that only sets one of them can sit at inset 2. Expected values come from
+    // `metal::render`, the whole-plane transcription with no shortcut.
+    let opaque = rect(60, 40, [200, 60, 30, 255]);
+
+    // Inner glow at its real margin (inset 2), at two halving levels.
+    for sigma in [40.0f32, 70.0] {
+        let p = EffectPasses { inner_glow: Some(GlowPass { sigma, color: [1.0; 3], opacity: 1.0 }), ..Default::default() };
+        let d = worst(&render(&opaque, 60, 40, 2, &p), &metal::render(&opaque, 60, 40, 2, &p));
+        assert!(d <= 1, "inner glow sigma {sigma} at inset 2 (level {}): {d}", effects_level(sigma));
+    }
+
+    // Inner shadow at its real margin (inset 8), off-axis fractional offset.
+    let inner_shadow = |sigma: f32| EffectPasses {
+        inner_shadow: Some(ShadowPass { dx: -7.3, dy: 11.6, sigma, color: [0.0; 3], opacity: 1.0 }), ..Default::default() };
+    let d = worst(&render(&opaque, 60, 40, 8, &inner_shadow(20.0)), &metal::render(&opaque, 60, 40, 8, &inner_shadow(20.0)));
+    assert!(d <= 1, "inner shadow sigma 20 at inset 8 (level {}): {d}", effects_level(20.0));
+
+    // The same offset, one level deeper: at inset 8 the shifted edge sits at x = 0.7, inside the
+    // reduced grid's very first cell whatever the cell size, so this stresses a wider halo too.
+    let d = worst(&render(&opaque, 60, 40, 8, &inner_shadow(45.0)), &metal::render(&opaque, 60, 40, 8, &inner_shadow(45.0)));
+    assert!(d <= 1, "inner shadow sigma 45 at inset 8 (level {}): {d}", effects_level(45.0));
+
+    // A soft, off-centre fixture: the cells near the edge are not simply 0 or 1 to start with.
+    let blob60 = blob(60, 40);
+    let d = worst(&render(&blob60, 60, 40, 2, &inner_shadow(70.0)), &metal::render(&blob60, 60, 40, 2, &inner_shadow(70.0)));
+    assert!(d <= 1, "blob inner shadow sigma 70 at inset 2 (level {}): {d}", effects_level(70.0));
+}
+
+#[test]
+fn from_effects_scales_blur_and_size_to_sigma_by_half() {
+    // I1: nothing else pins `sigma = blur / 2` for the shadows or `sigma = size / 2` for the outer
+    // glow through `from_effects` (every other test there uses blur 0, size 0 or opacity 0).
+    // Non-zero, non-round values so `s.blur as f32` or `s.blur / 3.0` would not pass by accident.
+    let shadow: LayerEffects = serde_json::from_value(serde_json::json!({ "shadow": {
+        "angle": 45, "blue": 0.2, "blur": 15.0, "distance": 5.0, "green": 0.4, "opacity": 0.9, "red": 0.1 } })).unwrap();
+    assert_eq!(EffectPasses::from_effects(&shadow).shadow.unwrap().sigma, 7.5, "sigma = blur / 2");
+
+    let inner: LayerEffects = serde_json::from_value(serde_json::json!({ "innerShadow": {
+        "angle": 45, "blue": 0.2, "blur": 23.0, "distance": 5.0, "green": 0.4, "opacity": 0.9, "red": 0.1 } })).unwrap();
+    assert_eq!(EffectPasses::from_effects(&inner).inner_shadow.unwrap().sigma, 11.5, "sigma = blur / 2");
+
+    let glow: LayerEffects = serde_json::from_value(serde_json::json!({ "outerGlow": {
+        "blue": 1, "green": 0.5, "opacity": 0.6, "red": 0.2, "size": 33.0 } })).unwrap();
+    assert_eq!(EffectPasses::from_effects(&glow).outer_glow.unwrap().sigma, 16.5, "sigma = size / 2");
 }
 
 #[test]

@@ -69,7 +69,9 @@ impl EffectPasses {
 
 /// A Gaussian whose reach (3 sigma) passes this many layer pixels runs on a copy reduced by a power
 /// of two, as 3.5b's blur layers do past SPATIAL_REACH_LIMIT: at most 97 taps a pass at any size.
-/// Measured against the exact kernel (tests/effects_render.rs): within 1 level.
+/// Measured against the exact kernel (tests/effects_render.rs): within 1 level, at any inset --
+/// including an inner glow's or inner shadow's, which `LayerEffects::margin` gives no room of its
+/// own, so it can sit right at the padded image's edge.
 pub const EFFECTS_REACH_LIMIT: f32 = 48.0;
 
 /// How many times a Gaussian of `sigma` layer pixels is halved first: 0 is the exact kernel.
@@ -213,10 +215,13 @@ impl ExactBlur {
 }
 
 /// A Gaussian past EFFECTS_REACH_LIMIT: the plane reduced by 2^level (each cell the mean of the
-/// pixels it covers), blurred there with sigma / 2^level through the exact kernel, and enlarged
-/// bilinearly at each pixel's centre, clamped to the edge, as 3.5b's `blur_for_layer` enlarges.
-/// It keeps its blurred reduced plane (4 bytes a cell, a cell being 2^level x 2^level padded
-/// pixels) for the whole render; the reduced plane it blurred from is freed when `new` returns.
+/// pixels it covers), extended by a halo of the reduced kernel's own radius on every side so its
+/// blur clamps to the padded image's edge PIXEL, not to the mean of its edge CELL (`effects_blur_rows`
+/// and `_columns` clamp to the padded image itself, whatever grid computes the sum), blurred with
+/// sigma / 2^level through the exact kernel, and enlarged bilinearly at each pixel's centre, clamped
+/// to the edge, as 3.5b's `blur_for_layer` enlarges. It keeps its blurred reduced plane (4 bytes a
+/// cell, a cell being 2^level x 2^level padded pixels) for the whole render; the reduced plane and
+/// its halo, and the plane it blurred from, are freed when `new` returns.
 struct HalvedBlur { level: u32, width: usize, cells: Vec<f32>, cw: usize, ch: usize }
 
 impl HalvedBlur {
@@ -225,19 +230,67 @@ impl HalvedBlur {
         let (cw, ch) = ((width + f - 1) / f, (height + f - 1) / f);
         let mut sums = vec![0.0f32; cw * ch];
         let mut row = vec![0.0f32; width];
+        // The padded image's own edge row and column: a halo cell past the image repeats one of
+        // these (clamp-to-edge saturates immediately, so every halo cell at a given distance from
+        // the interior shares the one value the true edge pixel gives), and a corner halo cell
+        // repeats the one corner pixel, clamped on both axes at once.
+        let (mut top_row, mut bottom_row) = (vec![0.0f32; width], vec![0.0f32; width]);
+        let (mut left_col, mut right_col) = (vec![0.0f32; height], vec![0.0f32; height]);
         for y in 0..height {
             source(y, &mut row);
             let at = (y / f) * cw;
             for x in 0..width { sums[at + x / f] += row[x]; }
+            left_col[y] = row[0];
+            right_col[y] = row[width - 1];
+            if y == 0 { top_row.copy_from_slice(&row); }
+            if y == height - 1 { bottom_row.copy_from_slice(&row); }
         }
         for cy in 0..ch { for cx in 0..cw {
             let covered = ((width - cx * f).min(f) * (height - cy * f).min(f)) as f32;
             sums[cy * cw + cx] /= covered;
         }}
-        let mut blur = ExactBlur::new(Kernel::new(sigma / f as f32), cw, ch);
+        // The edge row or column, reduced along its own length the same way `sums` reduces both
+        // axes, gives what a halo cell just off that edge would average to.
+        let reduce_1d = |src: &[f32], n: usize, cn: usize| -> Vec<f32> {
+            (0..cn).map(|c| {
+                let (lo, hi) = (c * f, (c * f + f).min(n));
+                src[lo..hi].iter().sum::<f32>() / (hi - lo) as f32
+            }).collect()
+        };
+        let top_reduced = reduce_1d(&top_row, width, cw);
+        let bottom_reduced = reduce_1d(&bottom_row, width, cw);
+        let left_reduced = reduce_1d(&left_col, height, ch);
+        let right_reduced = reduce_1d(&right_col, height, ch);
+        let (tl, tr, bl, br) = (top_row[0], top_row[width - 1], bottom_row[0], bottom_row[width - 1]);
+
+        let k = Kernel::new(sigma / f as f32);
+        let r = k.radius;
+        let (ecw, ech) = (cw + 2 * r, ch + 2 * r);
+        let mut extended = vec![0.0f32; ecw * ech];
+        for cy in 0..ch { extended[(cy + r) * ecw + r..(cy + r) * ecw + r + cw].copy_from_slice(&sums[cy * cw..(cy + 1) * cw]); }
+        for cy in 0..ch { for d in 1..=r {
+            extended[(cy + r) * ecw + r - d] = left_reduced[cy];
+            extended[(cy + r) * ecw + r + cw - 1 + d] = right_reduced[cy];
+        }}
+        for cx in 0..cw { for d in 1..=r {
+            extended[(r - d) * ecw + cx + r] = top_reduced[cx];
+            extended[(r + ch - 1 + d) * ecw + cx + r] = bottom_reduced[cx];
+        }}
+        for dy in 1..=r { for dx in 1..=r {
+            extended[(r - dy) * ecw + r - dx] = tl;
+            extended[(r - dy) * ecw + r + cw - 1 + dx] = tr;
+            extended[(r + ch - 1 + dy) * ecw + r - dx] = bl;
+            extended[(r + ch - 1 + dy) * ecw + r + cw - 1 + dx] = br;
+        }}
+        // The extended grid's own edge is `r` cells past every real or haloed cell the blur reads,
+        // so the clamp-to-edge inside `ExactBlur` never actually fires: it would repeat a value this
+        // halo already made exact.
+        let mut blur = ExactBlur::new(k, ecw, ech);
+        let mut ext_cells = vec![0.0f32; ecw * ech];
+        let mut from_ext = |y: usize, out: &mut [f32]| out.copy_from_slice(&extended[y * ecw..(y + 1) * ecw]);
+        for y in 0..ech { blur.row(y, &mut from_ext, &mut ext_cells[y * ecw..(y + 1) * ecw]); }
         let mut cells = vec![0.0f32; cw * ch];
-        let mut from_sums = |y: usize, out: &mut [f32]| out.copy_from_slice(&sums[y * cw..(y + 1) * cw]);
-        for cy in 0..ch { blur.row(cy, &mut from_sums, &mut cells[cy * cw..(cy + 1) * cw]); }
+        for cy in 0..ch { cells[cy * cw..(cy + 1) * cw].copy_from_slice(&ext_cells[(cy + r) * ecw + r..(cy + r) * ecw + r + cw]); }
         HalvedBlur { level, width, cells, cw, ch }
     }
     fn row(&self, y: usize, out: &mut [f32]) {
