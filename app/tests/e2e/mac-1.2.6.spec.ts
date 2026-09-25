@@ -44,30 +44,35 @@ test("a layer using a blend mode this build does not draw yet shows it, disabled
   await expect(select.locator("option[value='Soft Light']")).toHaveAttribute("disabled", "");
 });
 
-test("merging onto a layer that uses an undrawn blend mode is refused, with the feature named in the error banner", async ({ page }) => {
+test("merging onto a layer with layer effects is refused, with the feature named in the error banner", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const below = "0B6C6B1E-4F1B-4B4E-9E0A-DDDDDDDDDDD1";
+  const above = "0B6C6B1E-4F1B-4B4E-9E0A-DDDDDDDDDDD2";
+  const transform = { origin: [0, 0], size: [2, 2], rotation: 0, flipX: false, flipY: false, sampling: "High quality" };
+  const manifest = {
+    format: "com.compositor.project", version: 9, colorSpace: "sRGB",
+    documentID: "0B6C6B1E-4F1B-4B4E-9E0A-DDDDDDDDDDD0", width: 8, height: 8, activeLayerID: above,
+    layers: [
+      { id: below, name: "Below", isVisible: true, imageFile: `${below}.png`, transform,
+        effects: { shadow: { angle: 90, blue: 0, blur: 20, distance: 20, green: 0, opacity: 0.5, red: 0 } } },
+      { id: above, name: "Above", isVisible: true, imageFile: `${above}.png`, transform },
+    ],
+  };
   const b64 = await page.evaluate(redSquarePngBase64);
-  await page.evaluate(async (data) => {
+  await page.evaluate(async ({ manifest, b64, below, above }) => {
     const api = (window as any).__compositor;
-    const png = Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0));
-    const doc = api.engine.newDocument(8, 8, false);
-    api.engine.importImage(doc, png, "Below", { x: 0, y: 0 });
-    const below = api.engine.state(doc).activeLayerId;
-    api.engine.execute(doc, { type: "SetLayerBlendMode", id: below, mode: "Soft Light" });
-    api.engine.importImage(doc, png, "Above", { x: 0, y: 0 });
-    const above = api.engine.state(doc).activeLayerId;
+    const png = Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${below}.png`, bytes: png }, { name: `${above}.png`, bytes: png }] }, null);
     api.store.getState().openDocument(doc);
     await api.setZoom(1);
     api.store.getState().selectLayers([above], above);
-  }, b64);
+  }, { manifest, b64, below, above });
   expect((await state(page)).layers).toHaveLength(2);
-
-  // Merge Down via the same store/menu path a user would use (LayersList.tsx / MenuBar.tsx).
   await clickMenu(page, "Layer", "layer-merge");
   const banner = page.getByTestId("error-banner");
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText("Merging would bake the Soft Light blend mode, which this build does not draw yet");
+  await expect(banner).toContainText("Merging would bake layer effects, which this build does not draw yet");
   expect((await state(page)).layers).toHaveLength(2);
 });
 
@@ -220,26 +225,29 @@ test("a saved guide is drawn on the overlay and View > Hide Guides removes it", 
 test("a notice names what the project uses that this build does not draw, and Dismiss hides it", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  const softId = "0B6C6B1E-4F1B-4B4E-9E0A-AAAAAAAAAAAA";
-  const manifest = adjustmentManifest("Black & White", "0B6C6B1E-4F1B-4B4E-9E0A-BBBBBBBBBBBB");
-  // A second, adjustment-free layer whose blend mode this build does not draw yet: needs an
-  // image, per manifest.rs's `validate` (an adjustment layer cannot also carry `imageFile`).
-  (manifest.layers as unknown[]).push({
-    id: softId, name: "Soft Light", isVisible: true, blendMode: "Soft Light", imageFile: `${softId}.png`,
-    transform: { origin: [0, 0], size: [64, 48], rotation: 0, flipX: false, flipY: false, sampling: "High quality" },
-  });
+  const id = "0B6C6B1E-4F1B-4B4E-9E0A-AAAAAAAAAAAA";
+  const blurId = "0B6C6B1E-4F1B-4B4E-9E0A-AAAAAAAAAAAB";
+  const manifest = {
+    format: "com.compositor.project", version: 9, colorSpace: "sRGB",
+    documentID: "0B6C6B1E-4F1B-4B4E-9E0A-AAAAAAAAAAA0", width: 64, height: 48,
+    layers: [{ id, name: "Styled", isVisible: true, imageFile: `${id}.png`, futureLayerKey: 7,
+      transform: { origin: [0, 0], size: [64, 48], rotation: 0, flipX: false, flipY: false, sampling: "High quality" },
+      effects: { shadow: { angle: 90, blue: 0, blur: 20, distance: 20, green: 0, opacity: 0.5, red: 0 } } },
+      adjustmentManifest("Motion Blur", blurId).layers[0]],
+  };
   const b64 = await page.evaluate(redSquarePngBase64);
-  await page.evaluate(async ({ manifest, b64, softId }) => {
+  await page.evaluate(async ({ manifest, b64, id }) => {
     const api = (window as any).__compositor;
     const png = Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0));
-    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${softId}.png`, bytes: png }] }, null);
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${id}.png`, bytes: png }] }, null);
     api.store.getState().openDocument(doc);
     await api.setZoom(1);
-  }, { manifest, b64, softId });
+  }, { manifest, b64, id });
   const notice = page.getByTestId("undrawn-notice");
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Black & White adjustment layers");
-  await expect(notice).toContainText("the Soft Light blend mode");
+  await expect(notice).toContainText("layer effects");
+  await expect(notice).toContainText("settings from a newer version of Compositor");
+  await expect(notice).toContainText("Motion Blur adjustment layers");
   // Scoped to the notice: the error banner's button (App.tsx:98) is also named "Dismiss".
   await notice.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(notice).toHaveCount(0);

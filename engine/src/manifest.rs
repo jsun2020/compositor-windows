@@ -31,7 +31,7 @@ pub enum BlendMode {
     #[serde(rename = "Saturation")] Saturation,
     #[serde(rename = "Color")] Color,
     #[serde(rename = "Luminosity")] Luminosity,
-    // Mac 1.2.6 additions (R 2.4). Parsed and preserved now; drawn from Phase 3.5b.
+    // Mac 1.2.6 additions (R 2.4).
     #[serde(rename = "Linear Burn")] LinearBurn,
     #[serde(rename = "Linear Dodge (Add)")] LinearDodge,
     #[serde(rename = "Soft Light")] SoftLight,
@@ -46,12 +46,21 @@ pub enum BlendMode {
 }
 
 impl BlendMode {
-    /// Whether this build composites the mode as itself. The 1.2.6 additions composite as
-    /// Normal until Phase 3.5b, and the open notice (Task 6) says so.
-    pub fn is_drawn(self) -> bool {
-        !matches!(self, BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::SoftLight | BlendMode::HardLight
-            | BlendMode::VividLight | BlendMode::LinearLight | BlendMode::PinLight | BlendMode::HardMix
-            | BlendMode::Exclusion | BlendMode::Subtract | BlendMode::Divide)
+    /// The mode Core Graphics draws for this one (`LayerBlendMode.cgMode`, LayerAppearance.swift:28-49):
+    /// the same mode, except the eight modes only Core Image computes, which are Normal there. The
+    /// Mac blends through `cgMode` where it composites a whole surface in one draw: an adjustment
+    /// layer's blend (LiveMaskRenderer.swift:40, inside the branch its REAL mode chose at :24, which
+    /// the plan carries as `LayerDraw.keeps_alpha`) and a clipping stack's group (:74, :105). A
+    /// layer drawn on its own goes through SeparableBlend and gets the real mode. Color Burn and
+    /// Color Dodge map to Core Graphics' own modes, whose formulas the Mac calls wrong
+    /// (LayerAppearance.swift:51-52); this port applies its W3C formulas there too, and the Task 12
+    /// probes measure the difference. The render plan applies this, so both renderers inherit it.
+    pub fn cg_mode(self) -> BlendMode {
+        match self {
+            BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::VividLight | BlendMode::LinearLight
+            | BlendMode::PinLight | BlendMode::HardMix | BlendMode::Subtract | BlendMode::Divide => BlendMode::Normal,
+            other => other,
+        }
     }
 }
 
@@ -87,7 +96,7 @@ pub struct LayerRecord {
     #[serde(rename = "maskPlacement", default, skip_serializing_if = "Option::is_none")] pub mask_placement: Option<LayerTransform>,
     #[serde(rename = "maskLinked", default, skip_serializing_if = "Option::is_none")] pub mask_linked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
-    /// Layer effects (R 2.1). Kept verbatim: this build does not draw them yet (Phase 3.5b) and
+    /// Layer effects (R 2.1). Kept verbatim: this build does not draw them yet (Phase 3.5c) and
     /// the Mac does not validate them either.
     #[serde(default, skip_serializing_if = "Option::is_none")] pub effects: Option<Value>,
     /// Live text (R 2.2). The rendered text is the layer's PNG; the style is kept verbatim.

@@ -9,17 +9,18 @@ use serde_json::json;
 fn pixel_layer() -> Layer { Layer::with_pixels("P", Raster::from_premultiplied(1, 1, vec![9, 9, 9, 255]), Point { x: 0.0, y: 0.0 }) }
 
 #[test]
-fn merge_down_refuses_to_bake_an_undrawn_blend_mode() {
-    let mut doc = Document::new(4, 4);
-    let mut below = pixel_layer(); below.blend_mode = BlendMode::SoftLight;
-    let above = pixel_layer();
+fn merge_down_bakes_a_new_blend_mode_as_the_canvas_shows_it() {
+    let mut doc = Document::new(1, 1);
+    let below = Layer::with_pixels("Below", Raster::from_premultiplied(1, 1, vec![200, 90, 30, 255]), Point { x: 0.0, y: 0.0 });
+    let mut above = Layer::with_pixels("Above", Raster::from_premultiplied(1, 1, vec![92, 92, 92, 153]), Point { x: 0.0, y: 0.0 });
+    above.blend_mode = BlendMode::SoftLight;
     let above_id = above.id;
     doc.layers = vec![below, above];
     doc.active_layer_id = Some(above_id);
-    let before = doc.clone();
-    let err = ops::merge::merge(&mut doc, &[above_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake the Soft Light blend mode, which this build does not draw yet".into()));
-    assert_eq!(doc, before, "a refused merge leaves the document untouched");
+    let shown = composite(&doc, Rect { x: 0.0, y: 0.0, width: 1.0, height: 1.0 }, 1, 1).pixel(0, 0);
+    ops::merge::merge(&mut doc, &[above_id]).expect("a drawn mode no longer blocks a merge");
+    assert_eq!(doc.layers.len(), 1);
+    assert_eq!(doc.layers[0].pixels.as_ref().unwrap().pixel(0, 0), shown, "the merged pixel is what the canvas showed");
 }
 
 #[test]

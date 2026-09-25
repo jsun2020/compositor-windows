@@ -310,7 +310,7 @@ pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &L
     let plan = RenderPlan { nodes: vec![], sources: vec![] };
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
-        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, coverages: vec![], clip: None, adjustment: None };
+        opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, keeps_alpha: false, coverages: vec![], clip: None, adjustment: None };
     let mut t = Target { data: target, w: tw, h: th, region };
     draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false);
 }

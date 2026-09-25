@@ -22,8 +22,19 @@ fn each_undrawn_feature_is_named_once_and_sorted() {
         "Black & White adjustment layers".to_string(),
         "layer effects".to_string(),
         "settings from a newer version of Compositor".to_string(),
-        "the Soft Light blend mode".to_string(),
     ]);
+}
+
+#[test]
+fn the_eleven_new_blend_modes_are_not_reported() {
+    for mode in ["Linear Burn", "Linear Dodge (Add)", "Soft Light", "Hard Light", "Vivid Light", "Linear Light",
+        "Pin Light", "Hard Mix", "Exclusion", "Subtract", "Divide"] {
+        let mut doc = Document::new(4, 4);
+        let mut layer = pixel_layer();
+        layer.blend_mode = serde_json::from_value(json!(mode)).unwrap();
+        doc.layers = vec![layer];
+        assert!(doc.undrawn().is_empty(), "{mode}");
+    }
 }
 
 #[test]

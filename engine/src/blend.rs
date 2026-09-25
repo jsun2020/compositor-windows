@@ -2,26 +2,55 @@ use crate::BlendMode;
 
 fn clamp01(v: f32) -> f32 { v.clamp(0.0, 1.0) }
 
+/// Hard Mix is 1 only when backdrop plus source exceeds 1; a sum of exactly 1 gives 0 (probe
+/// results "Blend modes"). Half an 8-bit level of margin keeps a sum that is exactly 1 in 8-bit
+/// values at 0 whatever the float rounding of `cs = premultiplied / alpha`.
+pub const HARD_MIX_MARGIN: f32 = 0.5 / 255.0;
+
+fn color_dodge(cb: f32, cs: f32) -> f32 { if cb <= 0.0 { 0.0 } else if cs >= 1.0 { 1.0 } else { (cb / (1.0 - cs)).min(1.0) } }
+fn color_burn(cb: f32, cs: f32) -> f32 { if cb >= 1.0 { 1.0 } else if cs <= 0.0 { 0.0 } else { 1.0 - ((1.0 - cb) / cs).min(1.0) } }
+
+/// W3C / PDF Soft Light, which Core Graphics draws (R 4.4). The first Mac render could not tell it
+/// from Photoshop's or Pegtop's (probe results); the Task 12 probe settles it.
+fn soft_light(cb: f32, cs: f32) -> f32 {
+    if cs <= 0.5 { cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb) }
+    else {
+        let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
+        cb + (2.0 * cs - 1.0) * (d - cb)
+    }
+}
+
 /// PDF separable blend function B(cb, cs) on straight (unpremultiplied) channel values.
 pub fn separable(mode: BlendMode, cb: f32, cs: f32) -> f32 {
     match mode {
         BlendMode::Normal => cs,
         BlendMode::Multiply => cb * cs,
         BlendMode::Screen => cb + cs - cb * cs,
-        // Overlay is HardLight with the arguments swapped (PDF spec); Task 11 mirrors this in GLSL.
+        // Overlay is HardLight with the arguments swapped (PDF spec); BLEND_GLSL in
+        // app/src/canvas/gl/programs.ts mirrors this.
         BlendMode::Overlay => hard_light(cs, cb),
         BlendMode::Darken => cb.min(cs),
         BlendMode::Lighten => cb.max(cs),
         BlendMode::Difference => (cb - cs).abs(),
-        BlendMode::ColorDodge => if cb <= 0.0 { 0.0 } else if cs >= 1.0 { 1.0 } else { (cb / (1.0 - cs)).min(1.0) },
-        BlendMode::ColorBurn => if cb >= 1.0 { 1.0 } else if cs <= 0.0 { 0.0 } else { 1.0 - ((1.0 - cb) / cs).min(1.0) },
+        BlendMode::ColorDodge => color_dodge(cb, cs),
+        BlendMode::ColorBurn => color_burn(cb, cs),
         // Non-separable modes are handled by blend_rgb; per channel they fall back to Normal.
         BlendMode::Hue | BlendMode::Saturation | BlendMode::Color | BlendMode::Luminosity => cs,
-        // Mac 1.2.6 additions: not drawn yet (Phase 3.5b), so `compose` never reaches these via
-        // the real blend path; kept here only so the match stays exhaustive.
-        BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::SoftLight | BlendMode::HardLight
-        | BlendMode::VividLight | BlendMode::LinearLight | BlendMode::PinLight | BlendMode::HardMix
-        | BlendMode::Exclusion | BlendMode::Subtract | BlendMode::Divide => cs,
+        BlendMode::LinearBurn => (cb + cs - 1.0).max(0.0),
+        BlendMode::LinearDodge => (cb + cs).min(1.0),
+        BlendMode::SoftLight => soft_light(cb, cs),
+        BlendMode::HardLight => hard_light(cb, cs),
+        // Colour burn at 2s and colour dodge at 2s - 1, with their W3C edge rules (a black backdrop
+        // under a white source gives 0).
+        BlendMode::VividLight => if cs <= 0.5 { color_burn(cb, 2.0 * cs) } else { color_dodge(cb, 2.0 * cs - 1.0) },
+        BlendMode::LinearLight => (cb + 2.0 * cs - 1.0).clamp(0.0, 1.0),
+        BlendMode::PinLight => if cs <= 0.5 { cb.min(2.0 * cs) } else { cb.max(2.0 * cs - 1.0) },
+        BlendMode::HardMix => if cb + cs > 1.0 + HARD_MIX_MARGIN { 1.0 } else { 0.0 },
+        BlendMode::Exclusion => cb + cs - 2.0 * cb * cs,
+        // Backdrop minus source, never the reverse (probe results).
+        BlendMode::Subtract => (cb - cs).max(0.0),
+        // A black source divides to 1 over any lit backdrop and to 0 over black (probe results, x = 219).
+        BlendMode::Divide => if cs <= 0.0 { if cb > 0.0 { 1.0 } else { 0.0 } } else { (cb / cs).min(1.0) },
     }
 }
 
@@ -83,7 +112,7 @@ pub fn compose(dst: [f32; 4], src: [f32; 4], mode: BlendMode) -> [f32; 4] {
     let ad = dst[3]; let a_s = src[3];
     if a_s <= 0.0 { return dst; }
     let out_a = a_s + ad * (1.0 - a_s);
-    if mode == BlendMode::Normal || !mode.is_drawn() || ad <= 0.0 {
+    if mode == BlendMode::Normal || ad <= 0.0 {
         return [src[0] + dst[0] * (1.0 - a_s), src[1] + dst[1] * (1.0 - a_s), src[2] + dst[2] * (1.0 - a_s), out_a];
     }
     let cb = [dst[0] / ad, dst[1] / ad, dst[2] / ad];
