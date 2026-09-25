@@ -100,11 +100,11 @@ impl Layer {
             mask_revision: 1,
         }
     }
-    /// What this layer alone contains that this build does not draw yet (adjustment kinds, grain
-    /// roughness, effects and unknown keys), as phrases for the notice (`Document::undrawn`
-    /// collects these across every layer, plus its own document-level check). Not sorted or
-    /// de-duplicated here -- callers that need that pool the phrases through a set, as
-    /// `Document::undrawn` does and as `merge` does when refusing to bake one (I1).
+    /// What this layer alone contains that this build does not draw as the Mac does (a Motion Blur
+    /// adjustment, drawn approximately; enabled effects; unknown keys), as phrases for the notice
+    /// (`Document::undrawn` collects these across every layer, plus its own document-level
+    /// check). Not sorted or de-duplicated here -- callers that need that pool the phrases through
+    /// a set, as `Document::undrawn` does and as `merge` does when refusing to bake one (I1).
     pub fn undrawn_features(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(a) = &self.extra.adjustment {

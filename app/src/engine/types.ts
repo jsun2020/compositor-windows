@@ -1,7 +1,7 @@
 export type Sampling = "Nearest" | "Smooth" | "High quality";
 export type BlendMode = "Normal" | "Multiply" | "Screen" | "Overlay" | "Darken" | "Lighten" | "Difference"
   | "Color Dodge" | "Color Burn" | "Hue" | "Saturation" | "Color" | "Luminosity"
-  // Mac 1.2.6 additions (R 2.4). Parsed and preserved now; drawn from Phase 3.5b.
+  // Mac 1.2.6 additions (R 2.4), drawn since Phase 3.5b.
   | "Linear Burn" | "Linear Dodge (Add)" | "Soft Light" | "Hard Light" | "Vivid Light" | "Linear Light"
   | "Pin Light" | "Hard Mix" | "Exclusion" | "Subtract" | "Divide";
 
