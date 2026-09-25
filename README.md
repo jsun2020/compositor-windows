@@ -87,6 +87,34 @@ Photoshop.
 | Hue/Saturation | Ctrl+U |
 | Invert | Ctrl+I |
 
+## Phase 3.5: Compositor for Mac 1.2.6 and later
+
+- All 24 of the Mac's blend modes, in its menu order. New: Linear Burn, Linear Dodge (Add),
+  Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix, Exclusion, Subtract
+  and Divide. As on the Mac, an adjustment layer in any mode but Normal blends its result at
+  full strength and keeps the alpha of what lies beneath it; in the eight modes the Mac computes
+  with Core Image, that blend is Normal. A clipped group in one of those eight composites as
+  Normal, as on the Mac.
+- Adjustment layers for Add Noise, Gaussian Blur, Motion Blur, Invert, Black & White and
+  Color Balance, from Layer > New Adjustment, with panels (Invert has nothing to set). Blur
+  layers blur everything beneath them, fading at the canvas edge as the Mac's do.
+- Image > Black & White and Color Balance, applied to the selected layer.
+- Grain and Add Noise use the Mac 1.2.6 patterns, for layers and for the Image and Filter menus.
+- Folder opacity and saved guides, as the Mac draws and moves them.
+- Note: Motion Blur, as a layer or a filter, is an even streak rather than Core Image's taper.
+  Until that difference is measured, a project with a Motion Blur adjustment layer names it in
+  the notice as drawn approximately, and merging it is refused.
+- Note: a Gaussian Blur reaching more than 48 screen pixels, or a Motion Blur reaching more than
+  12, is computed on a reduced copy. Measured against the exact blur: within 1 level away from
+  the edges, up to 4 levels along the canvas edge and along hard edges of transparency, and a
+  long Motion Blur loses fine detail across the streak (up to 20 levels on pixel-sized noise,
+  and 17 at the canvas edge). Every view of it, and the export, shows the same result. Zoomed
+  far into a very large blur, its edge can show at the window's edge.
+- Note: projects are limited to 100 megapixels of layer images (and of masks). Compositor for
+  Mac allows more on a Mac with more memory; such a project is refused with a message saying so.
+- Note: layer effects are kept exactly as they are and listed in a notice; they are drawn in the
+  next update, and merging a layer that has them is refused until then.
+
 ## Prerequisites
 
 - Rust 1.95 with the `wasm32-unknown-unknown` target
@@ -116,10 +144,11 @@ pnpm build:portable   # build and package the portable Windows zip
 ## Project file interoperability
 
 Projects are `.comp` folder packages, compatible with Compositor for macOS. This app opens
-projects from Compositor for Mac 1.2.6 (format version 9) and every earlier format (1 to 9),
-writes version 9 as the Mac does, and saves them back without losing anything. Folder opacity
-and saved guides are supported. Newer effects, blend modes and adjustment kinds are kept and
-listed in a notice until the next update draws them.
+projects from Compositor for Mac 1.2.10 (format version 9) and every earlier format (1 to 9),
+writes version 9 as the Mac does, and saves them back without losing anything; everything they
+contain is drawn as the Mac draws it except layer effects, which are kept and listed in a
+notice until the next update, and Motion Blur adjustment layers, which are drawn approximately
+and named in the same notice.
 
 ## Further reading
 
