@@ -57,7 +57,7 @@ fn merging_a_folder_holding_a_black_and_white_layer_bakes_it() {
 fn merging_enabled_effects_is_refused_but_all_disabled_effects_merge_fine() {
     let mut doc = Document::new(4, 4);
     let mut below = pixel_layer();
-    below.extra.effects = Some(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } }));
+    below.extra.effects = Some(serde_json::from_value(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } })).unwrap());
     let above = pixel_layer();
     let above_id = above.id;
     doc.layers = vec![below, above];
@@ -69,7 +69,7 @@ fn merging_enabled_effects_is_refused_but_all_disabled_effects_merge_fine() {
 
     let mut doc2 = Document::new(4, 4);
     let mut below2 = pixel_layer();
-    below2.extra.effects = Some(json!({ "stroke": { "blue": 1, "enabled": false, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 4 } }));
+    below2.extra.effects = Some(serde_json::from_value(json!({ "stroke": { "blue": 1, "enabled": false, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 4 } })).unwrap());
     let above2 = pixel_layer();
     let above2_id = above2.id;
     doc2.layers = vec![below2, above2];

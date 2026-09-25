@@ -1,4 +1,4 @@
-use crate::{AdjustmentKind, BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
+use crate::{AdjustmentKind, BlendMode, GrayRaster, LayerAdjustment, LayerEffects, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,7 +14,7 @@ pub struct Mask {
 pub struct LayerExtra {
     pub adjustment: Option<LayerAdjustment>,
     pub shape: Option<serde_json::Value>,
-    pub effects: Option<serde_json::Value>,
+    pub effects: Option<LayerEffects>,
     pub text: Option<serde_json::Value>,
     pub unknown: serde_json::Map<String, serde_json::Value>,
 }
@@ -112,10 +112,11 @@ impl Layer {
             // and so refused by merge, until the motion probe measures the gap (ruling G-I2).
             if a.kind == AdjustmentKind::MotionBlur { out.push("Motion Blur adjustment layers (drawn approximately)".to_string()); }
         }
-        if let Some(serde_json::Value::Object(effects)) = &self.extra.effects {
-            if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.push("layer effects".to_string()); }
+        if let Some(effects) = &self.extra.effects {
+            if !effects.visible().is_empty() { out.push("layer effects".to_string()); }
         }
-        if !self.extra.unknown.is_empty() { out.push("settings from a newer version of Compositor".to_string()); }
+        let unknown_effects = self.extra.effects.as_ref().is_some_and(LayerEffects::has_unknown);
+        if !self.extra.unknown.is_empty() || unknown_effects { out.push("settings from a newer version of Compositor".to_string()); }
         out
     }
 }

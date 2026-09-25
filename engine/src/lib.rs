@@ -15,6 +15,7 @@ pub mod ops;
 pub mod blend;
 pub mod plan;
 pub mod preview;
+pub mod effects;
 
 pub use adjust::settings::*;
 pub use adjust::levels::*;
@@ -40,4 +41,5 @@ pub use engine::*;
 pub use blend::*;
 pub use plan::*;
 pub use preview::*;
+pub use effects::settings::*;
 pub use ops::masks::blur_gray;

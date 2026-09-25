@@ -14,7 +14,7 @@ fn each_undrawn_feature_is_named_once_and_sorted() {
     let mut doc = Document::new(4, 4);
     let mut a = pixel_layer(); a.blend_mode = BlendMode::SoftLight;
     let mut b = pixel_layer(); b.blend_mode = BlendMode::SoftLight;
-    b.extra.effects = Some(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } }));
+    b.extra.effects = Some(serde_json::from_value(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } })).unwrap());
     let mut c = Layer::blank("BW", doc.size()); c.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::BlackWhite));
     let mut d = pixel_layer(); d.extra.unknown.insert("fromTheFuture".into(), json!(1));
     let mut e = Layer::blank("Streak", doc.size()); e.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::MotionBlur));
@@ -57,7 +57,7 @@ fn the_eleven_new_blend_modes_are_not_reported() {
 fn effects_that_are_all_switched_off_are_not_reported() {
     let mut doc = Document::new(4, 4);
     let mut a = pixel_layer();
-    a.extra.effects = Some(json!({ "stroke": { "blue": 1, "enabled": false, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 4 } }));
+    a.extra.effects = Some(serde_json::from_value(json!({ "stroke": { "blue": 1, "enabled": false, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 4 } })).unwrap());
     doc.layers = vec![a];
     assert!(doc.undrawn().is_empty(), "enabled: false hides the effect on the Mac too (R 2.1)");
 }

@@ -1,4 +1,4 @@
-use crate::{ids, LayerAdjustment, LayerTransform, ProjectError};
+use crate::{ids, LayerAdjustment, LayerEffects, LayerTransform, ProjectError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
@@ -96,9 +96,10 @@ pub struct LayerRecord {
     #[serde(rename = "maskPlacement", default, skip_serializing_if = "Option::is_none")] pub mask_placement: Option<LayerTransform>,
     #[serde(rename = "maskLinked", default, skip_serializing_if = "Option::is_none")] pub mask_linked: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
-    /// Layer effects (R 2.1). Kept verbatim: this build does not draw them yet (Phase 3.5c) and
-    /// the Mac does not validate them either.
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub effects: Option<Value>,
+    /// Layer effects (R 2.1), typed as the Mac's `Codable` decodes them, so a malformed object
+    /// refuses the project there and here alike. Their values are not validated on open, as on the
+    /// Mac: an invalid effect is simply not drawn (`LayerEffects::drawn`).
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub effects: Option<LayerEffects>,
     /// Live text (R 2.2). The rendered text is the layer's PNG; the style is kept verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")] pub text: Option<Value>,
     /// Keys this build does not know, kept verbatim so a re-save never drops them.
