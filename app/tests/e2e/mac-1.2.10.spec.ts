@@ -413,14 +413,15 @@ test("an Add Noise layer's statistics match AdjustPixels.c's noise_add_at, trans
   }
 });
 
-/** The halving level the engine gives a blur layer at the current zoom (`spatial_blur` through wasm). */
-async function blurLevel(page: Page, id: string): Promise<number> {
+/** The sizes the engine gives a blur layer at the current zoom (`spatial_blur` through wasm). */
+async function blurOf(page: Page, id: string): Promise<{ level: number; sigma: number; distance: number; angle: number }> {
   return page.evaluate((id) => {
     const api = (window as any).__compositor; const s = api.store.getState();
     const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
-    return api.engine.spatialBlur(layer.adjustment, s.viewports[s.activeId].pointsPerPixel * (window.devicePixelRatio || 1)).level as number;
+    return api.engine.spatialBlur(layer.adjustment, s.viewports[s.activeId].pointsPerPixel * (window.devicePixelRatio || 1));
   }, id);
 }
+const blurLevel = async (page: Page, id: string) => (await blurOf(page, id)).level;
 
 test("blur adjustment layers draw on the GPU as on the CPU, reduced or not, dimmed, blended and clipped", async ({ page }) => {
   await setupNoise(page, 721);
@@ -618,4 +619,76 @@ test("zoomed in, a blur near the window's edge still sees the canvas beyond it",
   expect(r.covers, "the document covers the whole window, so every pixel is inside the canvas").toBe(true);
   // An unpadded frame loses the blur's reach (30 device px) along every window edge.
   expect(worstOf(r.gl, r.cpu)).toBeLessThanOrEqual(3);
+});
+test("a step edge on the lattice blurs on the GPU to the closed form, halved or not", async ({ page }) => {
+  // Review I1: every case above but the level-0 Gaussian is parity only, and both renderers read
+  // the same spatialBlur sizes. An opaque red block over x < 128 of a 256 x 192 canvas puts its edge
+  // on every lattice up to a cell of 128, so the halved copy is an exact step and the whole path
+  // (reduce, blur, enlarge) has a closed form. 1280 x 721 with an adjustment layer selected leaves
+  // a 976 x 640 canvas area: the document at (360, 224), asserted below (LL-065(6)).
+  await page.setViewportSize({ width: 1280, height: 721 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const red = await page.evaluate(redSquarePngBase64);
+  await page.evaluate(async (b64) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(256, 192, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0)), "block", { x: 1, y: 1 });
+    const block = api.engine.state(doc).activeLayerId;
+    // From x = -16 to 128 and past every row: only the edge at x = 128 lies on the canvas.
+    api.engine.execute(doc, { type: "SetLayerTransform", id: block, transform: { origin: [-16, -16], size: [144, 224], rotation: 0, flipX: false, flipY: false, sampling: "Nearest" } });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+  }, red);
+  const EDGE = 128, ROW = 96;
+  /** spatial.rs `enlarged`: the reduced row sampled bilinearly at output column x's centre. */
+  const enlarged = (b: (k: number) => number, level: number, x: number) => {
+    const q = (x + 0.5) / 2 ** level - 0.5, k = Math.floor(q), t = q - k;
+    return b(k) + (b(k + 1) - b(k)) * t;
+  };
+  const cases: [string, object, number][] = [
+    ["Gaussian Blur", { blurRadius: 20 }, 1],
+    ["Motion Blur", { motionAngle: 0, motionDistance: 150 }, 3],
+    ["Motion Blur", { motionAngle: 0, motionDistance: 21 }, 0],
+  ];
+  for (const [kind, settings, level] of cases) {
+    const label = `${kind} ${JSON.stringify(settings)}`;
+    const id = await addAdjustment(page, kind, settings);
+    const blur = await blurOf(page, id);
+    expect(blur.level, `${label}: the engine's level`).toBe(level);
+    const f = 2 ** blur.level, edge = EDGE / f;   // the step's column in the reduced copy
+    let b: (k: number) => number;
+    if (kind === "Gaussian Blur") {
+      // gaussian_blur at the reduced sigma: the share of the kernel's weight on the block. Row 96
+      // lies beyond every vertical reach from the canvas's top and bottom, so that pass keeps it.
+      const s = blur.sigma / f, radius = Math.ceil(s * 3);
+      const w = (j: number) => Math.exp(-(j * j) / (2 * s * s));
+      let total = 0; for (let j = -radius; j <= radius; j++) total += w(j);
+      b = (k) => { let on = 0; for (let j = -radius; j <= radius; j++) if (k + j >= 0 && k + j < edge) on += w(j); return 255 * on / total; };
+    } else {
+      // motion_blur at angle 0 over the reduced copy: an odd count of steps lands every sample on a
+      // texel centre, so each column is the share of the streak's samples on the block.
+      const steps = Math.max(1, Math.round(blur.distance / f)), mid = (steps - 1) / 2;
+      expect(steps % 2, `${label}: an odd streak of ${steps}`).toBe(1);
+      b = (k) => { let on = 0; for (let i = 0; i < steps; i++) { const c = k + i - mid; if (c >= 0 && c < edge) on++; } return 255 * on / steps; };
+    }
+    const r = await page.evaluate(async () => {
+      const api = (window as any).__compositor; const s = api.store.getState();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const rect = s.viewports[s.activeId].documentRect({ width: 256, height: 192 }); const dpr = window.devicePixelRatio || 1;
+      return { gl: Array.from(api.readDocumentPixels()) as number[], whole: Number.isInteger(rect.x * dpr) && Number.isInteger(rect.y * dpr) };
+    });
+    expect(r.whole, `${label}: the document sits on whole device pixels`).toBe(true);
+    const alpha = (x: number) => r.gl[(ROW * 256 + x) * 4 + 3];
+    const tolerance = blur.level > 0 ? 3 : 2;
+    for (const x of [120, 127, 128, 135]) {
+      const want = enlarged(b, blur.level, x);
+      expect(Math.abs(alpha(x) - want), `${label}: alpha at x ${x} is ${alpha(x)}, want ${want.toFixed(2)}`).toBeLessThanOrEqual(tolerance);
+    }
+    // Symmetric about the edge on the lattice: the two columns beside it sum to opaque.
+    expect(Math.abs(alpha(127) + alpha(128) - 255), `${label}: alpha at 127 + 128`).toBeLessThanOrEqual(tolerance);
+    await expectMatchesCpu(page, label, tolerance);
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
 });
