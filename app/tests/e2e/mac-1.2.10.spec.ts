@@ -742,29 +742,42 @@ test("Color Balance names each field by its tone, and Preserve Luminosity is a c
   expect(cb).toMatchObject({ midYellowBlue: -40, shadowCyanRed: 0, highlightYellowBlue: 0, preserveLuminosity: false });
 });
 
-test("the blur and noise editors show the Mac's defaults and write their own keys", async ({ page }) => {
+test("the blur and noise editors show the Mac's defaults, preview live, and OK records one step writing their own keys", async ({ page }) => {
   await setupNoise(page, 720);
   const layerOf = async (kind: string) => (await state(page)).layers.find((l: any) => l.adjustment?.kind === kind).adjustment;
+  // The New ... Adjustment step is already in when the panel opens. The edit must reach the canvas
+  // before OK (for the blurs, the spatial `PreviewEdit::Adjustment` path), record nothing, and OK
+  // must record exactly one step.
+  const previewsThenCommits = async (kind: string, edit: () => Promise<void>) => {
+    const depth = (await state(page)).undoDepth;
+    const before = await glPixels(page);
+    await edit();
+    expect(await glPixels(page), `${kind}: the canvas shows the edit before OK`).not.toEqual(before);
+    expect((await state(page)).undoDepth, `${kind}: nothing recorded before OK`).toBe(depth);
+    await page.getByTestId("adjust-ok").click();
+    expect((await state(page)).undoDepth, `${kind}: OK records one step`).toBe(depth + 1);
+  };
   await clickMenu(page, "Layer", "layer-adjustment-gaussian-blur");
   await expect(field(page, "Radius")).toHaveValue("10");
-  await field(page, "Radius").fill("3.5");
-  await page.getByTestId("adjust-ok").click();
+  await previewsThenCommits("Gaussian Blur", () => field(page, "Radius").fill("3.5"));
   expect((await layerOf("Gaussian Blur")).blurRadius).toBe(3.5);
   await clickMenu(page, "Layer", "layer-adjustment-motion-blur");
   await expect(field(page, "Angle")).toHaveValue("0");
   await expect(field(page, "Distance")).toHaveValue("10");
-  await field(page, "Angle").fill("-35");
-  await field(page, "Distance").fill("48");
-  await page.getByTestId("adjust-ok").click();
+  await previewsThenCommits("Motion Blur", async () => {
+    await field(page, "Angle").fill("-35");
+    await field(page, "Distance").fill("48");
+  });
   expect(await layerOf("Motion Blur")).toMatchObject({ motionAngle: -35, motionDistance: 48 });
   await clickMenu(page, "Layer", "layer-adjustment-add-noise");
   const seed = (await layerOf("Add Noise")).noiseSeed;
   expect(typeof seed).toBe("number");
   await expect(field(page, "Amount")).toHaveValue("10");
-  await field(page, "Amount").fill("33.5");
-  await page.getByRole("combobox", { name: "Distribution", exact: true }).selectOption("Gaussian");
-  await page.getByRole("checkbox", { name: "Monochromatic", exact: true }).check();
-  await page.getByTestId("adjust-ok").click();
+  await previewsThenCommits("Add Noise", async () => {
+    await field(page, "Amount").fill("33.5");
+    await page.getByRole("combobox", { name: "Distribution", exact: true }).selectOption("Gaussian");
+    await page.getByRole("checkbox", { name: "Monochromatic", exact: true }).check();
+  });
   expect(await layerOf("Add Noise")).toMatchObject({ noiseAmount: 33.5, noiseGaussian: true, noiseMonochromatic: true, noiseSeed: seed });
 });
 
