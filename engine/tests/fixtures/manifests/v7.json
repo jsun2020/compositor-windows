@@ -53,9 +53,9 @@
       "maskEnabled": true,
       "maskLinked": true,
       "maskPlacement": {
-        "origin": [2.0, 2.0],
-        "size": [60.0, 45.0],
-        "rotation": 15.0,
+        "origin": [2, 2],
+        "size": [60, 45],
+        "rotation": 15,
         "flipX": false,
         "flipY": true,
         "sampling": "Nearest"

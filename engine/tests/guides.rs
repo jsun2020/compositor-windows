@@ -59,3 +59,14 @@ fn a_guide_beyond_the_macs_saveable_range_refuses_an_enlarging_image_size() {
     assert_eq!(err, ProjectError::TooLarge);
     assert_eq!(doc, before, "a refused resize leaves the document untouched");
 }
+
+#[test]
+fn a_guide_beyond_the_macs_saveable_range_refuses_an_enlarging_canvas_size() {
+    let mut doc = Document::new(100, 50);
+    doc.guides = vec![Guide { id: uuid::Uuid::new_v4(), axis: GuideAxis::Vertical, position: 999_990.0 }];
+    // Anchor 8 (bottom-right) adds the 40 new columns on the left: every vertical guide moves 40 right, past 1,000,000.
+    let err = ops::canvas_size::canvas_size(&doc, ops::canvas_size::CanvasSizeOptions { width: 140, height: 50, anchor: 8, fill: None, content_offset: None }).unwrap_err();
+    assert_eq!(err, ProjectError::TooLarge);
+    // Anchor 0 adds them on the right: the guide stays put and the resize goes through.
+    assert!(ops::canvas_size::canvas_size(&doc, ops::canvas_size::CanvasSizeOptions { width: 140, height: 50, anchor: 0, fill: None, content_offset: None }).is_ok());
+}

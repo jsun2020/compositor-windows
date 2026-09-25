@@ -1,16 +1,29 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(from = "(f64, f64)", into = "(f64, f64)")]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(from = "(f64, f64)")]
 pub struct Point { pub x: f64, pub y: f64 }
 impl From<(f64, f64)> for Point { fn from((x, y): (f64, f64)) -> Self { Point { x, y } } }
 impl From<Point> for (f64, f64) { fn from(p: Point) -> Self { (p.x, p.y) } }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(from = "(f64, f64)", into = "(f64, f64)")]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(from = "(f64, f64)")]
 pub struct Size { pub width: f64, pub height: f64 }
 impl From<(f64, f64)> for Size { fn from((width, height): (f64, f64)) -> Self { Size { width, height } } }
 impl From<Size> for (f64, f64) { fn from(s: Size) -> Self { (s.width, s.height) } }
+
+/// Swift's JSONEncoder writes a whole-number Double without a fraction (`120`, not `120.0`), and a
+/// manifest's transforms go through it (3.5a M2). Otherwise a plain f64, non-finite included:
+/// `LayerTransform::is_valid` keeps those out of every manifest.
+struct Whole(f64);
+impl Serialize for Whole {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if self.0.is_finite() && self.0.fract() == 0.0 && self.0.abs() < 1e15 { s.serialize_i64(self.0 as i64) } else { s.serialize_f64(self.0) }
+    }
+}
+fn whole<S: serde::Serializer>(value: &f64, s: S) -> Result<S::Ok, S::Error> { Whole(*value).serialize(s) }
+impl Serialize for Point { fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> { (Whole(self.x), Whole(self.y)).serialize(s) } }
+impl Serialize for Size { fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> { (Whole(self.width), Whole(self.height)).serialize(s) } }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rect { pub x: f64, pub y: f64, pub width: f64, pub height: f64 }
@@ -32,7 +45,7 @@ pub enum Sampling {
 pub struct LayerTransform {
     pub origin: Point,
     pub size: Size,
-    #[serde(default)] pub rotation: f64,
+    #[serde(default, serialize_with = "whole")] pub rotation: f64,
     #[serde(default, rename = "flipX")] pub flip_x: bool,
     #[serde(default, rename = "flipY")] pub flip_y: bool,
     #[serde(default)] pub sampling: Sampling,
@@ -83,7 +96,8 @@ impl LayerTransform {
             r.flip_y = !r.flip_y;
             r.origin.y = 2.0 * axis - center.y - self.size.height / 2.0;
         }
-        r.rotation = -self.rotation;
+        // Never -0.0: the Mac decodes it the same, but a file should not carry it (3.5a M2).
+        r.rotation = if self.rotation == 0.0 { 0.0 } else { -self.rotation };
         r
     }
     /// Maps layer pixel coordinates (0..width, 0..height, y down) to document coordinates.

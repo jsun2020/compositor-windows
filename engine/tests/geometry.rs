@@ -8,8 +8,8 @@ fn transform() -> LayerTransform {
 #[test]
 fn serializes_like_swift() {
     let json = serde_json::to_value(transform()).unwrap();
-    assert_eq!(json["origin"], serde_json::json!([10.0, 20.0]));
-    assert_eq!(json["size"], serde_json::json!([100.0, 50.0]));
+    assert_eq!(json["origin"], serde_json::json!([10, 20]));
+    assert_eq!(json["size"], serde_json::json!([100, 50]));
     assert_eq!(json["sampling"], "High quality");
     assert_eq!(json["flipX"], false);
     let back: LayerTransform = serde_json::from_value(json).unwrap();

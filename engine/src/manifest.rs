@@ -180,7 +180,7 @@ pub struct Manifest {
     pub format: String,
     pub version: u32,
     #[serde(rename = "colorSpace")] pub color_space: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")] pub resolution: Option<f64>,
+    #[serde(default, with = "crate::adjust::settings::mac_number_opt", skip_serializing_if = "Option::is_none")] pub resolution: Option<f64>,
     #[serde(rename = "documentID", with = "ids::upper")] pub document_id: Uuid,
     pub width: i64,
     pub height: i64,
