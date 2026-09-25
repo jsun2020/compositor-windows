@@ -1,5 +1,5 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
-import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PreviewEdit, PreviewRequest, RenderPlan } from "./types";
+import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
 
 export class EngineClient {
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
@@ -107,4 +107,15 @@ export class EngineClient {
   adjustmentIsIdentity(adjustment: LayerAdjustment): boolean { return this.wasm.adjustment_is_identity(JSON.stringify(adjustment)); }
   adjustmentLut(adjustment: LayerAdjustment): Uint8Array { return this.wasm.adjustment_lut(JSON.stringify(adjustment)); }
   hueResponse(adjustment: LayerAdjustment): Float32Array { return this.wasm.hue_response_table(JSON.stringify(adjustment)); }
+
+  /** A blur adjustment's kernel in output pixels and its halving level (engine `spatial_blur`). */
+  spatialBlur(adjustment: LayerAdjustment, outPerDoc: number): SpatialBlur { return JSON.parse(this.wasm.spatial_blur(JSON.stringify(adjustment), outPerDoc)) as SpatialBlur; }
+  /** The halving lattice and pad for the document's plan at `outPerDoc` output px per document px (engine `spatial_grid`). */
+  spatialGrid(doc: string, edit: PreviewEdit | null, outPerDoc: number): SpatialGrid {
+    return JSON.parse(this.wasm.spatial_grid(doc, edit ? JSON.stringify(edit) : undefined, outPerDoc)) as SpatialGrid;
+  }
+  /** One axis of a render's working span, from the canvas's leading edge (engine `spatial_span`). */
+  spatialSpan(near: number, far: number, canvas: number, grid: SpatialGrid): [number, number] {
+    const s = this.wasm.spatial_span(near, far, canvas, grid.cell, grid.pad); return [s[0], s[1]];
+  }
 }

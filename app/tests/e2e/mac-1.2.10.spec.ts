@@ -25,6 +25,40 @@ test("opening a project over 100 megapixels says so in the error banner", async 
   expect(await page.evaluate(() => Object.keys((window as any).__compositor.store.getState().documents).length)).toBe(0);
 });
 
+test("the engine hands the GPU its blur sizes, the plan's reach and the canvas-anchored lattice", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const r = await page.evaluate(() => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(32, 32, true);
+    const before = api.engine.renderPlan(doc, null).spatialMargin;
+    api.engine.execute(doc, { type: "AddAdjustmentLayer", kind: "Gaussian Blur", seed: 0, shadows: null, highlights: null });
+    const layer = api.engine.state(doc).layers.find((l: any) => l.adjustment);
+    const blurs = [
+      api.engine.spatialBlur(layer.adjustment, 2),                                  // radius absent: 10, so sigma 20, reach 60
+      api.engine.spatialBlur({ ...layer.adjustment, blurRadius: 16 }, 1),           // reach 48, the limit: no halving
+      api.engine.spatialBlur({ ...layer.adjustment, blurRadius: 250 }, 1),          // reach 750: four halvings
+      api.engine.spatialBlur({ ...layer.adjustment, kind: "Motion Blur", motionAngle: 30, motionDistance: 97 }, 1),   // reach 48.5, halved 3x past the Motion Blur limit of 12 (48.5 -> 24.25 -> 12.125 -> 6.0625)
+    ];
+    api.engine.execute(doc, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, blurRadius: 6 } });
+    return {
+      before, after: api.engine.renderPlan(doc, null).spatialMargin, blurs,
+      grids: [1, 4, 100].map((s: number) => api.engine.spatialGrid(doc, null, s)),
+      span: api.engine.spatialSpan(77, 117, 200, { cell: 4, pad: 10 }),
+    };
+  });
+  expect(r.before).toBe(0);
+  expect(r.after, "3 x 6 + 2 document pixels").toBe(20);
+  expect(r.blurs).toEqual([
+    { level: 1, sigma: 20, distance: 0, angle: 0 }, { level: 0, sigma: 16, distance: 0, angle: 0 },
+    { level: 4, sigma: 250, distance: 0, angle: 0 }, { level: 3, sigma: 0, distance: 97, angle: 30 },
+  ]);
+  // Radius 6 at 1 output px per document px: reach 18, no halving, pad 20 + 3 cells of 1. At 4:
+  // reach 72, one halving, pad 80 + 3 x 2. At 100: six halvings, and the pad stops at 1024.
+  expect(r.grids).toEqual([{ cell: 1, pad: 23 }, { cell: 2, pad: 86 }, { cell: 64, pad: 1024 }]);
+  expect(r.span, "77..117 grown by 10, then out to the lattice of 4").toEqual([64, 128]);
+});
+
 test("importing an image over 100 megapixels says so in the error banner, before decoding it", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();

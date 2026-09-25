@@ -15,6 +15,14 @@ export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure"
   | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
 /** The kinds this build draws and can edit. The 1.2.6 additions are not in it (Phase 3.5b). */
 export const DRAWN_ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain"];
+/** Every adjustment kind, in the order the Mac's New Adjustment Layer menu lists them
+ * (`AdjustmentKind.allCases`, LayerAdjustment.swift:4-9). */
+export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain",
+  "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance"];
+/** Whether the kind opens a panel: all but Invert, which has nothing to set (engine `AdjustmentKind::is_editable`). */
+export const isEditableKind = (kind: AdjustmentKind): boolean => kind !== "Invert";
+/** The kinds that blur what lies beneath them (engine `AdjustmentKind::is_spatial`). */
+export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur";
 export type LevelsChannel = "RGB" | "Red" | "Green" | "Blue";
 export type ColorRange = "Master" | "Reds" | "Yellows" | "Greens" | "Cyans" | "Blues" | "Magentas";
 export type LevelsAuto = "Contrast" | "Color" | "Neutral";
@@ -44,6 +52,11 @@ export interface ColorBalanceSettings {
   midCyanRed: number; midMagentaGreen: number; midYellowBlue: number; preserveLuminosity: boolean;
   shadowCyanRed: number; shadowMagentaGreen: number; shadowYellowBlue: number;
 }
+/** What an absent `blackWhiteSettings` means: Photoshop's mix, not identity (ImageAdjustments.swift:117-126). */
+export const DEFAULT_BLACK_WHITE: BlackWhiteSettings = { reds: 40, yellows: 60, greens: 40, cyans: 60, blues: 20, magentas: 80, tint: false, tintHue: 40, tintSaturation: 20 };
+/** What an absent `colorBalanceSettings` means: all zero, with Preserve Luminosity on (ImageAdjustments.swift:148-157). */
+export const DEFAULT_COLOR_BALANCE: ColorBalanceSettings = { highlightCyanRed: 0, highlightMagentaGreen: 0, highlightYellowBlue: 0,
+  midCyanRed: 0, midMagentaGreen: 0, midYellowBlue: 0, preserveLuminosity: true, shadowCyanRed: 0, shadowMagentaGreen: 0, shadowYellowBlue: 0 };
 /** The Mac's LayerAdjustment: the optional settings are written only when present, so a project
  * saved by either app re-encodes byte for byte. */
 export interface LayerAdjustment {
@@ -81,9 +94,15 @@ export interface Coverage { layerId: string; maskRevision: number; placement: La
 export interface LayerDraw {
   id: string; transform: LayerTransform; corners: Corners | null; pixelsWidth: number; pixelsHeight: number; pixelsRevision: number; opacity: number;
   blend: BlendMode; coverages: Coverage[]; clip: string | null; adjustment?: LayerAdjustment;
+  /** An adjustment layer whose own mode is not Normal: full coverage, original alpha kept (engine LayerDraw::keeps_alpha). */
+  keepsAlpha: boolean;
 }
 export type PlanNode = { kind: "layer"; draw: LayerDraw } | { kind: "stack"; base: LayerDraw; children: LayerDraw[]; folderCoverages: Coverage[] };
-export interface RenderPlan { nodes: PlanNode[]; sources: LayerDraw[]; }
+export interface RenderPlan { nodes: PlanNode[]; sources: LayerDraw[]; /** Document pixels the plan's blurs reach (engine RenderPlan::spatial_margin). */ spatialMargin: number; }
+/** A blur adjustment's sizes at one output scale (engine `SpatialBlur`): sigma, or distance and angle, in output px. */
+export interface SpatialBlur { level: number; sigma: number; distance: number; angle: number; }
+/** The halving lattice's cell and the render's pad, in output px (engine `SpatialGrid`). */
+export interface SpatialGrid { cell: number; pad: number; }
 export type PreviewEdit =
   | { kind: "layer"; id: string; draft: LayerTransform; corners?: Corners | null }
   | { kind: "group"; ids: string[]; box: LayerTransform; draft: LayerTransform; corners?: Corners | null }

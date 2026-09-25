@@ -235,7 +235,10 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
         }
     }
     let mut plan = RenderPlan { nodes, sources, spatial_margin: 0.0 };
-    let margin: f64 = spatial_blurs(&plan).into_iter().map(LayerAdjustment::sampling_margin).sum();
+    // `.sum()` folds from -0.0 (float Sum's identity), so an unblurred plan would otherwise report
+    // spatial_margin as -0.0; fold from 0.0 instead so "no blurs" is the plain zero the bridge and
+    // its tests expect.
+    let margin: f64 = spatial_blurs(&plan).into_iter().fold(0.0, |acc, a| acc + a.sampling_margin());
     plan.spatial_margin = margin;
     plan
 }

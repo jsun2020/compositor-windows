@@ -197,4 +197,25 @@ impl WasmEngine {
         let p = match parent { Some(p) => Some(parse_id(&p)?), None => None };
         self.engine.can_place(parse_id(doc)?, parse_id(id)?, p).map_err(js_err)
     }
+
+    /// `spatial_blur`: a blur adjustment's kernel in output pixels and its halving level, at
+    /// `out_per_doc` output pixels per document pixel. The GPU asks rather than keeping a copy of
+    /// the reach rule or the settings' defaults.
+    pub fn spatial_blur(&self, adjustment_json: &str, out_per_doc: f64) -> Result<String, JsError> {
+        let a: LayerAdjustment = serde_json::from_str(adjustment_json).map_err(js_err)?;
+        serde_json::to_string(&compositor_engine::spatial_blur(&a, out_per_doc)).map_err(js_err)
+    }
+    /// `spatial_grid` for the document's plan (with the pending edit): the halving lattice and the
+    /// pad a render at `out_per_doc` uses. The GPU's frame asks rather than re-deriving them.
+    pub fn spatial_grid(&self, doc: &str, edit_json: Option<String>, out_per_doc: f64) -> Result<String, JsError> {
+        let edit = Self::parse_edit(edit_json)?;
+        let plan = self.engine.render_plan(parse_id(doc)?, edit.as_ref()).map_err(js_err)?;
+        serde_json::to_string(&compositor_engine::spatial_grid(&plan, out_per_doc)).map_err(js_err)
+    }
+    /// `spatial_span`: one axis of a render's working span, in output pixels from the canvas's
+    /// leading edge, as `[start, end]`. Whole numbers travel as f64 (no BigInt across the bridge).
+    pub fn spatial_span(&self, near: f64, far: f64, canvas: f64, cell: u32, pad: u32) -> Vec<f64> {
+        let (start, end) = compositor_engine::spatial_span(near as i64, far as i64, canvas as i64, cell, pad);
+        vec![start as f64, end as f64]
+    }
 }
