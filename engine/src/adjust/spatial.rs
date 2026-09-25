@@ -19,10 +19,17 @@ pub const MOTION_REACH_LIMIT: f64 = 12.0;
 /// The most output pixels a partial render pads each side by for its blurs (`composite_plan`, and
 /// the GPU's frame). A render zoomed far into a very large blur shows its edge within this.
 pub const SPATIAL_PAD_LIMIT: f64 = 1024.0;
+/// The largest lattice cell, in output pixels: a blur halves at most 8 times (2^8 = 256), however
+/// far it reaches; past that its reduced kernel runs a longer reach instead. This keeps a padded
+/// frame within the view plus `2 * (SPATIAL_PAD_LIMIT + SPATIAL_CELL_LIMIT)` on each axis at any
+/// zoom. A reach that needs more halvings already exceeds SPATIAL_PAD_LIMIT, so such a frame is
+/// approximate anyway.
+pub const SPATIAL_CELL_LIMIT: f64 = 256.0;
 
 fn level_within(reach: f64, limit: f64) -> u32 {
     let (mut level, mut r) = (0, reach);
-    while r > limit && level < 16 { r /= 2.0; level += 1; }
+    // `2 << level` is the cell one more halving would make.
+    while r > limit && (2u32 << level) as f64 <= SPATIAL_CELL_LIMIT { r /= 2.0; level += 1; }
     level
 }
 

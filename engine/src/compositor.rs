@@ -377,7 +377,9 @@ fn padding(doc: &Document, plan: &RenderPlan, region: Rect, w: u32, h: u32) -> O
     // Whole output pixels from the canvas's corner to the region's. Exact, and so is the lattice,
     // whenever the region starts on the canvas's own output grid, as export, merge, the histogram,
     // the eyedroppers (engine.rs:394, :425, both `floor`ed 1 x 1 regions) and a whole-pixel pan do.
-    let (x0, y0) = ((region.x * sx).floor() as i64, (region.y * sy).floor() as i64);
+    // Rounded, not floored: the CPU renderer's `k * docPerPx` origin (cpu-renderer.ts:29-31) often
+    // lands one ulp below the whole pixel k, which a floor would put one pixel off the lattice.
+    let (x0, y0) = ((region.x * sx).round() as i64, (region.y * sy).round() as i64);
     let (xs, xe) = spatial_span(x0, x0 + w as i64, (doc.width as f64 * sx).ceil() as i64, grid.cell, grid.pad);
     let (ys, ye) = spatial_span(y0, y0 + h as i64, (doc.height as f64 * sy).ceil() as i64, grid.cell, grid.pad);
     let (left, top, width, height) = ((x0 - xs) as u32, (y0 - ys) as u32, (xe - xs) as u32, (ye - ys) as u32);

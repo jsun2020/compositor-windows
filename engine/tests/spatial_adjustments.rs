@@ -332,6 +332,58 @@ fn a_motion_blur_layer_halves_past_its_own_shorter_reach() {
 }
 
 #[test]
+fn a_part_at_the_cpu_renderers_own_zoom_halves_on_the_whole_frames_lattice() {
+    // Review I1. cpu-renderer.ts:29-31 shows a 640 px wide document 217 device pixels across and
+    // asks for the region `(vx0 - x) * docPerPx`, `docPerPx = 640 / 217`. At origin 5 that lands
+    // one ulp below 5 output pixels; a floored origin put the lattice one pixel off, and the part
+    // came out 2 to 4 levels from the whole (measured by the review).
+    let doc = over(lcg_noise(640, 400), |d| blur(d, 80.0));
+    let dpp = 640.0 / 217.0;
+    // The whole document on screen, 217 x 136 device pixels, requested as the renderer does.
+    let (w, h) = (217u32, 136u32);
+    let whole = composite(&doc, Rect { x: 0.0, y: 0.0, width: w as f64 * dpp, height: h as f64 * dpp }, w, h);
+    // Panned 5 and 27 device pixels into the document, the view shows the remaining 212 x 109.
+    let (x, y, pw, ph) = (5u32, 27u32, 212u32, 109u32);
+    let region = Rect { x: x as f64 * dpp, y: y as f64 * dpp, width: pw as f64 * dpp, height: ph as f64 * dpp };
+    let (sx, sy) = (pw as f64 / region.width, ph as f64 / region.height);
+    assert!(region.x * sx < 5.0 && region.y * sy < 27.0, "the renderer's arithmetic lands below the whole pixel: {} {}", region.x * sx, region.y * sy);
+    assert_eq!(spatial_grid(&render_plan(&doc, None), sx).cell, 2, "radius 80 at this zoom halves once");
+    let part = composite(&doc, region, pw, ph);
+    assert_eq!(part.bytes(), whole.cropped(x, y, pw, ph).bytes());
+}
+
+#[test]
+fn a_blur_zoomed_far_in_pads_its_frame_within_the_cell_limit() {
+    // Review I2. A 2000 px streak at zoom 32 on a 2x display reaches 64000 output pixels. With no
+    // cap on the halvings its cell was 8192, and a 1280 x 720 view padded out to 268 Mpx. Capped at
+    // SPATIAL_CELL_LIMIT, the frame stays within the view plus the pad and a cell on each side.
+    let (vw, vh) = (1280i64, 720i64);
+    let side = |v: i64| v as f64 + 2.0 * SPATIAL_PAD_LIMIT + 2.0 * SPATIAL_CELL_LIMIT;
+    let bound = side(vw) * side(vh);
+    let mut streaked = Document::new(3000, 2000);
+    let s = streak(&streaked, 30.0, 2000.0); streaked.layers = vec![s];
+    let mut blurred = Document::new(3000, 2000);
+    let b = blur(&blurred, 250.0); blurred.layers = vec![b];
+    for doc in [&streaked, &blurred] {
+        let plan = render_plan(doc, None);
+        let a = doc.layers[0].extra.adjustment.as_ref().unwrap();
+        for out_per_doc in [32.0, 64.0] {
+            let level = spatial_blur(a, out_per_doc).level;
+            assert!(level <= 8, "{:?} at {out_per_doc} out px per doc px: level {level}", a.kind);
+            let grid = spatial_grid(&plan, out_per_doc);
+            let (cw, ch) = ((3000.0 * out_per_doc) as i64, (2000.0 * out_per_doc) as i64);
+            for k in 0..64i64 {
+                let (x0, y0) = (cw / 2 + k * 97, ch / 3 + k * 61);
+                let (xs, xe) = spatial_span(x0, x0 + vw, cw, grid.cell, grid.pad);
+                let (ys, ye) = spatial_span(y0, y0 + vh, ch, grid.cell, grid.pad);
+                let area = ((xe - xs) * (ye - ys)) as f64;
+                assert!(area <= bound, "{:?} at {out_per_doc}, origin ({x0}, {y0}): {area} px against {bound}", a.kind);
+            }
+        }
+    }
+}
+
+#[test]
 fn a_blur_clipped_to_a_layer_changes_nothing_outside_that_layer() {
     // A clipped adjustment runs on the stack's own surface (LiveMaskRenderer.swift:98-101).
     let mut doc = Document::new(40, 24);
