@@ -1,11 +1,11 @@
 import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from "../engine/types";
-import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, type AdjustmentKind } from "../engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, isSpatialKind, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderOptions, Renderer } from "./renderer";
-import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Programs } from "./gl/programs";
-import { FboPool } from "./gl/framebuffers";
+import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
+import { FboPool, type Target } from "./gl/framebuffers";
 import { MaskTextures } from "./gl/mask-textures";
 import { AdjustTextures } from "./gl/adjust-textures";
 import { cornersOf, fromTuple, homographyUnitTo, mat3Invert, mat3Mul, pixelToDocument, type Mat3, type P } from "../tools/transform-geometry";
@@ -17,9 +17,14 @@ const KIND_CODE: Record<AdjustmentKind, number> = {
   "Hue/Saturation": ADJUST_KIND.hsv, Levels: ADJUST_KIND.tables, Curves: ADJUST_KIND.tables, Exposure: ADJUST_KIND.tables,
   "Gradient Map": ADJUST_KIND.gradientMap, Grain: ADJUST_KIND.grain, Invert: ADJUST_KIND.invert,
   "Black & White": ADJUST_KIND.blackWhite, "Color Balance": ADJUST_KIND.colorBalance, "Add Noise": ADJUST_KIND.addNoise,
-  // Spatial: a pass of their own (Task 10); identity here until it exists.
+  // Never reach this pass: drawInto sends them to spatialPass.
   "Gaussian Blur": ADJUST_KIND.identity, "Motion Blur": ADJUST_KIND.identity,
 };
+
+/** The part of the view the offscreen buffers cover, in device pixels, y down. `right` and
+ * `bottom` are the first frame column and row (y down) past the canvas: equal to `w` and `h`
+ * unless the lattice carries the frame past the canvas's far edges. */
+interface Frame { x: number; y: number; w: number; h: number; right: number; bottom: number; }
 
 export class GlRenderer implements Renderer {
   readonly kind = "gl" as const;
@@ -31,10 +36,37 @@ export class GlRenderer implements Renderer {
   private white: WebGLTexture;
   private transparent: WebGLTexture;
   private W = 0; private H = 0;
+  private frame: Frame | null = null;
+  private dpr = 1;
+  /** gl.MAX_TEXTURE_SIZE, read once in the constructor: the frame must fit one texture (audit F-M2). */
+  private readonly maxTexture: number;
   constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext) {
     this.textures = new LayerTextures(gl); this.masks = new MaskTextures(gl); this.fbos = new FboPool(gl); this.programs = createPrograms(gl);
     this.adjustTextures = new AdjustTextures(gl);
     this.white = this.solid(gl.R8, gl.RED, [255]); this.transparent = this.solid(gl.RGBA8, gl.RGBA, [0, 0, 0, 0]);
+    this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  }
+  private fw(): number { return this.frame ? this.frame.w : this.W; }
+  private fh(): number { return this.frame ? this.frame.h : this.H; }
+
+  /** Null for a plan without a blur: the buffers cover the view, exactly as before. With one, on
+   * each axis they cover the visible part of the canvas as the engine's `spatial_span` grows and
+   * aligns it (the pad of `spatial_grid` at this zoom, cut to what MAX_TEXTURE_SIZE allows),
+   * measured in device pixels from the canvas's rounded corner: so every frame edge sits on the
+   * lattice the CPU halves on, and the frame never starts before the canvas nor ends past its far
+   * edges rounded out to that lattice. */
+  private frameFor(plan: RenderPlan, viewport: Viewport, state: DocumentState, dpr: number, engine: EngineClient, edit: PreviewEdit | null): Frame | null {
+    if (!(plan.spatialMargin > 0)) return null;
+    const rect = viewport.documentRect({ width: state.width, height: state.height });
+    const cx = Math.round(rect.x * dpr), cy = Math.round(rect.y * dpr);
+    const cw = Math.round((rect.x + rect.width) * dpr) - cx, ch = Math.round((rect.y + rect.height) * dpr) - cy;
+    const grid = engine.spatialGrid(state.id, edit, viewport.pointsPerPixel * dpr);
+    // Room in one texture for the view, a pad on each side and a cell of alignment at each end.
+    const room = Math.floor((this.maxTexture - Math.max(this.W, this.H)) / 2) - grid.cell;
+    const g = { cell: grid.cell, pad: Math.max(0, Math.min(grid.pad, room)) };
+    const [xs, xe] = engine.spatialSpan(Math.max(0, -cx), Math.min(cw, this.W - cx), cw, g);
+    const [ys, ye] = engine.spatialSpan(Math.max(0, -cy), Math.min(ch, this.H - cy), ch, g);
+    return { x: cx + xs, y: cy + ys, w: Math.max(1, xe - xs), h: Math.max(1, ye - ys), right: cw - xs, bottom: ch - ys };
   }
   private solid(internal: number, format: number, bytes: number[]): WebGLTexture {
     const gl = this.gl; const t = gl.createTexture()!; gl.bindTexture(gl.TEXTURE_2D, t);
@@ -86,12 +118,14 @@ export class GlRenderer implements Renderer {
     const gl = this.gl;
     const W = Math.max(1, Math.round(viewport.viewSize.width * dpr)), H = Math.max(1, Math.round(viewport.viewSize.height * dpr));
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
-    this.W = W; this.H = H; this.fbos.resize(W, H);
+    this.W = W; this.H = H; this.dpr = dpr;
     const plan = engine.renderPlan(state.id, edit);
+    this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);
+    this.fbos.resize(this.fw(), this.fh(), this.frame ? 256 : 1);
     this.syncTextures(engine, state, plan, viewport, dpr);
     this.syncMasks(engine, state, plan);
     gl.bindVertexArray(this.programs.vao);
-    gl.viewport(0, 0, W, H);
+    gl.viewport(0, 0, this.fw(), this.fh());
     gl.disable(gl.BLEND);
     const ctx: Ctx = { state, plan, viewport, dpr, engine };
     this.fbos.clear("mainA", "rgba", 0);
@@ -127,14 +161,28 @@ export class GlRenderer implements Renderer {
     const rect = viewport.documentRect({ width: state.width, height: state.height }); const ppp = viewport.pointsPerPixel;
     return [ppp, 0, rect.x, 0, ppp, rect.y, 0, 0, 1];
   }
-  /** View CSS px -> clip space. */
-  private viewToClip(viewport: Viewport): Mat3 { const vw = viewport.viewSize.width, vh = viewport.viewSize.height; return [2 / vw, 0, -1, 0, -2 / vh, 1, 0, 0, 1]; }
-  /** gl_FragCoord (device px, y up) -> document. */
+  /** View CSS px -> clip space of the buffers: the frame when there is one, the view otherwise. */
+  private viewToClip(viewport: Viewport, frame: Frame | null = this.frame): Mat3 {
+    if (!frame) { const vw = viewport.viewSize.width, vh = viewport.viewSize.height; return [2 / vw, 0, -1, 0, -2 / vh, 1, 0, 0, 1]; }
+    const d = this.dpr;
+    return [2 * d / frame.w, 0, -1 - 2 * frame.x / frame.w, 0, -2 * d / frame.h, 1 + 2 * frame.y / frame.h, 0, 0, 1];
+  }
+  /** gl_FragCoord in the buffers (device px, y up) -> document. */
   private deviceToDoc(viewport: Viewport, state: DocumentState, dpr: number): Mat3 {
     const rect = viewport.documentRect({ width: state.width, height: state.height }); const ppp = viewport.pointsPerPixel;
-    return [1 / (dpr * ppp), 0, -rect.x / ppp, 0, -1 / (dpr * ppp), (this.H / dpr - rect.y) / ppp, 0, 0, 1];
+    const f = this.frame ?? { x: 0, y: 0, w: this.W, h: this.H };
+    return [1 / (dpr * ppp), 0, (f.x / dpr - rect.x) / ppp, 0, -1 / (dpr * ppp), ((f.y + f.h) / dpr - rect.y) / ppp, 0, 0, 1];
   }
-  private viewCorners(viewport: Viewport): P[] { const w = viewport.viewSize.width, h = viewport.viewSize.height; return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; }
+  /** The buffers' corners in view CSS px, for drawing a whole buffer back (the stack composite).
+   * With a frame, a buffer's texture is its allocated size, anchored at the frame's bottom-left
+   * (texel row 0 is the frame's bottom row); the part past the frame falls outside the viewport. */
+  private viewCorners(viewport: Viewport): P[] {
+    const f = this.frame;
+    if (!f) { const w = viewport.viewSize.width, h = viewport.viewSize.height; return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; }
+    const d = this.dpr, a = this.fbos.allocated();
+    const x0 = f.x / d, x1 = (f.x + a.w) / d, y1 = (f.y + f.h) / d, y0 = y1 - a.h / d;
+    return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  }
 
   private buildCoverage(ctx: Ctx, coverages: Coverage[], level: number): void {
     const gl = this.gl; const name = `coverage${level}`;
@@ -189,7 +237,8 @@ export class GlRenderer implements Renderer {
     const hasCoverage = draw.coverages.length > 0 || (useClip && !!draw.clip);
     if (draw.adjustment) {
       if (hasCoverage) { this.buildCoverage(ctx, draw.coverages, level); if (useClip && draw.clip) this.applyClip(ctx, draw.clip, level); }
-      this.adjustPass(ctx, pair, draw, blend, hasCoverage ? level : null);
+      if (isSpatialKind(draw.adjustment.kind)) this.spatialPass(ctx, pair, draw, blend, hasCoverage ? level : null);
+      else this.adjustPass(ctx, pair, draw, blend, hasCoverage ? level : null);
       this.fbos.swap(`${pair}A`, `${pair}B`);
       return;
     }
@@ -273,6 +322,78 @@ export class GlRenderer implements Renderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
+  /** A pass at a size of its own (a reduced copy), restoring the frame's viewport after. */
+  private sizedPass(p: Program, target: Target, w: number, h: number, textures: Record<string, WebGLTexture>, set: (u: Record<string, WebGLUniformLocation | null>) => void): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo); gl.viewport(0, 0, w, h); gl.useProgram(p.program);
+    let unit = 0;
+    for (const [name, tex] of Object.entries(textures)) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms[name], unit); unit++; }
+    set(p.uniforms);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.viewport(0, 0, this.fw(), this.fh());
+  }
+
+  /** A Gaussian or Motion Blur adjustment layer, as compositor::spatial_target draws it: the pair's
+   * A buffer with the ring past the canvas cleared, halved `level` times, blurred, then enlarged
+   * and mixed into B through the layer's coverage, opacity and (plan-mapped) blend mode. Every
+   * size comes from the engine (`spatialBlur`); a blur draw always has a frame (its plan's
+   * `spatialMargin` is at least 2). */
+  private spatialPass(ctx: Ctx, pair: "main" | "stack", draw: LayerDraw, blend: string, coverageLevel: number | null): void {
+    const gl = this.gl; const f = this.frame!;
+    const b = ctx.engine.spatialBlur(draw.adjustment!, ctx.viewport.pointsPerPixel * ctx.dpr);
+    const factor = 2 ** b.level;
+    // The blur's input: the composite so far with the frame's ring past the canvas cleared to
+    // transparent, as spatial_target zeroes it (the lattice can carry the frame up to a cell past
+    // the canvas's far edges, and layers draw wherever they land).
+    this.fbos.blit(`${pair}A`, "spatialIn");
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get("spatialIn", "rgba").fbo);
+    gl.enable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0);
+    if (f.right < f.w) { gl.scissor(f.right, 0, f.w - f.right, f.h); gl.clear(gl.COLOR_BUFFER_BIT); }
+    if (f.bottom < f.h) { gl.scissor(0, 0, f.w, f.h - f.bottom); gl.clear(gl.COLOR_BUFFER_BIT); }
+    gl.disable(gl.SCISSOR_TEST);
+    let source = this.fbos.get("spatialIn", "rgba").tex, w = f.w, h = f.h;
+    for (let j = 1; j <= b.level; j++) {
+      const nw = Math.max(1, Math.floor(w / 2)), nh = Math.max(1, Math.floor(h / 2));
+      const half = this.fbos.sized(`spatialHalf${j}`, nw, nh);
+      const [sw, sh] = [w, h];
+      this.sizedPass(this.programs.halve, half, nw, nh, { src: source }, (u) => gl.uniform2i(u.size, sw, sh));
+      source = half.tex; w = nw; h = nh;
+    }
+    // Named per level, so two blurs at different levels in one plan do not trade one target.
+    const out = this.fbos.sized(`spatialOut${b.level}`, w, h);
+    if (draw.adjustment!.kind === "Gaussian Blur") {
+      const s = b.sigma / factor, tmp = this.fbos.sized(`spatialTmp${b.level}`, w, h);
+      // gaussian_blur leaves the raster as it is for a sigma that is not positive: one tap of weight 1.
+      const radius = s > 0 ? Math.ceil(s * 3) : 0, sigma = s > 0 ? s : 1;
+      const set = (horizontal: boolean) => (u: Record<string, WebGLUniformLocation | null>) => {
+        gl.uniform1f(u.sigma, sigma); gl.uniform1i(u.radius, radius); gl.uniform1i(u.horizontal, horizontal ? 1 : 0);
+        gl.uniform1i(u.last, horizontal ? 0 : 1); gl.uniform2i(u.size, w, h);
+      };
+      this.sizedPass(this.programs.gaussian, tmp, w, h, { src: source }, set(true));
+      this.sizedPass(this.programs.gaussian, out, w, h, { src: tmp.tex }, set(false));
+    } else {
+      const radians = b.angle * Math.PI / 180;
+      const steps = Math.max(1, Math.round(b.distance / factor));
+      this.sizedPass(this.programs.motion, out, w, h, { src: source }, (u) => {
+        gl.uniform2f(u.dir, Math.cos(radians), Math.sin(radians)); gl.uniform1i(u.steps, steps); gl.uniform2i(u.size, w, h);
+      });
+    }
+    const p = this.programs.spatialMix;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(`${pair}B`, "rgba").fbo);
+    gl.useProgram(p.program);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.fbos.get(`${pair}A`, "rgba").tex); gl.uniform1i(p.uniforms.original, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, out.tex); gl.uniform1i(p.uniforms.adjusted, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, coverageLevel === null ? this.white : this.fbos.get(`coverage${coverageLevel}`, "r8").tex); gl.uniform1i(p.uniforms.coverage, 2);
+    gl.uniform1i(p.uniforms.useCoverage, coverageLevel === null ? 0 : 1);
+    gl.uniform1f(p.uniforms.opacity, draw.opacity);
+    gl.uniform1i(p.uniforms.mode, BLEND_INDEX[blend as keyof typeof BLEND_INDEX]);
+    gl.uniform1i(p.uniforms.keepsAlpha, draw.keepsAlpha ? 1 : 0);
+    gl.uniform1i(p.uniforms.level, b.level);
+    gl.uniform2i(p.uniforms.adjustedSize, w, h);
+    gl.uniform2i(p.uniforms.beyond, f.right, f.h - f.bottom);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
   /** Draws every chunk of a layer texture into `target` reading `backdrop`, or onto a cleared
    * target when `backdrop` is null. */
   private drawLayer(ctx: Ctx, target: string, backdrop: WebGLTexture | null, draw: LayerDraw, mode: number, coverageLevel: number | null): void {
@@ -320,7 +441,7 @@ export class GlRenderer implements Renderer {
     gl.enable(gl.SCISSOR_TEST); gl.scissor(x0, H - y1, x1 - x0, y1 - y0);
     if (options.checkerboard) {
       const p = this.programs.checker; gl.useProgram(p.program);
-      gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(mat3Mul(this.viewToClip(viewport), homographyUnitTo([{ x: rect.x, y: rect.y }, { x: rect.x + rect.width, y: rect.y }, { x: rect.x + rect.width, y: rect.y + rect.height }, { x: rect.x, y: rect.y + rect.height }]))));
+      gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(mat3Mul(this.viewToClip(viewport, null), homographyUnitTo([{ x: rect.x, y: rect.y }, { x: rect.x + rect.width, y: rect.y }, { x: rect.x + rect.width, y: rect.y + rect.height }, { x: rect.x, y: rect.y + rect.height }]))));
       gl.uniform4f(p.uniforms.uvRect, 0, 0, 1, 1); gl.uniform1i(p.uniforms.flipX, 0); gl.uniform1i(p.uniforms.flipY, 0);
       gl.uniform2f(p.uniforms.sizePx, rect.width * dpr, rect.height * dpr); gl.uniform1f(p.uniforms.cell, 8 * dpr);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -328,6 +449,8 @@ export class GlRenderer implements Renderer {
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     const b = this.programs.blit; gl.useProgram(b.program);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.fbos.get("mainA", "rgba").tex); gl.uniform1i(b.uniforms.src, 0);
+    // Window pixel row iy (up) is frame row iy + frame.y + frame.h - H (up).
+    gl.uniform2i(b.uniforms.offset, this.frame ? -this.frame.x : 0, this.frame ? this.frame.y + this.frame.h - H : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST);
   }

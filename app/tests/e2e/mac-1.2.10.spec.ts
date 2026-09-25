@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect, type Page } from "@playwright/test";
-import { claimedPngBase64, clickMenu, hueSafeNoisePngBase64, noisePngBase64 } from "./helpers";
+import { claimedPngBase64, clickMenu, grayRampMaskPngBase64, hueSafeNoisePngBase64, noisePngBase64, redSquarePngBase64 } from "./helpers";
 
 const PROBES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "engine", "tests", "fixtures", "mac-1.2.10-probes");
 
@@ -411,4 +411,211 @@ test("an Add Noise layer's statistics match AdjustPixels.c's noise_add_at, trans
     expect(maxChannelSpread, "monochromatic: R, G, B equal at every pixel").toBe(0);
     await run(page, { type: "DeleteLayers", ids: [id], bake: false });
   }
+});
+
+/** The halving level the engine gives a blur layer at the current zoom (`spatial_blur` through wasm). */
+async function blurLevel(page: Page, id: string): Promise<number> {
+  return page.evaluate((id) => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const layer = api.engine.state(s.activeId).layers.find((l: any) => l.id === id);
+    return api.engine.spatialBlur(layer.adjustment, s.viewports[s.activeId].pointsPerPixel * (window.devicePixelRatio || 1)).level as number;
+  }, id);
+}
+
+test("blur adjustment layers draw on the GPU as on the CPU, reduced or not, dimmed, blended and clipped", async ({ page }) => {
+  await setupNoise(page, 721);
+  // At one output px per document px: radius 3 reaches 9 px (exact kernel); radius 20 reaches 60,
+  // past SPATIAL_REACH_LIMIT 48 (one halving); a 21-px streak reaches 10.5, within
+  // MOTION_REACH_LIMIT 12 (exact); a 150-px streak reaches 75, which halves to 37.5, 18.75 and
+  // 9.375 (three halvings). A halved case may differ by one more level.
+  const cases: [string, object, number][] = [
+    ["Gaussian Blur", { blurRadius: 3 }, 0], ["Gaussian Blur", { blurRadius: 20 }, 1],
+    ["Motion Blur", { motionAngle: 30, motionDistance: 21 }, 0], ["Motion Blur", { motionAngle: -60, motionDistance: 150 }, 3],
+  ];
+  for (const [kind, settings, level] of cases) {
+    const id = await addAdjustment(page, kind, settings);
+    expect(await blurLevel(page, id), `${kind} ${JSON.stringify(settings)}: the engine's level`).toBe(level);
+    await expectMatchesCpu(page, `${kind} ${JSON.stringify(settings)}`, level > 0 ? 3 : 2);
+    await run(page, { type: "DeleteLayers", ids: [id], bake: false });
+  }
+  const id = await addAdjustment(page, "Gaussian Blur", { blurRadius: 3 });
+  await run(page, { type: "SetLayerOpacity", id, opacity: 0.6 });
+  await expectMatchesCpu(page, "opacity");
+  await run(page, { type: "SetLayerBlendMode", id, mode: "Multiply" });
+  await expectMatchesCpu(page, "blend mode");
+  // A Core-Image-only mode: Normal at full coverage with the original alpha kept (keepsAlpha).
+  await run(page, { type: "SetLayerBlendMode", id, mode: "Linear Burn" });
+  await expectMatchesCpu(page, "Linear Burn");
+  await run(page, { type: "SetLayerBlendMode", id, mode: "Normal" });
+  await run(page, { type: "ToggleClipping", id });
+  await expectMatchesCpu(page, "clipped to the layer below");
+});
+
+test("a blur never reads what lies off the canvas, so its edge fades as the Mac's does", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 721 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const red = await page.evaluate(redSquarePngBase64);
+  const blurId = await page.evaluate(async (b64) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0)), "block", { x: 1, y: 1 });
+    // An opaque red block from x = -16 to 32: its left third is off the canvas.
+    const block = api.engine.state(doc).activeLayerId;
+    api.engine.execute(doc, { type: "SetLayerTransform", id: block, transform: { origin: [-16, 0], size: [48, 64], rotation: 0, flipX: false, flipY: false, sampling: "Nearest" } });
+    api.engine.execute(doc, { type: "AddAdjustmentLayer", kind: "Gaussian Blur", seed: 0, shadows: null, highlights: null });
+    const layer = api.engine.state(doc).layers.find((l: any) => l.adjustment);
+    api.engine.execute(doc, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, blurRadius: 4 } });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    return layer.id as string;
+  }, red);
+  const gl = await glPixels(page);
+  // The CPU kernel, written out: sigma 4, radius 12, over the 32 on-canvas columns; the block spans
+  // every row, so at row 32 the vertical pass keeps all of it.
+  const weight = (i: number) => Math.exp(-(i * i) / 32);
+  let total = 0; for (let i = -12; i <= 12; i++) total += weight(i);
+  for (const x of [0, 5, 20, 31, 32, 40]) {
+    let covered = 0; for (let i = -12; i <= 12; i++) if (x + i >= 0 && x + i < 32) covered += weight(i);
+    const alpha = gl[(32 * 64 + x) * 4 + 3];
+    expect(Math.abs(alpha - 255 * covered / total), `alpha at x ${x}: ${alpha}`).toBeLessThanOrEqual(2);
+  }
+  await expectMatchesCpu(page, "off-canvas block");
+  // Linear Burn (keepsAlpha): the original alpha comes back, so the canvas edge does not fade and
+  // nothing spreads past the block (LiveMaskRenderer.swift:24-46; Task 4's CPU test).
+  await run(page, { type: "SetLayerBlendMode", id: blurId, mode: "Linear Burn" });
+  const kept = await glPixels(page);
+  for (const x of [0, 31]) expect(kept[(32 * 64 + x) * 4 + 3], `alpha at x ${x}, Linear Burn`).toBe(255);
+  expect(kept[(32 * 64 + 40) * 4 + 3], "alpha at x 40, Linear Burn").toBe(0);
+  await expectMatchesCpu(page, "off-canvas block, Linear Burn");
+  // Clipped to the block, in Multiply: beyond the block the stack surface is opaque black, and the
+  // blur spreads it inward (FRAG_OPAQUE, as draw_stack). Multiply, not Screen: over pure red,
+  // Screen gives red whether the blur spread black or transparency, and the base alpha put back
+  // hides the difference in alpha. The blurred red, made opaque, is the share of the kernel on the
+  // block (all 25 taps lie on the canvas at x 20 and 31), and Multiply by red keeps it.
+  await run(page, { type: "SetLayerBlendMode", id: blurId, mode: "Multiply" });
+  await run(page, { type: "ToggleClipping", id: blurId });
+  const clipped = await glPixels(page);
+  for (const x of [20, 31]) {
+    let onBlock = 0; for (let i = -12; i <= 12; i++) if (x + i < 32) onBlock += weight(i);
+    const red = clipped[(32 * 64 + x) * 4];
+    expect(Math.abs(red - 255 * onBlock / total), `red at x ${x}, clipped in Multiply: ${red}`).toBeLessThanOrEqual(2);
+  }
+  await expectMatchesCpu(page, "clipped to the block, in Multiply");
+});
+
+test("a blur layer's soft, placed mask limits where the blur lands, as on the CPU", async ({ page }) => {
+  // Audit D-I1: AddMask plus BlurMask makes a uniform 1 x 1 mask (ops/masks.rs:15, :46), which a
+  // pass that ignored its coverage texture would also pass. A gray ramp placed off-centre and
+  // rotated, as blend.spec.ts:89-129 does, varies across the layer and falls back to its
+  // background outside the placement. The package is how such a mask arrives (from a Mac file).
+  await page.setViewportSize({ width: 1280, height: 721 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const noise = await page.evaluate(hueSafeNoisePngBase64);
+  const mask = await page.evaluate(grayRampMaskPngBase64);
+  const layer = await page.evaluate(async ({ noise, mask }) => {
+    const api = (window as any).__compositor;
+    const decode = (b: string) => Uint8Array.from(atob(b), (c: string) => c.charCodeAt(0));
+    const [p, b] = ["B2000000-0000-4000-8000-0000000000A1", "B2000000-0000-4000-8000-0000000000A2"];
+    const range = { black: 0, gamma: 1, white: 255, outputBlack: 0, outputWhite: 255 };
+    const line = [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+    const transform = { origin: [0, 0], size: [64, 64], rotation: 0, flipX: false, flipY: false, sampling: "High quality" };
+    const manifest = {
+      format: "com.compositor.project", version: 9, colorSpace: "sRGB",
+      // The adjustment layer is selected on open, the chrome the 721 viewport is pinned for.
+      documentID: "B2000000-0000-4000-8000-0000000000D1", width: 64, height: 64, activeLayerID: b,
+      layers: [
+        { id: p, name: "noise", isVisible: true, imageFile: `${p}.png`, transform },
+        { id: b, name: "Gaussian Blur", isVisible: true, transform,
+          maskFile: `${b}.mask.png`, maskEnabled: true, maskLinked: false,
+          maskPlacement: { origin: [12, 8], size: [36, 44], rotation: 12, flipX: false, flipY: false, sampling: "High quality" },
+          adjustment: { kind: "Gaussian Blur", hue: 0, saturation: 0, lightness: 0, colorize: false,
+            levels: { channel: "RGB", ranges: [range, range, range, range] },
+            curves: { channel: "RGB", channels: [line, line, line, line] }, blurRadius: 3 } },
+      ],
+    };
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${p}.png`, bytes: decode(noise) }, { name: `${b}.mask.png`, bytes: decode(mask) }] }, null);
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    return api.engine.state(doc).layers[1];
+  }, { noise, mask });
+  // The package really carried the 32 x 32 ramp, not a uniform mask silently substituted.
+  expect(layer.hasMask).toBe(true);
+  expect([layer.maskWidth, layer.maskHeight]).toEqual([32, 32]);
+  await expectMatchesCpu(page, "soft placed mask");
+});
+
+test("on an odd-sized canvas the GPU halves the same canvas-anchored blocks as the CPU", async ({ page }) => {
+  // Audit D-I2. 63 x 61 is a multiple of no cell: both renderers round the far edges out to the
+  // lattice with transparency (spatial_span), so a radius-20 blur (one halving) matches over the
+  // whole canvas. The noise layer is 64 x 64, so it also reaches past the canvas where the frame's
+  // ring must be cleared. 1281 x 722 puts the document on whole device pixels with an adjustment
+  // layer selected (canvas area 977 x 641, from the 304 x 81 chrome adjust-render.spec.ts measured).
+  await page.setViewportSize({ width: 1281, height: 722 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(hueSafeNoisePngBase64);
+  const onWholePixels = await page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(63, 61, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0)), "noise", { x: 32, y: 32 });
+    api.engine.execute(doc, { type: "AddAdjustmentLayer", kind: "Gaussian Blur", seed: 0, shadows: null, highlights: null });
+    const layer = api.engine.state(doc).layers.find((l: any) => l.adjustment);
+    api.engine.execute(doc, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, blurRadius: 20 } });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(1);
+    api.setCheckerboard(false);
+    // Read the placement once the view has taken its settled size (setZoom waits one frame only).
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = api.store.getState();
+    const rect = s.viewports[s.activeId].documentRect({ width: 63, height: 61 });
+    const dpr = window.devicePixelRatio || 1;
+    return Number.isInteger(rect.x * dpr) && Number.isInteger(rect.y * dpr);
+  }, b64);
+  expect(onWholePixels, "the document sits on whole device pixels").toBe(true);
+  await expectMatchesCpu(page, "63 x 61, radius 20", 3);
+});
+
+test("zoomed in, a blur near the window's edge still sees the canvas beyond it", async ({ page }) => {
+  test.setTimeout(90_000);
+  // 800 x 601 with the adjustment layer selected leaves a 496 x 520 canvas area (the 304 x 81
+  // chrome adjust-render.spec.ts measured), which puts the 640 x 640 zoomed document at (-72, -60):
+  // whole device pixels. The test asserts that rather than trusting it (LL-065(6)).
+  await page.setViewportSize({ width: 800, height: 601 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(hueSafeNoisePngBase64);
+  await page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0)), "noise", { x: 32, y: 32 });
+    api.engine.execute(doc, { type: "AddAdjustmentLayer", kind: "Gaussian Blur", seed: 0, shadows: null, highlights: null });
+    const layer = api.engine.state(doc).layers.find((l: any) => l.adjustment);
+    api.engine.execute(doc, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, blurRadius: 1 } });
+    api.store.getState().openDocument(doc);
+    await api.setZoom(10);
+    api.setCheckerboard(false);
+  }, b64);
+  const r = await page.evaluate(async () => {
+    const api = (window as any).__compositor; const s = api.store.getState();
+    const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.round(vp.viewSize.width * dpr), H = Math.round(vp.viewSize.height * dpr);
+    const gl = Array.from(api.renderer.readPixels()) as number[];
+    const rect = vp.documentRect({ width: d.width, height: d.height }); const ppp = vp.pointsPerPixel;
+    // The doc region under the whole window, at device resolution: the CPU pads it itself.
+    const region = { x: -rect.x / ppp, y: -rect.y / ppp, width: W / (dpr * ppp), height: H / (dpr * ppp) };
+    const cpu = Array.from(api.engine.compositeEdit(d.id, null, region, W, H)) as number[];
+    const covers = rect.x < 0 && rect.y < 0 && rect.x + rect.width > vp.viewSize.width && rect.y + rect.height > vp.viewSize.height;
+    return { gl, cpu, covers, kind: s.rendererKind, whole: Number.isInteger(rect.x * dpr) && Number.isInteger(rect.y * dpr) };
+  });
+  expect(r.kind).toBe("gl");
+  expect(r.whole, "the document sits on whole device pixels").toBe(true);
+  expect(r.covers, "the document covers the whole window, so every pixel is inside the canvas").toBe(true);
+  // An unpadded frame loses the blur's reach (30 device px) along every window edge.
+  expect(worstOf(r.gl, r.cpu)).toBeLessThanOrEqual(3);
 });

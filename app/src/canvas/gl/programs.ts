@@ -126,11 +126,12 @@ precision highp float;
 uniform sampler2D src;
 out vec4 color;
 void main() { float a = texelFetch(src, ivec2(gl_FragCoord.xy), 0).a; color = vec4(a, a, a, 1.0); }`;
+// draw_stack in engine/src/compositor.rs: the whole surface opaque, a clear pixel opaque black (layer_unpremultiply_opaque).
 const FRAG_OPAQUE = `#version 300 es
 precision highp float;
 uniform sampler2D src;
 out vec4 color;
-void main() { vec4 c = texelFetch(src, ivec2(gl_FragCoord.xy), 0); color = c.a > 0.0 ? vec4(c.rgb / c.a, 1.0) : vec4(0.0); }`;
+void main() { vec4 c = texelFetch(src, ivec2(gl_FragCoord.xy), 0); color = c.a > 0.0 ? vec4(c.rgb / c.a, 1.0) : vec4(0.0, 0.0, 0.0, 1.0); }`;
 const FRAG_RESTORE = `#version 300 es
 precision highp float;
 uniform sampler2D src;
@@ -140,8 +141,9 @@ void main() { ivec2 at = ivec2(gl_FragCoord.xy); float a = texelFetch(alpha, at,
 const FRAG_BLIT = `#version 300 es
 precision highp float;
 uniform sampler2D src;
+uniform ivec2 offset;   // the frame's position within the view (GlRenderer.screenPass)
 out vec4 color;
-void main() { color = texelFetch(src, ivec2(gl_FragCoord.xy), 0); }`;
+void main() { color = texelFetch(src, ivec2(gl_FragCoord.xy) + offset, 0); }`;
 const FRAG_CHECKER = `#version 300 es
 precision highp float;
 in vec2 uv;
@@ -353,8 +355,117 @@ void main() {
   color = vec4(mixed * d.a, d.a);
 }`;
 
+// Raster::halved: each pixel the average of the 2 x 2 block that exists.
+const FRAG_HALVE = `#version 300 es
+precision highp float;
+uniform sampler2D src;
+uniform ivec2 size;
+out vec4 color;
+void main() {
+  ivec2 at = ivec2(gl_FragCoord.xy) * 2;
+  vec4 sum = vec4(0.0); float n = 0.0;
+  for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++) {
+    ivec2 p = at + ivec2(dx, dy);
+    if (p.x < size.x && p.y < size.y) { sum += texelFetch(src, p, 0); n += 1.0; }
+  }
+  color = sum / max(n, 1.0);
+}`;
+// gaussian_blur in engine/src/adjust/filters.rs: one axis per pass, taps beyond the raster count as
+// transparent but stay in the sum; the second pass keeps colour within alpha.
+const FRAG_GAUSSIAN = `#version 300 es
+precision highp float;
+uniform sampler2D src;
+uniform float sigma;
+uniform int radius;
+uniform bool horizontal;
+uniform bool last;
+uniform ivec2 size;
+out vec4 color;
+void main() {
+  ivec2 at = ivec2(gl_FragCoord.xy);
+  vec4 acc = vec4(0.0); float sum = 0.0;
+  for (int k = -radius; k <= radius; k++) {
+    float w = exp(-float(k * k) / (2.0 * sigma * sigma));
+    sum += w;
+    ivec2 p = horizontal ? ivec2(at.x + k, at.y) : ivec2(at.x, at.y + k);
+    if (p.x < 0 || p.y < 0 || p.x >= size.x || p.y >= size.y) continue;
+    acc += texelFetch(src, p, 0) * w;
+  }
+  vec4 c = acc / sum;
+  color = last ? vec4(min(c.rgb, vec3(c.a)), c.a) : c;
+}`;
+// motion_blur in engine/src/adjust/filters.rs: an even streak of bilinear samples, zero beyond the
+// raster (sample_zero). dir is (cos a, sin a): these rows run bottom-up, the CPU's top-down.
+const FRAG_MOTION = `#version 300 es
+precision highp float;
+uniform sampler2D src;
+uniform vec2 dir;
+uniform int steps;
+uniform ivec2 size;
+out vec4 color;
+vec4 fetchZero(ivec2 p) { return (p.x < 0 || p.y < 0 || p.x >= size.x || p.y >= size.y) ? vec4(0.0) : texelFetch(src, p, 0); }
+vec4 bilinearZero(vec2 q) {
+  vec2 f = q - 0.5; vec2 b = floor(f); vec2 t = f - b; ivec2 i = ivec2(b);
+  return mix(mix(fetchZero(i), fetchZero(i + ivec2(1, 0)), t.x), mix(fetchZero(i + ivec2(0, 1)), fetchZero(i + ivec2(1, 1)), t.x), t.y);
+}
+void main() {
+  float mid = float(steps - 1) / 2.0;
+  vec4 acc = vec4(0.0);
+  for (int i = 0; i < steps; i++) acc += bilinearZero(gl_FragCoord.xy + dir * (float(i) - mid));
+  vec4 c = acc / float(steps);
+  color = vec4(min(c.rgb, vec3(c.a)), c.a);
+}`;
+// spatial_target in engine/src/compositor.rs: the blurred copy enlarged (spatial.rs `enlarged`),
+// blended keeping the original alpha when the layer's own mode is not Normal (keepsAlpha,
+// blended_keeping_alpha), moved toward by the layer's coverage (toward), and nothing written past
+// the canvas.
+const FRAG_SPATIAL_MIX = `#version 300 es
+precision highp float;
+uniform sampler2D original;
+uniform sampler2D adjusted;
+uniform sampler2D coverage;
+uniform bool useCoverage;
+uniform float opacity;
+uniform int mode;
+uniform bool keepsAlpha;
+uniform int level;
+uniform ivec2 adjustedSize;
+uniform ivec2 beyond;   // frame columns from beyond.x, and GL rows below beyond.y, lie past the canvas
+out vec4 color;
+${BLEND_GLSL}
+vec4 fetchClamped(ivec2 p) { return texelFetch(adjusted, clamp(p, ivec2(0), adjustedSize - 1), 0); }
+vec4 enlarged(ivec2 at) {
+  if (level == 0) return texelFetch(adjusted, at, 0);
+  vec2 q = (vec2(at) + 0.5) / exp2(float(level)) - 0.5;
+  vec2 b = floor(q); vec2 t = q - b; ivec2 i = ivec2(b);
+  vec4 c = mix(mix(fetchClamped(i), fetchClamped(i + ivec2(1, 0)), t.x), mix(fetchClamped(i + ivec2(0, 1)), fetchClamped(i + ivec2(1, 1)), t.x), t.y);
+  return vec4(min(c.rgb, vec3(c.a)), c.a);
+}
+vec3 opaqueOf(vec4 p) {
+  uint a = uint(p.a * 255.0 + 0.5);
+  if (a == 0u) return vec3(0.0);
+  uvec3 c = uvec3(p.rgb * 255.0 + 0.5);
+  return vec3(min((c * 255u + a / 2u) / a, uvec3(255u))) / 255.0;
+}
+void main() {
+  ivec2 at = ivec2(gl_FragCoord.xy);
+  vec4 o = texelFetch(original, at, 0);
+  if (at.x >= beyond.x || at.y < beyond.y) { color = o; return; }
+  float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
+  if (k <= 0.0) { color = o; return; }
+  vec4 r = enlarged(at);
+  if (keepsAlpha) {
+    vec3 b = clamp(blendRgb(mode, opaqueOf(o), opaqueOf(r)), 0.0, 1.0);
+    uint a = uint(o.a * 255.0 + 0.5);
+    r = vec4(vec3((uvec3(b * 255.0 + 0.5) * a + 127u) / 255u) / 255.0, o.a);
+  }
+  vec4 m = k >= 1.0 ? r : mix(o, r, k);
+  color = vec4(min(m.rgb, vec3(m.a)), m.a);
+}`;
+
 export interface Program { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null>; }
-export interface Programs { layer: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
+export interface Programs { layer: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program;
+  halve: Program; gaussian: Program; motion: Program; spatialMix: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
 
 function compile(gl: WebGL2RenderingContext, vert: string, frag: string, uniforms: string[]): Program {
   const make = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader"); return s; };
@@ -376,18 +487,23 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
     restore: compile(gl, VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
-    blit: compile(gl, VERT_SCREEN, FRAG_BLIT, ["src"]),
+    blit: compile(gl, VERT_SCREEN, FRAG_BLIT, ["src", "offset"]),
     checker: compile(gl, VERT_UNIT, FRAG_CHECKER, ["unitToClip", "uvRect", "flipX", "flipY", "sizePx", "cell"]),
     adjust: compile(gl, VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed",
       "bwLow", "bwHigh", "bwTint", "cbShadows", "cbMidtones", "cbHighlights", "cbPreserve", "noiseParams", "noiseSeed"]),
+    halve: compile(gl, VERT_SCREEN, FRAG_HALVE, ["src", "size"]),
+    gaussian: compile(gl, VERT_SCREEN, FRAG_GAUSSIAN, ["src", "sigma", "radius", "horizontal", "last", "size"]),
+    motion: compile(gl, VERT_SCREEN, FRAG_MOTION, ["src", "dir", "steps", "size"]),
+    spatialMix: compile(gl, VERT_SCREEN, FRAG_SPATIAL_MIX, ["original", "adjusted", "coverage", "useCoverage", "opacity", "mode", "keepsAlpha", "level", "adjustedSize", "beyond"]),
     vao, buffer,
   };
-  for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust]) {
+  for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust,
+    programs.halve, programs.gaussian, programs.motion, programs.spatialMix]) {
     const loc = gl.getAttribLocation(p.program, "unit"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   }
   return programs;
 }
 export function disposePrograms(gl: WebGL2RenderingContext, p: Programs): void {
-  for (const q of [p.layer, p.coverage, p.alphaOf, p.opaque, p.restore, p.blit, p.checker, p.adjust]) gl.deleteProgram(q.program);
+  for (const q of [p.layer, p.coverage, p.alphaOf, p.opaque, p.restore, p.blit, p.checker, p.adjust, p.halve, p.gaussian, p.motion, p.spatialMix]) gl.deleteProgram(q.program);
   gl.deleteVertexArray(p.vao); gl.deleteBuffer(p.buffer);
 }
