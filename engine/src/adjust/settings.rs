@@ -41,7 +41,7 @@ pub enum AdjustmentKind {
     #[serde(rename = "Exposure")] Exposure,
     #[serde(rename = "Gradient Map")] GradientMap,
     #[serde(rename = "Grain")] Grain,
-    // Mac 1.2.6 additions (R 3). Parsed, validated and preserved now; drawn from Phase 3.5b.
+    // Mac 1.2.6 additions (R 3).
     #[serde(rename = "Add Noise")] AddNoise,
     #[serde(rename = "Gaussian Blur")] GaussianBlur,
     #[serde(rename = "Motion Blur")] MotionBlur,
@@ -50,11 +50,13 @@ pub enum AdjustmentKind {
     #[serde(rename = "Color Balance")] ColorBalance,
 }
 impl AdjustmentKind {
-    /// The kinds this build draws and can edit. The 1.2.6 additions are not in it (Phase 3.5b).
-    pub const DRAWN: [AdjustmentKind; 6] = [AdjustmentKind::Hsv, AdjustmentKind::Levels, AdjustmentKind::Curves, AdjustmentKind::Exposure, AdjustmentKind::GradientMap, AdjustmentKind::Grain];
-    pub fn is_drawn(self) -> bool { Self::DRAWN.contains(&self) }
     /// Gaussian Blur, Motion Blur and Add Noise adjustment layers need format v9 (ProjectStore.swift:199-204).
     pub fn needs_version_9(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::AddNoise) }
+    /// Whether the kind opens an editor. Invert has nothing to set (`isEditable`, LayerAdjustment.swift:28).
+    pub fn is_editable(self) -> bool { self != AdjustmentKind::Invert }
+    /// The kinds that read neighbouring pixels: they blur what lies beneath them as a whole
+    /// (compositor::spatial_target) rather than mapping one colour at a time.
+    pub fn is_spatial(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur) }
     pub fn name(self) -> &'static str {
         match self {
             AdjustmentKind::Hsv => "Hue/Saturation", AdjustmentKind::Levels => "Levels", AdjustmentKind::Curves => "Curves", AdjustmentKind::Exposure => "Exposure", AdjustmentKind::GradientMap => "Gradient Map", AdjustmentKind::Grain => "Grain",
@@ -439,6 +441,9 @@ impl LayerAdjustment {
     pub fn motion_angle_degrees(&self) -> f64 { self.motion_angle.unwrap_or(0.0) }
     pub fn motion_distance_pixels(&self) -> f64 { self.motion_distance.unwrap_or(10.0) }
     pub fn noise_amount_percent(&self) -> f64 { self.noise_amount.unwrap_or(10.0) }
+    pub fn noise_is_gaussian(&self) -> bool { self.noise_gaussian.unwrap_or(false) }
+    pub fn noise_is_monochromatic(&self) -> bool { self.noise_monochromatic.unwrap_or(false) }
+    pub fn noise_seed_or_zero(&self) -> u32 { self.noise_seed.unwrap_or(0) }
     pub fn is_valid(&self) -> bool {
         self.hue.is_finite() && self.saturation.is_finite() && self.lightness.is_finite() && self.hue.abs() <= 360.0 && self.saturation.abs() <= 100.0 && self.lightness.abs() <= 100.0
             && self.resolved_hsv().is_valid() && self.levels.is_valid() && self.curves.is_valid()

@@ -124,13 +124,3 @@ fn absent_settings_resolve_to_the_mac_defaults() {
     cb.color_balance_settings = Some(ColorBalanceSettings { mid_yellow_blue: 33.0, ..Default::default() });
     assert!(!cb.is_identity(), "a non-zero Color Balance changes the image");
 }
-
-#[test]
-fn undrawn_kinds_composite_as_identity_until_phase_3_5b() {
-    let doc = open_package(&with_adjustment(9, base("Invert"))).unwrap();
-    let mut with_pixels = doc.clone();
-    with_pixels.layers.insert(0, Layer::with_pixels("P", Raster::from_premultiplied(5, 4, [200u8, 40, 90, 255].repeat(20)), Point { x: 0.0, y: 0.0 }));
-    let region = Rect { x: 0.0, y: 0.0, width: 5.0, height: 4.0 };
-    assert_eq!(composite(&with_pixels, region, 5, 4).pixel(2, 2), [200, 40, 90, 255]);
-    assert!(!AdjustmentKind::Invert.is_drawn() && AdjustmentKind::Levels.is_drawn());
-}

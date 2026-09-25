@@ -11,6 +11,10 @@ pub enum PreparedAdjustment {
     GradientMap(Vec<u8>),
     Hsv { settings: HueSaturationSettings, response: Vec<[f64; 3]> },
     Grain { settings: GrainSettings },
+    Invert,
+    BlackWhite(BlackWhiteSettings),
+    ColorBalance(ColorBalanceSettings),
+    AddNoise { spread: f32, gaussian: bool, monochromatic: bool, seed: u32 },
     Identity,
 }
 
@@ -32,14 +36,18 @@ impl PreparedAdjustment {
                 if !(settings.amount > 0.0) { return PreparedAdjustment::Identity; }
                 PreparedAdjustment::Grain { settings }
             }
-            // Mac 1.2.6 additions, drawn from Phase 3.5b; until then an adjustment layer of this
-            // kind changes nothing and the open notice says so.
-            AdjustmentKind::AddNoise | AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur
-                | AdjustmentKind::Invert | AdjustmentKind::BlackWhite | AdjustmentKind::ColorBalance => PreparedAdjustment::Identity,
+            AdjustmentKind::Invert => PreparedAdjustment::Invert,
+            AdjustmentKind::BlackWhite => PreparedAdjustment::BlackWhite(a.black_white()),
+            // All zero changes nothing on the Mac either (ImageAdjustments.swift:167).
+            AdjustmentKind::ColorBalance => if a.color_balance().is_zero() { PreparedAdjustment::Identity } else { PreparedAdjustment::ColorBalance(a.color_balance()) },
+            AdjustmentKind::AddNoise => PreparedAdjustment::AddNoise { spread: a.noise_amount_percent() as f32 / 100.0 * 127.5,
+                gaussian: a.noise_is_gaussian(), monochromatic: a.noise_is_monochromatic(), seed: a.noise_seed_or_zero() },
+            // Spatial: drawn by compositor::spatial_target, never one colour at a time.
+            AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur => PreparedAdjustment::Identity,
         }
     }
 
-    /// One straight colour (0..1) at a document point. Only Grain reads `at`.
+    /// One straight colour (0..1) at a document point. Only Grain and Add Noise read `at`.
     pub fn color(&self, rgb: [f32; 3], at: Point) -> [f32; 3] {
         match self {
             PreparedAdjustment::Identity => rgb,
@@ -73,6 +81,14 @@ impl PreparedAdjustment {
                 for c in 0..3 { out[c] = (rgb[c] * 255.0 + delta).clamp(0.0, 255.0) / 255.0; }
                 out
             }
+            PreparedAdjustment::Invert => [1.0 - rgb[0], 1.0 - rgb[1], 1.0 - rgb[2]],
+            PreparedAdjustment::BlackWhite(s) => black_white_rgb(rgb, s),
+            PreparedAdjustment::ColorBalance(s) => color_balance_rgb(rgb, s),
+            PreparedAdjustment::AddNoise { spread, gaussian, monochromatic, seed } => {
+                // The field position is the document pixel, as noise_add_at's is at export (origin 0).
+                let base = noise_base(at.x.floor() as i64 as u32, at.y.floor() as i64 as u32, *seed);
+                [0, 1, 2].map(|c| (rgb[c] * 255.0 + noise_offset(base, c, *spread, *gaussian, *monochromatic)).clamp(0.0, 255.0) / 255.0)
+            }
         }
     }
 
@@ -84,6 +100,12 @@ impl PreparedAdjustment {
     pub fn pixel(&self, p: [u8; 4], at: Point) -> Option<[u8; 4]> {
         match self {
             PreparedAdjustment::Grain { settings } => Some(grain_pixel(p, at.x, at.y, settings)),
+            // PixelInvert.swift:28-36: premultiplied alpha minus colour.
+            PreparedAdjustment::Invert => Some([p[3] - p[0].min(p[3]), p[3] - p[1].min(p[3]), p[3] - p[2].min(p[3]), p[3]]),
+            PreparedAdjustment::BlackWhite(s) => Some(black_white_pixel(p, s)),
+            PreparedAdjustment::ColorBalance(s) => Some(color_balance_pixel(p, s)),
+            PreparedAdjustment::AddNoise { spread, gaussian, monochromatic, seed } =>
+                Some(noise_pixel(p, at.x.floor() as i64 as u32, at.y.floor() as i64 as u32, *spread, *gaussian, *monochromatic, *seed)),
             _ => None,
         }
     }

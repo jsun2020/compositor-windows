@@ -24,7 +24,13 @@ fn each_kind() -> Vec<LayerAdjustment> {
     hsv.hsv_settings = Some(settings);
     let mut grain = LayerAdjustment::new(AdjustmentKind::Grain);
     grain.grain_settings = Some(GrainSettings { amount: 50.0, size: 2.0, roughness: 30.0, seed: 11 });
-    vec![levels, curves, exposure, gradient, hsv, grain]
+    let mut bw = LayerAdjustment::new(AdjustmentKind::BlackWhite);
+    bw.black_white_settings = Some(BlackWhiteSettings { reds: 115.0, yellows: -40.0, greens: 70.0, cyans: 180.0, blues: -90.0, magentas: 20.0, tint: true, tint_hue: 205.0, tint_saturation: 45.0 });
+    let mut balance = LayerAdjustment::new(AdjustmentKind::ColorBalance);
+    balance.color_balance_settings = Some(ColorBalanceSettings { mid_cyan_red: -35.0, highlight_yellow_blue: -50.0, shadow_magenta_green: -20.0, ..ColorBalanceSettings::default() });
+    let mut noise = LayerAdjustment::new(AdjustmentKind::AddNoise);
+    noise.noise_amount = Some(40.0); noise.noise_seed = Some(9);
+    vec![levels, curves, exposure, gradient, hsv, grain, LayerAdjustment::new(AdjustmentKind::Invert), bw, balance, noise]
 }
 
 #[test]

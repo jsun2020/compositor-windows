@@ -61,6 +61,14 @@ fn grain_at_its_defaults_matches_the_mac_render_exactly() {
 }
 
 #[test]
+fn black_and_white_at_its_defaults_matches_the_mac_render_exactly() {
+    // The probe results found the Photoshop-default weights equal to the Mac on all 7200 pixels.
+    let (width, theirs) = mac("new-adjustment-layers");
+    let (d, at) = worst(&ours("new-adjustment-layers"), &theirs, width, 0..width);
+    assert_eq!(d, 0, "worst at {at:?}");
+}
+
+#[test]
 fn the_probes_this_port_already_matched_still_match() {
     for name in ["folder-opacity", "clipped-in-dimmed-folder", "guides"] {
         let (width, theirs) = mac(name);

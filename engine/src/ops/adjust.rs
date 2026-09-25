@@ -17,6 +17,7 @@ fn placement(layer: &Layer) -> (Point, f64) {
 
 pub fn apply_adjustment_to_layer(doc: &mut Document, id: Uuid, a: &LayerAdjustment) -> Result<(), CommandError> {
     if !a.is_valid() { return Err(CommandError::Argument("adjustment settings out of range".into())); }
+    if a.kind.is_spatial() { return Err(CommandError::Argument("a blur is applied with Filter > Gaussian Blur or Motion Blur".into())); }
     let layer = pixel_layer(doc, id)?;
     let (origin, units) = placement(layer);
     let raster = layer.pixels.as_ref().unwrap();
@@ -140,6 +141,8 @@ pub fn add_adjustment_layer(doc: &mut Document, kind: AdjustmentKind, seed: u32,
             adjustment.gradient_map_settings = Some(adjust::tonal::gradient_map_from(shadows, highlights));
         }
         AdjustmentKind::Grain => adjustment.grain_settings = Some(GrainSettings { seed, ..GrainSettings::default() }),
+        // Each Add Noise layer gets a pattern of its own (LayerAdjustment.swift:194).
+        AdjustmentKind::AddNoise => adjustment.noise_seed = Some(seed),
         _ => {}
     }
     let mut layer = Layer::blank(kind.name(), doc.size());

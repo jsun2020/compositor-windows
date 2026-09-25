@@ -1,4 +1,4 @@
-use crate::{BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
+use crate::{AdjustmentKind, BlendMode, GrayRaster, LayerAdjustment, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,7 +108,9 @@ impl Layer {
     pub fn undrawn_features(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(a) = &self.extra.adjustment {
-            if !a.kind.is_drawn() { out.push(format!("{} adjustment layers", a.kind.name())); }
+            // Drawn as an even streak where Core Image tapers it (Filters.swift:170-208): named,
+            // and so refused by merge, until the motion probe measures the gap (ruling G-I2).
+            if a.kind == AdjustmentKind::MotionBlur { out.push("Motion Blur adjustment layers (drawn approximately)".to_string()); }
         }
         if let Some(serde_json::Value::Object(effects)) = &self.extra.effects {
             if effects.values().any(|e| e.get("enabled") != Some(&serde_json::Value::Bool(false))) { out.push("layer effects".to_string()); }
@@ -153,8 +155,9 @@ impl Document {
     pub fn index_of(&self, id: Uuid) -> Option<usize> { self.layers.iter().position(|l| l.id == id) }
     pub fn layer(&self, id: Uuid) -> Option<&Layer> { self.layers.iter().find(|l| l.id == id) }
     pub fn layer_mut(&mut self, id: Uuid) -> Option<&mut Layer> { self.layers.iter_mut().find(|l| l.id == id) }
-    /// What this project contains that this build does not draw yet, as phrases for a notice.
-    /// Sorted and de-duplicated so the notice is stable. Everything listed is preserved on save.
+    /// What this project contains that this build does not draw yet: enabled layer effects,
+    /// Motion Blur adjustment layers (drawn approximately) and keys from a newer version. Sorted
+    /// and de-duplicated so the notice is stable. Everything listed is preserved on save.
     pub fn undrawn(&self) -> Vec<String> {
         let mut out = std::collections::BTreeSet::new();
         if !self.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }

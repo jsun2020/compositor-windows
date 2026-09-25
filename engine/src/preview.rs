@@ -63,8 +63,8 @@ pub const FILTER_PREVIEW_LIMIT: u32 = 2048;
 /// looks coarse.
 pub fn preview_limit(request: &PreviewRequest) -> u32 {
     match request {
-        PreviewRequest::Adjustment { adjustment, .. } => if adjustment.kind == AdjustmentKind::Grain { u32::MAX } else { COLOUR_PREVIEW_LIMIT },
-        PreviewRequest::DragAdjustment { adjustment, .. } => if adjustment.kind == AdjustmentKind::Grain { u32::MAX } else { COLOUR_DRAG_LIMIT },
+        PreviewRequest::Adjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_PREVIEW_LIMIT },
+        PreviewRequest::DragAdjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_DRAG_LIMIT },
         PreviewRequest::Filter { params, .. } => if matches!(params, FilterParams::AddNoise { .. }) { u32::MAX } else { FILTER_PREVIEW_LIMIT },
     }
 }

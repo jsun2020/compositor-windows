@@ -25,10 +25,14 @@ pub fn apply_adjustment(raster: &Raster, a: &LayerAdjustment, origin: Point, uni
         AdjustmentKind::GradientMap => apply_gradient_map(raster, &gradient_map_table(&a.gradient_map())),
         AdjustmentKind::Hsv => apply_hsv(raster, &a.resolved_hsv()),
         AdjustmentKind::Grain => apply_grain(raster, &a.grain(), origin, units_per_pixel),
-        // Mac 1.2.6 additions, drawn from Phase 3.5b; no UI creates one of these in 3.5a, so the
-        // whole-raster path (destructive Layer > Apply) just returns the input unchanged.
-        AdjustmentKind::AddNoise | AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur
-            | AdjustmentKind::Invert | AdjustmentKind::BlackWhite | AdjustmentKind::ColorBalance => raster.clone(),
+        AdjustmentKind::Invert => invert_raster(raster),
+        AdjustmentKind::BlackWhite => apply_black_white(raster, &a.black_white()),
+        AdjustmentKind::ColorBalance => if a.color_balance().is_zero() { raster.clone() } else { apply_color_balance(raster, &a.color_balance()) },
+        // In the raster's own grid, origin zero, as the Mac's destructive noise_add.
+        AdjustmentKind::AddNoise => add_noise_at(raster, a.noise_amount_percent(), a.noise_is_gaussian(), a.noise_is_monochromatic(), a.noise_seed_or_zero(), 0, 0),
+        // A blur changes the layer's size: the destructive blurs are FilterParams
+        // (ops::adjust::apply_filter), and apply_adjustment_to_layer refuses these kinds.
+        AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur => raster.clone(),
     };
     match selection { Some(coverage) => blend_by_coverage(&adjusted, raster, coverage), None => adjusted }
 }

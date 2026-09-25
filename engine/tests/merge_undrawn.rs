@@ -22,18 +22,35 @@ fn merge_down_bakes_a_new_blend_mode_as_the_canvas_shows_it() {
 }
 
 #[test]
-fn merging_a_folder_holding_an_undrawn_adjustment_kind_is_refused() {
+fn merging_a_folder_holding_a_motion_blur_layer_is_refused_until_the_motion_probe_settles_it() {
     let mut doc = Document::new(4, 4);
     let mut folder = Layer::blank("Folder", doc.size()); folder.is_group = true;
     let folder_id = folder.id;
+    let mut p = Layer::with_pixels("P", Raster::from_premultiplied(4, 4, [200u8, 40, 40, 255].repeat(16)), Point { x: 0.0, y: 0.0 });
+    p.parent_id = Some(folder_id);
+    let mut streak = Layer::blank("Streak", doc.size()); streak.parent_id = Some(folder_id);
+    streak.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::MotionBlur));
+    doc.layers = vec![folder, p, streak];
+    doc.active_layer_id = Some(folder_id);
+    let err = ops::merge::merge(&mut doc, &[folder_id]).unwrap_err();
+    assert_eq!(err, CommandError::Argument("Merging would bake Motion Blur adjustment layers (drawn approximately), which this build does not draw yet, or draws differently".into()));
+    assert_eq!(doc.layers.len(), 3, "nothing changed");
+}
+
+#[test]
+fn merging_a_folder_holding_a_black_and_white_layer_bakes_it() {
+    let mut doc = Document::new(4, 4);
+    let mut folder = Layer::blank("Folder", doc.size()); folder.is_group = true;
+    let folder_id = folder.id;
+    let mut red = Layer::with_pixels("Red", Raster::from_premultiplied(4, 4, [200u8, 40, 40, 255].repeat(16)), Point { x: 0.0, y: 0.0 });
+    red.parent_id = Some(folder_id);
     let mut bw = Layer::blank("BW", doc.size()); bw.parent_id = Some(folder_id);
     bw.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::BlackWhite));
-    doc.layers = vec![folder, bw];
+    doc.layers = vec![folder, red, bw];
     doc.active_layer_id = Some(folder_id);
-    let before = doc.clone();
-    let err = ops::merge::merge(&mut doc, &[folder_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake Black & White adjustment layers, which this build does not draw yet, or draws differently".into()));
-    assert_eq!(doc, before, "a refused merge leaves the document untouched");
+    ops::merge::merge(&mut doc, &[folder_id]).expect("a drawn kind no longer blocks a merge");
+    let p = doc.layers[0].pixels.as_ref().unwrap().pixel(1, 1);
+    assert!(p[0] == p[1] && p[1] == p[2] && p[0] != 200, "baked to grey: {p:?}");
 }
 
 #[test]
