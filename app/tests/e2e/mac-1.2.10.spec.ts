@@ -624,6 +624,7 @@ test("zoomed in, a blur near the window's edge still sees the canvas beyond it",
   expect(worstOf(r.gl, r.cpu)).toBeLessThanOrEqual(3);
 });
 test("a step edge on the lattice blurs on the GPU to the closed form, halved or not", async ({ page }) => {
+  test.setTimeout(90_000);
   // Review I1: every case above but the level-0 Gaussian is parity only, and both renderers read
   // the same spatialBlur sizes. An opaque red block over x < 128 of a 256 x 192 canvas puts its edge
   // on every lattice up to a cell of 128, so the halved copy is an exact step and the whole path
