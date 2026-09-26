@@ -333,10 +333,11 @@ fn pruning_drops_the_images_whose_buffers_only_the_cache_holds() {
     assert_eq!((cache.len(), cache.made()), (3, 3));
     drop(gone);
     masked.mask = Some(Mask { pixels: GrayRaster::from_bytes(2, 2, vec![0, 255, 255, 0]), enabled: true, placement: None, linked: None });
-    cache.prune();
-    assert_eq!(cache.len(), 1, "the dropped layer's image and the replaced mask's image went");
+    let fresh = shadowed_bar();
+    cache.image(&fresh, &effects_draw(&fresh, None).unwrap());
+    assert_eq!(cache.len(), 2, "making a new image first dropped the dropped layer's and the replaced mask's");
     cache.image(&live, &effects_draw(&live, None).unwrap());
-    assert_eq!(cache.made(), 3, "the live one stayed");
+    assert_eq!(cache.made(), 4, "the live one stayed");
 }
 
 #[test]

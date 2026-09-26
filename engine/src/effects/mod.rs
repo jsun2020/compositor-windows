@@ -197,8 +197,9 @@ impl EffectsCache {
                 return Some(image);
             }
         }
-        let image = effects_image(layer, pixels, draw);
+        // Dead images go before a new one is made, so they never add to the peak of making it.
         self.prune();
+        let image = effects_image(layer, pixels, draw);
         let mut kept = self.kept();
         kept.made += 1;
         if image.bytes().len() <= self.max_bytes {
