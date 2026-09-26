@@ -114,8 +114,24 @@ Photoshop.
   window's edge.
 - Note: projects are limited to 100 megapixels of layer images (and of masks). Compositor for
   Mac allows more on a Mac with more memory; such a project is refused with a message saying so.
-- Note: layer effects are kept exactly as they are and listed in a notice; they are drawn in the
-  next update, and merging a layer that has them is refused until then.
+- Layer effects, drawn as the Mac draws them: stroke (outside or inside), drop shadow, inner
+  shadow, outer glow, inner glow and colour overlay, on the canvas and in every export. Merging
+  bakes them, and every eyedropper and histogram that reads the picture sees them. They cannot be
+  edited yet.
+- Note: an effect whose blur reaches more than 48 pixels (a shadow blur or a glow size above 32)
+  is computed on a reduced copy, within 1 level of the exact result. A layer whose effects would
+  need an image of more than 200 megapixels is drawn without them, as on the Mac.
+- Note: Image Size scales a layer's effects with it, and Canvas Size and Crop keep them.
+  Compositor for Mac removes them in Image Size, Canvas Size, Crop and Trim.
+- Note: deleting a layer that others clip to, with Bake, keeps its stroke and shadow in the
+  baked pixels, as the canvas showed them; Compositor for Mac bakes without them.
+- Note: an unknown key inside an effect is kept and named in the notice; Compositor for Mac
+  drops it.
+- Note: a layer with effects is drawn from an image made when its pixels, mask or effects change,
+  and on every step of dragging its unlinked mask. On a large layer that takes a few seconds:
+  measured at about 3 s for a pixel edit and 5 s for each frame of an unlinked mask drag, on a
+  3000 x 2000 layer with all six effects. The 8 most recently made images, up to 512 MB, are
+  kept.
 
 ## Prerequisites
 
@@ -150,12 +166,14 @@ projects from Compositor for Mac 1.2.10 (format version 9) and every earlier for
 writes version 9 as the Mac does, and saves them back without losing anything. What they
 contain is drawn as the Mac draws it, within the reduced-copy blur note above, except:
 
-- layer effects, which are kept and listed in a notice until the next update;
 - Motion Blur adjustment layers, which are drawn approximately and named in the same notice;
 - until follow-up measurements on the Mac are back: Color Burn and Color Dodge on an adjustment
   layer or a clipped group, where the Mac uses Core Graphics' own formulas and this app the
   W3C ones; and Soft Light, whose exact variant is not settled yet (within 1 level on the only
-  measurement so far).
+  measurement so far); and the layer effects other than the drop shadow, which follow the Mac's
+  code and its own tests but have not been compared with a Mac render yet, and are written as
+  the Mac's code writes them, not yet checked against a project the Mac itself saved with
+  effects.
 
 ## Further reading
 

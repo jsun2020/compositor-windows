@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-engine"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "image",
  "jpeg-encoder",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-engine-wasm"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "compositor-engine",
  "console_error_panic_hook",
@@ -370,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-shell"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "regex",
  "serde",
