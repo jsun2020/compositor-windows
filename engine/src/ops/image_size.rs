@@ -79,7 +79,9 @@ pub fn image_size(doc: &Document, options: ImageSizeOptions) -> Result<Document,
                 let as_raster = Raster::from_premultiplied(mask_w, mask_h, rgba);
                 let drawn = rasterize(layer, &as_raster, options.sampling, sx, sy, left, top, width, height);
                 let coverage: Vec<u8> = drawn.bytes().chunks_exact(4).map(|p| p[0]).collect();
-                if let Some(m) = &mut layer.mask {
+                // Through `mask_mut`, which bumps the revision: a renderer keeping the old mask would
+                // lay it, turned or flipped, over the new upright placement.
+                if let Some(m) = layer.mask_mut() {
                     m.pixels = GrayRaster::from_bytes(width, height, coverage);
                 }
             }

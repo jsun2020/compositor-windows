@@ -53,6 +53,23 @@ fn rotated_hidden_layer_scales_in_document_axes_and_invalid_size_is_rejected() {
     assert_eq!(err, ProjectError::TooLarge);
 }
 
+/// Final review I2: the covering mask of a turned or flipped layer is redrawn upright on the new
+/// grid, so its revision must move on, or a renderer keyed by it keeps the old, flipped mask.
+#[test]
+fn resize_redraws_a_flipped_layers_covering_mask_under_a_new_revision() {
+    let mut d = Document::new(64, 32);
+    let mut layer = Layer::with_pixels("Red", red_left_raster(), Point { x: 0.0, y: 0.0 });
+    layer.transform.flip_x = true;
+    layer.set_mask(Some(Mask { pixels: GrayRaster::from_bytes(4, 2, vec![0, 80, 160, 255, 0, 80, 160, 255]), enabled: true, placement: None, linked: None }));
+    let before = layer.mask_revision;
+    d.layers.push(layer);
+    let out = image_size(&d, ImageSizeOptions { width: 128, height: 64, resolution: 72.0, sampling: Sampling::Nearest }).unwrap();
+    let m = &out.layers[0].mask.as_ref().unwrap().pixels;
+    assert_eq!((m.width, m.height), (128, 64), "redrawn on the new grid");
+    assert_eq!((m.bytes()[0], m.bytes()[127]), (255, 0), "upright: the flip is drawn into it");
+    assert!(out.layers[0].mask_revision > before, "a new revision for the new mask");
+}
+
 #[test]
 fn image_size_command_is_undoable() {
     let mut e = Engine::new();
