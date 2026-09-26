@@ -101,10 +101,11 @@ impl Layer {
         }
     }
     /// What this layer alone contains that this build does not draw as the Mac does (a Motion Blur
-    /// adjustment, drawn approximately; enabled effects; unknown keys), as phrases for the notice
-    /// (`Document::undrawn` collects these across every layer, plus its own document-level
-    /// check). Not sorted or de-duplicated here -- callers that need that pool the phrases through
-    /// a set, as `Document::undrawn` does and as `merge` does when refusing to bake one (I1).
+    /// adjustment, drawn approximately; unknown keys, here or inside its effects), as phrases for
+    /// the notice (`Document::undrawn` collects these across every layer, plus its own
+    /// document-level check). Not sorted or de-duplicated here -- callers that need that pool the
+    /// phrases through a set, as `Document::undrawn` does and as `merge` does when refusing to
+    /// bake one (I1).
     pub fn undrawn_features(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(a) = &self.extra.adjustment {
@@ -112,9 +113,7 @@ impl Layer {
             // and so refused by merge, until the motion probe measures the gap (ruling G-I2).
             if a.kind == AdjustmentKind::MotionBlur { out.push("Motion Blur adjustment layers (drawn approximately)".to_string()); }
         }
-        if let Some(effects) = &self.extra.effects {
-            if !effects.visible().is_empty() { out.push("layer effects".to_string()); }
-        }
+        // Layer effects are drawn (Phase 3.5c); only keys a later Mac wrote inside them are not.
         let unknown_effects = self.extra.effects.as_ref().is_some_and(LayerEffects::has_unknown);
         if !self.extra.unknown.is_empty() || unknown_effects { out.push("settings from a newer version of Compositor".to_string()); }
         out
@@ -156,9 +155,9 @@ impl Document {
     pub fn index_of(&self, id: Uuid) -> Option<usize> { self.layers.iter().position(|l| l.id == id) }
     pub fn layer(&self, id: Uuid) -> Option<&Layer> { self.layers.iter().find(|l| l.id == id) }
     pub fn layer_mut(&mut self, id: Uuid) -> Option<&mut Layer> { self.layers.iter_mut().find(|l| l.id == id) }
-    /// What this project contains that this build does not draw yet: enabled layer effects,
-    /// Motion Blur adjustment layers (drawn approximately) and keys from a newer version. Sorted
-    /// and de-duplicated so the notice is stable. Everything listed is preserved on save.
+    /// What this project contains that this build does not draw yet: Motion Blur adjustment
+    /// layers (drawn approximately) and keys from a newer version. Sorted and de-duplicated so
+    /// the notice is stable. Everything listed is preserved on save.
     pub fn undrawn(&self) -> Vec<String> {
         let mut out = std::collections::BTreeSet::new();
         if !self.unknown.is_empty() { out.insert("settings from a newer version of Compositor".to_string()); }

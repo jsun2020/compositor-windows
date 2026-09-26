@@ -21,9 +21,18 @@ fn each_undrawn_feature_is_named_once_and_sorted() {
     doc.layers = vec![a, b, c, d, e];
     assert_eq!(doc.undrawn(), vec![
         "Motion Blur adjustment layers (drawn approximately)".to_string(),
-        "layer effects".to_string(),
         "settings from a newer version of Compositor".to_string(),
     ]);
+}
+
+#[test]
+fn layer_effects_are_drawn_so_they_are_not_reported() {
+    let mut doc = Document::new(4, 4);
+    let mut a = pixel_layer();
+    a.extra.effects = Some(serde_json::from_value(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 },
+        "stroke": { "blue": 1, "green": 1, "inside": true, "opacity": 1, "red": 1, "size": 4 } })).unwrap());
+    doc.layers = vec![a];
+    assert!(doc.undrawn().is_empty(), "{:?}", doc.undrawn());
 }
 
 #[test]

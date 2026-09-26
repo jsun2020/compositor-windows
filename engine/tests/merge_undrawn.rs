@@ -54,27 +54,31 @@ fn merging_a_folder_holding_a_black_and_white_layer_bakes_it() {
 }
 
 #[test]
-fn merging_enabled_effects_is_refused_but_all_disabled_effects_merge_fine() {
-    let mut doc = Document::new(4, 4);
-    let mut below = pixel_layer();
-    below.extra.effects = Some(serde_json::from_value(json!({ "shadow": { "angle": 90, "blue": 0, "blur": 20, "distance": 20, "green": 0, "opacity": 0.5, "red": 0 } })).unwrap());
-    let above = pixel_layer();
+fn merge_down_bakes_a_drop_shadow_as_the_canvas_shows_it() {
+    // LayerMerge.swift:34-71 composites through drawLiveComposite, which draws effects
+    // (LiveLayerMask.swift:170-176); the merged layer carries none of its own.
+    let mut doc = Document::new(40, 40);
+    let mut below = Layer::with_pixels("Below", Raster::from_premultiplied(10, 6, [200u8, 90, 30, 255].repeat(60)), Point { x: 8.0, y: 5.0 });
+    below.extra.effects = Some(serde_json::from_value(json!({ "shadow": { "angle": 90, "blue": 0.5, "blur": 0, "distance": 9, "green": 0, "opacity": 0.8, "red": 0.3 } })).unwrap());
+    // Up and to the right: without the shadow the two layers end at y = 5 + 6.
+    let above = Layer::with_pixels("Above", Raster::from_premultiplied(4, 4, [20u8, 200, 90, 255].repeat(16)), Point { x: 25.0, y: 2.0 });
     let above_id = above.id;
     doc.layers = vec![below, above];
     doc.active_layer_id = Some(above_id);
-    let before = doc.clone();
-    let err = ops::merge::merge(&mut doc, &[above_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake layer effects, which this build does not draw yet, or draws differently".into()));
-    assert_eq!(doc, before, "a refused merge leaves the document untouched");
-
-    let mut doc2 = Document::new(4, 4);
-    let mut below2 = pixel_layer();
-    below2.extra.effects = Some(serde_json::from_value(json!({ "stroke": { "blue": 1, "enabled": false, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 4 } })).unwrap());
-    let above2 = pixel_layer();
-    let above2_id = above2.id;
-    doc2.layers = vec![below2, above2];
-    doc2.active_layer_id = Some(above2_id);
-    assert!(ops::merge::merge(&mut doc2, &[above2_id]).is_ok(), "enabled: false effects do not block a merge, as they do not report undrawn (R 2.1)");
+    let shown = composite(&doc, Rect { x: 0.0, y: 0.0, width: 40.0, height: 40.0 }, 40, 40);
+    ops::merge::merge(&mut doc, &[above_id]).expect("drawn effects no longer block a merge");
+    assert_eq!(doc.layers.len(), 1);
+    let merged = &doc.layers[0];
+    assert!(merged.extra.effects.is_none(), "the shadow is in the pixels now");
+    let (ox, oy) = (merged.transform.origin.x as u32, merged.transform.origin.y as u32);
+    let raster = merged.pixels.as_ref().unwrap();
+    assert_eq!(oy + raster.height, 5 + 6 + 9, "the merged pixels reach down to the bottom of the shadow");
+    // Only the shadow reaches (12, 18): the compose kernel's bytes for (0.3, 0, 0.5) at 0.8.
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+    assert_eq!(raster.pixel(12 - ox, 18 - oy), [byte(0.3 * 0.8), 0, byte(0.5 * 0.8), byte(0.8)]);
+    for y in 0..raster.height { for x in 0..raster.width {
+        assert_eq!(raster.pixel(x, y), shown.pixel(ox + x, oy + y), "at ({}, {})", ox + x, oy + y);
+    }}
 }
 
 #[test]

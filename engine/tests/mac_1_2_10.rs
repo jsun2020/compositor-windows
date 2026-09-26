@@ -69,6 +69,33 @@ fn black_and_white_at_its_defaults_matches_the_mac_render_exactly() {
 }
 
 #[test]
+fn the_edited_rich_file_with_two_drop_shadows_matches_the_mac_render() {
+    // Compared premultiplied: the Mac's straight colour is ill-conditioned where its alpha is a few
+    // units (probe results, edited-rich-file). Measured 2026-09-25 with this kernel (scratch crate
+    // p35c-scratch): colour 1, alpha 3; the alpha is the radius-24 blur layer's halved path (3.5b),
+    // which the exact blur held to 2. Without the shadows the alpha is 43 off; with sigma = blur
+    // instead of blur / 2, 10; with the shadow cast upward, 41.
+    let (width, theirs) = mac("edited-rich-file");
+    let theirs = Raster::from_straight(width, theirs.len() as u32 / 4 / width, &theirs);
+    let comp = format!("{}/edited-rich-file.comp", fixtures());
+    let manifest_json = std::fs::read_to_string(format!("{comp}/manifest.json")).unwrap();
+    let images = std::fs::read_dir(format!("{comp}/images")).unwrap().map(|entry| {
+        let entry = entry.unwrap();
+        (entry.file_name().into_string().unwrap(), std::fs::read(entry.path()).unwrap())
+    }).collect();
+    let doc = open_package(&Package { manifest_json, images }).unwrap();
+    let ours = composite(&doc, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height);
+    assert_eq!(ours.bytes().len(), theirs.bytes().len(), "the port and the Mac render the same size");
+    let (mut colour, mut alpha) = (0u8, 0u8);
+    for (i, (a, b)) in ours.bytes().iter().zip(theirs.bytes()).enumerate() {
+        let d = a.abs_diff(*b);
+        if i % 4 == 3 { alpha = alpha.max(d); } else { colour = colour.max(d); }
+    }
+    assert!(colour <= 1, "colour {colour}");
+    assert!(alpha <= 3, "alpha {alpha}");
+}
+
+#[test]
 fn the_probes_this_port_already_matched_still_match() {
     for name in ["folder-opacity", "clipped-in-dimmed-folder", "guides"] {
         let (width, theirs) = mac(name);

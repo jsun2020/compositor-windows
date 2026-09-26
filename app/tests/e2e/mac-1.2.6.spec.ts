@@ -39,7 +39,7 @@ test("the Blend menu offers all 24 modes in the Mac's order, and Soft Light is c
   expect(d.undoDepth).toBe(depth + 1);
 });
 
-test("merging onto a layer with layer effects is refused, with the feature named in the error banner", async ({ page }) => {
+test("merging onto a layer with layer effects bakes its drop shadow, as the Mac's merge does", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
   const below = "0B6C6B1E-4F1B-4B4E-9E0A-DDDDDDDDDDD1";
@@ -50,7 +50,7 @@ test("merging onto a layer with layer effects is refused, with the feature named
     documentID: "0B6C6B1E-4F1B-4B4E-9E0A-DDDDDDDDDDD0", width: 8, height: 8, activeLayerID: above,
     layers: [
       { id: below, name: "Below", isVisible: true, imageFile: `${below}.png`, transform,
-        effects: { shadow: { angle: 90, blue: 0, blur: 20, distance: 20, green: 0, opacity: 0.5, red: 0 } } },
+        effects: { shadow: { angle: 90, blue: 0, blur: 0, distance: 3, green: 0, opacity: 0.5, red: 0 } } },
       { id: above, name: "Above", isVisible: true, imageFile: `${above}.png`, transform },
     ],
   };
@@ -64,11 +64,18 @@ test("merging onto a layer with layer effects is refused, with the feature named
     api.store.getState().selectLayers([above], above);
   }, { manifest, b64, below, above });
   expect((await state(page)).layers).toHaveLength(2);
+  const depth = (await state(page)).undoDepth;
   await clickMenu(page, "Layer", "layer-merge");
-  const banner = page.getByTestId("error-banner");
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("Merging would bake layer effects, which this build does not draw yet");
-  expect((await state(page)).layers).toHaveLength(2);
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+  const merged = await state(page);
+  expect(merged.undoDepth, "one merge recorded").toBe(depth + 1);
+  expect(merged.layers).toHaveLength(1);
+  // Two 2 x 2 squares at (0, 0), the lower one casting a sharp shadow 3 px down: the merged pixels
+  // run from the squares' top to the shadow's bottom, 2 + 3 rows, and carry no effects of their own.
+  const layer = merged.layers[0];
+  expect([layer.transform.origin[1], layer.pixelsHeight]).toEqual([0, 2 + 3]);
+  const saved = await page.evaluate(() => { const api = (window as any).__compositor; const s = api.store.getState(); return JSON.parse(api.engine.savePackage(s.activeId).manifest); });
+  expect(saved.layers[0].effects, "the shadow is in the pixels now").toBeUndefined();
 });
 
 /** A v9 manifest holding one adjustment layer of `kind`, with every field a LayerAdjustment always
@@ -240,7 +247,7 @@ test("a notice names what the project uses that this build does not draw, and Di
   }, { manifest, b64, id });
   const notice = page.getByTestId("undrawn-notice");
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("layer effects");
+  await expect(notice, "layer effects are drawn now").not.toContainText("layer effects");
   await expect(notice).toContainText("settings from a newer version of Compositor");
   await expect(notice).toContainText("Motion Blur adjustment layers (drawn approximately)");
   // Scoped to the notice: the error banner's button (App.tsx:98) is also named "Dismiss".
