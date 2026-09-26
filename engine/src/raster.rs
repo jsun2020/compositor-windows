@@ -70,6 +70,8 @@ impl Raster {
         out
     }
     pub fn same_pixels(&self, other: &Raster) -> bool { Arc::ptr_eq(&self.inner, &other.inner) }
+    /// Whether another clone of this raster holds the same pixel buffer.
+    pub fn shared(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
     pub fn tiles_across(&self) -> u32 { (self.width + TILE - 1) / TILE }
     pub fn tiles_down(&self) -> u32 { (self.height + TILE - 1) / TILE }
     /// Copies tile (tx, ty) into `out` (TILE*TILE*4 bytes), zero beyond the raster.
@@ -138,6 +140,8 @@ impl GrayRaster {
     pub fn bytes(&self) -> &[u8] { &self.data }
     /// The very same pixel buffer (a clone of this raster), not merely equal pixels.
     pub fn same_pixels(&self, other: &GrayRaster) -> bool { Arc::ptr_eq(&self.data, &other.data) }
+    /// Whether another clone of this raster holds the same pixel buffer.
+    pub fn shared(&self) -> bool { Arc::strong_count(&self.data) > 1 }
     pub fn is_uniform(&self) -> Option<u8> {
         let first = *self.data.first()?;
         self.data.iter().all(|&v| v == first).then_some(first)

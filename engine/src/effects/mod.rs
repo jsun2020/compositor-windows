@@ -198,6 +198,7 @@ impl EffectsCache {
             }
         }
         let image = effects_image(layer, pixels, draw);
+        self.prune();
         let mut kept = self.kept();
         kept.made += 1;
         if image.bytes().len() <= self.max_bytes {
@@ -207,6 +208,12 @@ impl EffectsCache {
             }
         }
         Some(image)
+    }
+    /// Drops the images no one can find again: those whose pixel or mask buffer only the cache
+    /// holds (a closed document, an ended preview, a history entry let go). They would otherwise
+    /// keep their images and buffers alive and push out images still in use.
+    pub fn prune(&self) {
+        self.kept().entries.retain(|e| e.pixels.shared() && e.mask.as_ref().map_or(true, GrayRaster::shared));
     }
     /// Images kept.
     pub fn len(&self) -> usize { self.kept().entries.len() }

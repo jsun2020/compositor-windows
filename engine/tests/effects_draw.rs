@@ -320,6 +320,42 @@ fn an_eyedropper_sample_makes_only_the_effects_images_under_it() {
     assert_eq!(engine.effects_cache().made(), 1, "the same image, kept");
 }
 
+/// Final review M2: an image whose pixel or mask buffer only the cache holds can never be found
+/// again, so pruning drops it, and keeps every image whose buffers live elsewhere.
+#[test]
+fn pruning_drops_the_images_whose_buffers_only_the_cache_holds() {
+    let cache = EffectsCache::default();
+    let live = shadowed_bar();
+    let gone = shadowed_bar();
+    let mut masked = shadowed_bar();
+    masked.mask = Some(Mask { pixels: GrayRaster::from_bytes(2, 2, vec![255, 0, 0, 255]), enabled: true, placement: None, linked: None });
+    for layer in [&live, &gone, &masked] { cache.image(layer, &effects_draw(layer, None).unwrap()); }
+    assert_eq!((cache.len(), cache.made()), (3, 3));
+    drop(gone);
+    masked.mask = Some(Mask { pixels: GrayRaster::from_bytes(2, 2, vec![0, 255, 255, 0]), enabled: true, placement: None, linked: None });
+    cache.prune();
+    assert_eq!(cache.len(), 1, "the dropped layer's image and the replaced mask's image went");
+    cache.image(&live, &effects_draw(&live, None).unwrap());
+    assert_eq!(cache.made(), 3, "the live one stayed");
+}
+
+#[test]
+fn closing_a_document_drops_its_effects_images() {
+    let doc = doc_with(120, 120, vec![shadowed_bar()]);
+    let mut engine = Engine::new();
+    let (a, b) = (engine.open_package(&save_package(&doc).unwrap(), None).unwrap(), engine.open_package(&save_package(&doc).unwrap(), None).unwrap());
+    let draw = |e: &Engine, id| e.composite(id, Rect { x: 0.0, y: 0.0, width: 120.0, height: 120.0 }, 120, 120).unwrap();
+    draw(&engine, a);
+    draw(&engine, b);
+    assert_eq!(engine.effects_cache().len(), 2, "each open copy has its own buffers");
+    engine.close_document(a);
+    assert_eq!(engine.effects_cache().len(), 1, "the closed one's image went");
+    draw(&engine, b);
+    assert_eq!(engine.effects_cache().made(), 2, "the open one's stayed");
+    engine.close_document(b);
+    assert_eq!(engine.effects_cache().len(), 0);
+}
+
 #[test]
 fn the_engine_keeps_effects_images_across_edits_that_do_not_change_them_and_across_undo() {
     let doc = doc_with(120, 120, vec![shadowed_bar()]);

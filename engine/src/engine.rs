@@ -150,6 +150,7 @@ impl Engine {
     pub fn close_document(&mut self, id: Uuid) {
         self.sessions.remove(&id);
         self.order.retain(|d| *d != id);
+        self.effects.prune();
     }
 
     pub fn state(&self, id: Uuid) -> Result<DocumentState, CommandError> {
