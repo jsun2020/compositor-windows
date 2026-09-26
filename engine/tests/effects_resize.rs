@@ -171,6 +171,58 @@ fn image_size_keeps_effects_within_the_macs_ranges_so_they_stay_drawn() {
     assert!(now.drawn().is_some(), "clamped, not dropped as invalid");
 }
 
+/// The `effects-invalid.comp` probe's effects: a stroke past the Mac's 500 and a valid shadow. The
+/// Mac draws such a layer without any of them (`isValid`, LayerEffects.swift:135-139).
+fn invalid_stroke_and_a_shadow() -> LayerEffects {
+    effects(json!({ "stroke": { "blue": 0, "green": 0, "inside": false, "opacity": 1, "red": 1, "size": 600 },
+        "shadow": { "angle": 90, "blue": 0, "blur": 9, "distance": 14, "green": 0, "opacity": 0.7, "red": 0 } }))
+}
+
+/// Final review M4: clamping the stroke into range (600 x 2 -> 500, 600 x 0.5 -> 300) would make the
+/// set valid, and the layer would suddenly draw all its effects and save the new values.
+#[test]
+fn image_size_leaves_an_invalid_effect_invalid_so_the_layer_stays_plain() {
+    let mut doc = Document::new(200, 100);
+    let mut layer = Layer::with_pixels("L", solid(80, 40, [0, 0, 255, 255]), Point { x: 60.0, y: 30.0 });
+    layer.extra.effects = Some(invalid_stroke_and_a_shadow());
+    doc.layers = vec![layer];
+    for (w, h) in [(400, 200), (100, 50)] {
+        let k = w as f64 / 200.0;
+        let out = resize(&doc, w, h);
+        let now = out.layers[0].extra.effects.clone().unwrap();
+        assert_eq!(now.stroke.as_ref().unwrap().size, 600.0, "x{k}: the invalid stroke is carried as it is");
+        assert_eq!(now.shadow.as_ref().unwrap().distance, 14.0 * k, "x{k}: the valid shadow still scales");
+        assert!(now.drawn().is_none() && effects_draw(&out.layers[0], None).is_none(), "x{k}: still undrawn");
+        let left = (60.0 * k) as u32 - 2;
+        assert_eq!(full(&out).pixel(left, (50.0 * k) as u32), [0, 0, 0, 0], "x{k}: no stroke left of the layer");
+    }
+    // A shadow's angle past 360 is invalid too; aimed through the resize it would come out in range.
+    doc.layers[0].extra.effects = Some(effects(json!({ "shadow": { "angle": 400, "blue": 0, "blur": 0, "distance": 14, "green": 0, "opacity": 1, "red": 0 } })));
+    let now = resize(&doc, 400, 200).layers[0].extra.effects.clone().unwrap();
+    assert_eq!((now.shadow.as_ref().unwrap().angle, now.shadow.as_ref().unwrap().distance), (400.0, 14.0), "the invalid shadow is carried as it is");
+    assert!(now.drawn().is_none());
+}
+
+#[test]
+fn a_reduced_preview_leaves_an_invalid_effect_invalid_so_the_layer_stays_plain() {
+    // A colour drag previews from a copy no longer than 512 px (preview.rs): 1600 wide halves twice,
+    // so the stroke would come out at 150 reduced pixels, valid, reaching 600 document px.
+    let mut doc = Document::new(1600, 400);
+    let mut layer = Layer::with_pixels("Wide", solid(1600, 200, [255, 255, 255, 255]), Point { x: 0.0, y: 100.0 });
+    layer.extra.effects = Some(invalid_stroke_and_a_shadow());
+    let id = layer.id;
+    doc.layers = vec![layer];
+    let mut engine = Engine::new();
+    let handle = engine.open_package(&save_package(&doc).unwrap(), None).unwrap();
+    let above = |e: &Engine| e.composite(handle, Rect { x: 800.0, y: 50.0, width: 1.0, height: 1.0 }, 1, 1).unwrap().pixel(0, 0);
+    assert_eq!(above(&engine), [0, 0, 0, 0], "committed: drawn plainly");
+    engine.set_preview(handle, Some(PreviewRequest::DragAdjustment { layer: id, adjustment: LayerAdjustment::new(AdjustmentKind::Levels) })).unwrap();
+    assert!(engine.state(handle).unwrap().layers[0].pixels_width <= 512, "the preview is a reduced copy");
+    let plan = engine.render_plan(handle, None).unwrap();
+    assert!(plan.nodes.iter().all(|n| !matches!(n, PlanNode::Layer { draw } if draw.effects.is_some())), "the preview draws no effects");
+    assert_eq!(above(&engine), [0, 0, 0, 0], "and no stroke 50 px above the layer");
+}
+
 #[test]
 fn canvas_size_and_crop_keep_the_effects_with_their_layer() {
     let mut doc = Document::new(120, 120);

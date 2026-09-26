@@ -188,22 +188,25 @@ impl LayerEffects {
         let m = 2 * self.margin() as u64;
         (width as u64 + m) * (height as u64 + m) <= EFFECTS_SURFACE_LIMIT
     }
-    /// Every length (stroke size, shadow distances and blurs, glow sizes) times `factor`, kept
-    /// within the Mac's valid ranges so the effects stay drawn.
+    /// Every length (stroke size, shadow distances and blurs, glow sizes) of each valid effect
+    /// times `factor`, kept within the Mac's valid ranges so the effects stay drawn. An invalid
+    /// effect is carried as it is: clamped, it would turn valid, and a layer the Mac draws plainly
+    /// would suddenly draw all its effects.
     pub fn scaled(&self, factor: f64) -> LayerEffects {
         let mut e = self.clone();
-        if let Some(s) = &mut e.stroke { s.size = (s.size * factor).min(500.0); }
-        if let Some(s) = &mut e.shadow { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
-        if let Some(s) = &mut e.inner_shadow { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
-        if let Some(g) = &mut e.outer_glow { g.size = (g.size * factor).min(500.0); }
-        if let Some(g) = &mut e.inner_glow { g.size = (g.size * factor).min(500.0); }
+        if let Some(s) = e.stroke.as_mut().filter(|s| s.is_valid()) { s.size = (s.size * factor).min(500.0); }
+        if let Some(s) = e.shadow.as_mut().filter(|s| s.is_valid()) { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
+        if let Some(s) = e.inner_shadow.as_mut().filter(|s| s.is_valid()) { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
+        if let Some(g) = e.outer_glow.as_mut().filter(|g| g.is_valid()) { g.size = (g.size * factor).min(500.0); }
+        if let Some(g) = e.inner_glow.as_mut().filter(|g| g.is_valid()) { g.size = (g.size * factor).min(500.0); }
         e
     }
     /// The effects carried onto a layer whose pixels Image Size redraws upright on the new canvas's
     /// grid (Phase 3.5c ruling). `linear` takes one old layer pixel onto the new grid
     /// ([a, b, c, d]: x' = a x + c y, y' = b x + d y). Lengths scale by the square root of its
     /// area, and each shadow's offset goes through it whole, so a rotation or flip baked into the
-    /// pixels leaves the shadow falling where it fell.
+    /// pixels leaves the shadow falling where it fell. An invalid effect is carried as it is, as
+    /// `scaled` carries it.
     pub fn resampled(&self, linear: [f64; 4]) -> LayerEffects {
         let [a, b, c, d] = linear;
         let mut e = self.scaled((a * d - b * c).abs().sqrt());
@@ -216,8 +219,8 @@ impl LayerEffects {
             let (nx, ny) = (a * ox + c * oy, b * ox + d * oy);
             (tidy(ny.atan2(-nx).to_degrees()), tidy(nx.hypot(ny)).min(5000.0))
         };
-        if let (Some(new), Some(old)) = (&mut e.shadow, &self.shadow) { (new.angle, new.distance) = aim(old.angle, old.distance); }
-        if let (Some(new), Some(old)) = (&mut e.inner_shadow, &self.inner_shadow) { (new.angle, new.distance) = aim(old.angle, old.distance); }
+        if let (Some(new), Some(old)) = (&mut e.shadow, self.shadow.as_ref().filter(|s| s.is_valid())) { (new.angle, new.distance) = aim(old.angle, old.distance); }
+        if let (Some(new), Some(old)) = (&mut e.inner_shadow, self.inner_shadow.as_ref().filter(|s| s.is_valid())) { (new.angle, new.distance) = aim(old.angle, old.distance); }
         e
     }
     /// Keys a later version of Compositor wrote, here or inside an effect.
