@@ -313,6 +313,26 @@ test("a styled layer's texture is uploaded again for a pixel edit, a mask edit, 
   expect(await gpuFrame(page), "undoing the mask edit shows the edited frame again").toEqual(edited);
 });
 
+test("an undo followed by a different edit before the next frame shows the new pixels, styled or plain", async ({ page }) => {
+  // Final review I1: undo brings back the revisions its content had. Were the next edit to count up
+  // from there, it would reuse the undone edit's revision and the GPU would keep that texture.
+  await openStyled(page, { effects: ALL_SIX });
+  const depth = await undoDepth(page);
+  const inverted = await page.evaluate((ids) => ids.map((id) => (window as any).__compositor.store.getState().run({ type: "InvertPixels", id, mask: false })), [STYLED, BACK]);
+  expect(inverted, "both inversions are accepted").toEqual([true, true]);
+  expect(await undoDepth(page), "two history steps").toBe(depth + 2);
+  await expectMatchesCpuAtZoom(page, "both layers inverted (a frame uploads their textures)");
+  // One task: no frame runs between the undos and the new edits.
+  const blurred = await page.evaluate((ids) => {
+    const store = (window as any).__compositor.store;
+    store.getState().undo(); store.getState().undo();
+    return ids.map((id) => store.getState().run({ type: "ApplyFilter", id, params: { filter: "GaussianBlur", radius: 2 } }));
+  }, [STYLED, BACK]);
+  expect(blurred, "both blurs are accepted").toEqual([true, true]);
+  expect(await undoDepth(page), "two undone, two new").toBe(depth + 2);
+  await expectMatchesCpuAtZoom(page, "both layers blurred after the undos");
+});
+
 test("a panel preview of a styled layer is drawn from its own effects image, and cancelling it restores the committed one", async ({ page }) => {
   await openStyled(page, { effects: ALL_SIX });
   const opened = await gpuFrame(page);

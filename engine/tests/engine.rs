@@ -112,6 +112,38 @@ fn open_and_save_round_trip_through_engine_resets_history() {
     assert_eq!(e.document_ids(), vec![reopened]);
 }
 
+/// Undo restores the revisions its content had, so a different edit after an undo must never be
+/// given one the undone content had: the GPU keys its textures by revision and would keep showing
+/// the undone pixels or mask (final review I1).
+#[test]
+fn an_edit_after_an_undo_never_reuses_a_pixels_or_mask_revision() {
+    let mut e = Engine::new();
+    let id = e.new_document(6, 4, false).unwrap();
+    let png = encode_png(&Raster::from_premultiplied(6, 4, [200u8, 40, 10, 255].repeat(24)), 72.0).unwrap();
+    e.import_image(Some(id), &png, "L", None).unwrap();
+    let layer = e.state(id).unwrap().active_layer_id.unwrap();
+    let revisions = |e: &Engine| { let l = &e.state(id).unwrap().layers[0]; (l.pixels_revision, l.mask_revision) };
+
+    let mut pixels_seen = vec![revisions(&e).0];
+    e.execute(id, Command::InvertPixels { id: layer, mask: false }).unwrap();
+    pixels_seen.push(revisions(&e).0);
+    e.undo(id).unwrap();
+    assert_eq!(revisions(&e).0, pixels_seen[0], "undo brings back the revision its pixels had");
+    e.execute(id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 1.0 } }).unwrap();
+    let now = revisions(&e).0;
+    assert!(!pixels_seen.contains(&now), "other pixels, a revision never used before: {now} after {pixels_seen:?}");
+
+    e.execute(id, Command::AddMask { id: layer, revealing: false }).unwrap();
+    let mut masks_seen = vec![revisions(&e).1];
+    e.execute(id, Command::FillMask { id: layer, white: true }).unwrap();
+    masks_seen.push(revisions(&e).1);
+    e.undo(id).unwrap();
+    assert_eq!(revisions(&e).1, masks_seen[0], "undo brings back the revision its mask had");
+    e.execute(id, Command::InvertMask { id: layer }).unwrap();
+    let now = revisions(&e).1;
+    assert!(!masks_seen.contains(&now), "another mask, a revision never used before: {now} after {masks_seen:?}");
+}
+
 #[test]
 fn command_json_shape() {
     let c: Command = serde_json::from_str(r#"{"type":"RenameLayer","id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","name":"X"}"#).unwrap();

@@ -92,13 +92,14 @@ test("handles resize and rotate; alt-drag duplicates; arrows nudge", async ({ pa
 
 test("ctrl-drag on a corner distorts; Enter applies; the inspector edits values", async ({ page }) => {
   await setup(page);
+  const revision = (await layer(page)).pixelsRevision;
   await drag(page, { x: 250, y: 100 }, { x: 300, y: 100 }, ["Control"]); // top-right corner pulled right
   expect(await page.evaluate(() => (window as any).__compositor.store.getState().transformEdit?.corners?.[1])).toEqual([300, 100]);
   await expect(page.getByTestId("transform-apply")).toBeVisible();
   await page.keyboard.press("Enter");
   let l = await layer(page);
   expect(l.transform.rotation).toBe(0);
-  expect(l.pixelsRevision).toBe(2);
+  expect(l.pixelsRevision, "the distortion redraws the pixels").toBeGreaterThan(revision);
   expect(l.transform.size[0]).toBeGreaterThan(100);
   await page.getByLabel("X").fill("10");
   await page.keyboard.press("Enter");

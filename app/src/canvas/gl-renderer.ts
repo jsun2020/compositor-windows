@@ -112,10 +112,11 @@ export class GlRenderer implements Renderer {
       const level = levels.get(layer.id) ?? 0;
       const fx = padded.get(layer.id);
       const nearest = layer.transform.sampling === "Nearest";
-      // The effects key alone does not name the bytes: new pixels under the same revision leave it
-      // as it was (effects_draw). So an effects image is keyed by what keys the plain pixels (their
-      // revision) and the mask's revision as well as the whole EffectsDraw, and a pixel edit, a
-      // mask edit, an undo, a redo or a panel preview each upload the image again.
+      // A revision names the bytes: the engine gives pixels or a mask an edit changed a revision it
+      // never issued before (Engine::edit), a preview one of its own, and undo and redo bring back
+      // the revisions their content had. So plain pixels are keyed by their revision, and an effects
+      // image by both revisions and the whole EffectsDraw: a pixel edit, a mask edit, an undo, a
+      // redo or a panel preview each upload again, and a move that keeps the image does not.
       const bytesKey = fx ? `fx:${layer.pixelsRevision}:${layer.maskRevision}:${fx.inset}:${fx.key}` : `px:${layer.pixelsRevision}`;
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];

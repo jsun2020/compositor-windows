@@ -30,7 +30,9 @@ pub enum EffectsMask {
 pub struct EffectsDraw {
     /// Transparent layer pixels added on every side (`LayerEffects::margin`).
     pub inset: u32,
-    /// Changes whenever the image would: the GPU uploads a new texture on a new key.
+    /// Changes whenever the image would, given revisions that name the bytes (an engine's documents:
+    /// `Engine::edit` never reissues one): the GPU uploads a new texture on a new key. The cache
+    /// does not rely on it: it finds images by the buffers themselves.
     pub key: String,
     /// The shown effects, as `LayerEffects::drawn` gives them.
     #[serde(skip)] pub effects: LayerEffects,

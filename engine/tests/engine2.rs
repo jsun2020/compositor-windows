@@ -26,15 +26,17 @@ fn phase2_commands_round_trip_json_and_undo() {
     let la = e.state(doc).unwrap().layers.iter().find(|l| l.id == a).unwrap().clone();
     assert!(la.has_mask && !la.mask_linked == false && la.mask_enabled && la.mask_width == 1 && la.mask_background == 0);
     run(&mut e, format!(r#"{{"type":"SetLayerTransform","id":"{idb}","transform":{{"origin":[10,10],"size":[4,4],"rotation":45,"flipX":false,"flipY":false,"sampling":"Nearest"}}}}"#));
+    let b_revision = e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().pixels_revision;
     assert_eq!(e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().transform.rotation, 45.0);
     run(&mut e, format!(r#"{{"type":"DistortLayer","id":"{idb}","transform":{{"origin":[10,10],"size":[4,4]}},"corners":[[10,10],[18,10],[16,14],[10,14]]}}"#));
     let lb = e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().clone();
-    assert_eq!((lb.transform.rotation, lb.pixels_revision), (0.0, 2));
+    assert_eq!(lb.transform.rotation, 0.0);
+    assert!(lb.pixels_revision > b_revision, "distorting redraws the pixels");
     run(&mut e, format!(r#"{{"type":"ToggleClipping","id":"{idb}"}}"#));
     assert_eq!(e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().mask_source_id, Some(a));
     assert_eq!(e.clip_dependents(doc, &[a]).unwrap(), vec![b]);
     run(&mut e, format!(r#"{{"type":"DeleteLayers","ids":["{ida}"],"bake":true}}"#));
-    assert_eq!(e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().pixels_revision, 3);
+    assert!(e.state(doc).unwrap().layers.iter().find(|l| l.id == b).unwrap().pixels_revision > lb.pixels_revision, "baking redraws the pixels");
     let steps = 8;
     for _ in 0..steps { e.undo(doc).unwrap(); }
     let s = e.state(doc).unwrap();

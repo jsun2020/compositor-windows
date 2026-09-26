@@ -61,12 +61,36 @@ pub struct DocumentState {
     pub undrawn: Vec<String>,
 }
 
-/// Preview revisions start here so they can never collide with a layer's own, which counts up
-/// from 1 as the document is edited.
+/// Preview revisions start here so they can never collide with a layer's own, which the engine
+/// issues from 1 upward as documents are edited (`renew_revisions`).
 const PREVIEW_REVISION_BASE: u64 = 1 << 40;
 
+/// Gives every layer of `next` whose pixels or mask differ from `before` (new layer, other buffer,
+/// buffer added or dropped, or another revision) a revision `counter` never issued before. A layer
+/// opened or made fresh has revision 1, so the counter issues 2 onwards. Undo and redo restore a
+/// snapshot with the revisions its content had; without this, a different edit after an undo
+/// would count up to a revision the undone content already had, and a renderer keyed by revision
+/// (the GPU's textures) would keep showing that content.
+fn renew_revisions(before: &Document, next: &mut Document, counter: &mut u64) {
+    let old: HashMap<Uuid, &Layer> = before.layers.iter().map(|l| (l.id, l)).collect();
+    let mut issue = || { *counter = (*counter).max(1) + 1; debug_assert!(*counter < PREVIEW_REVISION_BASE); *counter };
+    for layer in &mut next.layers {
+        let was = old.get(&layer.id);
+        let pixels_changed = was.map_or(true, |w| w.pixels_revision != layer.pixels_revision || match (&w.pixels, &layer.pixels) {
+            (Some(a), Some(b)) => !a.same_pixels(b),
+            (a, b) => a.is_some() != b.is_some(),
+        });
+        let mask_changed = was.map_or(true, |w| w.mask_revision != layer.mask_revision || match (&w.mask, &layer.mask) {
+            (Some(a), Some(b)) => !a.pixels.same_pixels(&b.pixels),
+            (a, b) => a.is_some() != b.is_some(),
+        });
+        if pixels_changed { layer.pixels_revision = issue(); }
+        if mask_changed { layer.mask_revision = issue(); }
+    }
+}
+
 #[derive(Default)]
-pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, effects: EffectsCache }
+pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache }
 
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
@@ -194,12 +218,13 @@ impl Engine {
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
     fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
     where F: FnOnce(&mut Document) -> Result<Dirty, CommandError> {
-        let s = self.session_mut(id)?;
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let mut next = s.document.clone();
         let dirty = f(&mut next)?;
         // The active layer is selection, not content: a command that only moves it (SetActiveLayer)
         // still applies, but records no history entry and so leaves redo intact, as macOS does.
         let content_changed = !next.same_content(&s.document);
+        renew_revisions(&s.document, &mut next, &mut self.revision);
         let before = std::mem::replace(&mut s.document, next);
         if content_changed { s.history.push(before); }
         Ok(dirty)
