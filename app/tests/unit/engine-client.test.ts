@@ -41,20 +41,40 @@ describe("pixel views survive a wasm memory growth", () => {
     expect(view!.length).toBe(4);
   });
 
-  it("drawPixels makes the raster once, with the pending edit, then reads the one the engine kept", () => {
+  it("drawPixels makes the raster once, with the pending edit, reads the one the engine kept, and releases it after the upload", () => {
     const memory = new WebAssembly.Memory({ initial: 1, maximum: 8 });
     const calls: unknown[][] = [];
     const wasm = {
       prepare_draw_pixels: (...args: unknown[]) => { calls.push(["prepare", ...args]); return 4; },
       draw_pixels_ptr: (...args: unknown[]) => { calls.push(["ptr", ...args]); memory.grow(1); return 0; },
+      release_draw_pixels: (...args: unknown[]) => { calls.push(["release", ...args]); },
     };
     const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
     client.wasm = wasm; client.memory = memory;
     const edit: PreviewEdit = { kind: "mask", id: "A", draft: { origin: [1, 2], size: [3, 4], rotation: 0, flipX: false, flipY: true, sampling: "Smooth" } };
-    const view = (client as unknown as EngineClient).drawPixels("D", "A", 2, edit);
-    expect(view!.length).toBe(4);
-    expect(() => view![0]).not.toThrow();
-    expect(calls, "one computation; the pointer call takes no arguments").toEqual([["prepare", "D", "A", 2, JSON.stringify(edit)], ["ptr"]]);
+    const length = (client as unknown as EngineClient).drawPixels("D", "A", 2, edit, (view) => {
+      calls.push(["upload"]);
+      expect(() => view![0]).not.toThrow();
+      return view!.length;
+    });
+    expect(length).toBe(4);
+    expect(calls, "one computation; the pointer call takes no arguments; the release follows the upload")
+      .toEqual([["prepare", "D", "A", 2, JSON.stringify(edit)], ["ptr"], ["upload"], ["release"]]);
+  });
+
+  it("drawPixels releases the raster even when the upload throws, and hands null for none", () => {
+    const calls: string[] = [];
+    const wasm = {
+      prepare_draw_pixels: () => { calls.push("prepare"); return 0; },
+      draw_pixels_ptr: () => { throw new Error("must not be called"); },
+      release_draw_pixels: () => { calls.push("release"); },
+    };
+    const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
+    client.wasm = wasm; client.memory = new WebAssembly.Memory({ initial: 1 });
+    const c = client as unknown as EngineClient;
+    expect(c.drawPixels("D", "A", 0, null, (view) => view)).toBeNull();
+    expect(() => c.drawPixels("D", "A", 0, null, () => { throw new Error("upload failed"); })).toThrow("upload failed");
+    expect(calls).toEqual(["prepare", "release", "prepare", "release"]);
   });
 
   it("both return null rather than a zero-length view when there is nothing to read", () => {

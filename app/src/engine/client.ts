@@ -58,16 +58,22 @@ export class EngineClient {
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
 
-  /** What the plan's draw of `layer` samples at `level` (engine `Engine::draw_raster`): the padded
-   * effects image when the plan draws the layer's effects, else its pixels. The GL renderer uploads
-   * this, so it draws the bytes the CPU compositor samples. The engine makes the raster once and
-   * keeps it until the next call (`prepare_draw_pixels`), so the pointer is read from that one
-   * raster, not from a second computation. Same view rules as `layerPixels`. */
-  drawPixels(doc: string, layer: string, level: number, edit: PreviewEdit | null): Uint8Array | null {
+  /** Hands `use` what the plan's draw of `layer` samples at `level` (engine `Engine::draw_raster`):
+   * the padded effects image when the plan draws the layer's effects, else its pixels. The GL
+   * renderer uploads this, so it draws the bytes the CPU compositor samples. The engine makes the
+   * raster once and keeps it while `use` runs (`prepare_draw_pixels`), so the pointer is read from
+   * that one raster, not from a second computation; then it drops it (`release_draw_pixels`), as
+   * one near the limit is about 0.8 GB. The view is valid only inside `use`, which must copy what
+   * it keeps (texImage2D does). Same view rules as `layerPixels`. */
+  drawPixels<T>(doc: string, layer: string, level: number, edit: PreviewEdit | null, use: (pixels: Uint8Array | null) => T): T {
     const len = this.wasm.prepare_draw_pixels(doc, layer, level, edit ? JSON.stringify(edit) : undefined);
-    if (len === 0) return null;
-    const ptr = this.wasm.draw_pixels_ptr();
-    return new Uint8Array(this.memory.buffer, ptr, len);
+    try {
+      if (len === 0) return use(null);
+      const ptr = this.wasm.draw_pixels_ptr();
+      return use(new Uint8Array(this.memory.buffer, ptr, len));
+    } finally {
+      this.wasm.release_draw_pixels();
+    }
   }
 
   renderPlan(doc: string, edit: PreviewEdit | null): RenderPlan { return JSON.parse(this.wasm.render_plan(doc, edit ? JSON.stringify(edit) : undefined)) as RenderPlan; }

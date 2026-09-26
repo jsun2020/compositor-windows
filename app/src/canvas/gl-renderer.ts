@@ -121,8 +121,10 @@ export class GlRenderer implements Renderer {
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
       const size = sizeAtLevel(width, height, level);
-      const pixels = width === 0 ? null : fx ? engine.drawPixels(state.id, layer.id, level, edit) : engine.layerPixels(state.id, layer.id, level);
-      this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size);
+      const upload = (pixels: Uint8Array | null) => this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size);
+      // An effects image is dropped by the engine as soon as the upload has copied it.
+      if (fx) engine.drawPixels(state.id, layer.id, level, edit, upload);
+      else upload(width === 0 ? null : engine.layerPixels(state.id, layer.id, level));
     }
     this.textures.retainOnly(state.id, keep);
   }

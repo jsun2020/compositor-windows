@@ -158,9 +158,10 @@ impl WasmEngine {
 
     /// `Engine::draw_raster`: what the plan's draw of the layer samples at `level` (its padded
     /// effects image when the plan draws its effects), which the GPU uploads as its texture. Made
-    /// once per upload and kept here until the next call (the last one is dropped first), so the
-    /// pointer `draw_pixels_ptr` gives stays valid whatever the engine's effects cache evicts,
-    /// even for an image too large for the cache to keep. Returns its byte length, 0 for none.
+    /// once per upload and kept here until `release_draw_pixels` (or the next call, which drops
+    /// the last one first), so the pointer `draw_pixels_ptr` gives stays valid whatever the
+    /// engine's effects cache evicts, even for an image too large for the cache to keep. Returns
+    /// its byte length, 0 for none.
     pub fn prepare_draw_pixels(&mut self, doc: &str, layer: &str, level: u32, edit_json: Option<String>) -> Result<usize, JsError> {
         self.drawn = None;
         let edit = Self::parse_edit(edit_json)?;
@@ -169,6 +170,9 @@ impl WasmEngine {
     }
     /// The bytes `prepare_draw_pixels` kept; null when it kept none.
     pub fn draw_pixels_ptr(&self) -> *const u8 { self.drawn.as_ref().map_or(std::ptr::null(), |r| r.bytes().as_ptr()) }
+    /// Drops the raster `prepare_draw_pixels` kept, once the upload has copied its bytes: a padded
+    /// image near the limit is about 0.8 GB, of no use once the GPU has it.
+    pub fn release_draw_pixels(&mut self) { self.drawn = None; }
 
     fn parse_edit(json: Option<String>) -> Result<Option<PreviewEdit>, JsError> {
         match json { Some(j) => Ok(Some(serde_json::from_str(&j).map_err(js_err)?)), None => Ok(None) }

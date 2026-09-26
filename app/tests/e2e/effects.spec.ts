@@ -110,7 +110,7 @@ test("the plan draws a styled layer from the engine's padded effects image", asy
     .toEqual([[28 - m, 24 - m], [40 + 2 * m, 24 + 2 * m]]);
   const lengths = await page.evaluate((id) => {
     const api = (window as any).__compositor; const s = api.store.getState();
-    return [api.engine.drawPixels(s.activeId, id, 0, null).length, api.engine.layerPixels(s.activeId, id, 0).length];
+    return [api.engine.drawPixels(s.activeId, id, 0, null, (p: Uint8Array) => p.length), api.engine.layerPixels(s.activeId, id, 0).length];
   }, STYLED);
   expect(lengths, "drawPixels: the padded image; layerPixels: the layer's own").toEqual([(40 + 2 * m) * (24 + 2 * m) * 4, 40 * 24 * 4]);
   await page.evaluate((id) => {

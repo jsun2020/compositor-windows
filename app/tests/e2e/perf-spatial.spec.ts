@@ -57,21 +57,21 @@ test("layer effects on a 3000 x 2000 layer export, redraw and read within budget
     const time = (label: string, f: () => void) => { const t0 = performance.now(); f(); out[label] = Math.round(performance.now() - t0); };
     const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: files.images }, null);
     const layer = api.engine.state(doc).layers[0].id;
-    time("first texture (makes the effects image)", () => api.engine.drawPixels(doc, layer, 0, null));
-    time("texture at level 2 (image kept)", () => api.engine.drawPixels(doc, layer, 2, null));
+    time("first texture (makes the effects image)", () => api.engine.drawPixels(doc, layer, 0, null, () => {}));
+    time("texture at level 2 (image kept)", () => api.engine.drawPixels(doc, layer, 2, null, () => {}));
     time("export PNG (image kept)", () => api.engine.exportPng(doc));
     time("eyedropper", () => api.engine.sampleColor(doc, { x: 1500, y: 1000 }));
     // What remakes the image while editing (ruling F-I4): new pixels, and every frame of a mask
     // drag. A layer drag with a linked mask placed apart reuses it.
     api.engine.execute(doc, { type: "InvertPixels", id: layer, mask: false });
-    time("texture after a pixel edit (makes a new image)", () => api.engine.drawPixels(doc, layer, 0, null));
+    time("texture after a pixel edit (makes a new image)", () => api.engine.drawPixels(doc, layer, 0, null, () => {}));
     api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true });
     const t = api.engine.state(doc).layers[0].transform;
     api.engine.execute(doc, { type: "SetMaskPlacement", id: layer, placement: { ...t, origin: [t.origin[0] + 40, t.origin[1] + 30] } });
-    api.engine.drawPixels(doc, layer, 0, null);
+    api.engine.drawPixels(doc, layer, 0, null, () => {});
     const moved = { ...t, origin: [t.origin[0] + 25, t.origin[1] + 10] };
-    time("layer drag frame, linked placed mask (image kept)", () => api.engine.drawPixels(doc, layer, 0, { kind: "layer", id: layer, draft: moved, corners: null }));
-    time("mask drag frame (makes a new image)", () => api.engine.drawPixels(doc, layer, 0, { kind: "mask", id: layer, draft: moved }));
+    time("layer drag frame, linked placed mask (image kept)", () => api.engine.drawPixels(doc, layer, 0, { kind: "layer", id: layer, draft: moved, corners: null }, () => {}));
+    time("mask drag frame (makes a new image)", () => api.engine.drawPixels(doc, layer, 0, { kind: "mask", id: layer, draft: moved }, () => {}));
     manifest.layers[0].effects.shadow.blur = 500;
     const wide = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: files.images }, null);
     time("export PNG, shadow blur 500 (halved four times)", () => api.engine.exportPng(wide));
