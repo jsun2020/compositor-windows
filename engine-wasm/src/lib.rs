@@ -5,7 +5,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub struct WasmEngine { engine: Engine, pending_saves: HashMap<Uuid, Package> }
+pub struct WasmEngine { engine: Engine, pending_saves: HashMap<Uuid, Package>, drawn: Option<Raster> }
 
 fn js_err<E: std::fmt::Display>(e: E) -> JsError { JsError::new(&e.to_string()) }
 fn parse_id(text: &str) -> Result<Uuid, JsError> { Uuid::parse_str(text).map_err(js_err) }
@@ -15,7 +15,7 @@ impl WasmEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
         console_error_panic_hook::set_once();
-        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new() }
+        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None }
     }
     pub fn version(&self) -> String { Engine::version().to_string() }
 
@@ -52,7 +52,7 @@ impl WasmEngine {
     }
     pub fn finish_save(&mut self, doc: &str) -> Result<(), JsError> { self.pending_saves.remove(&parse_id(doc)?); Ok(()) }
     pub fn mark_saved(&mut self, doc: &str, path: Option<String>) -> Result<(), JsError> { self.engine.mark_saved(parse_id(doc)?, path); Ok(()) }
-    pub fn close_document(&mut self, doc: &str) -> Result<(), JsError> { let id = parse_id(doc)?; self.engine.close_document(id); self.pending_saves.remove(&id); Ok(()) }
+    pub fn close_document(&mut self, doc: &str) -> Result<(), JsError> { let id = parse_id(doc)?; self.engine.close_document(id); self.pending_saves.remove(&id); self.drawn = None; Ok(()) }
     pub fn document_ids(&self) -> Vec<String> { self.engine.document_ids().iter().map(ids::upper_string).collect() }
 
     pub fn state(&self, doc: &str) -> Result<String, JsError> {
@@ -155,6 +155,20 @@ impl WasmEngine {
     pub fn layer_pixels_len(&self, doc: &str, layer: &str, level: u32) -> Result<usize, JsError> {
         Ok(self.level_raster(doc, layer, level)?.map_or(0, |r| r.bytes().len()))
     }
+
+    /// `Engine::draw_raster`: what the plan's draw of the layer samples at `level` (its padded
+    /// effects image when the plan draws its effects), which the GPU uploads as its texture. Made
+    /// once per upload and kept here until the next call (the last one is dropped first), so the
+    /// pointer `draw_pixels_ptr` gives stays valid whatever the engine's effects cache evicts,
+    /// even for an image too large for the cache to keep. Returns its byte length, 0 for none.
+    pub fn prepare_draw_pixels(&mut self, doc: &str, layer: &str, level: u32, edit_json: Option<String>) -> Result<usize, JsError> {
+        self.drawn = None;
+        let edit = Self::parse_edit(edit_json)?;
+        self.drawn = self.engine.draw_raster(parse_id(doc)?, parse_id(layer)?, level, edit.as_ref()).map_err(js_err)?;
+        Ok(self.drawn.as_ref().map_or(0, |r| r.bytes().len()))
+    }
+    /// The bytes `prepare_draw_pixels` kept; null when it kept none.
+    pub fn draw_pixels_ptr(&self) -> *const u8 { self.drawn.as_ref().map_or(std::ptr::null(), |r| r.bytes().as_ptr()) }
 
     fn parse_edit(json: Option<String>) -> Result<Option<PreviewEdit>, JsError> {
         match json { Some(j) => Ok(Some(serde_json::from_str(&j).map_err(js_err)?)), None => Ok(None) }

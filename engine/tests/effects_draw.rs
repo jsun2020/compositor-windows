@@ -352,3 +352,30 @@ fn a_layer_clipped_to_a_styled_layer_further_down_shows_through_its_effects() {
     assert_eq!(out.pixel(18, 30), [0, 0, 255, 255], "in the source's stroke: the target");
     assert_eq!(out.pixel(15, 30), [0, 0, 0, 0], "just past the stroke: nothing");
 }
+
+#[test]
+fn the_engine_hands_out_the_raster_each_draw_samples() {
+    let mut doc = doc_with(120, 120, vec![shadowed_bar()]);
+    let plain = Layer::with_pixels("Plain", solid(7, 5, [9, 90, 200, 255]), Point { x: 3.0, y: 3.0 });
+    doc.layers.push(plain);
+    let (bar, plain) = (doc.layers[0].id, doc.layers[1].id);
+    let mut engine = Engine::new();
+    let id = engine.open_package(&save_package(&doc).unwrap(), None).unwrap();
+    let fx = effects_draw(engine.document(id).unwrap().layer(bar).unwrap(), None).unwrap();
+    let image = engine.draw_raster(id, bar, 0, None).unwrap().unwrap();
+    assert_eq!((image.width, image.height), (30 + 2 * fx.inset, 10 + 2 * fx.inset), "the padded image");
+    let sampled = engine.effects_cache().image(engine.document(id).unwrap().layer(bar).unwrap(), &fx).unwrap();
+    assert!(image.same_pixels(&sampled), "the one the CPU samples, from the engine's cache");
+    let halved = engine.draw_raster(id, bar, 1, None).unwrap().unwrap();
+    assert_eq!(halved, image.halved(), "halved like any layer raster");
+    assert_eq!(engine.draw_raster(id, plain, 0, None).unwrap().unwrap(), solid(7, 5, [9, 90, 200, 255]), "a layer without effects: its pixels");
+    assert_eq!(engine.layer_raster(id, bar, 0).unwrap().unwrap(), solid(30, 10, [255, 255, 255, 255]), "layer_raster still gives the layer's own pixels");
+    // An image the cache cannot keep is made for each call and dropped by the engine, so the wasm
+    // bridge keeps the raster it hands the GPU (`prepare_draw_pixels`).
+    let mut keeps_none = Engine::with_effects_cache(EffectsCache::new(EFFECTS_CACHE_ENTRIES, 0));
+    let id = keeps_none.open_package(&save_package(&doc).unwrap(), None).unwrap();
+    let (a, b) = (keeps_none.draw_raster(id, bar, 0, None).unwrap().unwrap(), keeps_none.draw_raster(id, bar, 0, None).unwrap().unwrap());
+    assert_eq!((keeps_none.effects_cache().len(), keeps_none.effects_cache().made()), (0, 2));
+    assert_eq!(a, image);
+    assert_eq!(b, image);
+}

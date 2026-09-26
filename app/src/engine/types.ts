@@ -94,7 +94,13 @@ export interface LayerDraw {
   blend: BlendMode; coverages: Coverage[]; clip: string | null; adjustment?: LayerAdjustment;
   /** An adjustment layer whose own mode is not Normal: full coverage, original alpha kept (engine LayerDraw::keeps_alpha). */
   keepsAlpha: boolean;
+  /** Drawn with its layer effects (engine LayerDraw::effects): `transform`, `corners` and the pixel
+   * size are then the padded effects image's, and its texture comes from `EngineClient.drawPixels`. */
+  effects: EffectsDraw | null;
 }
+/** A layer drawn with its effects (engine `EffectsDraw`): `inset` pixels added on every side; a new
+ * `key` means a new image. */
+export interface EffectsDraw { inset: number; key: string; }
 export type PlanNode = { kind: "layer"; draw: LayerDraw } | { kind: "stack"; base: LayerDraw; children: LayerDraw[]; folderCoverages: Coverage[] };
 export interface RenderPlan { nodes: PlanNode[]; sources: LayerDraw[]; /** Document pixels the plan's blurs reach (engine RenderPlan::spatial_margin). */ spatialMargin: number; }
 /** A blur adjustment's sizes at one output scale (engine `SpatialBlur`): sigma, or distance and angle, in output px. */

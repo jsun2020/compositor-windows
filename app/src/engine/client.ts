@@ -58,6 +58,18 @@ export class EngineClient {
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
 
+  /** What the plan's draw of `layer` samples at `level` (engine `Engine::draw_raster`): the padded
+   * effects image when the plan draws the layer's effects, else its pixels. The GL renderer uploads
+   * this, so it draws the bytes the CPU compositor samples. The engine makes the raster once and
+   * keeps it until the next call (`prepare_draw_pixels`), so the pointer is read from that one
+   * raster, not from a second computation. Same view rules as `layerPixels`. */
+  drawPixels(doc: string, layer: string, level: number, edit: PreviewEdit | null): Uint8Array | null {
+    const len = this.wasm.prepare_draw_pixels(doc, layer, level, edit ? JSON.stringify(edit) : undefined);
+    if (len === 0) return null;
+    const ptr = this.wasm.draw_pixels_ptr();
+    return new Uint8Array(this.memory.buffer, ptr, len);
+  }
+
   renderPlan(doc: string, edit: PreviewEdit | null): RenderPlan { return JSON.parse(this.wasm.render_plan(doc, edit ? JSON.stringify(edit) : undefined)) as RenderPlan; }
   compositeEdit(doc: string, edit: PreviewEdit | null, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
     return this.wasm.composite_edit(doc, edit ? JSON.stringify(edit) : undefined, region.x, region.y, region.width, region.height, outWidth, outHeight);

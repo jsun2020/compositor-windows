@@ -267,3 +267,39 @@ export async function claimedPngBase64(size: { width: number; height: number }):
   for (const v of png) binary += String.fromCharCode(v);
   return btoa(binary);
 }
+
+/**
+ * A 40 x 24 PNG: an off-centre soft ellipse with a small hole, coloured by column and row. Its
+ * edges run every way and fade over a few pixels, and nothing about it is symmetric, so a layer
+ * effect drawn mirrored, transposed or from the wrong edge shows.
+ *
+ * Same standalone-page-function rule as `redSquarePngBase64`.
+ */
+export async function softBlobPngBase64(): Promise<string> {
+  const W = 40, H = 24;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const cx = x - W * 0.4, cy = y - H * 0.55;
+      const r = Math.sqrt((cx * cx) / (W * 0.3) ** 2 + (cy * cy) / (H * 0.35) ** 2);
+      const hole = Math.hypot(x - W * 0.6, y - H * 0.4) < 2.5;
+      const i = (y * W + x) * 4;
+      image.data[i] = Math.floor((x * 255) / W);
+      image.data[i + 1] = Math.floor((y * 255) / H);
+      image.data[i + 2] = 120;
+      image.data[i + 3] = hole ? 0 : Math.round(Math.min(1, Math.max(0, (1.1 - r) * 4)) * 255);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
