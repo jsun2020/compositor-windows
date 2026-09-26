@@ -340,6 +340,26 @@ fn pruning_drops_the_images_whose_buffers_only_the_cache_holds() {
     assert_eq!(cache.made(), 4, "the live one stayed");
 }
 
+/// Re-review of the final fix wave: entries made from one pixel buffer (the same layer at two
+/// mask placements, or with two effect sets) hold that buffer between them, so counting holders
+/// must discount the cache's own entries, or they keep one another alive after the layer is gone.
+#[test]
+fn entries_that_share_a_buffer_do_not_keep_one_another_alive() {
+    let cache = EffectsCache::default();
+    let shadowed = shadowed_bar();
+    let mut stroked = shadowed.clone();
+    stroked.extra.effects = Some(stroke(2.0, [0.0, 1.0, 0.0]));
+    assert!(stroked.pixels.as_ref().unwrap().same_pixels(shadowed.pixels.as_ref().unwrap()), "one pixel buffer");
+    for layer in [&shadowed, &stroked] { cache.image(layer, &effects_draw(layer, None).unwrap()); }
+    assert_eq!(cache.len(), 2);
+    cache.prune();
+    assert_eq!(cache.len(), 2, "the layers still hold the buffer");
+    drop(shadowed);
+    drop(stroked);
+    cache.prune();
+    assert_eq!(cache.len(), 0, "only the two entries held it, so both go");
+}
+
 #[test]
 fn closing_a_document_drops_its_effects_images() {
     let doc = doc_with(120, 120, vec![shadowed_bar()]);

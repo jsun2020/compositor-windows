@@ -212,9 +212,24 @@ impl EffectsCache {
     }
     /// Drops the images no one can find again: those whose pixel or mask buffer only the cache
     /// holds (a closed document, an ended preview, a history entry let go). They would otherwise
-    /// keep their images and buffers alive and push out images still in use.
+    /// keep their images and buffers alive and push out images still in use. A buffer counts as
+    /// held elsewhere only when it has more holders than the cache's own entries give it: entries
+    /// made from one layer at several mask placements share its pixel buffer, and must not keep
+    /// one another alive.
     pub fn prune(&self) {
-        self.kept().entries.retain(|e| e.pixels.shared() && e.mask.as_ref().map_or(true, GrayRaster::shared));
+        let mut kept = self.kept();
+        let live: Vec<bool> = kept.entries.iter().map(|e| {
+            let pixel_holders = kept.entries.iter().filter(|o| o.pixels.same_pixels(&e.pixels)).count();
+            let pixels_live = e.pixels.holders() > pixel_holders;
+            let mask_live = e.mask.as_ref().map_or(true, |m| {
+                let mask_holders = kept.entries.iter()
+                    .filter(|o| o.mask.as_ref().map_or(false, |om| om.same_pixels(m))).count();
+                m.holders() > mask_holders
+            });
+            pixels_live && mask_live
+        }).collect();
+        let mut i = 0;
+        kept.entries.retain(|_| { let keep = live[i]; i += 1; keep });
     }
     /// Images kept.
     pub fn len(&self) -> usize { self.kept().entries.len() }
