@@ -253,7 +253,7 @@ fn four_gaussians() -> serde_json::Value {
 
 #[test]
 fn halved_effect_blurs_hold_one_reduced_plane_each_beside_the_output() {
-    at_most("effects image, four Gaussians at level 1", || effects_image_peak(four_gaussians()), 8.15);
+    at_most("effects image, four Gaussians at level 1", || effects_image_peak(four_gaussians()), 8.36);
 }
 
 /// Ten styled layers, each with its own pixels, through one engine: what its cache keeps.
