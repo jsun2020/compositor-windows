@@ -303,3 +303,25 @@ export async function softBlobPngBase64(): Promise<string> {
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
 }
+
+/**
+ * A `width` x `height` PNG of one opaque CSS colour.
+ *
+ * Same standalone-page-function rule as `redSquarePngBase64`; pass the size and colour as
+ * `page.evaluate(solidPngBase64, { width, height, color })`.
+ */
+export async function solidPngBase64(spec: { width: number; height: number; color: string }): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = spec.width;
+  canvas.height = spec.height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = spec.color;
+  ctx.fillRect(0, 0, spec.width, spec.height);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png");
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}

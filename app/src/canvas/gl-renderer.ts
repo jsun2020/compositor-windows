@@ -84,13 +84,17 @@ export class GlRenderer implements Renderer {
    * depends on both: it needs the displayed transform (a pending scale drag moves it) and the
    * device pixels per document unit.
    */
-  private syncTextures(engine: EngineClient, state: DocumentState, plan: RenderPlan, viewport: Viewport, dpr: number): void {
+  private syncTextures(engine: EngineClient, state: DocumentState, plan: RenderPlan, viewport: Viewport, dpr: number, edit: PreviewEdit | null): void {
     const outPerDoc = viewport.pointsPerPixel * dpr;
     const levels = new Map<string, number>();
+    // A layer the plan draws with its effects: its texture is the engine's padded effects image,
+    // the very bytes compositor::draw_raster samples, at the draw's padded size.
+    const padded = new Map<string, { width: number; height: number; inset: number; key: string }>();
     const adjustKeys = new Set<string>();
     const note = (d: LayerDraw) => {
       if (d.adjustment) adjustKeys.add(AdjustTextures.key(d.adjustment));
       if (d.pixelsWidth === 0) return;
+      if (d.effects) padded.set(d.id, { width: d.pixelsWidth, height: d.pixelsHeight, inset: d.effects.inset, key: d.effects.key });
       const layer = state.layers.find((l) => l.id === d.id);
       const nearest = layer?.transform.sampling === "Nearest";
       // Nearest never prefilters, and neither does a distortion: the homography resamples the
@@ -106,10 +110,18 @@ export class GlRenderer implements Renderer {
     for (const layer of state.layers) {
       keep.add(layer.id);
       const level = levels.get(layer.id) ?? 0;
-      if (!this.textures.needsUpload(state.id, layer, level)) continue;
-      const size = sizeAtLevel(layer.pixelsWidth, layer.pixelsHeight, level);
-      const pixels = layer.pixelsWidth > 0 ? engine.layerPixels(state.id, layer.id, level) : null;
-      this.textures.sync(state.id, layer, pixels, level, size);
+      const fx = padded.get(layer.id);
+      const nearest = layer.transform.sampling === "Nearest";
+      // The effects key alone does not name the bytes: new pixels under the same revision leave it
+      // as it was (effects_draw). So an effects image is keyed by what keys the plain pixels (their
+      // revision) and the mask's revision as well as the whole EffectsDraw, and a pixel edit, a
+      // mask edit, an undo, a redo or a panel preview each upload the image again.
+      const bytesKey = fx ? `fx:${layer.pixelsRevision}:${layer.maskRevision}:${fx.inset}:${fx.key}` : `px:${layer.pixelsRevision}`;
+      if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
+      const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
+      const size = sizeAtLevel(width, height, level);
+      const pixels = width === 0 ? null : fx ? engine.drawPixels(state.id, layer.id, level, edit) : engine.layerPixels(state.id, layer.id, level);
+      this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size);
     }
     this.textures.retainOnly(state.id, keep);
   }
@@ -122,7 +134,7 @@ export class GlRenderer implements Renderer {
     const plan = engine.renderPlan(state.id, edit);
     this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);
     this.fbos.resize(this.fw(), this.fh(), this.frame ? 256 : 1);
-    this.syncTextures(engine, state, plan, viewport, dpr);
+    this.syncTextures(engine, state, plan, viewport, dpr, edit);
     this.syncMasks(engine, state, plan);
     gl.bindVertexArray(this.programs.vao);
     gl.viewport(0, 0, this.fw(), this.fh());
