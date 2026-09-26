@@ -279,6 +279,120 @@ fn blur_soft_mask_doc() -> Document {
     doc
 }
 
+/// Oblong and soft-edged with a hole off-centre, coloured by column and row (the kernel tests'
+/// `blob`): edges running every way, nothing symmetric, alpha taking many values.
+fn soft_blob(width: u32, height: u32) -> Raster {
+    let (w, h) = (width as f64, height as f64);
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height { for x in 0..width {
+        let (cx, cy) = (x as f64 - w * 0.4, y as f64 - h * 0.55);
+        let r = (cx * cx / (w * 0.3).powi(2) + cy * cy / (h * 0.35).powi(2)).sqrt();
+        let hole = ((x as f64 - w * 0.6).powi(2) + (y as f64 - h * 0.4).powi(2)).sqrt() < h * 0.08;
+        let a = if hole { 0 } else { (((1.1 - r) * 4.0).clamp(0.0, 1.0) * 255.0).round() as u32 };
+        let (r8, g8, b8) = (x * 255 / width, y * 255 / height, 120u32);
+        data.extend_from_slice(&[(r8 * a / 255) as u8, (g8 * a / 255) as u8, (b8 * a / 255) as u8, a as u8]);
+    }}
+    Raster::from_premultiplied(width, height, data)
+}
+
+/// The 60 x 36 blob at (50, 32) on 160 x 100 with `effects`, over `backdrop` when given.
+fn styled_doc(effects: serde_json::Value, backdrop: bool) -> Document {
+    let mut doc = Document::new(160, 100);
+    let mut layer = Layer::with_pixels("Styled", soft_blob(60, 36), Point { x: 50.0, y: 32.0 });
+    layer.extra.effects = Some(serde_json::from_value(effects).unwrap());
+    doc.layers = if backdrop { vec![Layer::with_pixels("Tonal sweep", tonal_sweep(160, 100), Point { x: 0.0, y: 0.0 }), layer] } else { vec![layer] };
+    doc
+}
+
+/// Every effect not at its defaults, both angles off the axes.
+fn all_six() -> serde_json::Value {
+    serde_json::json!({
+        "stroke": { "blue": 0.1, "green": 0.55, "inside": false, "opacity": 0.8, "red": 0.95, "size": 5 },
+        "shadow": { "angle": 120, "blue": 0.5, "blur": 9, "distance": 14, "green": 0.1, "opacity": 0.7, "red": 0.2 },
+        "colorOverlay": { "blue": 0.3, "green": 0.7, "opacity": 0.35, "red": 0.1 },
+        "innerShadow": { "angle": -35, "blue": 0, "blur": 4, "distance": 6.5, "green": 0.05, "opacity": 0.8, "red": 0.1 },
+        "outerGlow": { "blue": 0.1, "green": 0.6, "opacity": 0.9, "red": 1, "size": 13 },
+        "innerGlow": { "blue": 1, "green": 0.9, "opacity": 0.85, "red": 0.2, "size": 9 } })
+}
+
+/// 23-38: one probe per effect and per rule of how the Mac draws effects (Phase 3.5c).
+fn effects_probes() -> Vec<(&'static str, Document)> {
+    let effect = |key: &str| serde_json::json!({ key: all_six()[key].clone() });
+    let mut probes = vec![
+        ("effects-stroke-outside.comp", styled_doc(serde_json::json!({ "stroke": { "blue": 0.1, "green": 0.55, "inside": false, "opacity": 0.8, "red": 0.95, "size": 7.4 } }), false)),
+        ("effects-stroke-inside.comp", styled_doc(serde_json::json!({ "stroke": { "blue": 0.9, "green": 0.3, "inside": true, "opacity": 0.6, "red": 0.1, "size": 5 } }), true)),
+        ("effects-drop-shadow.comp", styled_doc(effect("shadow"), false)),
+        ("effects-inner-shadow.comp", styled_doc(effect("innerShadow"), false)),
+        ("effects-outer-glow.comp", styled_doc(effect("outerGlow"), false)),
+        ("effects-inner-glow.comp", styled_doc(effect("innerGlow"), false)),
+        ("effects-color-overlay.comp", styled_doc(effect("colorOverlay"), false)),
+    ];
+    // Compose order, and opacity and blend mode on the layer and its effects as one.
+    let mut all = styled_doc(all_six(), true);
+    all.layers[1].opacity = 0.7;
+    all.layers[1].blend_mode = BlendMode::Multiply;
+    // One hidden (`enabled: false`) beside the five shown: the Mac draws the others alone.
+    all.layers[1].extra.effects.as_mut().unwrap().inner_glow.as_mut().unwrap().enabled = Some(false);
+    probes.push(("effects-all-six.comp", all));
+    // The shadow turns, flips and scales with its layer.
+    let shadow = serde_json::json!({ "shadow": { "angle": 30, "blue": 0, "blur": 6, "distance": 12, "green": 0, "opacity": 0.8, "red": 0 } });
+    let mut transformed = Document::new(200, 120);
+    let mut flipped = Layer::with_pixels("Flipped", soft_blob(60, 36), Point { x: 20.0, y: 20.0 });
+    flipped.transform.flip_y = true;
+    let mut turned = Layer::with_pixels("Turned", soft_blob(60, 36), Point { x: 110.0, y: 40.0 });
+    turned.transform.rotation = 25.0;
+    turned.transform = turned.transform.scaled_to_percent(150.0, Size { width: 60.0, height: 36.0 });
+    for l in [&mut flipped, &mut turned] { l.extra.effects = Some(serde_json::from_value(shadow.clone()).unwrap()); }
+    transformed.layers = vec![flipped, turned];
+    probes.push(("effects-transformed.comp", transformed));
+    // The mask first, then the effects around what it leaves.
+    let mut masked = styled_doc(serde_json::json!({ "stroke": { "blue": 0, "green": 0.8, "inside": false, "opacity": 1, "red": 0.2, "size": 4 },
+        "shadow": { "angle": 60, "blue": 0, "blur": 5, "distance": 8, "green": 0, "opacity": 0.6, "red": 0 } }), false);
+    let ramp: Vec<u8> = (0..36u32).flat_map(|y| (0..60u32).map(move |x| ((x + y) * 255 / 94) as u8)).collect();
+    masked.layers[0].mask = Some(Mask { pixels: GrayRaster::from_bytes(60, 36, ramp), enabled: true, placement: None, linked: None });
+    probes.push(("effects-masked.comp", masked));
+    // A mask off the layer's grid: unlinked, moved and of another size, so the port resamples it
+    // into the layer's pixels by its own rules (ruling 14; ruling OQ3).
+    let mut placed = styled_doc(serde_json::json!({ "stroke": { "blue": 0, "green": 0.8, "inside": false, "opacity": 1, "red": 0.2, "size": 4 },
+        "shadow": { "angle": 60, "blue": 0, "blur": 5, "distance": 8, "green": 0, "opacity": 0.6, "red": 0 } }), false);
+    let ramp: Vec<u8> = (0..25u32).flat_map(|y| (0..40u32).map(move |x| ((x * 3 + y * 5) * 255 / 242) as u8)).collect();
+    placed.layers[0].mask = Some(Mask { pixels: GrayRaster::from_bytes(40, 25, ramp), enabled: true,
+        placement: Some(LayerTransform::axis_aligned(Point { x: 62.0, y: 40.0 }, Size { width: 48.0, height: 30.0 })), linked: Some(false) });
+    probes.push(("effects-mask-placed.comp", placed));
+    // A clipping base's effects are its clipped layer's coverage.
+    let mut clipping = styled_doc(serde_json::json!({ "stroke": { "blue": 1, "green": 1, "inside": false, "opacity": 1, "red": 1, "size": 8 },
+        "shadow": { "angle": 120, "blue": 0, "blur": 9, "distance": 14, "green": 0, "opacity": 0.7, "red": 0 } }), false);
+    let mut child = Layer::with_pixels("Clipped", tonal_sweep(160, 100), Point { x: 0.0, y: 0.0 });
+    child.mask_source_id = Some(clipping.layers[0].id);
+    clipping.layers.push(child);
+    probes.push(("effects-clipping-base.comp", clipping));
+    // A clipped layer's own effects end at its base's alpha (R 4.2, read from code only).
+    let mut clipped = styled_doc(serde_json::json!({}), false);
+    clipped.layers[0].extra.effects = None;
+    let mut styled_child = Layer::with_pixels("Styled child", soft_blob(30, 20), Point { x: 60.0, y: 40.0 });
+    styled_child.extra.effects = Some(serde_json::from_value(serde_json::json!({ "stroke": { "blue": 1, "green": 0.2, "inside": false, "opacity": 1, "red": 0.9, "size": 6 },
+        "outerGlow": { "blue": 0.1, "green": 0.6, "opacity": 0.9, "red": 1, "size": 13 } })).unwrap());
+    styled_child.mask_source_id = Some(clipped.layers[0].id);
+    clipped.layers.push(styled_child);
+    probes.push(("effects-clipped-child.comp", clipped));
+    // Blurs past the reach limit, which this port halves.
+    probes.push(("effects-large-blur.comp", styled_doc(serde_json::json!({
+        "shadow": { "angle": 120, "blue": 0.4, "blur": 90, "distance": 10, "green": 0, "opacity": 0.9, "red": 0.1 },
+        "outerGlow": { "blue": 0.2, "green": 1, "opacity": 0.8, "red": 0.6, "size": 60 } }), false)));
+    // Inside a 50% folder whose mask hides a band.
+    let mut folded = styled_doc(effect("shadow"), false);
+    let mut f = folder(&folded, 0.5);
+    let band: Vec<u8> = (0..100u32).flat_map(|y| (0..160u32).map(move |_| if (40..55).contains(&y) { 0 } else { 255 })).collect();
+    f.mask = Some(Mask { pixels: GrayRaster::from_bytes(160, 100, band), enabled: true, placement: None, linked: None });
+    folded.layers[0].parent_id = Some(f.id);
+    folded.layers.insert(0, f);
+    probes.push(("effects-folder.comp", folded));
+    // An invalid shown effect: the Mac draws the layer without any of them.
+    probes.push(("effects-invalid.comp", styled_doc(serde_json::json!({ "stroke": { "blue": 0, "green": 0, "inside": false, "opacity": 1, "red": 1, "size": 600 },
+        "shadow": { "angle": 90, "blue": 0, "blur": 9, "distance": 14, "green": 0, "opacity": 0.7, "red": 0 } }), false)));
+    probes
+}
+
 const README_TXT: &str = "\
 This folder holds test projects for Compositor on the Mac.
 
@@ -316,6 +430,30 @@ New in this set (Phase 3.5b follow-up):
 - black-white-tint.comp          -> black-white-tint.png
 - invert.comp                    -> invert.png
 - blur-soft-mask.comp            -> blur-soft-mask.png
+
+New in this set (Phase 3.5c, layer effects):
+
+- effects-stroke-outside.comp -> effects-stroke-outside.png
+- effects-stroke-inside.comp  -> effects-stroke-inside.png
+- effects-drop-shadow.comp    -> effects-drop-shadow.png
+- effects-inner-shadow.comp   -> effects-inner-shadow.png
+- effects-outer-glow.comp     -> effects-outer-glow.png
+- effects-inner-glow.comp     -> effects-inner-glow.png
+- effects-color-overlay.comp  -> effects-color-overlay.png
+- effects-all-six.comp        -> effects-all-six.png
+- effects-transformed.comp    -> effects-transformed.png
+- effects-masked.comp         -> effects-masked.png
+- effects-mask-placed.comp    -> effects-mask-placed.png
+- effects-clipping-base.comp  -> effects-clipping-base.png
+- effects-clipped-child.comp  -> effects-clipped-child.png
+- effects-large-blur.comp     -> effects-large-blur.png
+- effects-folder.comp         -> effects-folder.png
+- effects-invalid.comp        -> effects-invalid.png
+
+One more, made on the Mac: create a new 200 x 120 document, import any small image, give that
+layer all six effects from the Effects panel (Stroke, Drop Shadow, Color Overlay, Inner Shadow,
+Outer Glow, Inner Glow) with settings of your choice, hide one of them with its eye, then save it
+as mac-effects.comp and export it as mac-effects.png. Send both back with the rest.
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -425,6 +563,7 @@ fn write_mac_probes() {
     write_probe(&dir, "black-white-tint.comp", &over_sweep(tinted, BlendMode::Normal, 1.0));
     write_probe(&dir, "invert.comp", &over_sweep(LayerAdjustment::new(AdjustmentKind::Invert), BlendMode::Normal, 1.0));
     write_probe(&dir, "blur-soft-mask.comp", &blur_soft_mask_doc());
+    for (name, doc) in effects_probes() { write_probe(&dir, name, &doc); }
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -441,6 +580,18 @@ fn writing_a_probe_replaces_what_an_earlier_run_left() {
     assert!(!stale.exists(), "an image from an earlier run is gone");
     assert!(dir.join("guides.comp").join("manifest.json").exists());
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn every_effects_probe_is_listed_and_draws_what_it_is_named_for() {
+    let probes = effects_probes();
+    assert_eq!(probes.len(), 16);
+    for (name, doc) in &probes {
+        assert!(README_TXT.contains(&format!("- {name}")), "{name} is in the README");
+        let drawn = doc.layers.iter().filter(|l| effects_draw(l, None).is_some()).count();
+        let want = match *name { "effects-invalid.comp" => 0, "effects-transformed.comp" => 2, _ => 1 };
+        assert_eq!(drawn, want, "{name}: layers drawn with their effects");
+    }
 }
 
 #[test]
