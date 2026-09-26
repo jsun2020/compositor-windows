@@ -299,6 +299,27 @@ fn an_image_larger_than_the_limit_leaves_the_images_already_kept_in_place() {
     assert_eq!(second, first, "and made again exactly");
 }
 
+/// Final review M1: a CPU reading of a small region makes the effects images of the styled layers
+/// it touches, not of every one. With more styled layers than the cache keeps, each eyedropper
+/// click would otherwise make them all again.
+#[test]
+fn an_eyedropper_sample_makes_only_the_effects_images_under_it() {
+    let n = EFFECTS_CACHE_ENTRIES + 1;
+    // 10 x 10 squares 20 px apart with a 2 px stroke: each padded image spans 18 px (margin 4).
+    let squares: Vec<Layer> = (0..n).map(|i| {
+        let mut l = Layer::with_pixels("Square", solid(10, 10, [255, 0, 0, 255]), Point { x: 20.0 * i as f64 + 5.0, y: 5.0 });
+        l.extra.effects = Some(stroke(2.0, [0.0, 1.0, 0.0]));
+        l
+    }).collect();
+    let doc = doc_with(20 * n as u32, 20, squares);
+    let mut engine = Engine::new();
+    let id = engine.open_package(&save_package(&doc).unwrap(), None).unwrap();
+    assert_eq!(engine.sample_color(id, Point { x: 90.5, y: 10.5 }).unwrap(), Some([1.0, 0.0, 0.0]), "the fifth square");
+    assert_eq!(engine.effects_cache().made(), 1, "only the image under the point");
+    assert_eq!(engine.sample_color(id, Point { x: 83.5, y: 10.5 }).unwrap(), Some([0.0, 1.0, 0.0]), "its stroke");
+    assert_eq!(engine.effects_cache().made(), 1, "the same image, kept");
+}
+
 #[test]
 fn the_engine_keeps_effects_images_across_edits_that_do_not_change_them_and_across_undo() {
     let doc = doc_with(120, 120, vec![shadowed_bar()]);

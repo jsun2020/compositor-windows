@@ -200,6 +200,10 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         if adjustment.kind.is_spatial() { return spatial_target(doc, plan, target, draw, adjustment, blend, use_clip, cache); }
         return adjust_target(doc, plan, target, draw, blend, use_clip, cache);
     }
+    // A draw outside the region makes no raster: an eyedropper's 1x1 region would otherwise make
+    // the effects image of every styled layer in the document (the plan's box needs none).
+    let (x0, y0, x1, y1) = target.bbox(draw);
+    if x0 >= x1 || y0 >= y1 { return; }
     let Some(raster) = draw_raster(doc, draw, cache) else { return; };
     // Prefilter large affine reductions (never for Nearest, never for distortions).
     let out_per_doc = target.w as f64 / target.region.width;
@@ -210,7 +214,6 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         _ => SourceRasters::new(),
     };
     let nearest = draw.transform.sampling == Sampling::Nearest;
-    let (x0, y0, x1, y1) = target.bbox(draw);
     for oy in y0..y1 { for ox in x0..x1 {
         let p = target.doc_point(ox, oy);
         let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { continue; };
