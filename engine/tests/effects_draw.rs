@@ -277,6 +277,29 @@ fn images_past_the_byte_limit_evict_and_an_image_larger_than_the_limit_is_never_
 }
 
 #[test]
+fn an_image_larger_than_the_limit_leaves_the_images_already_kept_in_place() {
+    // Never stored, so it cannot push anything out (LayerEffects.swift:389): the small bar stays.
+    let small = shadowed_bar();
+    let mut large = Layer::with_pixels("Large", solid(60, 20, [255, 255, 255, 255]), Point { x: 30.0, y: 40.0 });
+    large.extra.effects = small.extra.effects.clone();
+    let (small_fx, large_fx) = (effects_draw(&small, None).unwrap(), effects_draw(&large, None).unwrap());
+    let small_bytes = ((30 + 2 * small_fx.inset) * (10 + 2 * small_fx.inset) * 4) as usize;
+    let large_bytes = ((60 + 2 * large_fx.inset) * (20 + 2 * large_fx.inset) * 4) as usize;
+    let cap = small_bytes + small_bytes / 2;
+    assert!(large_bytes > cap, "the fixture: the large image alone is over the limit");
+    let cache = EffectsCache::new(EFFECTS_CACHE_ENTRIES, cap);
+    let kept = cache.image(&small, &small_fx).unwrap();
+    let first = cache.image(&large, &large_fx).unwrap();
+    assert_eq!((cache.len(), cache.bytes(), cache.made()), (1, small_bytes, 2), "only the small image is kept");
+    assert!(cache.image(&small, &small_fx).unwrap().same_pixels(&kept), "and it is still the image first made");
+    assert_eq!(cache.made(), 2);
+    let second = cache.image(&large, &large_fx).unwrap();
+    assert_eq!(cache.made(), 3, "the large image was not kept: made again");
+    assert!(!second.same_pixels(&first));
+    assert_eq!(second, first, "and made again exactly");
+}
+
+#[test]
 fn the_engine_keeps_effects_images_across_edits_that_do_not_change_them_and_across_undo() {
     let doc = doc_with(120, 120, vec![shadowed_bar()]);
     let bar = doc.layers[0].id;
