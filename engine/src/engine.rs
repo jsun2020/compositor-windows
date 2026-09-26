@@ -160,6 +160,17 @@ impl Engine {
         let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
         let mut doc = s.document.clone();
         if let Some(layer) = doc.layer_mut(preview.layer) {
+            // A preview may come from a reduced copy (preview.rs): effects, measured in the layer's
+            // pixels, shrink with it, so they show at the size the committed layer will draw them.
+            let density = |width: u32, t: &LayerTransform| width as f64 / t.size.width;
+            let scaled = match (layer.pixels.as_ref(), layer.extra.effects.as_ref()) {
+                (Some(stored), Some(effects)) => {
+                    let factor = density(preview.raster.width, &preview.transform) / density(stored.width, &layer.transform);
+                    (factor != 1.0).then(|| effects.scaled(factor))
+                }
+                _ => None,
+            };
+            if let Some(effects) = scaled { layer.extra.effects = Some(effects); }
             layer.pixels = Some(preview.raster.clone());
             layer.pixels_revision = preview.revision;
             layer.transform = preview.transform;

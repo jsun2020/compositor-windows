@@ -188,6 +188,38 @@ impl LayerEffects {
         let m = 2 * self.margin() as u64;
         (width as u64 + m) * (height as u64 + m) <= EFFECTS_SURFACE_LIMIT
     }
+    /// Every length (stroke size, shadow distances and blurs, glow sizes) times `factor`, kept
+    /// within the Mac's valid ranges so the effects stay drawn.
+    pub fn scaled(&self, factor: f64) -> LayerEffects {
+        let mut e = self.clone();
+        if let Some(s) = &mut e.stroke { s.size = (s.size * factor).min(500.0); }
+        if let Some(s) = &mut e.shadow { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
+        if let Some(s) = &mut e.inner_shadow { s.distance = (s.distance * factor).min(5000.0); s.blur = (s.blur * factor).min(500.0); }
+        if let Some(g) = &mut e.outer_glow { g.size = (g.size * factor).min(500.0); }
+        if let Some(g) = &mut e.inner_glow { g.size = (g.size * factor).min(500.0); }
+        e
+    }
+    /// The effects carried onto a layer whose pixels Image Size redraws upright on the new canvas's
+    /// grid (Phase 3.5c ruling). `linear` takes one old layer pixel onto the new grid
+    /// ([a, b, c, d]: x' = a x + c y, y' = b x + d y). Lengths scale by the square root of its
+    /// area, and each shadow's offset goes through it whole, so a rotation or flip baked into the
+    /// pixels leaves the shadow falling where it fell.
+    pub fn resampled(&self, linear: [f64; 4]) -> LayerEffects {
+        let [a, b, c, d] = linear;
+        let mut e = self.scaled((a * d - b * c).abs().sqrt());
+        // Whole numbers stay whole: the trigonometry leaves 89.99999999999999 where 90 was.
+        let tidy = |v: f64| (v * 1e9).round() / 1e9;
+        let aim = |angle: f64, distance: f64| -> (f64, f64) {
+            if distance == 0.0 { return (angle, 0.0); }
+            let radians = angle * std::f64::consts::PI / 180.0;
+            let (ox, oy) = (-radians.cos() * distance, radians.sin() * distance);
+            let (nx, ny) = (a * ox + c * oy, b * ox + d * oy);
+            (tidy(ny.atan2(-nx).to_degrees()), tidy(nx.hypot(ny)).min(5000.0))
+        };
+        if let (Some(new), Some(old)) = (&mut e.shadow, &self.shadow) { (new.angle, new.distance) = aim(old.angle, old.distance); }
+        if let (Some(new), Some(old)) = (&mut e.inner_shadow, &self.inner_shadow) { (new.angle, new.distance) = aim(old.angle, old.distance); }
+        e
+    }
     /// Keys a later version of Compositor wrote, here or inside an effect.
     pub fn has_unknown(&self) -> bool {
         !self.unknown.is_empty()

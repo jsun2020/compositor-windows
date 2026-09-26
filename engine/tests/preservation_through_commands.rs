@@ -135,8 +135,9 @@ fn preservation_survives_duplicate_group_canvas_crop_flip_opacity_transform_undo
     assert_eq!(saved["width"], json!(50));
     assert_eq!(saved["height"], json!(30));
 
-    // Now Image Size: it resamples every pixel layer, which drops live text (it describes the
-    // old pixels) but keeps effects and unknown keys (neither depends on the pixels).
+    // Now Image Size: it resamples every pixel layer, which drops live text (it describes the old
+    // pixels) but keeps effects, scaled with the layer (Phase 3.5c ruling: 50 x 30 to 100 x 60
+    // doubles them), and unknown keys (not pixel data).
     e.execute(id, Command::ImageSize { width: 100, height: 60, resolution: 72.0, sampling: Sampling::Smooth }).unwrap();
     let saved2: Value = serde_json::from_str(&e.save_package(id).unwrap().manifest_json).unwrap();
     let layers2 = saved2["layers"].as_array().unwrap();
@@ -147,12 +148,14 @@ fn preservation_survives_duplicate_group_canvas_crop_flip_opacity_transform_undo
 
     let original2 = by_id2(text_id);
     assert!(original2.get("text").is_none(), "Image Size resamples pixels, so live text (which describes the old ones) is dropped");
-    assert_eq!(original2["effects"]["shadow"]["blur"], json!(20), "effects do not depend on the pixels");
+    assert_eq!(original2["effects"]["shadow"]["blur"], json!(40), "the effects scale with the layer");
+    assert_eq!(original2["effects"]["shadow"]["angle"], json!(90), "and keep their direction, whole");
+    assert_eq!(original2["effects"]["stroke"]["enabled"], json!(false));
     assert_eq!(original2["futureLayerKey"], json!(7), "unknown keys are not pixel data");
 
     let dup2 = by_id2(dup_id);
     assert!(dup2.get("text").is_none());
-    assert_eq!(dup2["effects"]["shadow"]["blur"], json!(20));
+    assert_eq!(dup2["effects"]["shadow"]["blur"], json!(40));
     assert_eq!(dup2["futureLayerKey"], json!(7));
 
     assert_eq!(saved2["width"], json!(100));

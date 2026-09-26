@@ -51,6 +51,12 @@ pub fn image_size(doc: &Document, options: ImageSizeOptions) -> Result<Document,
         let mut transform = LayerTransform::axis_aligned(Point { x: left, y: top }, Size { width: width as f64, height: height as f64 });
         transform.sampling = options.sampling;
         if !transform.is_valid() { return Err(ProjectError::TooLarge); }
+        // The pixels are redrawn upright on the new grid below, one new pixel per new document
+        // pixel: the effects go with them (Phase 3.5c ruling; the Mac drops them here, R 5).
+        if let (Some(raster), Some(effects)) = (layer.pixels.as_ref(), layer.extra.effects.as_ref()) {
+            let m = layer.transform.pixel_to_document(raster.width, raster.height);
+            layer.extra.effects = Some(effects.resampled([m.a * sx, m.b * sy, m.c * sx, m.d * sy]));
+        }
         if let Some(raster) = layer.pixels.clone() {
             let pixels = width as u64 * height as u64;
             if width as i64 > MAX_SIDE || height as i64 > MAX_SIDE || pixels > MAX_PIXELS - used { return Err(ProjectError::TooLarge); }
