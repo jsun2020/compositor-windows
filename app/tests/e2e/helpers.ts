@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test";
  * is open, so a bare `getByTestId("menu-<id>").click()` finds nothing until the title
  * has been clicked first.
  */
-export async function clickMenu(page: Page, title: "File" | "Edit" | "Layer" | "Filter" | "Image" | "View", id: string): Promise<void> {
+export async function clickMenu(page: Page, title: "File" | "Edit" | "Layer" | "Select" | "Filter" | "Image" | "View", id: string): Promise<void> {
   await page.getByRole("button", { name: title, exact: true }).click();
   await page.getByTestId(`menu-${id}`).click();
 }
