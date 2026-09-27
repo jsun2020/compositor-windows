@@ -18,7 +18,7 @@
 
 **Measured for this plan (2026-09-27).** Every number below that is not quoted from the Mac was measured, not assumed. The measurements ran on one scratch copy of this repository (`C:\Users\sr9rfx\AppData\Local\Temp\claude\p4a-scratch`, its own target directory, the release wasm) with this plan's code applied. The code was then replayed onto the plan's base one task at a time (tags `t0` to `t14` there), and at each task the whole engine test tree compiled, the task's own tests passed and, from Task 8 on, `pnpm build` and vitest passed; the whole suites passed at the end (Task 14 Step 3 gives the counts). Every Rust and TypeScript block below is copied from that replay by a script, not retyped: a diff block is `git diff t<N-1> t<N>` for its file and a new file is `git show t<N>:<path>`. Not compiled: the README text; not run: `pnpm build:portable`.
 
-**Base:** `phase4a-selections` at 97c7add (00189cc plus the sampling probe generators in `engine/tests/mac_probes.rs` and their results section). This plan never edits `mac_probes.rs`. Leave the seven `sampling-*` Mac exports in `engine/tests/fixtures/mac-1.2.10-probes/` untracked: resampling is a separate task after the next Mac exports.
+**Base:** `phase4a-selections` at 97c7add (00189cc plus the sampling probe generators in `engine/tests/mac_probes.rs` and their results section). This plan never edits `mac_probes.rs`. Leave every `sampling-*` Mac export in `engine/tests/fixtures/mac-1.2.10-probes/` untracked (ten pairs as of 09a501e: seven sampling probes and three step probes): resampling is a separate task (Phase 3.5d), whose filter the step probes settled (probe results, "Step probes").
 
 **Out of scope (later parts of Phase 4, or not ported):** Object Selection and Select Subject (Apple Vision); moving or duplicating selected pixels (Ctrl-drag, Ctrl-arrow) and Transform Selection (the floating selection); fills, the clipboard, the palette and the colour picker; the brushes; Content-Aware Fill; scrolling the view while a Marquee or an outline is dragged past the window's edge (the Mac's `marqueeAutoscroll`, ruling OQ15); a shortcut editor.
 
@@ -36,10 +36,10 @@
 - E2E: prove commits with `undoDepth` against a baseline, never `canUndo`; drive the canvas with real pointer events at points computed from the viewport (`viewPoint`), never hard-coded screen offsets.
 - tsconfig is three programs (`app/src`, `app/tests/unit`, `app/tests/e2e`), each with `noUnusedLocals`.
 - Build and test from the repository root, in the FOREGROUND, PowerShell 5.1 (no `&&`; chain with `;`): `cargo test -p compositor-engine` (timeout at least 900 s); after any change under `engine/src` or `engine-wasm`, `pnpm wasm:dev` before `pnpm build` and `pnpm e2e`; `pnpm test`; `pnpm build`; `pnpm e2e` (server 127.0.0.1:1420, one run at a time). Do not use `2>&1` on native executables; redirect with `*> file`.
-- A source file restored after a Step 5 bug must get a new modification time (PowerShell `(Get-Item <file>).LastWriteTime = Get-Date`), or cargo keeps the build with the bug in it: `git checkout -- <file>` does this, a copy from a backup does not (found on the scratch copy).
+- Step 5 (introduce a bug, watch the test fail, revert) runs BEFORE the task's commit, so never revert with `git checkout -- <file>`: that returns the file to the previous task and throws away this task's uncommitted work (and fails on a file the task created). Instead, before adding the bug, `Copy-Item <file> <file>.bak`; to revert, `Move-Item -Force <file>.bak <file>` and then `(Get-Item <file>).LastWriteTime = Get-Date` (a restored file must get a new modification time or cargo keeps the build with the bug in it); then re-run the task's tests and confirm they pass again. Wherever a Step 5 below says `git checkout -- <file>`, do this instead (pre-flight ruling C2).
 - Timings come only from the release wasm (`pnpm wasm`), never `wasm:dev`.
 - Do NOT run `pnpm build:portable`: the controller builds the zip.
-- Commit with an explicit pathspec (`git add -- <new files>` first, then `git commit -- <paths>`). End every commit message with the Co-Authored-By line your own instructions give, as its own `-m` paragraph. The Step 6 commands below show the line for Claude Opus 5.5 (1M context); an implementer on another model writes its own.
+- Commit with an explicit pathspec (`git add -- <new files>` first, then `git commit -m "<subject>" -m "<Co-Authored-By line>" -- <paths>`: every `-m` comes BEFORE `--`, because git reads everything after `--` as a path; pre-flight ruling C1). End every commit message with the Co-Authored-By line your own instructions give, as its own `-m` paragraph. The Step 6 commands below show the line for Claude Opus 5.5 (1M context); an implementer on another model writes its own.
 - Baseline before Task 1, measured at 97c7add's state on the scratch copy: `cargo test -p compositor-engine` 382 passed and 1 ignored; vitest 114; `pnpm build` clean; e2e 117 passed and 2 skipped. Task 1 Step 1 records them on the real repository before any change.
 
 ## Rulings made for this plan (OQ)
@@ -116,7 +116,7 @@ Each was ruled and measured here, as the brief asked; "cost if wrong" is what ch
 
 ### Task 1: The Mac 1.2.10 follow-up and effects probes, and Soft Light as the Mac draws it
 
-The user exported 31 more probes from Compositor for Mac 1.2.10: the 14 Phase 3.5b follow-up probes, color-balance-preserve and the 16 `effects-*` probes. They sit untracked in `engine/tests/fixtures/mac-1.2.10-probes/` (beside seven `sampling-*` exports that stay untracked). This task commits the 31 and pins each at the bound measured against this port's CPU compositor (probe results, "Phase 3.5b follow-up probes" and "Phase 3.5c effects probes and color-balance-preserve"). One probe shows a real difference: `blend-greys` puts Soft Light 14 levels off at the 75 % grey, and fits Pegtop's formula within 1 (probe results, the Soft Light table), so Soft Light becomes Pegtop's on the CPU and the GPU. The motion probe is pinned in Task 2, which ports the Gaussian it shows.
+The user exported 31 more probes from Compositor for Mac 1.2.10: the 14 Phase 3.5b follow-up probes, color-balance-preserve and the 16 `effects-*` probes. They sit untracked in `engine/tests/fixtures/mac-1.2.10-probes/` (beside ten `sampling-*` exports that stay untracked). This task commits the 31 and pins each at the bound measured against this port's CPU compositor (probe results, "Phase 3.5b follow-up probes" and "Phase 3.5c effects probes and color-balance-preserve"). One probe shows a real difference: `blend-greys` puts Soft Light 14 levels off at the 75 % grey, and fits Pegtop's formula within 1 (probe results, the Soft Light table), so Soft Light becomes Pegtop's on the CPU and the GPU. The motion probe is pinned in Task 2, which ports the Gaussian it shows.
 
 **Files:**
 - Add: the 31 probe pairs listed in Step 6
@@ -425,10 +425,10 @@ $probes = @("add-noise-gaussian-mono", "add-noise-uniform", "black-white-tint", 
   "effects-transformed", "gaussian-blur-40", "gaussian-blur-6", "invert", "motion-blur-30-24")
 $fixtures = $probes | ForEach-Object { "engine/tests/fixtures/mac-1.2.10-probes/$_.comp"; "engine/tests/fixtures/mac-1.2.10-probes/$_.mac-1.2.10.png" }
 git add -- $fixtures
-git commit -- $fixtures engine/src/blend.rs app/src/canvas/gl/programs.ts engine/tests/mac_1_2_10.rs engine/tests/blend_modes_v9.rs app/tests/e2e/mac-1.2.10.spec.ts -m "test: pin the Mac 1.2.10 follow-up and effects probes; Soft Light is Pegtop's" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "test: pin the Mac 1.2.10 follow-up and effects probes; Soft Light is Pegtop's" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- $fixtures engine/src/blend.rs app/src/canvas/gl/programs.ts engine/tests/mac_1_2_10.rs engine/tests/blend_modes_v9.rs app/tests/e2e/mac-1.2.10.spec.ts
 ```
 
-`git status` afterwards still lists the seven `sampling-*` pairs as untracked, and nothing else.
+`git status` afterwards still lists the ten `sampling-*` pairs (seven sampling, three step probes) as untracked, and nothing else.
 
 ---
 
@@ -1221,7 +1221,7 @@ Then the release timings: `pnpm wasm`, then `$env:PERF = "1"; pnpm e2e -- perf-s
 - [ ] **Step 6: Commit**
 
 ```
-git commit -- engine/src/adjust/filters.rs engine/src/adjust/spatial.rs engine/src/adjust/settings.rs engine/src/document.rs app/src/canvas/gl/programs.ts app/src/canvas/gl-renderer.ts engine/tests/filters.rs engine/tests/spatial_adjustments.rs engine/tests/undrawn.rs engine/tests/merge_undrawn.rs engine/tests/peak_heap.rs engine/tests/mac_1_2_10.rs app/tests/e2e/mac-1.2.10.spec.ts app/tests/e2e/mac-1.2.6.spec.ts -m "fix: Motion Blur is CIMotionBlur's Gaussian along the angle, as the Mac 1.2.10 probe shows" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "fix: Motion Blur is CIMotionBlur's Gaussian along the angle, as the Mac 1.2.10 probe shows" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/adjust/filters.rs engine/src/adjust/spatial.rs engine/src/adjust/settings.rs engine/src/document.rs app/src/canvas/gl/programs.ts app/src/canvas/gl-renderer.ts engine/tests/filters.rs engine/tests/spatial_adjustments.rs engine/tests/undrawn.rs engine/tests/merge_undrawn.rs engine/tests/peak_heap.rs engine/tests/mac_1_2_10.rs app/tests/e2e/mac-1.2.10.spec.ts app/tests/e2e/mac-1.2.6.spec.ts
 ```
 
 ---
@@ -1992,7 +1992,7 @@ The selection lives in the `Document`, compared as content and never read from a
 
 ```
 git add -- engine/src/selection/mod.rs engine/src/selection/geometry.rs engine/src/selection/coverage.rs engine/tests/selection_model.rs
-git commit -- engine/Cargo.toml Cargo.lock engine/src/selection engine/src/lib.rs engine/src/document.rs engine/src/package.rs engine/src/compositor.rs engine/tests/selection_model.rs -m "feat: the selection model: a fixed-point outline, its booleans and its coverage" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: the selection model: a fixed-point outline, its booleans and its coverage" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/Cargo.toml Cargo.lock engine/src/selection engine/src/lib.rs engine/src/document.rs engine/src/package.rs engine/src/compositor.rs engine/tests/selection_model.rs
 ```
 
 ---
@@ -2820,7 +2820,7 @@ pub fn flip_selection(doc: &mut Document, horizontal: bool) {
 
 ```
 git add -- engine/src/selection/trace.rs engine/src/selection/outline.rs engine/src/ops/selection.rs engine/tests/selection_commands.rs
-git commit -- engine/src/selection engine/src/lib.rs engine/src/error.rs engine/src/command.rs engine/src/ops/mod.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_commands.rs -m "feat: selection commands with the Mac's undo names, the tracer, and the outline for the ants" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: selection commands with the Mac's undo names, the tracer, and the outline for the ants" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/selection engine/src/lib.rs engine/src/error.rs engine/src/command.rs engine/src/ops/mod.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_commands.rs
 ```
 
 ---
@@ -3393,7 +3393,7 @@ pub fn magic_wand(image: &Raster, point: Point, settings: &WandSettings) -> Resu
 
 ```
 git add -- engine/src/selection/wand.rs engine/tests/selection_wand.rs
-git commit -- engine/src/selection engine/src/lib.rs engine/src/command.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_wand.rs -m "feat: the Magic Wand, and layer pixels or mask black areas as a selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: the Magic Wand, and layer pixels or mask black areas as a selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/selection engine/src/lib.rs engine/src/command.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_wand.rs
 ```
 
 ---
@@ -3876,7 +3876,7 @@ The preview takes the coverage on the grid it is computed on (reduced for a larg
 
 ```
 git add -- engine/tests/selection_edits.rs
-git commit -- engine/src/ops/adjust.rs engine/src/adjust/apply.rs engine/src/ops/masks.rs engine/src/preview.rs engine/src/engine.rs engine/tests/selection_edits.rs -m "feat: adjustments, filters and Invert inside the selection; the histogram weighted by it; previews keyed on their source (N3)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: adjustments, filters and Invert inside the selection; the histogram weighted by it; previews keyed on their source (N3)" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/ops/adjust.rs engine/src/adjust/apply.rs engine/src/ops/masks.rs engine/src/preview.rs engine/src/engine.rs engine/tests/selection_edits.rs
 ```
 
 ---
@@ -4161,7 +4161,7 @@ fn an_empty_selection_clears_nothing_but_still_makes_a_plain_mask() {
 
 ```
 git add -- engine/tests/selection_masks.rs
-git commit -- engine/src/command.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_masks.rs -m "feat: Delete clears the selected pixels, and Add Mask paints through the selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: Delete clears the selected pixels, and Add Mask paints through the selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/command.rs engine/src/ops/selection.rs engine/src/engine.rs engine/tests/selection_masks.rs
 ```
 
 ---
@@ -4409,7 +4409,7 @@ In `selectionOutline`, start reading at `let i = 0` instead of `1`: the new engi
 - [ ] **Step 6: Commit**
 
 ```
-git commit -- engine-wasm/src/lib.rs app/src/engine/types.ts app/src/engine/client.ts app/tests/unit/engine-client.test.ts app/tests/unit/adjust-store.test.ts app/tests/unit/commit-transform.test.ts app/tests/unit/crop-seed.test.ts app/tests/unit/crop-tool.test.ts app/tests/unit/layer-rows.test.ts app/tests/unit/prefilter.test.ts app/tests/unit/selection.test.ts app/tests/unit/store-history.test.ts -m "feat: the selection's commands, summary and outline across the wasm bridge" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: the selection's commands, summary and outline across the wasm bridge" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine-wasm/src/lib.rs app/src/engine/types.ts app/src/engine/client.ts app/tests/unit/engine-client.test.ts app/tests/unit/adjust-store.test.ts app/tests/unit/commit-transform.test.ts app/tests/unit/crop-seed.test.ts app/tests/unit/crop-tool.test.ts app/tests/unit/layer-rows.test.ts app/tests/unit/prefilter.test.ts app/tests/unit/selection.test.ts app/tests/unit/store-history.test.ts
 ```
 
 ---
@@ -4659,7 +4659,7 @@ export function outlineOffset(start: P, pixel: P, shift: boolean): { dx: number;
 
 ```
 git add -- app/src/tools/selection-draft.ts app/tests/unit/selection-draft.test.ts
-git commit -- app/src/tools/selection-draft.ts app/tests/unit/selection-draft.test.ts -m "feat: the Marquee's and the Lasso's drawing rules, from the Mac's" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: the Marquee's and the Lasso's drawing rules, from the Mac's" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- app/src/tools/selection-draft.ts app/tests/unit/selection-draft.test.ts
 ```
 
 ---
@@ -5155,7 +5155,7 @@ describe("selection tool state", () => {
 
 ```
 git add -- app/tests/unit/selection-store.test.ts
-git commit -- app/src/state/store.ts app/src/actions/layers.ts app/src/tools/crop-tool.ts app/tests/unit/crop-seed.test.ts app/tests/unit/selection-store.test.ts -m "feat: selection tools, options and routing in the store; the crop starts at the selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: selection tools, options and routing in the store; the crop starts at the selection" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- app/src/state/store.ts app/src/actions/layers.ts app/src/tools/crop-tool.ts app/tests/unit/crop-seed.test.ts app/tests/unit/selection-store.test.ts
 ```
 
 ---
@@ -5536,7 +5536,7 @@ Key `OutlineCache` on the document and step only (drop the revision from `key`):
 
 ```
 git add -- app/src/canvas/ants.ts app/tests/unit/ants.test.ts
-git commit -- app/src/canvas/ants.ts app/src/canvas/overlay.ts app/src/canvas/CanvasView.tsx app/tests/unit/ants.test.ts -m "feat: marching ants, drafts and the selection tools' pointer handling on the canvas" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: marching ants, drafts and the selection tools' pointer handling on the canvas" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- app/src/canvas/ants.ts app/src/canvas/overlay.ts app/src/canvas/CanvasView.tsx app/tests/unit/ants.test.ts
 ```
 
 ---
@@ -5980,7 +5980,7 @@ export function SelectionAmountSheet(props: { operation: SelectionAmountOperatio
 
 ```
 git add -- app/src/panels/SelectionOptions.tsx app/src/sheets/SelectionAmountSheet.tsx
-git commit -- app/src/panels/SelectionOptions.tsx app/src/sheets/SelectionAmountSheet.tsx app/src/panels/MenuBar.tsx app/src/panels/ToolRail.tsx app/src/panels/LayersList.tsx app/src/shortcuts/keymap.ts app/src/shortcuts/useShortcuts.ts app/src/App.tsx app/src/styles.css app/tests/unit/keymap.test.ts app/tests/unit/selection-store.test.ts -m "feat: the selection options bar, the Select menu and its amount sheet, keys and thumbnail loading" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "feat: the selection options bar, the Select menu and its amount sheet, keys and thumbnail loading" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- app/src/panels/SelectionOptions.tsx app/src/sheets/SelectionAmountSheet.tsx app/src/panels/MenuBar.tsx app/src/panels/ToolRail.tsx app/src/panels/LayersList.tsx app/src/shortcuts/keymap.ts app/src/shortcuts/useShortcuts.ts app/src/App.tsx app/src/styles.css app/tests/unit/keymap.test.ts app/tests/unit/selection-store.test.ts
 ```
 
 ---
@@ -6239,7 +6239,7 @@ Two of these were first written wrong on the scratch copy and show what the Mac'
 
 ```
 git add -- app/tests/e2e/selection.spec.ts
-git commit -- app/tests/e2e/selection.spec.ts app/tests/e2e/helpers.ts -m "test: the selection tools, the Select menu and the selection-limited edits end to end" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "test: the selection tools, the Select menu and the selection-limited edits end to end" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- app/tests/e2e/selection.spec.ts app/tests/e2e/helpers.ts
 ```
 
 ---
@@ -6484,7 +6484,7 @@ Do NOT run `pnpm build:portable`.
 - [ ] **Step 4: Commit**
 
 ```
-git commit -- README.md docs/superpowers/specs/2026-09-20-windows-port-design.md docs/superpowers/phase3.5b-rulings-and-open-items.md package.json src-tauri/tauri.conf.json Cargo.toml Cargo.lock app/tests/e2e/smoke.spec.ts -m "docs: Phase 4a selections in the README, and 0.4.0" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git commit -m "docs: Phase 4a selections in the README, and 0.4.0" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- README.md docs/superpowers/specs/2026-09-20-windows-port-design.md docs/superpowers/phase3.5b-rulings-and-open-items.md package.json src-tauri/tauri.conf.json Cargo.toml Cargo.lock app/tests/e2e/smoke.spec.ts
 ```
 
 ---
@@ -6506,7 +6506,7 @@ git commit -- README.md docs/superpowers/specs/2026-09-20-windows-port-design.md
 - The Crop tool starts at the selection's bounds: Task 10.
 - Edits refused on an empty selection: Tasks 6, 7 (engine), 10, 12 (app).
 - Ctrl is the Mac's Cmd and Alt its Option throughout (Tasks 9, 12).
-- Task 1 as fixed by the brief and the controller's updates: the 31 exports committed by name (the seven `sampling-*` left untracked) and pinned in `mac_1_2_10.rs` at their measured bounds; Soft Light Pegtop in `blend.rs` and GLSL. Task 2: Motion Blur is one Gaussian of sigma distance / sqrt(12) for the filter, the adjustment layer (`streak_for_layer` through `spatial_blur`) and the GPU; reach and padding re-derived (3 sigma, `SPATIAL_REACH_LIMIT`; the filter keeps the Mac's distance / 2 + 2); the canvas-edge rule kept; the notice entry and the merge refusal dropped; spec 4.5 and the 3.5b open items updated in Task 14; release timings in Task 2 Step 4; `mac_probes.rs` untouched.
+- Task 1 as fixed by the brief and the controller's updates: the 31 exports committed by name (the ten `sampling-*` left untracked) and pinned in `mac_1_2_10.rs` at their measured bounds; Soft Light Pegtop in `blend.rs` and GLSL. Task 2: Motion Blur is one Gaussian of sigma distance / sqrt(12) for the filter, the adjustment layer (`streak_for_layer` through `spatial_blur`) and the GPU; reach and padding re-derived (3 sigma, `SPATIAL_REACH_LIMIT`; the filter keeps the Mac's distance / 2 + 2); the canvas-edge rule kept; the notice entry and the merge refusal dropped; spec 4.5 and the 3.5b open items updated in Task 14; release timings in Task 2 Step 4; `mac_probes.rs` untouched.
 - Version 0.4.0 and the README: Task 14.
 
 **LL-067 / LL-068 pass: could each assertion fail?** For every test file, the production change that makes it fail, and the fixture choices that keep it from passing by construction:
