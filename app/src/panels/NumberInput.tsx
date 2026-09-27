@@ -8,8 +8,9 @@ import { useState } from "react";
  * While the field has focus it shows what was typed, so a partial entry such as "0." is not
  * snapped under the caret; Enter or leaving the field shows the clamped value actually in use.
  * The typed text is kept only while the value is still the one it produced, so a value changed
- * from outside (another range selected, Reset) shows at once. */
-export function NumberInput(props: { label: string; value: number; min: number; max: number; step?: number; disabled?: boolean; testId?: string; onChange(v: number): void }) {
+ * from outside (another range selected, Reset) shows at once. With `blurOnEnter`, Enter also gives
+ * up the focus, so the canvas's keys (Delete, Ctrl+D, the arrows, tool letters) work again. */
+export function NumberInput(props: { label: string; value: number; min: number; max: number; step?: number; disabled?: boolean; testId?: string; blurOnEnter?: boolean; onChange(v: number): void }) {
   const [draft, setDraft] = useState<{ text: string; value: number } | null>(null);
   return (
     <input aria-label={props.label} data-testid={props.testId} type="number" min={props.min} max={props.max} step={props.step} disabled={props.disabled}
@@ -22,6 +23,6 @@ export function NumberInput(props: { label: string; value: number; min: number; 
         if (value !== props.value) props.onChange(value);
       }}
       onBlur={() => setDraft(null)}
-      onKeyDown={(e) => { if (e.key === "Enter") setDraft(null); }} />
+      onKeyDown={(e) => { if (e.key === "Enter") { setDraft(null); if (props.blurOnEnter) e.currentTarget.blur(); } }} />
   );
 }

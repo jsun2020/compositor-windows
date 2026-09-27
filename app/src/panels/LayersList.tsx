@@ -1,15 +1,19 @@
 import { useState, type DragEvent } from "react";
 import { useEditor } from "../state/store";
+import type { LayerState } from "../engine/types";
 import { layerRows, dropTarget, type Row } from "./layer-rows";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
 
 /** Ctrl-click on a thumbnail loads it as a selection, Ctrl-Shift adds and Ctrl-Alt subtracts
  * (`loadMode`, NativeLayerList.swift:1007-1019, :1235-1238); Ctrl-click elsewhere in a row still
- * multi-selects. True when it loaded. */
-function loadOnCtrlClick(e: React.MouseEvent, id: string, mask: boolean): boolean {
+ * multi-selects. A folder's or a pixel-less layer's content thumbnail has nothing to load: the
+ * click is taken and nothing happens, where the Mac beeps (MaskTracing.swift:88-89), rather than
+ * an engine refusal in the banner (final review M3). True when the click was a load. */
+function loadOnCtrlClick(e: React.MouseEvent, layer: LayerState, mask: boolean): boolean {
   if (!(e.ctrlKey || e.metaKey)) return false;
-  loadSelection(id, mask, e.altKey ? "Subtract" : e.shiftKey ? "Add" : "Replace");
+  if (!mask && (layer.isGroup || !layer.hasPixels)) return true;
+  loadSelection(layer.id, mask, e.altKey ? "Subtract" : e.shiftKey ? "Add" : "Replace");
   return true;
 }
 
@@ -99,8 +103,8 @@ export function LayersList() {
               {l.adjustment
                 ? <button data-testid={`adjustment-chip-${l.id}`} className="chip chip-adjustment" aria-label={`${l.adjustment.kind} adjustment`}
                     aria-pressed={l.id === doc.activeLayerId} onClick={(e) => { e.stopPropagation(); s.selectLayers([l.id], l.id); }} />
-                : <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} content`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); if (loadOnCtrlClick(e, l.id, false)) return; s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />}
-              {l.hasMask && <button data-testid={`target-mask-${l.id}`} className={"chip chip-mask" + (l.maskEnabled ? "" : " disabled")} aria-label={`${l.name} mask`} aria-pressed={l.id === doc.activeLayerId && s.maskSelected} onClick={(e) => { e.stopPropagation(); if (loadOnCtrlClick(e, l.id, true)) return; s.selectLayers([l.id], l.id); s.setMaskSelected(true); }} />}
+                : <button data-testid={`target-pixels-${l.id}`} className={"chip" + (l.isGroup ? " chip-folder" : " chip-pixels")} aria-label={`${l.name} content`} aria-pressed={l.id === doc.activeLayerId && !s.maskSelected} onClick={(e) => { e.stopPropagation(); if (loadOnCtrlClick(e, l, false)) return; s.selectLayers([l.id], l.id); s.setMaskSelected(false); }} />}
+              {l.hasMask && <button data-testid={`target-mask-${l.id}`} className={"chip chip-mask" + (l.maskEnabled ? "" : " disabled")} aria-label={`${l.name} mask`} aria-pressed={l.id === doc.activeLayerId && s.maskSelected} onClick={(e) => { e.stopPropagation(); if (loadOnCtrlClick(e, l, true)) return; s.selectLayers([l.id], l.id); s.setMaskSelected(true); }} />}
               {renaming?.id === l.id ? (
                 <input autoFocus value={renaming.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setRenaming({ id: l.id, name: e.target.value })}
                   onBlur={() => { if (renaming.name.trim()) s.run({ type: "RenameLayer", id: l.id, name: renaming.name.trim() }); setRenaming(null); }}

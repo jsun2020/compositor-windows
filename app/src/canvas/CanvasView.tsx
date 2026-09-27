@@ -356,7 +356,17 @@ export function CanvasView() {
       const s = useEditor.getState(); const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!];
       return vp.documentPoint(view(e), { width: d.width, height: d.height });
     };
+    // A drag that ended without its pointerup (pointercancel, lost capture, a release the page never
+    // saw) is forgotten without committing anything: no outline move, no half-drawn Marquee or
+    // Freehand outline (final review F4). The Polygonal Lasso's corners stay: it spans presses.
+    const forget = () => {
+      const s = useEditor.getState();
+      lastPixel = null;
+      if (moveStart) { moveStart = null; s.setOutlineMove(null); }
+      if (s.selectionDraft && s.selectionDraft.kind !== "Polygonal") s.setSelectionDraft(null);
+    };
     const down = (e: PointerEvent) => {
+      forget();
       const s = useEditor.getState();
       if (!isSelectionTool(s.tool) || e.button !== 0 || spaceRef.current || !s.activeId || !s.engine) return;
       if (s.panelOwnsDocument(true)) return;
@@ -426,9 +436,12 @@ export function CanvasView() {
     };
     const blur = () => useEditor.getState().setHeldSelectionMode(null);
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("dblclick", dblclick);
+    // After a pointerup these find nothing left to forget; without one they end the drag.
+    el.addEventListener("pointercancel", forget); el.addEventListener("lostpointercapture", forget);
     window.addEventListener("keydown", keys); window.addEventListener("keyup", keys); window.addEventListener("blur", blur);
     return () => {
       el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("dblclick", dblclick);
+      el.removeEventListener("pointercancel", forget); el.removeEventListener("lostpointercapture", forget);
       window.removeEventListener("keydown", keys); window.removeEventListener("keyup", keys); window.removeEventListener("blur", blur);
     };
   }, []);

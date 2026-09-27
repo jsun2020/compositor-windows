@@ -260,3 +260,76 @@ test("an empty selection says so and refuses the edits", async ({ page }) => {
   await expect(page.getByTestId("menu-image-levels")).toBeDisabled();
   await expect(page.getByTestId("menu-image-invert")).toBeDisabled();
 });
+
+test("a drag that loses its pointerup leaves no outline move behind", async ({ page }) => {
+  // Final review F4: after a pointercancel, or a press whose release never came, the next press
+  // used to drag the outline and record a wrong Move Selection.
+  await setup(page);
+  await page.keyboard.press("m");
+  await drag(page, [10, 10], [20, 20]);
+  const before = await undoDepth(page);
+  const outlineMove = () => page.evaluate(() => (window as any).__compositor.store.getState().outlineMove);
+  const canvasEvent = (type: string, at: { x: number; y: number }) => page.evaluate(([type, x, y]) => {
+    document.querySelector('[data-testid="canvas-view"]')!.dispatchEvent(new PointerEvent(type as string, { pointerId: 1, button: 0, clientX: x as number, clientY: y as number }));
+  }, [type, at.x, at.y]);
+  // Cancelled mid-drag: the outline stops following, and the release commits nothing.
+  const a = await client(page, [15, 15]), b = await client(page, [18, 15]);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 3 });
+  expect(await outlineMove()).not.toBeNull();
+  await canvasEvent("pointercancel", b);
+  expect(await outlineMove()).toBeNull();
+  await page.mouse.up();
+  expect(await undoDepth(page)).toBe(before);
+  expect((await selection(page)).bounds).toEqual({ x: 10, y: 10, width: 10, height: 10 });
+  // A press inside the selection whose release the page never sees: the next drag, outside it,
+  // draws a new box instead of dragging the outline.
+  await canvasEvent("pointerdown", a);
+  expect(await outlineMove()).toEqual({ dx: 0, dy: 0 });
+  await drag(page, [40, 30], [50, 40]);
+  expect((await selection(page)).bounds).toEqual({ x: 40, y: 30, width: 10, height: 10 });
+  expect(await undoDepth(page)).toBe(before + 1);
+});
+
+test("the selection options give the keys back once used", async ({ page }) => {
+  // Final review F5: a checkbox, a select or a number field kept the focus, so Delete, Ctrl+D, the
+  // tool letters and the arrows went to it instead of the canvas.
+  await setup(page);
+  await page.keyboard.press("m");
+  await drag(page, [10, 10], [20, 20]);
+  await page.keyboard.press("w");
+  await page.getByTestId("wand-contiguous").click();
+  await page.keyboard.press("Control+d");
+  expect(await selection(page)).toBeNull();
+  await page.keyboard.press("m");
+  await drag(page, [10, 10], [20, 20]);
+  await page.keyboard.press("w");
+  const size = page.getByTestId("wand-sample-size");
+  await size.focus();
+  await size.selectOption("1");
+  await page.keyboard.press("ArrowLeft");
+  expect((await selection(page)).bounds).toEqual({ x: 9, y: 10, width: 10, height: 10 });
+  await expect(size).toHaveValue("1");
+  // A number field keeps the focus while typed into and gives it up on Enter.
+  await page.getByTestId("wand-tolerance").fill("40");
+  await page.getByTestId("wand-tolerance").press("Enter");
+  await page.keyboard.press("Control+d");
+  expect(await selection(page)).toBeNull();
+});
+
+test("Ctrl-click on a folder's thumbnail loads nothing and says nothing", async ({ page }) => {
+  // Final review M3: the engine's refusal used to show in the banner (the Mac beeps). The click is
+  // still taken: the folder does not become the active layer.
+  await setup(page);
+  await page.keyboard.press("m");
+  await drag(page, [10, 10], [20, 20]);
+  await page.getByTestId("layer-add-folder").click();
+  const layers = (await state(page)).layers;
+  const folder = layers.find((l: any) => l.isGroup).id, pixels = layers.find((l: any) => !l.isGroup).id;
+  await page.getByTestId(`target-pixels-${pixels}`).click();
+  const before = await state(page);
+  expect(before.activeLayerId).toBe(pixels);
+  await page.keyboard.down("Control"); await page.getByTestId(`target-pixels-${folder}`).click(); await page.keyboard.up("Control");
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+  const after = await state(page);
+  expect([after.activeLayerId, after.undoDepth, after.selection.bounds]).toEqual([pixels, before.undoDepth, { x: 10, y: 10, width: 10, height: 10 }]);
+});
