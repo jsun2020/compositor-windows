@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AntsPathCache, nextPhase, OUTLINE_DETAIL_LIMIT, OutlineCache, outlinePoints, outlineStep, traceOutline, type PathSink } from "../../src/canvas/ants";
+import { ANTS_BUSY_SHARE, antsDelay, AntsPathCache, CULL_MARGIN, nextPhase, OUTLINE_DETAIL_LIMIT, OutlineCache, outlinePoints, outlineStep, traceOutline, type PathSink } from "../../src/canvas/ants";
 
 /** Records what a path is built from, as `Path2D` would take it. */
 class Recorder implements PathSink {
@@ -33,6 +33,13 @@ describe("marching ants", () => {
 
   it("march one step a tick around a period of eight", () => {
     expect([nextPhase(0), nextPhase(6), nextPhase(7)]).toEqual([1, 7, 0]);
+  });
+
+  it("march every 120 ms, or slower when a step's frame takes over a third of that", () => {
+    // The period is max(120, elapsed x 3); the wait is what remains of it after `elapsed`.
+    expect(ANTS_BUSY_SHARE).toBe(1 / 3);
+    expect([antsDelay(0), antsDelay(33), antsDelay(40)]).toEqual([120, 87, 80]);
+    expect([antsDelay(41), antsDelay(600)]).toEqual([82, 1200]);
   });
 
   it("read the engine's flat outline: every contour closed, each point scaled to view px", () => {
@@ -73,13 +80,14 @@ describe("marching ants", () => {
     const cache = new AntsPathCache(() => new Recorder());
     const view = { x0: 1000, y0: -100, x1: 1800, y1: 500 };
     const path = cache.get(outline, 1, view);
-    // Kept: the edges within one view's width (800 px) of the view on either side, x 200 to 2600,
-    // about 2400 / 20,000 of the teeth, and none far away.
-    const xs = path.calls.filter((c) => c.startsWith("L")).map((c) => Number(c.slice(1).split(",")[0]));
+    // Kept: the edges within CULL_MARGIN of the view's 800 px width on either side, and none
+    // further; the teeth are 1 px apart, so the first and last kept ends lie within 2 px of it.
+    const margin = CULL_MARGIN * 800;
+    const xs = path.calls.filter((c) => c.startsWith("L")).map((c) => Number(c.slice(1).split(",")[0])).filter((x) => x > 0 && x < 19_000);
     expect(xs.length).toBeLessThan(n / 4);
-    expect(Math.min(...xs.filter((x) => x > 0))).toBeLessThan(250);
-    expect(xs.filter((x) => x > 2700 && x < 19_000)).toEqual([]);
-    expect(cache.get(outline, 1, { x0: 1500, y0: 0, x1: 2300, y1: 600 }), "a pan within the kept neighbourhood").toBe(path);
+    expect(Math.abs(Math.min(...xs) - (1000 - margin))).toBeLessThan(2);
+    expect(Math.abs(Math.max(...xs) - (1800 + margin))).toBeLessThan(2);
+    expect(cache.get(outline, 1, { x0: 1000 + margin / 2, y0: -100, x1: 1800 + margin / 2, y1: 500 }), "a pan within the kept margin").toBe(path);
     expect(cache.get(outline, 1, { x0: 5000, y0: 0, x1: 5800, y1: 600 })).not.toBe(path);
     expect(cache.builds).toBe(2);
   });

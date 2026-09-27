@@ -2,6 +2,13 @@
 export const ANTS_INTERVAL_MS = 120;
 /** One march step; the phase wraps at the dash period (4 on, 4 off). */
 export const nextPhase = (phase: number): number => (phase + 1) % 8;
+/** At most this share of the time goes on the ants: a step whose frame took longer than a third of
+ * `ANTS_INTERVAL_MS` stretches the period to three times what it took. */
+export const ANTS_BUSY_SHARE = 1 / 3;
+/** How long to wait before the next march step, `elapsed` ms after the last one began and its
+ * frame was drawn: the rest of `ANTS_INTERVAL_MS`, or of `elapsed / ANTS_BUSY_SHARE` if longer
+ * (final review F3: a four-million-point outline took hundreds of ms a frame to stroke). */
+export const antsDelay = (elapsed: number): number => Math.max(ANTS_INTERVAL_MS, elapsed / ANTS_BUSY_SHARE) - elapsed;
 
 /** The outline's detail for a zoom (device px per document px): the power of two at or above the
  * zoom, at most 1 and at least 1/4096, `min(1, 2^ceil(log2(max(scale, 1/4096))))`
@@ -34,6 +41,11 @@ export class OutlineCache {
     return this.outline;
   }
 }
+
+/** How far past the view, as a fraction of its size on each side, a detailed outline's path keeps
+ * its edges: a pan within it reuses the path, and every tick strokes only about 1.5 x 1.5 views.
+ */
+export const CULL_MARGIN = 0.25;
 
 /** What a path is built into: a `Path2D`, or a recorder in the unit tests. */
 export interface PathSink { moveTo(x: number, y: number): void; lineTo(x: number, y: number): void; closePath(): void; }
@@ -69,8 +81,8 @@ export function traceOutline(flat: Float64Array, scale: number, cull: Box | null
 /** The ants' path, kept while the outline, the zoom and (for a detailed outline) the neighbourhood
  * of the view stay the same: a march tick only moves the dash, and a pan or an outline drag only
  * moves where the path is stroked (final review F3). The path is in view px about the document's
- * scaled origin; the caller translates to it. A detailed outline keeps the edges within one view's
- * size of the view on every side, so small pans reuse it. */
+ * scaled origin; the caller translates to it. A detailed outline keeps the edges within
+ * `CULL_MARGIN` of the view on every side, so small pans reuse it. */
 export class AntsPathCache<P extends PathSink> {
   private outline: Float64Array | null = null;
   private points = 0;
@@ -85,8 +97,8 @@ export class AntsPathCache<P extends PathSink> {
     const culls = this.points > OUTLINE_DETAIL_LIMIT;
     const inside = (b: Box | null) => !!b && view.x0 >= b.x0 && view.y0 >= b.y0 && view.x1 <= b.x1 && view.y1 <= b.y1;
     if (this.path && this.scale === scale && (!culls || inside(this.cull))) return this.path;
-    const w = view.x1 - view.x0, h = view.y1 - view.y0;
-    this.cull = culls ? { x0: view.x0 - w, y0: view.y0 - h, x1: view.x1 + w, y1: view.y1 + h } : null;
+    const mx = CULL_MARGIN * (view.x1 - view.x0), my = CULL_MARGIN * (view.y1 - view.y0);
+    this.cull = culls ? { x0: view.x0 - mx, y0: view.y0 - my, x1: view.x1 + mx, y1: view.y1 + my } : null;
     this.scale = scale;
     this.path = this.make();
     traceOutline(outline, scale, this.cull, this.path);

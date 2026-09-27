@@ -7,7 +7,7 @@ import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
 import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
-import { AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
+import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 
 export const HIT_HANDLE_PX = 6;
@@ -143,12 +143,22 @@ export function CanvasView() {
   useEffect(() => { paintOverlay(); }, [overlayTick]);
 
   // Marching ants: march every 120 ms, only while a selection with something in it exists
-  // (`updateAntsTimer`, EditorCanvas.swift:2004-2020).
+  // (`updateAntsTimer`, EditorCanvas.swift:2004-2020). Each step waits until the frame that drew
+  // the last one is done, then `antsDelay` of what that took: an outline slow to stroke (millions of
+  // edges) marches slower instead of holding the page up step after step (final review F3).
   const antsActive = !!selection && !selection.empty;
   useEffect(() => {
     if (!antsActive) return;
-    const timer = setInterval(() => { antsPhaseRef.current = nextPhase(antsPhaseRef.current); paintOverlay(); }, ANTS_INTERVAL_MS);
-    return () => clearInterval(timer);
+    let timer = 0, frame = 0;
+    const step = () => {
+      antsPhaseRef.current = nextPhase(antsPhaseRef.current);
+      const painted = performance.now();
+      paintOverlay();
+      // The first frame after this draws the step; the second starts once that one is done.
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame((t) => { timer = window.setTimeout(step, antsDelay(t - painted)); }); });
+    };
+    timer = window.setTimeout(step, ANTS_INTERVAL_MS);
+    return () => { clearTimeout(timer); cancelAnimationFrame(frame); };
   }, [antsActive, activeId]);
 
   // Wheel: zoom with Ctrl, otherwise pan.

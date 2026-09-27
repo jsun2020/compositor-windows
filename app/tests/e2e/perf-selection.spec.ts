@@ -63,14 +63,30 @@ test("the ants of a four-million-point wand outline at 1:1 and 1:2, in the relea
     t0 = performance.now(); api.engine.selectionOutline(doc, 0.5); out["LOD trace at 1:2"] = Math.round(performance.now() - t0);
     api.store.getState().openDocument(doc);
     await new Promise((r) => setTimeout(r, 500));
+    // Reading one overlay pixel back makes the canvas carry out the queued strokes now, inside the timing.
+    const overlay = document.querySelector('[data-testid="overlay"]') as HTMLCanvasElement;
+    const paint = () => { api.paintOverlay(); overlay.getContext("2d")!.getImageData(0, 0, 1, 1); };
     for (const [label, zoom] of [["1:1", 1], ["1:2", 0.5]] as [string, number][]) {
       // A new zoom: the next frame fetches the outline (traced at 1:2), builds its path and strokes it.
-      t0 = performance.now(); await api.setZoom(zoom); api.paintOverlay(); out[`first frame at ${label}`] = Math.round(performance.now() - t0);
+      t0 = performance.now(); await api.setZoom(zoom); paint(); out[`first frame at ${label}`] = Math.round(performance.now() - t0);
       await new Promise((r) => setTimeout(r, 300));
       const ticks: number[] = [];
-      for (let i = 0; i < 5; i++) { t0 = performance.now(); api.paintOverlay(); ticks.push(performance.now() - t0); }
-      out[`ants tick at ${label} (mean of 5)`] = Math.round(ticks.reduce((a, b) => a + b, 0) / ticks.length);
+      for (let i = 0; i < 5; i++) { t0 = performance.now(); paint(); ticks.push(performance.now() - t0); }
+      out[`ants tick at ${label} (mean of 5)`] = Math.round(10 * ticks.reduce((a, b) => a + b, 0) / ticks.length) / 10;
+      // What the page feels while the ants march on their own timer: the longest gap between
+      // animation frames over two seconds (about 17 ms when nothing holds the main thread up).
+      let last = performance.now(), gap = 0, frames = 0;
+      await new Promise<void>((done) => { const end = last + 2000; const frame = (t: number) => { frames++; gap = Math.max(gap, t - last); last = t; if (t < end) requestAnimationFrame(frame); else done(); }; requestAnimationFrame(frame); });
+      out[`longest frame gap at ${label}`] = Math.round(gap);
+      out[`frames in 2 s at ${label}`] = frames;
     }
+    // The same two seconds with nothing selected, at 1:2: the page's own frame gap here.
+    api.store.getState().run({ type: "Deselect" });
+    await new Promise((r) => setTimeout(r, 300));
+    let last = performance.now(), gap = 0, frames = 0;
+    await new Promise<void>((done) => { const end = last + 2000; const frame = (t: number) => { frames++; gap = Math.max(gap, t - last); last = t; if (t < end) requestAnimationFrame(frame); else done(); }; requestAnimationFrame(frame); });
+    out["longest frame gap with no selection"] = Math.round(gap);
+    out["frames in 2 s with no selection"] = frames;
     return out;
   });
   console.log(`F3 ants (ms, release wasm): ${JSON.stringify(times)}`);
