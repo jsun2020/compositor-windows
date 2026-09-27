@@ -31,13 +31,27 @@ impl PreviewRequest {
     }
 }
 
-/// The substituted pixels for one layer while a panel is open, and the request that made them.
+/// What a preview was computed from besides its request: the stored layer's pixels revision and
+/// placement, and the selection's revision (0 for a missing layer).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PreviewSource { pub pixels_revision: u64, pub transform: Option<LayerTransform>, pub selection_revision: u64 }
+
+impl PreviewSource {
+    pub fn of(doc: &Document, layer: Uuid) -> PreviewSource {
+        let l = doc.layer(layer);
+        PreviewSource { pixels_revision: l.map_or(0, |l| l.pixels_revision), transform: l.map(|l| l.transform), selection_revision: doc.selection_revision }
+    }
+}
+
+/// The substituted pixels for one layer while a panel is open, the request that made them and
+/// what they were made from.
 #[derive(Clone, Debug)]
-pub struct PixelPreview { pub layer: Uuid, pub raster: Raster, pub transform: LayerTransform, pub revision: u64, pub request: PreviewRequest }
+pub struct PixelPreview { pub layer: Uuid, pub raster: Raster, pub transform: LayerTransform, pub revision: u64, pub request: PreviewRequest, pub source: PreviewSource }
 
 impl PixelPreview {
-    /// Whether `request` would compute exactly these pixels again, so they can be kept.
-    pub fn answers(&self, request: &PreviewRequest) -> bool { self.request.same_output(request) }
+    /// Whether `request`, on a document that is now `source`, would compute exactly these pixels
+    /// again, so they can be kept.
+    pub fn answers(&self, request: &PreviewRequest, source: &PreviewSource) -> bool { self.request.same_output(request) && self.source == *source }
 }
 
 // Preview sizes. A colour adjustment's preview costs about 0.1 us per preview pixel in release
@@ -80,19 +94,23 @@ fn reduced(raster: &Raster, limit: u32) -> (Raster, f64) {
     (current, factor)
 }
 
-/// The preview raster for a request, or None when there is nothing to show.
+/// The preview raster for a request, or None when there is nothing to show (an empty selection
+/// included: every edit refuses it). The selection's coverage is taken on the grid the preview is
+/// computed on, reduced or grown, as the Mac's `previewMapping` does.
 pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) -> Option<PixelPreview> {
     let layer = doc.layer(request.layer())?;
     let raster = layer.pixels.as_ref()?;
     let limit = preview_limit(request);
     let (source, factor) = reduced(raster, limit);
+    let made_from = PreviewSource::of(doc, layer.id);
     match request {
         PreviewRequest::Adjustment { adjustment, .. } | PreviewRequest::DragAdjustment { adjustment, .. } => {
             if !adjustment.is_valid() { return None; }
+            let coverage = ops::adjust::edit_coverage(doc, &layer.transform, source.width, source.height).ok()?;
             // Grain and the tonal kernels read document space, which the reduced grid still covers.
             let units = layer.transform.size.width / source.width.max(1) as f64;
-            let result = adjust::apply::apply_adjustment(&source, adjustment, layer.transform.origin, units, None);
-            Some(PixelPreview { layer: layer.id, raster: result, transform: layer.transform, revision, request: request.clone() })
+            let result = adjust::apply::apply_adjustment(&source, adjustment, layer.transform.origin, units, coverage.as_ref());
+            Some(PixelPreview { layer: layer.id, raster: result, transform: layer.transform, revision, request: request.clone(), source: made_from })
         }
         PreviewRequest::Filter { params, .. } => {
             let params = params.normalized();
@@ -103,8 +121,10 @@ pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) 
                 true => ops::adjust::grown(&source, &layer.transform, scaled.margin())?,
                 false => (source, layer.transform),
             };
-            let result = adjust::filters::apply_filter(&grid, &scaled);
-            Some(PixelPreview { layer: layer.id, raster: result, transform: placed, revision, request: request.clone() })
+            let coverage = ops::adjust::edit_coverage(doc, &placed, grid.width, grid.height).ok()?;
+            let filtered = adjust::filters::apply_filter(&grid, &scaled);
+            let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &grid, &c), None => filtered };
+            Some(PixelPreview { layer: layer.id, raster: result, transform: placed, revision, request: request.clone(), source: made_from })
         }
     }
 }

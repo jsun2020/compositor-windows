@@ -33,8 +33,10 @@ fn replace_pixels(doc: &mut Document, id: Uuid, f: impl FnOnce(&GrayRaster) -> G
     Ok(())
 }
 
+/// Layer > Mask > Invert Mask: the same edit as Image > Invert with the mask targeted, so it too
+/// stays inside the selection (the Mac has only the one, `invertPixels`).
 pub fn invert_mask(doc: &mut Document, id: Uuid) -> Result<(), CommandError> {
-    replace_pixels(doc, id, |m| GrayRaster::from_bytes(m.width, m.height, m.bytes().iter().map(|v| 255 - v).collect()))
+    crate::ops::adjust::invert_layer(doc, id, true)
 }
 
 pub fn fill_mask(doc: &mut Document, id: Uuid, white: bool) -> Result<(), CommandError> {

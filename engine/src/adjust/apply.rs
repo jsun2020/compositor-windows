@@ -15,6 +15,16 @@ pub fn blend_by_coverage(adjusted: &Raster, original: &Raster, coverage: &GrayRa
     Raster::from_premultiplied(adjusted.width, adjusted.height, data)
 }
 
+/// `blend_by_coverage` for a mask: `coverage * adjusted + (1 - coverage) * original`, the same size.
+pub fn blend_gray_by_coverage(adjusted: &GrayRaster, original: &GrayRaster, coverage: &GrayRaster) -> GrayRaster {
+    let base = original.bytes();
+    let data = adjusted.bytes().iter().zip(coverage.bytes()).enumerate().map(|(i, (&a, &k))| {
+        let (a, b, k) = (a as u32, base[i] as u32, k as u32);
+        ((a * k + b * (255 - k) + 127) / 255) as u8
+    }).collect();
+    GrayRaster::from_bytes(adjusted.width, adjusted.height, data)
+}
+
 /// A whole raster through one adjustment. `origin` and `units_per_pixel` place the raster in
 /// document space (Grain reads them); `selection` limits the change to its coverage.
 pub fn apply_adjustment(raster: &Raster, a: &LayerAdjustment, origin: Point, units_per_pixel: f64, selection: Option<&GrayRaster>) -> Raster {

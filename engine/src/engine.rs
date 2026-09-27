@@ -241,8 +241,12 @@ impl Engine {
     pub fn set_preview(&mut self, id: Uuid, request: Option<PreviewRequest>) -> Result<Dirty, CommandError> {
         // A request that would compute the pixels already showing keeps them: the settled request
         // after a Grain drag (full size either way) would otherwise recompute the whole layer.
-        if let (Some(r), Some(current)) = (&request, &self.session(id)?.preview) {
-            if current.answers(r) { return Ok(Dirty { structure: false, canvas: false, layers: vec![] }); }
+        // The key includes what the pixels were computed FROM (the stored layer's revision and
+        // placement, and the selection's revision), so an edit that forgets to clear the preview
+        // can never be answered with stale pixels (phase 3 open item N3).
+        let s = self.session(id)?;
+        if let (Some(r), Some(current)) = (&request, &s.preview) {
+            if current.answers(r, &PreviewSource::of(&s.document, r.layer())) { return Ok(Dirty { structure: false, canvas: false, layers: vec![] }); }
         }
         let revision = { self.preview_revision += 1; PREVIEW_REVISION_BASE + self.preview_revision };
         let s = self.session_mut(id)?;
@@ -484,13 +488,16 @@ impl Engine {
         Ok(compositor::composite_edit_with(&below, None, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height, &self.effects))
     }
     /// A panel's histogram: an adjustment layer reads what lies beneath it, any other layer its
-    /// own stored pixels (never the preview, or the graph would chase itself).
+    /// own stored pixels (never the preview, or the graph would chase itself), weighted by the
+    /// selection's coverage on those pixels (`LevelsFilter.histogram`, Levels.swift:95-110). An
+    /// adjustment layer never takes the selection, so its histogram does not either.
     pub fn histogram(&self, id: Uuid, layer: Uuid) -> Result<Vec<Vec<f64>>, CommandError> {
         let doc = &self.session(id)?.document;
         let target = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         if target.is_adjustment() { return Ok(adjust::levels::histogram(&self.adjustment_source(id, layer)?, None)); }
         let raster = target.pixels.as_ref().ok_or(CommandError::Argument("the layer has no pixels".into()))?;
-        Ok(adjust::levels::histogram(raster, None))
+        let coverage = selection_coverage(doc, &target.transform.pixel_to_document(raster.width, raster.height), raster.width, raster.height);
+        Ok(adjust::levels::histogram(raster, coverage.as_ref()))
     }
     pub fn auto_levels(&self, id: Uuid, layer: Uuid, mode: LevelsAuto) -> Result<LevelsSettings, CommandError> {
         Ok(mode.settings(&self.histogram(id, layer)?))
