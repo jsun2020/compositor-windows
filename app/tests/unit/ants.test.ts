@@ -14,9 +14,11 @@ function flat(contours: [number, number][][]): Float64Array {
 }
 
 describe("marching ants", () => {
-  it("fetch the full outline at 1:1 and above, and a power-of-two step below", () => {
-    expect([outlineStep(4), outlineStep(1), outlineStep(0.9), outlineStep(0.5), outlineStep(0.3), outlineStep(0.01)])
-      .toEqual([1, 1, 0.5, 0.5, 0.25, 1 / 128]);
+  it("fetch the full outline at 1:1 and above, and below it the power of two at or above the zoom", () => {
+    // min(1, 2^ceil(log2(max(zoom, 1/4096)))) (TransformOverlay.swift:124): log2 0.9 = -0.15 rounds
+    // up to 0, log2 0.3 = -1.74 to -1, log2 0.01 = -6.64 to -6; 1e-6 is held at 1/4096.
+    expect([outlineStep(4), outlineStep(1), outlineStep(0.9), outlineStep(0.5), outlineStep(0.3), outlineStep(0.01), outlineStep(1e-6)])
+      .toEqual([1, 1, 1, 0.5, 0.5, 1 / 64, 1 / 4096]);
   });
 
   it("refetch only when the document, the selection's revision or the step changes", () => {

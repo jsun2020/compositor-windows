@@ -3,12 +3,13 @@ export const ANTS_INTERVAL_MS = 120;
 /** One march step; the phase wraps at the dash period (4 on, 4 off). */
 export const nextPhase = (phase: number): number => (phase + 1) % 8;
 
-/** The outline's detail for a zoom (device px per document px): 1 at or above 1:1, else the power of
- * two at or below the zoom, so the engine traces a very detailed outline no finer than the screen
- * shows it (`selection_lod`; TransformOverlay.swift:92-177, :284-298). */
+/** The outline's detail for a zoom (device px per document px): the power of two at or above the
+ * zoom, at most 1 and at least 1/4096, `min(1, 2^ceil(log2(max(scale, 1/4096))))`
+ * (TransformOverlay.swift:124), so the engine traces a very detailed outline no coarser than the
+ * screen shows it (`selection_lod`; :92-177, :284-298). */
 export function outlineStep(zoom: number): number {
-  if (!(zoom > 0) || zoom >= 1) return 1;
-  return Math.pow(2, Math.floor(Math.log2(zoom)));
+  if (!(zoom > 0)) return 1;
+  return Math.min(1, Math.pow(2, Math.ceil(Math.log2(Math.max(zoom, 1 / 4096)))));
 }
 
 /** Outlines with more points than this come from the engine as they are only at 1:1 and closer
