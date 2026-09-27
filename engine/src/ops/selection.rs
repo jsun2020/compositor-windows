@@ -111,7 +111,7 @@ pub fn feather_selection(doc: &mut Document, amount: u32) -> Result<(), CommandE
 pub fn flip_selection(doc: &mut Document, horizontal: bool) {
     let (w, h) = ((doc.width as f64 * SUBPIXEL) as i32, (doc.height as f64 * SUBPIXEL) as i32);
     if let Some(s) = &mut doc.selection {
-        for c in &mut s.contours { for p in c.iter_mut() { if horizontal { p[0] = w - p[0]; } else { p[1] = h - p[1]; } } }
+        for c in std::sync::Arc::make_mut(&mut s.contours).iter_mut() { for p in c.iter_mut() { if horizontal { p[0] = w - p[0]; } else { p[1] = h - p[1]; } } }
     }
 }
 

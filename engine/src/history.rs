@@ -1,6 +1,7 @@
 use crate::Document;
 
-/// Whole-document snapshots. Rasters are shared, so a snapshot costs only the layer metadata.
+/// Whole-document snapshots. Rasters and the selection's outline are shared, so a snapshot costs only
+/// the layer metadata.
 #[derive(Debug, Default)]
 pub struct History {
     undo: Vec<Document>,

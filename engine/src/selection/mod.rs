@@ -15,6 +15,7 @@ pub mod wand;
 
 use crate::{Point, Rect};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Fixed-point units per document pixel in which an outline is stored and combined.
 pub const SUBPIXEL: f64 = 256.0;
@@ -29,11 +30,14 @@ pub const MAX_RESIZE: u32 = 500;
 /// One closed contour, in `SUBPIXEL` units.
 pub type Contour = Vec<[i32; 2]>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Selection {
     /// Closed contours in `SUBPIXEL` units of document space, top-left origin, filled by the nonzero
     /// winding rule. Empty contours or a zero-area outline make an explicit empty selection.
-    pub contours: Vec<Contour>,
+    /// Shared: every document clone (each history snapshot, each edit's working copy) holds the same
+    /// points, and a command that keeps the outline keeps them (final review F2: a 4-million-point
+    /// wand outline was copied and compared twice per edit).
+    pub contours: Arc<Vec<Contour>>,
     /// Hard pixel edges when false (and no feather), as the Mac's Anti-alias toggle.
     pub antialiased: bool,
     /// How far the edge fades, in document pixels, 0 to `MAX_FEATHER`; sigma is half of it.
@@ -41,7 +45,7 @@ pub struct Selection {
 }
 
 impl Selection {
-    pub fn new(contours: Vec<Contour>, antialiased: bool, feather: f64) -> Selection { Selection { contours, antialiased, feather } }
+    pub fn new(contours: Vec<Contour>, antialiased: bool, feather: f64) -> Selection { Selection { contours: Arc::new(contours), antialiased, feather } }
     /// The outline's bounding box in document pixels; None when it has no points.
     pub fn bounds(&self) -> Option<Rect> {
         let mut points = self.contours.iter().flatten();
@@ -69,7 +73,7 @@ impl Selection {
     pub fn contains(&self, p: Point) -> bool {
         let (px, py) = (p.x * SUBPIXEL, p.y * SUBPIXEL);
         let mut winding = 0i32;
-        for c in &self.contours {
+        for c in self.contours.iter() {
             for i in 0..c.len() {
                 let (a, b) = (c[i], c[(i + 1) % c.len()]);
                 let (ay, by) = (a[1] as f64, b[1] as f64);
@@ -83,7 +87,16 @@ impl Selection {
     }
     /// The same outline moved by whole `SUBPIXEL` units, flags kept.
     pub fn translated(&self, dx: i32, dy: i32) -> Selection {
-        Selection { contours: self.contours.iter().map(|c| c.iter().map(|p| [p[0] + dx, p[1] + dy]).collect()).collect(), ..self.clone() }
+        Selection { contours: Arc::new(self.contours.iter().map(|c| c.iter().map(|p| [p[0] + dx, p[1] + dy]).collect()).collect()), ..self.clone() }
+    }
+}
+
+/// Equal flags and the same points; the very same shared outline is equal without reading it, which
+/// is what same_content and the engine's revision check meet after every edit that keeps it.
+impl PartialEq for Selection {
+    fn eq(&self, other: &Selection) -> bool {
+        self.antialiased == other.antialiased && self.feather == other.feather
+            && (Arc::ptr_eq(&self.contours, &other.contours) || self.contours == other.contours)
     }
 }
 

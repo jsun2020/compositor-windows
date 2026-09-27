@@ -250,6 +250,34 @@ fn the_selection_is_part_of_the_document_but_never_saved() {
 }
 
 #[test]
+fn history_snapshots_share_the_outline_and_undo_still_restores_a_changed_one() {
+    // Final review F2: every snapshot and working copy used to deep-copy the outline (a 4-million-
+    // point wand outline, twice per edit). An edit that leaves the selection alone keeps the very
+    // same points in the new document and in the snapshot it pushes.
+    let (mut e, id) = session(80, 60);
+    let layer = e.state(id).unwrap().layers[0].id;
+    lasso(&mut e, id, vec![p(10.0, 10.0), p(50.0, 12.0), p(30.0, 40.0)], SelectionMode::Replace);
+    let outline = selection(&e, id).unwrap().contours;
+    let count = depth(&e, id);
+    run(&mut e, id, Command::RenameLayer { id: layer, name: "Renamed".into() });
+    assert_eq!(depth(&e, id), count + 1, "the rename is a step");
+    assert!(std::sync::Arc::ptr_eq(&outline, &selection(&e, id).unwrap().contours), "the edited document shares the outline");
+    e.undo(id).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&outline, &selection(&e, id).unwrap().contours), "so does the snapshot before it");
+    // A changed selection is still its own step, and undo brings the old points back.
+    lasso(&mut e, id, square(5.0, 5.0, 10.0), SelectionMode::Replace);
+    assert_ne!(*selection(&e, id).unwrap().contours, *outline);
+    e.undo(id).unwrap();
+    assert_eq!(*selection(&e, id).unwrap().contours, *outline);
+    // An equal outline built afresh (its own points, the same values) is no change: no step.
+    run(&mut e, id, Command::SelectAll);
+    let (all, count) = (selection(&e, id).unwrap().contours, depth(&e, id));
+    run(&mut e, id, Command::SelectAll);
+    assert!(!std::sync::Arc::ptr_eq(&all, &selection(&e, id).unwrap().contours), "a new outline was built");
+    assert_eq!(depth(&e, id), count, "equal by content, so no step");
+}
+
+#[test]
 fn crop_canvas_size_and_image_size_drop_the_selection_and_flip_canvas_mirrors_it() {
     let (mut e, id) = session(100, 80);
     // y 10..60 on an 80-high canvas: asymmetric about the canvas middle (40), so a vertical flip
