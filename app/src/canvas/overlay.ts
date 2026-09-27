@@ -2,7 +2,12 @@ import type { Viewport } from "./viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
 import type { OverlayGeometry } from "../tools/transform-geometry";
-import type { Guide } from "../engine/types";
+import type { Guide, PointTuple, SelectionShape } from "../engine/types";
+
+/** The marching ants: the selection's outline in document pixels, moved by `offset` while it is dragged. */
+export interface AntsState { contours: PointTuple[][]; offset: { dx: number; dy: number }; phase: number; }
+/** An outline being drawn, in document pixels (`LassoDraft`). */
+export interface DraftState { kind: SelectionShape; points: { x: number; y: number }[]; cursor: { x: number; y: number } | null; }
 
 export interface OverlayState {
   docWidth: number; docHeight: number; cropRect: Rect | null;
@@ -11,6 +16,58 @@ export interface OverlayState {
   transform: OverlayGeometry | null;
   /** The document's saved guides, or null while View > Hide Guides is in effect. */
   canvasGuides: Guide[] | null;
+  /** Null with no selection, or an empty one. */
+  ants?: AntsState | null;
+  draft?: DraftState | null;
+}
+
+/** The dash the ants march along, in view px (`drawSelection`, TransformOverlay.swift:283-298). */
+export const ANTS_DASH = 4;
+
+/** A white line under a black dash shifted by `phase` (TransformOverlay.swift:283-298). */
+function drawAnts(ctx: CanvasRenderingContext2D, viewport: Viewport, size: { width: number; height: number }, ants: AntsState): void {
+  ctx.save();
+  ctx.beginPath();
+  for (const contour of ants.contours) {
+    contour.forEach(([x, y], i) => {
+      const v = viewport.viewPoint({ x: x + ants.offset.dx, y: y + ants.offset.dy }, size);
+      if (i === 0) ctx.moveTo(v.x, v.y); else ctx.lineTo(v.x, v.y);
+    });
+    ctx.closePath();
+  }
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "white";
+  ctx.stroke();
+  ctx.setLineDash([ANTS_DASH, ANTS_DASH]);
+  ctx.lineDashOffset = ants.phase;
+  ctx.strokeStyle = "black";
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** The outline being drawn: black 0.8 alpha 2 px under white 1 px; the Polygonal Lasso's first
+ * corner as an 8 px handle to click (`drawLassoDraft`, TransformOverlay.swift:301-333). */
+function drawDraft(ctx: CanvasRenderingContext2D, viewport: Viewport, size: { width: number; height: number }, draft: DraftState): void {
+  const points = draft.points.map((p) => viewport.viewPoint(p, size));
+  if (draft.kind === "Polygonal" && draft.cursor) points.push(viewport.viewPoint(draft.cursor, size));
+  if (points.length === 0) return;
+  ctx.save();
+  ctx.beginPath();
+  if (draft.kind === "Ellipse" && points.length === 4) {
+    const xs = points.map((p) => p.x), ys = points.map((p) => p.y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    ctx.ellipse((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0, Math.PI * 2);
+  } else {
+    points.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    if (draft.kind === "Rectangle") ctx.closePath();
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.8)"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke();
+  if (draft.kind === "Polygonal") {
+    ctx.fillStyle = "white"; ctx.fillRect(points[0].x - 4, points[0].y - 4, 8, 8);
+    ctx.strokeStyle = "black"; ctx.strokeRect(points[0].x - 4, points[0].y - 4, 8, 8);
+  }
+  ctx.restore();
 }
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, dpr: number, state: OverlayState): void {
@@ -86,6 +143,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
       ctx.strokeRect(h.x - 3.5, h.y - 3.5, 7, 7);
     }
   }
+  if (state.ants) drawAnts(ctx, viewport, size, state.ants);
+  if (state.draft) drawDraft(ctx, viewport, size, state.draft);
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
   for (const x of state.guides.xs) { const v = viewport.viewPoint({ x, y: 0 }, size).x; ctx.beginPath(); ctx.moveTo(v + 0.5, 0); ctx.lineTo(v + 0.5, viewport.viewSize.height); ctx.stroke(); }
   for (const y of state.guides.ys) { const v = viewport.viewPoint({ x: 0, y }, size).y; ctx.beginPath(); ctx.moveTo(0, v + 0.5); ctx.lineTo(viewport.viewSize.width, v + 0.5); ctx.stroke(); }

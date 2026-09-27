@@ -7,6 +7,8 @@ import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
 import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
+import { ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
+import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -31,6 +33,39 @@ export function CanvasView() {
   const selectedLayerIds = useEditor((s) => s.selectedLayerIds);
   const maskSelected = useEditor((s) => s.maskSelected);
   const sampleMode = useEditor((s) => s.adjustEdit?.sampleMode ?? null);
+  const overlayTick = useEditor((s) => s.overlayTick);
+  const selection = useEditor((s) => (s.activeId ? s.documents[s.activeId]?.selection ?? null : null));
+  const outlineCacheRef = useRef(new OutlineCache());
+  const antsPhaseRef = useRef(0);
+
+  /** Draws the overlay from the store as it is now: the pixel grid, guides, the crop frame, the
+   * transform handles, the marching ants and an outline being drawn. The ants' timer and an outline
+   * drag repaint only this, never the picture beneath. */
+  const paintOverlay = () => {
+    const gl = glRef.current, overlay = overlayRef.current; const s = useEditor.getState();
+    if (!gl || !overlay || !s.activeId || !s.engine) return;
+    const doc = s.documents[s.activeId], vp = s.viewports[s.activeId];
+    if (!doc || !vp) return;
+    const dpr = window.devicePixelRatio || 1;
+    overlay.width = gl.width; overlay.height = gl.height;
+    let transformGeometry: OverlayGeometry | null = null;
+    if (s.tool === "move" && (s.transformEdit || canTransform(doc, s.selectedLayerIds, s.maskSelected))) {
+      const shape = editedShape(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
+      if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, vp, { width: doc.width, height: doc.height });
+    }
+    const sel = doc.selection;
+    const engine = s.engine; const id = s.activeId;
+    const step = outlineStep(vp.zoom);
+    const ants = sel && !sel.empty
+      ? { contours: outlineCacheRef.current.get(id, sel.revision, step, () => engine.selectionOutline(id, step)), offset: s.outlineMove ?? { dx: 0, dy: 0 }, phase: antsPhaseRef.current }
+      : null;
+    const d = s.selectionDraft;
+    drawOverlay(overlay.getContext("2d")!, vp, dpr, {
+      docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
+      transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
+      ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null,
+    });
+  };
 
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
@@ -91,17 +126,20 @@ export function CanvasView() {
     if (!renderer || !gl || !overlay || !state || !viewport || !engine) return;
     const dpr = window.devicePixelRatio || 1;
     renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
-    overlay.width = gl.width; overlay.height = gl.height;
-    let transformGeometry: OverlayGeometry | null = null;
-    if (tool === "move" && (transformEdit || canTransform(state, selectedLayerIds, maskSelected))) {
-      const shape = editedShape(state, transformEdit, selectedLayerIds, maskSelected);
-      if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, viewport, { width: state.width, height: state.height });
-    }
-    drawOverlay(overlay.getContext("2d")!, viewport, dpr, {
-      docWidth: state.width, docHeight: state.height, cropRect: tool === "crop" ? cropRect : null, guides: snapGuides,
-      transform: transformGeometry, canvasGuides: showGuides ? state.guides : null,
-    });
+    paintOverlay();
   }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected, showGuides]);
+
+  // An outline being drawn or dragged repaints the overlay alone.
+  useEffect(() => { paintOverlay(); }, [overlayTick]);
+
+  // Marching ants: march every 120 ms, only while a selection with something in it exists
+  // (`updateAntsTimer`, EditorCanvas.swift:2004-2020).
+  const antsActive = !!selection && !selection.empty;
+  useEffect(() => {
+    if (!antsActive) return;
+    const timer = setInterval(() => { antsPhaseRef.current = nextPhase(antsPhaseRef.current); paintOverlay(); }, ANTS_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [antsActive, activeId]);
 
   // Wheel: zoom with Ctrl, otherwise pan.
   useEffect(() => {
@@ -151,11 +189,12 @@ export function CanvasView() {
     return () => el.removeEventListener("pointerdown", down, { capture: true });
   }, []);
 
-  // The cursor shows an armed eyedropper regardless of which tool is otherwise selected.
+  // The cursor shows an armed eyedropper regardless of which tool is otherwise selected, and a
+  // crosshair for the selection tools.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode ? "crosshair" : "";
-  }, [sampleMode]);
+    el.style.cursor = sampleMode || isSelectionTool(tool) ? "crosshair" : "";
+  }, [sampleMode, tool]);
 
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {
@@ -290,6 +329,98 @@ export function CanvasView() {
     };
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+  }, []);
+
+  // The selection tools (Phase 4a; EditorCanvas.swift:1961-2002, :1513-1531, :1696-1716). A press
+  // picks its mode from Shift / Alt; in New mode, inside a selection, it drags the outline instead
+  // (one MoveSelection on release; a click without a drag deselects, or with the wand selects afresh
+  // at that pixel). The Marquee and the Freehand Lasso draw while dragged and finish on release; the
+  // Polygonal Lasso adds a corner per click and closes on its first corner or a double-click; the
+  // Magic Wand selects at the click.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    let moveStart: DocP | null = null;
+    let lastPixel: DocP | null = null;
+    const view = (e: { clientX: number; clientY: number }) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const docPoint = (e: { clientX: number; clientY: number }): DocP => {
+      const s = useEditor.getState(); const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!];
+      return vp.documentPoint(view(e), { width: d.width, height: d.height });
+    };
+    const down = (e: PointerEvent) => {
+      const s = useEditor.getState();
+      if (!isSelectionTool(s.tool) || e.button !== 0 || spaceRef.current || !s.activeId || !s.engine) return;
+      if (s.panelOwnsDocument(true)) return;
+      const d = s.documents[s.activeId]; const vp = s.viewports[s.activeId];
+      const pixel = docPoint(e);
+      const draft = s.selectionDraft;
+      if (draft?.kind === "Polygonal") {
+        const first = vp.viewPoint(draft.points[0], { width: d.width, height: d.height });
+        if (draft.click(pixel, view(e), first, 1) === "close") s.finishSelectionDraft(); else s.setSelectionDraft(draft);
+        return;
+      }
+      const o = s.selectionOptions;
+      const mode = selectionMode(o.mode, e.shiftKey, e.altKey);
+      if (mode === "Replace" && s.engine.selectionContains(s.activeId, pixel)) {
+        moveStart = pixel;
+        s.setOutlineMove({ dx: 0, dy: 0 });
+        el.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (s.tool === "wand") {
+        // Off the canvas there is no colour to match (`magicWand(at:)` reads the canvas-sized sample).
+        if (pixel.x >= 0 && pixel.y >= 0 && pixel.x < d.width && pixel.y < d.height) {
+          s.run({ type: "MagicWand", at: [pixel.x, pixel.y], mode, settings: o.wand, antialiased: o.antialiased });
+        }
+        return;
+      }
+      lastPixel = pixel;
+      s.setSelectionDraft(SelectionDraft.begin(s.tool === "marquee" ? o.marquee : o.lasso, mode, pixel, e.shiftKey));
+      el.setPointerCapture(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      const s = useEditor.getState();
+      if (!isSelectionTool(s.tool) || !s.activeId) return;
+      const pixel = docPoint(e);
+      if (moveStart) { s.setOutlineMove(outlineOffset(moveStart, pixel, e.shiftKey)); return; }
+      const draft = s.selectionDraft; if (!draft) return;
+      if (draft.kind === "Polygonal") { draft.moveCursor(pixel); s.setSelectionDraft(draft); return; }
+      if (!el.hasPointerCapture(e.pointerId)) return;
+      lastPixel = pixel;
+      if (draft.isMarquee) draft.dragMarquee(pixel, e.shiftKey); else draft.extend(pixel);
+      s.setSelectionDraft(draft);
+    };
+    const up = () => {
+      const s = useEditor.getState();
+      if (moveStart) {
+        const start = moveStart, offset = s.outlineMove;
+        moveStart = null;
+        s.setOutlineMove(null);
+        if (offset && (offset.dx !== 0 || offset.dy !== 0)) s.run({ type: "MoveSelection", dx: offset.dx, dy: offset.dy });
+        else if (s.tool === "wand") s.run({ type: "MagicWand", at: [start.x, start.y], mode: "Replace", settings: s.selectionOptions.wand, antialiased: s.selectionOptions.antialiased });
+        else s.run({ type: "Deselect" });
+        return;
+      }
+      lastPixel = null;
+      const draft = s.selectionDraft;
+      if (draft && draft.kind !== "Polygonal") s.finishSelectionDraft();
+    };
+    const dblclick = () => { const s = useEditor.getState(); if (s.selectionDraft?.kind === "Polygonal") s.finishSelectionDraft(); };
+    // Shift pressed or let go mid-drag reshapes the Marquee at once, without waiting for the
+    // pointer to move (EditorCanvas.swift:611-619); Shift / Alt held show in the options bar.
+    const keys = (e: KeyboardEvent) => {
+      const s = useEditor.getState();
+      if (!isSelectionTool(s.tool)) return;
+      s.setHeldSelectionMode(e.altKey ? "Subtract" : e.shiftKey ? "Add" : null);
+      const draft = s.selectionDraft;
+      if (e.key === "Shift" && draft?.isMarquee && lastPixel) { draft.dragMarquee(lastPixel, e.type === "keydown"); s.setSelectionDraft(draft); }
+    };
+    const blur = () => useEditor.getState().setHeldSelectionMode(null);
+    el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("dblclick", dblclick);
+    window.addEventListener("keydown", keys); window.addEventListener("keyup", keys); window.addEventListener("blur", blur);
+    return () => {
+      el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("dblclick", dblclick);
+      window.removeEventListener("keydown", keys); window.removeEventListener("keyup", keys); window.removeEventListener("blur", blur);
+    };
   }, []);
 
   return (
