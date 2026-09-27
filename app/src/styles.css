@@ -131,3 +131,6 @@ body { margin: 0; }
 /* Error banner */
 .error-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 200; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 16px; background: #5a1f1f; color: #fff; }
 .error-banner button { background: none; border: 1px solid #fff; color: #fff; border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+/* The selection tools' header (Phase 4a). */
+.tool-options .segmented button[aria-pressed="true"] { border-color: #3a6ea5; background: #3a6ea5; color: #fff; }
+.tool-options .hint { color: #999; }

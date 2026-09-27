@@ -39,9 +39,10 @@ export function addMaskToActive(revealing: boolean): void {
   if (ok) c.s.setMaskSelected(true);
 }
 /** Whether Delete may clear through the selection now (`canPaint`, EditorSession+Brush.swift:5-11):
- * one layer targeted, shown, a pixel layer or an enabled mask, and a selection with something in it. */
+ * one layer targeted, shown, a pixel layer or an enabled mask, a selection with something in it,
+ * and no crop rectangle pending (`canEditLayers`: `cropRect == nil`). */
 export function canClearSelected(): boolean {
-  const c = ctx(); if (!c?.active || !c.doc.selection || c.doc.selection.empty || c.selected.length !== 1 || c.s.panelOwnsDocument()) return false;
+  const c = ctx(); if (!c?.active || !c.doc.selection || c.doc.selection.empty || c.selected.length !== 1 || c.s.panelOwnsDocument() || c.s.cropRect) return false;
   if (!visibleIds(c.doc).has(c.active.id)) return false;
   return c.s.maskSelected && c.active.hasMask ? c.active.maskEnabled : !c.active.isGroup && c.active.hasPixels;
 }

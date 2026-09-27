@@ -17,6 +17,8 @@ import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
 import { JpegExportSheet } from "./sheets/JpegExportSheet";
 import { CropOptions } from "./panels/CropOptions";
+import { SelectionOptions } from "./panels/SelectionOptions";
+import { SelectionAmountSheet } from "./sheets/SelectionAmountSheet";
 import { TransformInspector } from "./panels/TransformInspector";
 import { AdjustPanel } from "./panels/AdjustPanel";
 import { UndrawnNotice } from "./panels/UndrawnNotice";
@@ -85,6 +87,7 @@ export function App() {
       <MenuBar />
       <ProjectTabs />
       <CropOptions />
+      <SelectionOptions />
       <TransformInspector />
       <div className="workspace">
         <ToolRail />
@@ -102,6 +105,7 @@ export function App() {
       {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}
       {sheet?.kind === "imageSize" && <ImageSizeSheet />}
       {sheet?.kind === "jpeg" && <JpegExportSheet />}
+      {sheet?.kind === "selectionAmount" && <SelectionAmountSheet operation={sheet.operation} />}
     </div>
   );
 }

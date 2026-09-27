@@ -6,7 +6,7 @@ import { activeLayer } from "../state/selection";
 import {
   addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy,
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
-  mergeTitle, toggleMaskEnabled, toggleMaskLink,
+  loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
 import { ADJUSTMENT_KINDS, isEditableKind } from "../engine/types";
 
@@ -84,6 +84,19 @@ export function MenuBar() {
       { id: "layer-down", label: "Send Backward", run: () => runAction("layer-down"), enabled: editable && canMoveActiveBy(-1) },
       "separator",
       { id: "layer-delete", label: "Delete Layer", run: () => deleteSelected(), enabled: editable },
+    ] },
+    // Select (CompositorApp.swift:194-230): Subject is Apple Vision and not in this port.
+    { title: "Select", items: [
+      { id: "select-all", label: "All", run: () => runAction("select-all"), enabled: editable },
+      { id: "select-deselect", label: "Deselect", run: () => runAction("deselect"), enabled: editable && !!activeDoc?.selection },
+      { id: "select-inverse", label: "Inverse", run: () => runAction("select-inverse"), enabled: editable && !!activeDoc?.selection },
+      { id: "select-layer-pixels", label: "Layer's Pixels", run: () => loadSelection(active!.id, false), enabled: editable && !!active && !active.isGroup && active.hasPixels },
+      { id: "select-mask-black", label: "Mask's Black Areas", run: () => loadSelection(active!.id, true), enabled: editable && hasMask },
+      "separator",
+      ...(["Expand", "Contract", "Feather"] as const).map((operation) => ({
+        id: `select-${operation.toLowerCase()}`, label: `${operation}...`, run: () => s.openSheet({ kind: "selectionAmount", operation }),
+        enabled: editable && s.hasSelection() && !s.selectionDraft,
+      })),
     ] },
     { title: "Filter", items: [
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },

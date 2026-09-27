@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SELECTION_OPTIONS, useEditor } from "../../src/state/store";
 import { addMaskToActive, canInvert, deleteKeyPressed, loadSelection } from "../../src/actions/layers";
 import { SelectionDraft } from "../../src/tools/selection-draft";
+import { parseAmount } from "../../src/sheets/SelectionAmountSheet";
 import type { Command, DocumentState, LayerState, LayerTransform, SelectionState } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 
@@ -29,7 +30,7 @@ function stub(doc: DocumentState) {
 
 beforeEach(() => {
   useEditor.setState({ engine: null, documents: {}, order: [], activeId: null, viewports: {}, transformEdit: null, selectedLayerIds: [], maskSelected: false,
-    error: null, tool: "move", sheet: null, adjustEdit: null, selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null });
+    error: null, tool: "move", sheet: null, adjustEdit: null, selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, cropRect: null });
 });
 
 describe("Delete", () => {
@@ -65,6 +66,27 @@ describe("Add Mask", () => {
     commands = stub(document([layer("A")], null));
     addMaskToActive(true);
     expect(commands).toEqual([{ type: "AddMask", id: "A", revealing: true }]);
+  });
+});
+
+describe("the Expand / Contract / Feather sheet", () => {
+  it("takes only a whole number from 1 to the operation's maximum (SelectionAmountSheet.amount)", () => {
+    expect([parseAmount(" 12 ", 500), parseAmount("500", 500), parseAmount("251", 250), parseAmount("0", 250), parseAmount("2.5", 250), parseAmount("", 250), parseAmount("1e2", 500)])
+      .toEqual([12, 500, null, null, null, null, null]);
+  });
+});
+
+// Ruling (Task 10 review): canPaint requires no active crop (canEditLayers: cropRect == nil). Delete
+// must not clear through the selection while the crop tool has a rectangle pending.
+describe("Delete while a crop is pending", () => {
+  it("does nothing with a crop rectangle active, and clears the selection once it is dropped", () => {
+    const commands = stub(document([layer("A")], selected()));
+    useEditor.setState({ cropRect: { x: 0, y: 0, width: 10, height: 10 } });
+    deleteKeyPressed();
+    expect(commands).toEqual([]);
+    useEditor.setState({ cropRect: null });
+    deleteKeyPressed();
+    expect(commands).toEqual([{ type: "ClearSelectedPixels", id: "A", mask: false }]);
   });
 });
 

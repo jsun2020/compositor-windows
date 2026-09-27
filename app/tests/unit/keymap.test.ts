@@ -48,6 +48,18 @@ describe("keymap", () => {
     expect(matchShortcut(ev("i", { ctrlKey: true }))).toBe("invert");
     expect(matchShortcut(ev("i", { ctrlKey: true, altKey: true }))).toBe("image-size"); // still its own binding
   });
+
+  it("maps the selection tools and the Select menu", () => {
+    expect(matchShortcut(ev("m"))).toBe("tool-marquee");
+    expect(matchShortcut(ev("L"))).toBe("tool-lasso");
+    expect(matchShortcut(ev("w"))).toBe("tool-wand");
+    expect(matchShortcut(ev("a", { ctrlKey: true }))).toBe("select-all");
+    expect(matchShortcut(ev("d", { ctrlKey: true }))).toBe("deselect");
+    expect(matchShortcut(ev("I", { ctrlKey: true, shiftKey: true }))).toBe("select-inverse");
+    expect(matchShortcut(ev("Tab"))).toBe("cycle-tool-mode");
+    expect(matchShortcut(ev("Tab", { shiftKey: true }))).toBeNull();
+    expect(matchShortcut(ev("w", { ctrlKey: true }))).toBe("close"); // still its own binding
+  });
 });
 
 describe("typeOpacityDigit", () => {

@@ -6,7 +6,8 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteSelected, duplicateSelected, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { isSelectionTool } from "../tools/selection-draft";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
@@ -17,6 +18,13 @@ export function runAction(id: ActionId, shift = false): void {
   const zoomBy = (f: number) => { if (doc && vp) { vp.setZoom(vp.zoom * f, vp.center, { width: doc.width, height: doc.height }); s.invalidate(); } };
   const nudgeKey = NUDGE_KEYS[id];
   if (nudgeKey) {
+    // In a selection tool the arrows move the outline, 1 px or 10 with Shift, one step a press
+    // (`nudgeSelection`, EditorCanvas.swift:1809-1814); only a selection with something in it moves.
+    if (doc && isSelectionTool(s.tool)) {
+      const delta = nudgeDelta(nudgeKey, shift);
+      if (delta && !s.selectionDraft && s.hasSelection()) s.run({ type: "MoveSelection", dx: delta.dx, dy: delta.dy });
+      return;
+    }
     if (!doc || s.tool !== "move") return;
     const delta = nudgeDelta(nudgeKey, shift);
     if (!delta) return;
@@ -67,16 +75,25 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-hand": s.setTool("hand"); break;
     case "tool-zoom": s.setTool("zoom"); break;
     case "tool-crop": s.setTool("crop"); break;
+    case "tool-marquee": s.setTool("marquee"); break;
+    case "tool-lasso": s.setTool("lasso"); break;
+    case "tool-wand": s.setTool("wand"); break;
+    case "select-all": if (doc) s.run({ type: "SelectAll" }); break;
+    case "deselect": if (doc?.selection) s.run({ type: "Deselect" }); break;
+    case "select-inverse": if (doc?.selection) s.run({ type: "InvertSelection" }); break;
+    case "cycle-tool-mode": s.cycleToolMode(); break;
     // An open panel answers Enter and Escape itself (AdjustPanel.tsx); neither may also reach the
-    // crop tool or a transform.
+    // crop tool or a transform. An outline being drawn takes them first (EditorCanvas.swift:1772-1777).
     case "apply":
       if (s.panelOwnsDocument()) break;
-      if (doc && s.tool === "crop") { const r = s.cropRect; if (r) { s.run({ type: "Crop", ...r }); s.setCropRect(null); } }
+      if (s.selectionDraft) s.finishSelectionDraft();
+      else if (doc && s.tool === "crop") { const r = s.cropRect; if (r) { s.run({ type: "Crop", ...r }); s.setCropRect(null); } }
       else if (s.transformEdit) s.commitTransform();
       break;
     case "cancel":
       if (s.panelOwnsDocument()) break;
-      if (s.tool === "crop") s.setCropRect(null);
+      if (s.selectionDraft) s.setSelectionDraft(null);
+      else if (s.tool === "crop") s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
       break;
     case "new-folder": addFolder(); break;
@@ -88,7 +105,13 @@ export function runAction(id: ActionId, shift = false): void {
     case "layer-down": moveActiveBy(-1); break;
     case "blend-next": cycleBlendMode(true); break;
     case "blend-prev": cycleBlendMode(false); break;
-    case "delete-layer": if (doc && !s.sheet) deleteSelected(); break;
+    // Backspace / Delete drop the last corner of an outline being drawn; otherwise Delete clears
+    // through a selection, or deletes the layers without one (deleteKeyPressed).
+    case "delete-layer":
+      if (!doc || s.sheet) break;
+      if (s.selectionDraft) { const d = s.selectionDraft; s.setSelectionDraft(d.removeLast() ? d : null); break; }
+      deleteKeyPressed();
+      break;
     case "levels": s.beginAdjust({ kind: "Levels" }); break;
     case "curves": s.beginAdjust({ kind: "Curves" }); break;
     case "hue-saturation": s.beginAdjust({ kind: "Hue/Saturation" }); break;
