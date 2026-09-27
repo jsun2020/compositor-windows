@@ -454,6 +454,16 @@ One more, made on the Mac: create a new 200 x 120 document, import any small ima
 layer all six effects from the Effects panel (Stroke, Drop Shadow, Color Overlay, Inner Shadow,
 Outer Glow, Inner Glow) with settings of your choice, hide one of them with its eye, then save it
 as mac-effects.comp and export it as mac-effects.png. Send both back with the rest.
+
+New in this set (how an enlarged, turned or shrunk layer is resampled):
+
+- sampling-high-400.comp       -> sampling-high-400.png
+- sampling-smooth-400.comp     -> sampling-smooth-400.png
+- sampling-nearest-400.comp    -> sampling-nearest-400.png
+- sampling-high-150.comp       -> sampling-high-150.png
+- sampling-high-rotated.comp   -> sampling-high-rotated.png
+- sampling-high-shrink-65.comp -> sampling-high-shrink-65.png
+- sampling-high-mask-400.comp  -> sampling-high-mask-400.png
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -513,6 +523,74 @@ fn edited_rich_file_doc() -> Document {
     e.document(id).unwrap().clone()
 }
 
+/// Hard edges every way for fitting a resampling filter: 1, 2 and 3 px colour stripes on the left,
+/// an opaque green bar top right, a half-alpha magenta block and a transparent notch bottom right.
+fn sampling_pattern() -> Raster {
+    const STRIPES: [(u32, [u8; 3]); 5] = [(1, [230, 40, 30]), (1, [20, 20, 20]), (2, [240, 240, 240]), (3, [30, 90, 220]), (1, [250, 200, 40])];
+    let (width, height) = (16u32, 10u32);
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height { for x in 0..width {
+        let px = if x < 8 {
+            let mut left = x;
+            let mut colour = STRIPES[0].1;
+            for (w, c) in STRIPES { if left < w { colour = c; break; } left -= w; }
+            [colour[0], colour[1], colour[2], 255]
+        } else if y < 4 { [40, 180, 90, 255] }
+        else if x >= 12 && y >= 6 { [0, 0, 0, 0] }
+        else { [(200 * 128 + 127) / 255, (60 * 128 + 127) / 255, (160 * 128 + 127) / 255, 128].map(|v: u32| v as u8) };
+        data.extend_from_slice(&px);
+    }}
+    Raster::from_premultiplied(width, height, data)
+}
+
+/// Single-pixel detail for a reduction: colours that change every pixel, no two neighbours alike.
+fn fine_pattern(width: u32, height: u32) -> Raster {
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height { for x in 0..width {
+        let k = (x * 37 + y * 91) % 7;
+        data.extend_from_slice(&[(k * 36) as u8, (255 - k * 30) as u8, ((k * 97) % 256) as u8, 255]);
+    }}
+    Raster::from_premultiplied(width, height, data)
+}
+
+/// The sampling pattern drawn `percent` of its size, turned `rotation` degrees, with `sampling`.
+/// The Mac enlarges with Core Graphics' filter for the layer's setting (High quality: `.high`,
+/// Smooth: `.low`) and shrinks with `.low` (LayerRenderer.swift:42-44); the port samples
+/// bilinearly for both. `effects-transformed` found the difference; these settle the filter.
+fn sampling_doc(sampling: Sampling, percent: f64, rotation: f64, origin: Point) -> Document {
+    let mut doc = Document::new(96, 72);
+    let mut layer = Layer::with_pixels("Pattern", sampling_pattern(), origin);
+    layer.transform.size = Size { width: 16.0 * percent / 100.0, height: 10.0 * percent / 100.0 };
+    layer.transform.rotation = rotation;
+    layer.transform.sampling = sampling;
+    doc.layers = vec![layer];
+    doc
+}
+
+fn sampling_probes() -> Vec<(&'static str, Document)> {
+    let at = Point { x: 8.0, y: 8.0 };
+    let mut probes = vec![
+        ("sampling-high-400.comp", sampling_doc(Sampling::High, 400.0, 0.0, at)),
+        ("sampling-smooth-400.comp", sampling_doc(Sampling::Smooth, 400.0, 0.0, at)),
+        ("sampling-nearest-400.comp", sampling_doc(Sampling::Nearest, 400.0, 0.0, at)),
+        ("sampling-high-150.comp", sampling_doc(Sampling::High, 150.0, 0.0, at)),
+        ("sampling-high-rotated.comp", sampling_doc(Sampling::High, 300.0, 25.0, Point { x: 24.0, y: 20.0 })),
+    ];
+    let mut shrink = Document::new(96, 72);
+    let mut small = Layer::with_pixels("Fine", fine_pattern(60, 40), at);
+    small.transform.size = Size { width: 39.0, height: 26.0 };
+    shrink.layers = vec![small];
+    probes.push(("sampling-high-shrink-65.comp", shrink));
+    // A mask resamples with the layer's own setting even when shrinking (LayerRenderer.drawCoverage).
+    let mut masked = sampling_doc(Sampling::High, 400.0, 0.0, at);
+    let solid = Raster::from_premultiplied(16, 10, [60u8, 120, 200, 255].repeat(160));
+    masked.layers[0].set_pixels(Some(solid));
+    let grey: Vec<u8> = sampling_pattern().bytes().chunks(4).map(|p| if p[3] == 0 { 0 } else if p[3] < 255 { 128 } else { p[0].max(p[1]) }).collect();
+    masked.layers[0].mask = Some(Mask { pixels: GrayRaster::from_bytes(16, 10, grey), enabled: true, placement: None, linked: None });
+    probes.push(("sampling-high-mask-400.comp", masked));
+    probes
+}
+
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
 /// it is ever sent to a Mac.
@@ -564,6 +642,7 @@ fn write_mac_probes() {
     write_probe(&dir, "invert.comp", &over_sweep(LayerAdjustment::new(AdjustmentKind::Invert), BlendMode::Normal, 1.0));
     write_probe(&dir, "blur-soft-mask.comp", &blur_soft_mask_doc());
     for (name, doc) in effects_probes() { write_probe(&dir, name, &doc); }
+    for (name, doc) in sampling_probes() { write_probe(&dir, name, &doc); }
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -591,6 +670,23 @@ fn every_effects_probe_is_listed_and_draws_what_it_is_named_for() {
         let drawn = doc.layers.iter().filter(|l| effects_draw(l, None).is_some()).count();
         let want = match *name { "effects-invalid.comp" => 0, "effects-transformed.comp" => 2, _ => 1 };
         assert_eq!(drawn, want, "{name}: layers drawn with their effects");
+    }
+}
+
+#[test]
+fn every_sampling_probe_is_listed_and_resamples_as_named() {
+    let probes = sampling_probes();
+    assert_eq!(probes.len(), 7);
+    for (name, doc) in &probes {
+        assert!(README_TXT.contains(&format!("- {name}")), "{name} is in the README");
+        let t = doc.layers[0].transform;
+        let want = if name.contains("nearest") { Sampling::Nearest } else if name.contains("smooth") { Sampling::Smooth } else { Sampling::High };
+        assert_eq!(t.sampling, want, "{name}: sampling");
+        let pixels = doc.layers[0].pixels.as_ref().unwrap();
+        let factor = t.size.width / pixels.width as f64;
+        let named = if name.contains("400") { 4.0 } else if name.contains("150") { 1.5 } else if name.contains("rotated") { 3.0 } else { 0.65 };
+        assert!((factor - named).abs() < 1e-9, "{name}: drawn at {factor}x");
+        assert_eq!(t.rotation != 0.0, name.contains("rotated"), "{name}: rotation");
     }
 }
 

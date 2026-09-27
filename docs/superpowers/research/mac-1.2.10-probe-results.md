@@ -108,6 +108,36 @@ canvas, compared premultiplied:
 CIMotionBlur is a Gaussian along the angle whose sigma is its radius; with the Mac's radius that is
 sigma = distance / sqrt(12).
 
+## Phase 3.5c effects probes and color-balance-preserve (exported 2026-09-27)
+
+The user exported color-balance-preserve and all 16 effects probes (mac-effects, the one made by hand
+on the Mac, was not made). None was re-saved. Compared with the port's CPU compositor at 00189cc
+(scratch test, deleted), premultiplied RGBA8:
+
+| probe | result |
+|---|---|
+| color-balance-preserve, effects-stroke-outside, effects-drop-shadow, effects-inner-shadow, effects-outer-glow, effects-inner-glow, effects-color-overlay, effects-masked, effects-clipping-base, effects-clipped-child, effects-folder, effects-invalid | bit-identical on every pixel |
+| effects-stroke-inside | colour max 1 (24 pixels) |
+| effects-all-six | colour max 1 (1131 pixels), alpha 0 |
+| effects-large-blur | colour max 1, alpha max 1 (the halved blur) |
+| effects-mask-placed | colour max 3, alpha max 2; 3 pixels over 2 (x 64..75, y 41..44), where the placed mask is resampled |
+| effects-transformed | the flipped layer bit-identical; the turned layer (rotation 25, drawn at 150 %) colour max 29, alpha max 52, mean 0.16 |
+
+So the six effects, their compose order, masks, clipping, folders and the invalid-effects rule are
+settled as the port draws them; rulings 14 / OQ3 (Core Graphics mask rounding) come to at most 3 levels.
+
+effects-transformed: the difference lies only inside the enlarged, turned layer, and it is not the
+shadow's geometry (direction, offset and blur match). At the layer's rim the Mac is sharper (row 53,
+x 148: Mac alpha 240, port 219; x 152: 124 vs 108), and the difference image shows a fine ring at every
+soft edge and the hole. The Mac draws a layer ENLARGED in High quality with Core Graphics' `.high`
+filter and in Smooth with `.low`, and every reduction with `.low` (LayerRenderer.swift:42-44,
+LayerTransform.swift:8-13); a mask resamples with the layer's own setting even when shrinking
+(`drawCoverage`, :66-70). The port samples bilinearly in both cases (compositor.rs:5-27). So this is a
+general resampling difference for any layer enlarged in High quality (the default), present since
+Phase 2 and never probed, not an effects difference. Seven sampling probes (`sampling-*.comp`,
+mac_probes.rs) were generated on 2026-09-27 to fit the `.high` filter: 400 % in High quality, Smooth
+and Nearest, 150 %, turned 25 degrees at 300 %, a 65 % reduction, and a mask at 400 %.
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor
