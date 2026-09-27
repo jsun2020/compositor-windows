@@ -178,32 +178,39 @@ fn coverage_on_a_scaled_layer_samples_the_canvas_coverage_at_each_pixel_centre()
 
 #[test]
 fn coverage_on_a_layer_moved_by_whole_pixels_is_the_canvas_coverage_cropped() {
-    // Ruling M13: comparing the moved layer's grid only against `coverage(&s, 60, 40)` would test
-    // `on_grid`'s whole-pixel copy branch against itself (both go through the same fast path, one
-    // with a real (9, -4) translation, the other with the identity, so a bug shared by both offsets
-    // could still pass). Instead, build the SAME ellipse translated by the layer's own offset
-    // (-9, +4 in document pixels, since layer pixel (i, j) sits on document (9 + i, -4 + j)) and
-    // rasterise THAT outline directly through `SelectionClip` + `on_grid` with the plain identity
-    // (no (9, -4) translation involved at all): a bug in the real whole-pixel move arithmetic (a
-    // swapped axis, a wrong sign, an off-by-one in the crop) changes `grid` without touching this
-    // independently-positioned rasterisation.
+    // Ruling M13 (fix round 1): comparing the moved layer's grid only against `coverage(&s, 60, 40)`
+    // tests `on_grid`'s whole-pixel copy branch against itself (both go through the same fast path,
+    // one with a real (15, -4) translation, the other with the identity, so a bug shared by both
+    // offsets could still pass). The independent check below never calls `on_grid` at all: it moves
+    // the outline by an exact whole `SUBPIXEL` translation (`translated`, so the ellipse's Beziers
+    // are not re-flattened -- no new approximation error to explain away) into the layer's own local
+    // frame, then calls `rasterize` and the blur `SelectionClip` itself uses directly, over a region
+    // far larger than the outline's feathered extent so no boundary clamp in that blur ever reaches
+    // the pixels compared below. The layer's origin (x = 15) is chosen so its left edge (document
+    // x = 15) already sits deep inside the ellipse's real coverage, not in its near-zero fringe, so a
+    // positive-dx crop bug in `on_grid` (for example using `dx.abs()` for the left edge, or adding a
+    // stray constant to `dx`) actually changes real, non-zero values instead of two zeros agreeing.
     let s = Selection::new(vec![ellipse(rect(12.0, 7.0, 31.0, 18.0))], true, 1.5);
     let canvas = coverage(&s, 60, 40);
-    let layer = LayerTransform::axis_aligned(p(9.0, -4.0), Size { width: 30.0, height: 25.0 });
+    let layer = LayerTransform::axis_aligned(p(15.0, -4.0), Size { width: 30.0, height: 25.0 });
     let grid = SelectionClip::new(&s, 60, 40).on_grid(&layer.pixel_to_document(30, 25), 30, 25);
     for j in 0..25u32 { for i in 0..30u32 {
-        let want = if j >= 4 { at(&canvas, 9 + i, j - 4) } else { 0 };
+        let want = if j >= 4 { at(&canvas, 15 + i, j - 4) } else { 0 };
         assert_eq!(at(&grid, i, j), want, "({i}, {j})");
     }}
-    // Independent rasterisation: the ellipse re-expressed in the layer's own local frame (document
-    // minus the layer's (9, -4) origin), cleared of any canvas clipping by using a generous canvas
-    // so its coverage region lands exactly as it would unclipped, then read with the identity (no
-    // whole-pixel translation math shared with `grid`'s computation above).
-    let shifted = Selection::new(vec![ellipse(rect(12.0 - 9.0, 7.0 + 4.0, 31.0, 18.0))], true, 1.5);
-    let direct = SelectionClip::new(&shifted, 200, 150).on_grid(&Affine::IDENTITY, 30, 25);
+    // Independent reference: never touches `on_grid`, `SelectionClip`, or the canvas's own bounds
+    // computation -- only `rasterize` and the blur, called directly, over a region ((-20, -20), 80 x
+    // 80) chosen generously enough (the outline's own feathered bounds, shifted into this frame, are
+    // (-6, 8)-(31, 32) -- comfortably inside with margin far past the blur's kernel radius) that no
+    // edge clamp in `blur_gray` reaches pixel (0, 0)..(30, 25) of this region, so those pixels equal
+    // exactly what an unclipped rasterisation and blur of the moved outline would give.
+    let shifted = s.translated((-15.0 * SUBPIXEL) as i32, (4.0 * SUBPIXEL) as i32);
+    let (region_left, region_top, region_w, region_h) = (-20.0, -20.0, 80u32, 80u32);
+    let filled = rasterize(&shifted.contours, region_left, region_top, region_w, region_h, shifted.antialiased || shifted.feather > 0.0);
+    let reference = if shifted.feather > 0.0 { blur_gray(&filled, shifted.feather / 2.0) } else { filled };
     for j in 0..25u32 { for i in 0..30u32 {
-        let (g, d) = (at(&grid, i, j) as i64, at(&direct, i, j) as i64);
-        assert!((g - d).abs() <= 1, "independent rasterisation at ({i}, {j}): {g} vs {d}");
+        let (bx, by) = ((i as i64 - region_left as i64) as u32, (j as i64 - region_top as i64) as u32);
+        assert_eq!(at(&grid, i, j), at(&reference, bx, by), "independent reference at ({i}, {j})");
     }}
 }
 
