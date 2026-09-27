@@ -98,6 +98,12 @@ fn reduced(raster: &Raster, limit: u32) -> (Raster, f64) {
 /// included: every edit refuses it). The selection's coverage is taken on the grid the preview is
 /// computed on, reduced or grown, as the Mac's `previewMapping` does.
 pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) -> Option<PixelPreview> {
+    compute_preview_with(doc, &SelectionClips::default(), request, revision)
+}
+
+/// `compute_preview` with the selection's clip from `clips`: the engine's, so every tick of a drag
+/// under one selection reuses one clip (final review F1).
+pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, revision: u64) -> Option<PixelPreview> {
     let layer = doc.layer(request.layer())?;
     let raster = layer.pixels.as_ref()?;
     let limit = preview_limit(request);
@@ -106,7 +112,7 @@ pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) 
     match request {
         PreviewRequest::Adjustment { adjustment, .. } | PreviewRequest::DragAdjustment { adjustment, .. } => {
             if !adjustment.is_valid() { return None; }
-            let coverage = ops::adjust::edit_coverage(doc, &layer.transform, source.width, source.height).ok()?;
+            let coverage = ops::adjust::edit_coverage(doc, clips, &layer.transform, source.width, source.height).ok()?;
             // Grain and the tonal kernels read document space, which the reduced grid still covers.
             let units = layer.transform.size.width / source.width.max(1) as f64;
             let result = adjust::apply::apply_adjustment(&source, adjustment, layer.transform.origin, units, coverage.as_ref());
@@ -121,7 +127,7 @@ pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) 
                 true => ops::adjust::grown(&source, &layer.transform, scaled.margin())?,
                 false => (source, layer.transform),
             };
-            let coverage = ops::adjust::edit_coverage(doc, &placed, grid.width, grid.height).ok()?;
+            let coverage = ops::adjust::edit_coverage(doc, clips, &placed, grid.width, grid.height).ok()?;
             let filtered = adjust::filters::apply_filter(&grid, &scaled);
             let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &grid, &c), None => filtered };
             Some(PixelPreview { layer: layer.id, raster: result, transform: placed, revision, request: request.clone(), source: made_from })

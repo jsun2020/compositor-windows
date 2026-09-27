@@ -195,3 +195,55 @@ fn a_kept_preview_must_have_been_made_from_the_same_pixels_and_selection() {
     selected.selection_revision += 1;
     assert!(!preview.answers(&request, &PreviewSource::of(&selected, lid)), "another selection: recompute");
 }
+
+#[test]
+fn a_drag_its_histogram_and_its_commit_under_one_selection_make_its_clip_once() {
+    // Final review F1: every preview tick filled and feathered the outline over the whole canvas
+    // again. The engine keeps one clip per document; a changed selection makes a new one.
+    let (mut e, id, layer) = session_with(&two_colors());
+    select(&mut e, id, 20.0, 5.0, 50.0, 25.0, true);
+    run(&mut e, id, Command::FeatherSelection { amount: 6 });
+    let built = |e: &Engine| e.selection_clips().built();
+    let start = built(&e);
+    let tick = |e: &mut Engine, degrees: f64| { e.set_preview(id, Some(PreviewRequest::DragAdjustment { layer, adjustment: hue(degrees) })).unwrap(); };
+    tick(&mut e, 30.0);
+    assert_eq!(built(&e), start + 1, "the first tick makes the clip");
+    tick(&mut e, 60.0);
+    e.histogram(id, layer).unwrap();
+    // The commit's result is what a clip made afresh gives (the uncached op on the same document).
+    let mut fresh = e.document(id).unwrap().clone();
+    ops::adjust::apply_adjustment_to_layer(&mut fresh, layer, &hue(90.0)).unwrap();
+    run(&mut e, id, Command::ApplyAdjustment { id: layer, adjustment: hue(90.0) });
+    assert_eq!(built(&e), start + 1, "a second tick, the histogram and the commit reuse it");
+    assert_eq!(e.document(id).unwrap().layer(layer).unwrap().pixels.as_ref().unwrap().bytes(), fresh.layer(layer).unwrap().pixels.as_ref().unwrap().bytes());
+    // A new revision: the kept clip goes at once, and the next tick makes the new one.
+    run(&mut e, id, Command::MoveSelection { dx: 3.0, dy: 0.0 });
+    assert_eq!(e.selection_clips().len(), 0, "the old selection's clip is dropped");
+    tick(&mut e, 30.0);
+    assert_eq!((built(&e), e.selection_clips().len()), (start + 2, 1));
+    e.close_document(id);
+    assert_eq!(e.selection_clips().len(), 0, "closing drops it");
+}
+
+#[test]
+fn a_kept_clip_is_used_only_for_the_very_outline_and_flags_it_was_made_from() {
+    // Between edits the revision names the selection; within one edit a command could change the
+    // selection before a new revision is issued, so the kept clip must also be for the same outline
+    // and flags.
+    let clips = SelectionClips::default();
+    let mut doc = Document::new(40, 30);
+    doc.selection = Some(Selection::new(vec![compositor_engine::selection::geometry::rectangle(Rect { x: 5.0, y: 5.0, width: 10.0, height: 10.0 })], true, 0.0));
+    let a = clips.clip(&doc).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&a, &clips.clip(&doc).unwrap()) && clips.built() == 1, "kept");
+    let covered = |clip: &SelectionClip, x: f64, y: f64| clip.at(p(x, y));
+    assert_eq!((covered(&a, 10.5, 10.5), covered(&a, 30.5, 20.5)), (1.0, 0.0));
+    // Another outline under the same revision.
+    doc.selection = Some(Selection::new(vec![compositor_engine::selection::geometry::rectangle(Rect { x: 25.0, y: 15.0, width: 10.0, height: 10.0 })], true, 0.0));
+    let b = clips.clip(&doc).unwrap();
+    assert_eq!((clips.built(), covered(&b, 10.5, 10.5), covered(&b, 30.5, 20.5)), (2, 0.0, 1.0));
+    // The same outline with another feather.
+    doc.selection.as_mut().unwrap().feather = 4.0;
+    let c = clips.clip(&doc).unwrap();
+    assert!(clips.built() == 3 && covered(&c, 25.5, 20.5) < 1.0, "made again, soft at the edge");
+    assert_eq!(clips.len(), 1, "one per document");
+}

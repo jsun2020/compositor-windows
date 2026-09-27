@@ -92,7 +92,7 @@ impl Selection {
 }
 
 /// Equal flags and the same points; the very same shared outline is equal without reading it, which
-/// is what same_content and the engine's revision check meet after every edit that keeps it.
+/// is what `same_content` and the engine's revision check meet after every edit that keeps it.
 impl PartialEq for Selection {
     fn eq(&self, other: &Selection) -> bool {
         self.antialiased == other.antialiased && self.feather == other.feather

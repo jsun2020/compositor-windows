@@ -95,7 +95,7 @@ fn renew_revisions(before: &Document, next: &mut Document, counter: &mut u64) {
 }
 
 #[derive(Default)]
-pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache }
+pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache, clips: SelectionClips }
 
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
@@ -110,6 +110,8 @@ impl Engine {
     pub fn with_effects_cache(effects: EffectsCache) -> Engine { Engine { effects, ..Engine::default() } }
     /// The effects images this engine keeps (`EffectsCache`).
     pub fn effects_cache(&self) -> &EffectsCache { &self.effects }
+    /// The selection clips this engine keeps (`SelectionClips`), one per document.
+    pub fn selection_clips(&self) -> &SelectionClips { &self.clips }
     pub fn version() -> &'static str { env!("CARGO_PKG_VERSION") }
 
     /// Sessions are keyed by a fresh handle, independent of `Document.id` (the stable manifest
@@ -153,7 +155,7 @@ impl Engine {
         if let Some(s) = self.sessions.get_mut(&id) { s.history.mark_saved(); if path.is_some() { s.path = path; } }
     }
     pub fn close_document(&mut self, id: Uuid) {
-        self.sessions.remove(&id);
+        if let Some(s) = self.sessions.remove(&id) { self.clips.forget(s.document.id); }
         self.order.retain(|d| *d != id);
         self.effects.prune();
     }
@@ -249,31 +251,34 @@ impl Engine {
             if current.answers(r, &PreviewSource::of(&s.document, r.layer())) { return Ok(Dirty { structure: false, canvas: false, layers: vec![] }); }
         }
         let revision = { self.preview_revision += 1; PREVIEW_REVISION_BASE + self.preview_revision };
-        let s = self.session_mut(id)?;
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
-        s.preview = request.as_ref().and_then(|r| preview::compute_preview(&s.document, r, revision));
+        let clips = &self.clips;
+        s.preview = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
         Ok(Dirty { structure: true, canvas: false, layers })
     }
     fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
 
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
+    /// `f` reads the selection's clip through the engine's cache (`SelectionClips`).
     fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
-    where F: FnOnce(&mut Document) -> Result<Dirty, CommandError> {
+    where F: FnOnce(&mut Document, &SelectionClips) -> Result<Dirty, CommandError> {
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let mut next = s.document.clone();
-        let dirty = f(&mut next)?;
+        let dirty = f(&mut next, &self.clips)?;
         // The active layer is selection, not content: a command that only moves it (SetActiveLayer)
         // still applies, but records no history entry and so leaves redo intact, as macOS does.
         let content_changed = !next.same_content(&s.document);
         renew_revisions(&s.document, &mut next, &mut self.revision);
         let before = std::mem::replace(&mut s.document, next);
         if content_changed { s.history.push(before); }
+        self.clips.retain_current(&s.document);
         Ok(dirty)
     }
 
     pub fn execute(&mut self, handle: Uuid, command: Command) -> Result<Dirty, CommandError> {
         self.clear_preview(handle);
-        self.edit(handle, |doc| match command {
+        self.edit(handle, |doc, clips| match command {
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
             Command::RenameLayer { id, name } => { ops::layers::rename_layer(doc, id, &name)?; Ok(Dirty::structure()) }
             Command::SetLayerVisible { id, visible } => { ops::layers::set_layer_visible(doc, id, visible)?; Ok(Dirty::structure()) }
@@ -343,7 +348,7 @@ impl Engine {
             Command::DeleteMask { id } => { ops::masks::delete_mask(doc, id)?; Ok(Dirty::structure()) }
             Command::SetMaskEnabled { id, enabled } => { ops::masks::set_mask_enabled(doc, id, enabled)?; Ok(Dirty::structure()) }
             Command::SetMaskLinked { id, linked } => { ops::masks::set_mask_linked(doc, id, linked)?; Ok(Dirty::structure()) }
-            Command::InvertMask { id } => { ops::masks::invert_mask(doc, id)?; Ok(Dirty::structure()) }
+            Command::InvertMask { id } => { ops::adjust::invert_layer_with(doc, clips, id, true)?; Ok(Dirty::structure()) }
             Command::FillMask { id, white } => { ops::masks::fill_mask(doc, id, white)?; Ok(Dirty::structure()) }
             Command::BlurMask { id, radius } => { ops::masks::blur_mask(doc, id, radius)?; Ok(Dirty::structure()) }
             Command::CopyMask { from, to } => { ops::masks::copy_mask(doc, from, to)?; Ok(Dirty::structure()) }
@@ -351,9 +356,9 @@ impl Engine {
             Command::ReleaseClipping { id } => { ops::hierarchy::release_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::LinkMask { source, target } => { ops::hierarchy::link_mask(doc, source, target)?; Ok(Dirty::structure()) }
             Command::MergeLayers { ids } => { let m = ops::merge::merge(doc, &ids)?; Ok(Dirty { structure: true, canvas: false, layers: vec![m] }) }
-            Command::ApplyAdjustment { id, adjustment } => { ops::adjust::apply_adjustment_to_layer(doc, id, &adjustment)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
-            Command::InvertPixels { id, mask } => { ops::adjust::invert_layer(doc, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
-            Command::ApplyFilter { id, params } => { ops::adjust::apply_filter(doc, id, &params)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::ApplyAdjustment { id, adjustment } => { ops::adjust::apply_adjustment_to_layer_with(doc, clips, id, &adjustment)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::InvertPixels { id, mask } => { ops::adjust::invert_layer_with(doc, clips, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
+            Command::ApplyFilter { id, params } => { ops::adjust::apply_filter_with(doc, clips, id, &params)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
             Command::AddAdjustmentLayer { kind, seed, shadows, highlights } => {
                 let gradient = match (shadows, highlights) { (Some(s), Some(h)) => Some((s, h)), _ => None };
                 ops::adjust::add_adjustment_layer(doc, kind, seed, gradient)?; Ok(Dirty::structure())
@@ -370,8 +375,8 @@ impl Engine {
             Command::MagicWand { at, mode, settings, antialiased } => { ops::selection::magic_wand_select(doc, at, mode, &settings, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadLayerSelection { id, mode, antialiased } => { ops::selection::load_layer_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadMaskSelection { id, mode, antialiased } => { ops::selection::load_mask_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
-            Command::ClearSelectedPixels { id, mask } => { ops::selection::clear_selected(doc, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
-            Command::AddMaskFromSelection { id, revealing } => { ops::selection::add_mask_from_selection(doc, id, revealing)?; Ok(Dirty::structure()) }
+            Command::ClearSelectedPixels { id, mask } => { ops::selection::clear_selected(doc, clips, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
+            Command::AddMaskFromSelection { id, revealing } => { ops::selection::add_mask_from_selection(doc, clips, id, revealing)?; Ok(Dirty::structure()) }
         })
     }
 
@@ -385,14 +390,16 @@ impl Engine {
     }
     pub fn undo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
-        let s = self.session_mut(id)?;
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         if let Some(before) = s.history.undo(&s.document) { s.document = before; }
+        self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
-        let s = self.session_mut(id)?;
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         if let Some(after) = s.history.redo(&s.document) { s.document = after; }
+        self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
     /// Drops the last history entry and returns to the state before it, leaving no redo: for a
@@ -401,8 +408,9 @@ impl Engine {
     /// request to discard changes, and a no-op here would be a silent failure of that request.
     pub fn revert(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         self.clear_preview(id);
-        let s = self.session_mut(id)?;
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         if let Some(before) = s.history.revert() { s.document = before; }
+        self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
 
@@ -410,7 +418,7 @@ impl Engine {
         let raster = decode_image(bytes)?.raster;
         match id {
             Some(id) => {
-                self.edit(id, |doc| { ops::layers::import_raster(doc, raster, name, at)?; Ok(Dirty::structure()) })?;
+                self.edit(id, |doc, _| { ops::layers::import_raster(doc, raster, name, at)?; Ok(Dirty::structure()) })?;
                 Ok(id)
             }
             None => {
@@ -498,7 +506,7 @@ impl Engine {
         let target = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         if target.is_adjustment() { return Ok(adjust::levels::histogram(&self.adjustment_source(id, layer)?, None)); }
         let raster = target.pixels.as_ref().ok_or(CommandError::Argument("the layer has no pixels".into()))?;
-        let coverage = selection_coverage(doc, &target.transform.pixel_to_document(raster.width, raster.height), raster.width, raster.height);
+        let coverage = selection_coverage_with(doc, &self.clips, &target.transform.pixel_to_document(raster.width, raster.height), raster.width, raster.height);
         Ok(adjust::levels::histogram(raster, coverage.as_ref()))
     }
     pub fn auto_levels(&self, id: Uuid, layer: Uuid, mode: LevelsAuto) -> Result<LevelsSettings, CommandError> {

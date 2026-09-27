@@ -17,21 +17,27 @@ fn placement(layer: &Layer) -> (Point, f64) {
 
 /// The selection's coverage on a `width` x `height` grid that `transform` places (a layer's pixels,
 /// a grown copy of them, or a mask): None when nothing is selected, so the edit reaches the whole
-/// grid. An empty selection refuses the edit, as the Mac's `canAdjustColors` / `canInvert` do.
-pub fn edit_coverage(doc: &Document, transform: &LayerTransform, width: u32, height: u32) -> Result<Option<GrayRaster>, CommandError> {
+/// grid. An empty selection refuses the edit, as the Mac's `canAdjustColors` / `canInvert` do. The
+/// canvas-grid clip comes from `clips` (the engine's, so a commit reuses its preview's).
+pub fn edit_coverage(doc: &Document, clips: &SelectionClips, transform: &LayerTransform, width: u32, height: u32) -> Result<Option<GrayRaster>, CommandError> {
     if doc.selection.as_ref().map_or(false, |s| s.is_empty()) {
         return Err(CommandError::Refused(ops::selection::EMPTY_SELECTION.into()));
     }
-    Ok(selection_coverage(doc, &transform.pixel_to_document(width, height), width, height))
+    Ok(selection_coverage_with(doc, clips, &transform.pixel_to_document(width, height), width, height))
 }
 
+/// `apply_adjustment_to_layer_with`, making the selection's clip afresh.
 pub fn apply_adjustment_to_layer(doc: &mut Document, id: Uuid, a: &LayerAdjustment) -> Result<(), CommandError> {
+    apply_adjustment_to_layer_with(doc, &SelectionClips::default(), id, a)
+}
+
+pub fn apply_adjustment_to_layer_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, a: &LayerAdjustment) -> Result<(), CommandError> {
     if !a.is_valid() { return Err(CommandError::Argument("adjustment settings out of range".into())); }
     if a.kind.is_spatial() { return Err(CommandError::Argument("a blur is applied with Filter > Gaussian Blur or Motion Blur".into())); }
     let layer = pixel_layer(doc, id)?;
     let (origin, units) = placement(layer);
     let raster = layer.pixels.as_ref().unwrap();
-    let coverage = edit_coverage(doc, &layer.transform, raster.width, raster.height)?;
+    let coverage = edit_coverage(doc, clips, &layer.transform, raster.width, raster.height)?;
     // Kernel function, not this module's own `apply_filter`: adjust::apply::apply_adjustment.
     let adjusted = adjust::apply::apply_adjustment(raster, a, origin, units, coverage.as_ref());
     doc.layer_mut(id).unwrap().set_pixels(Some(adjusted));
@@ -42,6 +48,11 @@ pub fn apply_adjustment_to_layer(doc: &mut Document, id: Uuid, a: &LayerAdjustme
 /// (`invertPixels`, SelectionEdits.swift:85-122). A uniform 1x1 mask cannot hold a partial
 /// selection, so it takes the layer's pixel grid first.
 pub fn invert_layer(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), CommandError> {
+    invert_layer_with(doc, &SelectionClips::default(), id, mask)
+}
+
+/// `invert_layer` with the selection's clip from `clips`.
+pub fn invert_layer_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool) -> Result<(), CommandError> {
     if mask {
         let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
         if layer.mask.is_none() { return Err(CommandError::Argument("the layer has no mask".into())); }
@@ -50,7 +61,7 @@ pub fn invert_layer(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Comm
         let layer = doc.layer(id).unwrap();
         let m = layer.mask.as_ref().unwrap();
         let grid = m.placement.unwrap_or(layer.transform);
-        let coverage = edit_coverage(doc, &grid, m.pixels.width, m.pixels.height)?;
+        let coverage = edit_coverage(doc, clips, &grid, m.pixels.width, m.pixels.height)?;
         let inverted = adjust::tonal::invert_gray(&m.pixels);
         let result = match coverage { Some(c) => adjust::apply::blend_gray_by_coverage(&inverted, &m.pixels, &c), None => inverted };
         doc.layer_mut(id).unwrap().mask_mut().unwrap().pixels = result;
@@ -58,7 +69,7 @@ pub fn invert_layer(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Comm
     }
     let layer = pixel_layer(doc, id)?;
     let raster = layer.pixels.as_ref().unwrap();
-    let coverage = edit_coverage(doc, &layer.transform, raster.width, raster.height)?;
+    let coverage = edit_coverage(doc, clips, &layer.transform, raster.width, raster.height)?;
     let inverted = adjust::tonal::invert_raster(raster);
     let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&inverted, raster, &c), None => inverted };
     doc.layer_mut(id).unwrap().set_pixels(Some(result));
@@ -132,6 +143,11 @@ fn carry_mask(mask: &Mask, old: &LayerTransform, new: &LayerTransform) -> GrayRa
 /// One filter on a layer: a blur is given room to spread, run, blended back through the selection
 /// on that grown grid, then cut back to what it left (`commitFilter`, Filters.swift:399-413).
 pub fn apply_filter(doc: &mut Document, id: Uuid, params: &FilterParams) -> Result<(), CommandError> {
+    apply_filter_with(doc, &SelectionClips::default(), id, params)
+}
+
+/// `apply_filter` with the selection's clip from `clips`.
+pub fn apply_filter_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, params: &FilterParams) -> Result<(), CommandError> {
     let params = params.normalized();
     if params.is_identity() { return Ok(()); }
     let layer = pixel_layer(doc, id)?.clone();
@@ -140,7 +156,7 @@ pub fn apply_filter(doc: &mut Document, id: Uuid, params: &FilterParams) -> Resu
         true => grown(raster, &layer.transform, params.margin()).ok_or(CommandError::Project(ProjectError::TooLarge))?,
         false => (raster.clone(), layer.transform),
     };
-    let coverage = edit_coverage(doc, &placed, source.width, source.height)?;
+    let coverage = edit_coverage(doc, clips, &placed, source.width, source.height)?;
     // Kernel function, not this module's own `apply_filter`: adjust::filters::apply_filter.
     let filtered = adjust::filters::apply_filter(&source, &params);
     let filtered = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &source, &c), None => filtered };

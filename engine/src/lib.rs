@@ -47,7 +47,7 @@ pub use effects::settings::*;
 pub use effects::render::*;
 pub use ops::masks::blur_gray;
 pub use selection::{Contour, Selection, SelectionMode, SelectionShape, SelectionState, MAX_FEATHER, MAX_RESIZE, SELECTION_COORDINATE_LIMIT, SUBPIXEL};
-pub use selection::coverage::{rasterize, selection_coverage, SelectionClip};
+pub use selection::coverage::{rasterize, selection_coverage, selection_coverage_with, SelectionClip, SelectionClips};
 pub use selection::feather::{feather_blur, DIRECT_SIGMA_LIMIT};
 pub use selection::outline::{selection_lod, OUTLINE_DETAIL_LIMIT, OUTLINE_MASK_LIMIT};
 pub use selection::trace::{dark_pixels, opaque_pixels, trace_pixels, TraceError, WAND_EDGE_LIMIT};

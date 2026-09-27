@@ -165,7 +165,7 @@ pub fn load_layer_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, a
 /// the mask targeted, the mask fills white there instead, the mask palette's background ("Fill
 /// Mask"). A 1x1 mask takes the layer's pixel grid first. Needs a selection with something in it,
 /// and an enabled mask (`canPaint`, EditorSession+Brush.swift:5-11).
-pub fn clear_selected(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), CommandError> {
+pub fn clear_selected(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool) -> Result<(), CommandError> {
     modifiable(doc)?;
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     if mask {
@@ -175,7 +175,7 @@ pub fn clear_selected(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Co
         let layer = doc.layer(id).unwrap();
         let m = layer.mask.as_ref().unwrap();
         let grid = m.placement.unwrap_or(layer.transform);
-        let coverage = crate::ops::adjust::edit_coverage(doc, &grid, m.pixels.width, m.pixels.height)?.unwrap();
+        let coverage = crate::ops::adjust::edit_coverage(doc, clips, &grid, m.pixels.width, m.pixels.height)?.unwrap();
         let white = GrayRaster::from_bytes(m.pixels.width, m.pixels.height, vec![255; (m.pixels.width * m.pixels.height) as usize]);
         let filled = adjust::apply::blend_gray_by_coverage(&white, &m.pixels, &coverage);
         doc.layer_mut(id).unwrap().mask_mut().unwrap().pixels = filled;
@@ -183,7 +183,7 @@ pub fn clear_selected(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Co
     }
     if layer.is_group { return Err(CommandError::Argument("folders have no pixels".into())); }
     let raster = layer.pixels.as_ref().ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
-    let coverage = crate::ops::adjust::edit_coverage(doc, &layer.transform, raster.width, raster.height)?.unwrap();
+    let coverage = crate::ops::adjust::edit_coverage(doc, clips, &layer.transform, raster.width, raster.height)?.unwrap();
     let mut data = raster.bytes().to_vec();
     for (p, &k) in data.chunks_exact_mut(4).zip(coverage.bytes()) {
         if k == 0 { continue; }
@@ -200,8 +200,8 @@ pub fn clear_selected(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Co
 /// otherwise, painted the opposite tone through the selection's clip -- its coverage with the
 /// feather, cut to the canvas (`selection.clip(canvas:)`, :245-249). The selection is used up in
 /// the same step. An empty selection clips everything away: a plain mask, the selection used up.
-pub fn add_mask_from_selection(doc: &mut Document, id: Uuid, revealing: bool) -> Result<(), CommandError> {
-    let selection = doc.selection.clone().ok_or_else(|| refused(NO_SELECTION))?;
+pub fn add_mask_from_selection(doc: &mut Document, clips: &SelectionClips, id: Uuid, revealing: bool) -> Result<(), CommandError> {
+    if doc.selection.is_none() { return Err(refused(NO_SELECTION)); }
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     if layer.mask.is_some() { return Err(CommandError::Argument("the layer already has a mask".into())); }
     let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round() as i64, layer.transform.size.height.round() as i64), |p| (p.width as i64, p.height as i64));
@@ -209,7 +209,8 @@ pub fn add_mask_from_selection(doc: &mut Document, id: Uuid, revealing: bool) ->
         return Err(CommandError::Project(ProjectError::TooLarge));
     }
     let (w, h) = (w as u32, h as u32);
-    let coverage = SelectionClip::new(&selection, doc.width, doc.height).on_grid(&layer.transform.pixel_to_document(w, h), w, h);
+    // The clip itself, empty or not (`clip(canvas:)`): an empty selection clips everything away.
+    let Some(coverage) = selection_coverage_with(doc, clips, &layer.transform.pixel_to_document(w, h), w, h) else { return Err(refused(NO_SELECTION)) };
     let pixels = if revealing { GrayRaster::from_bytes(w, h, coverage.bytes().iter().map(|c| 255 - c).collect()) } else { coverage };
     doc.layer_mut(id).unwrap().set_mask(Some(Mask { pixels, enabled: true, placement: None, linked: None }));
     doc.selection = None;

@@ -7,6 +7,8 @@
 use super::{Contour, Selection, SUBPIXEL};
 use super::feather::feather_blur;
 use crate::{Affine, Document, GrayRaster, Point};
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 /// One edge of an outline in region pixels, `y0 < y1`, `dir` +1 when the contour runs down.
 #[derive(Clone, Copy)]
@@ -200,9 +202,73 @@ impl SelectionClip {
     }
 }
 
+/// One document's clip and what it was made from: the document, its selection's revision and
+/// canvas, and the very outline (held, so its address cannot be reused while the entry lives) and
+/// flags. The revision alone would do between edits; the outline and flags also catch a command
+/// that changes the selection and reads the coverage within one edit, before a revision is issued.
+struct ClipEntry { document: Uuid, revision: u64, width: u32, height: u32, contours: Arc<Vec<Contour>>, antialiased: bool, feather: f64, clip: Arc<SelectionClip> }
+
+impl ClipEntry {
+    fn made_from(&self, doc: &Document, s: &Selection) -> bool {
+        self.document == doc.id && self.revision == doc.selection_revision && self.width == doc.width && self.height == doc.height
+            && Arc::ptr_eq(&self.contours, &s.contours) && self.antialiased == s.antialiased && self.feather == s.feather
+    }
+}
+
+#[derive(Default)]
+struct ClipsKept { entries: Vec<ClipEntry>, built: u64 }
+
+/// The canvas-grid clips an engine has made (final review F1), one per document: every preview
+/// tick, histogram and commit under an unchanged selection reuses it, where each once filled and
+/// feathered the outline over the canvas again (the Mac makes it once per panel, Levels.swift:155).
+/// It belongs to the `Engine`, never to a `Document` or its history, as `EffectsCache` does; an
+/// entry goes when its document's selection changes (`retain_current`) or the document closes
+/// (`forget`).
+#[derive(Default)]
+pub struct SelectionClips { kept: Mutex<ClipsKept> }
+
+impl SelectionClips {
+    fn kept(&self) -> std::sync::MutexGuard<'_, ClipsKept> { self.kept.lock().unwrap_or_else(|e| e.into_inner()) }
+    /// The clip of `doc`'s selection: the kept one when it was made from this selection, else made
+    /// now (the lock is not held meanwhile) and kept in place of the document's previous one. None
+    /// when nothing is selected.
+    pub fn clip(&self, doc: &Document) -> Option<Arc<SelectionClip>> {
+        let s = doc.selection.as_ref()?;
+        if let Some(e) = self.kept().entries.iter().find(|e| e.made_from(doc, s)) { return Some(e.clip.clone()); }
+        let clip = Arc::new(SelectionClip::new(s, doc.width, doc.height));
+        let mut kept = self.kept();
+        kept.built += 1;
+        kept.entries.retain(|e| e.document != doc.id);
+        kept.entries.push(ClipEntry {
+            document: doc.id, revision: doc.selection_revision, width: doc.width, height: doc.height,
+            contours: s.contours.clone(), antialiased: s.antialiased, feather: s.feather, clip: clip.clone(),
+        });
+        Some(clip)
+    }
+    /// Drops `doc`'s clip unless it was made from its selection as it is now: after an edit, an
+    /// undo or a redo, so a clip for a selection no longer shown is not kept.
+    pub fn retain_current(&self, doc: &Document) {
+        let current = doc.selection.as_ref();
+        self.kept().entries.retain(|e| e.document != doc.id || current.map_or(false, |s| e.made_from(doc, s)));
+    }
+    /// Drops the clip of a closed document.
+    pub fn forget(&self, document: Uuid) { self.kept().entries.retain(|e| e.document != document); }
+    /// Clips kept.
+    pub fn len(&self) -> usize { self.kept().entries.len() }
+    /// Whether none is kept.
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    /// Clips made since the cache was created, kept or not: a test's count of rebuilds.
+    pub fn built(&self) -> u64 { self.kept().built }
+}
+
 /// The document's selection on a pixel grid (`SelectionClip::on_grid`): None when nothing is
-/// selected (an edit then reaches the whole grid), all zero for an empty selection.
+/// selected (an edit then reaches the whole grid), all zero for an empty selection. Makes the
+/// clip afresh; the engine's paths go through its cache (`selection_coverage_with`).
 pub fn selection_coverage(doc: &Document, to_document: &Affine, width: u32, height: u32) -> Option<GrayRaster> {
-    let selection = doc.selection.as_ref()?;
-    Some(SelectionClip::new(selection, doc.width, doc.height).on_grid(to_document, width, height))
+    selection_coverage_with(doc, &SelectionClips::default(), to_document, width, height)
+}
+
+/// `selection_coverage` with the clip from (and kept in) `clips`.
+pub fn selection_coverage_with(doc: &Document, clips: &SelectionClips, to_document: &Affine, width: u32, height: u32) -> Option<GrayRaster> {
+    Some(clips.clip(doc)?.on_grid(to_document, width, height))
 }
