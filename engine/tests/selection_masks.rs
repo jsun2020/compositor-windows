@@ -165,3 +165,16 @@ fn an_empty_selection_clears_nothing_but_still_makes_a_plain_mask() {
     let mask = e.document(id).unwrap().layer(layer).unwrap().mask.clone().unwrap().pixels;
     assert!(mask.bytes().iter().all(|&b| b == 255), "the mask is plain white everywhere, not just at the one sampled pixel");
 }
+
+#[test]
+fn fill_mask_on_a_hide_all_mask_fills_only_the_selection() {
+    // Final review F6: a 1x1 Hide All mask takes the layer's pixel grid before the selection fills
+    // it (`expand_uniform`), or the blend of one pixel makes the whole mask one grey.
+    let (mut e, id, layer) = session(100, 40, &solid(100, 40, RED));
+    run(&mut e, id, Command::AddMask { id: layer, revealing: false });
+    assert_eq!(pixel(&e, id, 30, 20)[3], 0, "Hide All hides the layer");
+    select(&mut e, id, 20.0, 10.0, 30.0, 20.0);
+    run(&mut e, id, Command::ClearSelectedPixels { id: layer, mask: true });
+    assert_eq!(pixel(&e, id, 30, 20)[3], 255, "inside the selection the mask is white");
+    assert_eq!(pixel(&e, id, 5, 5)[3], 0, "outside it stays black");
+}
