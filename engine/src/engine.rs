@@ -196,13 +196,24 @@ impl Engine {
     pub fn selection_outline(&self, id: Uuid, step: f64) -> Result<Vec<f64>, CommandError> {
         let doc = &self.session(id)?.document;
         let Some(selection) = &doc.selection else { return Ok(Vec::new()) };
-        let contours = if selection.point_count() > OUTLINE_DETAIL_LIMIT && step < 1.0 {
-            selection_lod(selection, doc.width, doc.height, step)
-        } else { selection.points() };
-        let mut out = vec![contours.len() as f64];
-        for c in &contours {
+        let points = selection.point_count();
+        if points > OUTLINE_DETAIL_LIMIT && step < 1.0 {
+            let contours = selection_lod(selection, doc.width, doc.height, step);
+            let mut out = Vec::with_capacity(1 + contours.len() + 2 * contours.iter().map(Vec::len).sum::<usize>());
+            out.push(contours.len() as f64);
+            for c in &contours {
+                out.push(c.len() as f64);
+                for p in c { out.push(p.x); out.push(p.y); }
+            }
+            return Ok(out);
+        }
+        // The outline itself, written straight into the one flat buffer (final review F3: a
+        // 4-million-point outline went through a Vec<Vec<Point>> first).
+        let mut out = Vec::with_capacity(1 + selection.contours.len() + 2 * points);
+        out.push(selection.contours.len() as f64);
+        for c in selection.contours.iter() {
             out.push(c.len() as f64);
-            for p in c { out.push(p.x); out.push(p.y); }
+            for p in c { out.push(p[0] as f64 / SUBPIXEL); out.push(p[1] as f64 / SUBPIXEL); }
         }
         Ok(out)
     }

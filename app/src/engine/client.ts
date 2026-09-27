@@ -1,5 +1,5 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
-import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PointTuple, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
+import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
 
 export class EngineClient {
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
@@ -101,20 +101,14 @@ export class EngineClient {
   setPreview(doc: string, request: PreviewRequest | null): Dirty {
     return JSON.parse(this.wasm.set_preview(doc, request ? JSON.stringify(request) : undefined)) as Dirty;
   }
-  /** The selection's outline for the marching ants, in document pixels: one array of points per
-   * contour; empty with no selection. `step` is screen pixels per document pixel, a power of two:
-   * below 1 a very detailed outline comes back traced at that resolution (engine `selection_lod`). */
-  selectionOutline(doc: string, step: number): PointTuple[][] {
-    const flat = this.wasm.selection_outline(doc, step);
-    const contours: PointTuple[][] = [];
-    let i = 1;
-    for (let c = 0; c < (flat[0] ?? 0); c++) {
-      const n = flat[i++];
-      const contour: PointTuple[] = [];
-      for (let k = 0; k < n; k++, i += 2) contour.push([flat[i], flat[i + 1]]);
-      contours.push(contour);
-    }
-    return contours;
+  /** The selection's outline for the marching ants, in document pixels, flat as the engine lays it
+   * out: the number of contours, then for each its number of points and their x, y (read it with
+   * `traceOutline`, canvas/ants.ts); empty with no selection. `step` is screen pixels per document
+   * pixel, a power of two: below 1 a very detailed outline comes back traced at that resolution
+   * (engine `selection_lod`). Kept flat: a four-million-point outline as tuple arrays cost more than
+   * the engine's work (final review F3). */
+  selectionOutline(doc: string, step: number): Float64Array {
+    return this.wasm.selection_outline(doc, step);
   }
   /** Whether `at` lies inside a selection with something in it (engine `selection_contains`). */
   selectionContains(doc: string, at: { x: number; y: number }): boolean { return this.wasm.selection_contains(doc, at.x, at.y); }

@@ -2,10 +2,12 @@ import type { Viewport } from "./viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
 import type { OverlayGeometry } from "../tools/transform-geometry";
-import type { Guide, PointTuple, SelectionShape } from "../engine/types";
+import type { Guide, SelectionShape } from "../engine/types";
 
-/** The marching ants: the selection's outline in document pixels, moved by `offset` while it is dragged. */
-export interface AntsState { contours: PointTuple[][]; offset: { dx: number; dy: number }; phase: number; }
+/** The marching ants: the selection's outline as a path in view px about `at`, the document's
+ * scaled origin (moved by the outline's offset while it is dragged), built once and kept by
+ * `AntsPathCache` (canvas/ants.ts). */
+export interface AntsState { path: Path2D; at: { x: number; y: number }; phase: number; }
 /** An outline being drawn, in document pixels (`LassoDraft`). */
 export interface DraftState { kind: SelectionShape; points: { x: number; y: number }[]; cursor: { x: number; y: number } | null; }
 
@@ -24,24 +26,18 @@ export interface OverlayState {
 /** The dash the ants march along, in view px (`drawSelection`, TransformOverlay.swift:283-298). */
 export const ANTS_DASH = 4;
 
-/** A white line under a black dash shifted by `phase` (TransformOverlay.swift:283-298). */
-function drawAnts(ctx: CanvasRenderingContext2D, viewport: Viewport, size: { width: number; height: number }, ants: AntsState): void {
+/** A white line under a black dash shifted by `phase` (TransformOverlay.swift:283-298): the kept
+ * path stroked twice where it lies, nothing rebuilt. */
+function drawAnts(ctx: CanvasRenderingContext2D, ants: AntsState): void {
   ctx.save();
-  ctx.beginPath();
-  for (const contour of ants.contours) {
-    contour.forEach(([x, y], i) => {
-      const v = viewport.viewPoint({ x: x + ants.offset.dx, y: y + ants.offset.dy }, size);
-      if (i === 0) ctx.moveTo(v.x, v.y); else ctx.lineTo(v.x, v.y);
-    });
-    ctx.closePath();
-  }
+  ctx.translate(ants.at.x, ants.at.y);
   ctx.lineWidth = 1;
   ctx.strokeStyle = "white";
-  ctx.stroke();
+  ctx.stroke(ants.path);
   ctx.setLineDash([ANTS_DASH, ANTS_DASH]);
   ctx.lineDashOffset = ants.phase;
   ctx.strokeStyle = "black";
-  ctx.stroke();
+  ctx.stroke(ants.path);
   ctx.restore();
 }
 
@@ -143,7 +139,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
       ctx.strokeRect(h.x - 3.5, h.y - 3.5, 7, 7);
     }
   }
-  if (state.ants) drawAnts(ctx, viewport, size, state.ants);
+  if (state.ants) drawAnts(ctx, state.ants);
   if (state.draft) drawDraft(ctx, viewport, size, state.draft);
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
   for (const x of state.guides.xs) { const v = viewport.viewPoint({ x, y: 0 }, size).x; ctx.beginPath(); ctx.moveTo(v + 0.5, 0); ctx.lineTo(v + 0.5, viewport.viewSize.height); ctx.stroke(); }

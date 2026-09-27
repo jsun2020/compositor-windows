@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
-import { drawOverlay } from "./overlay";
+import { drawOverlay, type AntsState } from "./overlay";
 import { installTestApi } from "../test-api";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
 import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
-import { ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
+import { AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 
 export const HIT_HANDLE_PX = 6;
@@ -36,6 +36,7 @@ export function CanvasView() {
   const overlayTick = useEditor((s) => s.overlayTick);
   const selection = useEditor((s) => (s.activeId ? s.documents[s.activeId]?.selection ?? null : null));
   const outlineCacheRef = useRef(new OutlineCache());
+  const antsPathRef = useRef(new AntsPathCache(() => new Path2D()));
   const antsPhaseRef = useRef(0);
 
   /** Draws the overlay from the store as it is now: the pixel grid, guides, the crop frame, the
@@ -55,10 +56,17 @@ export function CanvasView() {
     }
     const sel = doc.selection;
     const engine = s.engine; const id = s.activeId;
-    const step = outlineStep(vp.zoom);
-    const ants = sel && !sel.empty
-      ? { contours: outlineCacheRef.current.get(id, sel.revision, step, () => engine.selectionOutline(id, step)), offset: s.outlineMove ?? { dx: 0, dy: 0 }, phase: antsPhaseRef.current }
-      : null;
+    let ants: AntsState | null = null;
+    if (sel && !sel.empty) {
+      // The kept path, stroked about the document's scaled origin moved by any outline drag; the
+      // view box, in the path's own coordinates, lets a very detailed outline keep only nearby edges.
+      const step = outlineStep(vp.zoom);
+      const outline = outlineCacheRef.current.get(id, sel.revision, step, () => engine.selectionOutline(id, step));
+      const scale = vp.pointsPerPixel, origin = vp.documentRect({ width: doc.width, height: doc.height }), offset = s.outlineMove ?? { dx: 0, dy: 0 };
+      const at = { x: origin.x + offset.dx * scale, y: origin.y + offset.dy * scale };
+      const path = antsPathRef.current.get(outline, scale, { x0: -at.x, y0: -at.y, x1: vp.viewSize.width - at.x, y1: vp.viewSize.height - at.y });
+      ants = { path, at, phase: antsPhaseRef.current };
+    }
     const d = s.selectionDraft;
     drawOverlay(overlay.getContext("2d")!, vp, dpr, {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
@@ -94,6 +102,8 @@ export function CanvasView() {
         for (let y = 0; y < h; y++) out.set(all.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x0 + w) * 4), y * w * 4);
         return out;
       },
+      // The overlay painted now, synchronously: the perf harness times an ants tick with it.
+      paintOverlay: () => paintOverlay(),
       // Exposed for e2e tests to compute where the on-screen transform handles (including the
       // rotation handle, offset above the shape) currently sit, rather than hard-coding an
       // assumed screen offset that would break if the handle geometry ever changes.
