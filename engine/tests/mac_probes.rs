@@ -464,6 +464,12 @@ New in this set (how an enlarged, turned or shrunk layer is resampled):
 - sampling-high-rotated.comp   -> sampling-high-rotated.png
 - sampling-high-shrink-65.comp -> sampling-high-shrink-65.png
 - sampling-high-mask-400.comp  -> sampling-high-mask-400.png
+
+New in this set (the blend curve at many sub-pixel positions):
+
+- sampling-steps-high-1600.comp   -> sampling-steps-high-1600.png
+- sampling-steps-smooth-1600.comp -> sampling-steps-smooth-1600.png
+- sampling-steps-high-700.comp    -> sampling-steps-high-700.png
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -591,6 +597,28 @@ fn sampling_probes() -> Vec<(&'static str, Document)> {
     probes
 }
 
+/// Four 1-px columns, identical rows: every column boundary is a vertical step, so a large
+/// enlargement shows the blend curve at `percent / 100` phases per source pixel. The 400 % and
+/// 150 % renders showed a two-tap curve that is not bilinear and looks quantised in phase.
+fn steps_doc(sampling: Sampling, percent: f64) -> Document {
+    const COLUMNS: [[u8; 4]; 4] = [[230, 40, 30, 255], [20, 20, 20, 255], [240, 240, 240, 255], [30, 90, 220, 255]];
+    let raster = Raster::from_premultiplied(4, 3, (0..3).flat_map(|_| COLUMNS.concat()).collect());
+    let mut doc = Document::new(96, 72);
+    let mut layer = Layer::with_pixels("Steps", raster, Point { x: 8.0, y: 8.0 });
+    layer.transform.size = Size { width: 4.0 * percent / 100.0, height: 3.0 * percent / 100.0 };
+    layer.transform.sampling = sampling;
+    doc.layers = vec![layer];
+    doc
+}
+
+fn step_probes() -> Vec<(&'static str, Document)> {
+    vec![
+        ("sampling-steps-high-1600.comp", steps_doc(Sampling::High, 1600.0)),
+        ("sampling-steps-smooth-1600.comp", steps_doc(Sampling::Smooth, 1600.0)),
+        ("sampling-steps-high-700.comp", steps_doc(Sampling::High, 700.0)),
+    ]
+}
+
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
 /// it is ever sent to a Mac.
@@ -643,6 +671,7 @@ fn write_mac_probes() {
     write_probe(&dir, "blur-soft-mask.comp", &blur_soft_mask_doc());
     for (name, doc) in effects_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in sampling_probes() { write_probe(&dir, name, &doc); }
+    for (name, doc) in step_probes() { write_probe(&dir, name, &doc); }
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -687,6 +716,19 @@ fn every_sampling_probe_is_listed_and_resamples_as_named() {
         let named = if name.contains("400") { 4.0 } else if name.contains("150") { 1.5 } else if name.contains("rotated") { 3.0 } else { 0.65 };
         assert!((factor - named).abs() < 1e-9, "{name}: drawn at {factor}x");
         assert_eq!(t.rotation != 0.0, name.contains("rotated"), "{name}: rotation");
+    }
+}
+
+#[test]
+fn every_step_probe_is_listed_and_enlarged_as_named() {
+    for (name, doc) in step_probes() {
+        assert!(README_TXT.contains(&format!("- {name}")), "{name} is in the README");
+        let t = doc.layers[0].transform;
+        let factor = t.size.width / 4.0;
+        let named = if name.contains("1600") { 16.0 } else { 7.0 };
+        assert_eq!(factor, named, "{name}: drawn at {factor}x");
+        assert_eq!(t.sampling == Sampling::Smooth, name.contains("smooth"), "{name}: sampling");
+        assert!(t.origin.x + t.size.width <= doc.width as f64 && t.origin.y + t.size.height <= doc.height as f64, "{name}: on the canvas");
     }
 }
 

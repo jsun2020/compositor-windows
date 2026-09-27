@@ -138,6 +138,44 @@ Phase 2 and never probed, not an effects difference. Seven sampling probes (`sam
 mac_probes.rs) were generated on 2026-09-27 to fit the `.high` filter: 400 % in High quality, Smooth
 and Nearest, 150 %, turned 25 degrees at 300 %, a 65 % reduction, and a mask at 400 %.
 
+## Sampling probes (exported 2026-09-27)
+
+The user exported all seven; none re-saved. Port (bilinear) against the Mac, premultiplied:
+
+| probe | max | mean |
+|---|---|---|
+| sampling-nearest-400 | 0 | 0 (the geometry and pixel-centre mapping are right) |
+| sampling-high-400 | 29 | 1.48 |
+| sampling-smooth-400 | 29 | 1.48 (the Mac's High quality and Smooth exports are byte-identical) |
+| sampling-high-150 | 29 | 0.22 |
+| sampling-high-rotated | 164 | 1.63 |
+| sampling-high-shrink-65 | 40 | 1.05 |
+| sampling-high-mask-400 | 28 | 1.32 |
+
+Enlarging: the Mac blends only the two nearest source pixels (flat wherever both neighbours agree,
+no overshoot, clamped at the layer edge), but not linearly. With t the position between the two
+centres and f the share of the far pixel (mean over every step, all four channels alike, alpha
+included, so not a gamma effect):
+
+| t | 0.125 | 0.375 | 0.625 | 0.875 | (150 %) 0.167 | 0.5 | 0.833 |
+|---|---|---|---|---|---|---|---|
+| f | 0.0631 | 0.2503 | 0.7497 | 0.9369 | 0.0634 | 0.5000 | 0.9366 |
+
+No bilinear, cubic (Catmull-Rom, Mitchell, B-spline, a = -0.75) or Lanczos (2, 3) kernel fits
+(interior error 21 to 63). f(1/6) at 150 % equals f(1/8) at 400 %, which no smooth curve of t does:
+the sub-pixel position looks quantised before the blend. Three step probes
+(`sampling-steps-high-1600`, `-smooth-1600`, `-high-700`: four 1-px columns enlarged 16 and 7 times)
+were generated to read the curve at 16 and 7 phases.
+
+Turned layers: the Mac anti-aliases a turned layer's outer edge (`setShouldAntialias(true)` for
+every sampling but Nearest, LayerRenderer.swift:18); the port's CPU compositor draws it hard (alpha
+0 or 255 along the edge: at (32, 11) the Mac has alpha 91, the port 255, and at (35, 12) 106 vs 0).
+120 pixels differ by more than 32. This is a visible defect of the port independent of the filter.
+
+Open: the enlargement curve (awaiting the step probes), the turned-edge anti-aliasing, the 65 %
+reduction (`.low`, max 40) and the mask path. Together they are one resampling task, not part of
+Phase 4a.
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor
