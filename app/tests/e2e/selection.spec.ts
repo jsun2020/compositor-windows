@@ -186,8 +186,16 @@ test("Invert, Levels and Delete stay inside the selection; an adjustment layer i
   await page.getByLabel("Output white").fill("128");
   await page.getByLabel("Output white").press("Enter");
   await page.getByTestId("adjust-ok").click();
-  expect(await pixel(page, [56, 4])).not.toEqual([0, 0, 255, 255]); // inside the new selection: changed
-  expect(await pixel(page, [40, 4])).toEqual([0, 0, 255, 255]);     // outside it: untouched
+  // The master range's formula (LevelRange::apply, engine/src/adjust/settings.rs): with the
+  // per-channel range left at its identity default, input black 0, gamma 1, input white 255,
+  // output black 0, output white 128 -- out = outputBlack + ((v - black) / (white - black))
+  // ^(1/gamma) * (outputWhite - outputBlack), applied unpremultiplied then re-premultiplied
+  // (levels.rs::apply_tables). Blue's B channel (255, i.e. normalised 1.0) maps to
+  // 0 + (255 - 0) / (255 - 0) * (128 - 0) = 128 exactly; R and G (0) stay 0. `pixel()` reads
+  // the engine's own composite (api.engine.composite), not the GPU canvas, so this is exact --
+  // no GPU/CPU parity tolerance applies here.
+  expect(await pixel(page, [56, 4])).toEqual([0, 0, 128, 255]); // inside the new selection: changed
+  expect(await pixel(page, [40, 4])).toEqual([0, 0, 255, 255]); // outside it: untouched
   await clickMenu(page, "Layer", "layer-adjustment-invert");
   expect(await pixel(page, [40, 4])).toEqual([255, 255, 0, 255]);
 });
