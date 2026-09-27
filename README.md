@@ -71,10 +71,8 @@ Photoshop.
   (a folder does not isolate its contents on its own). Double-clicking an adjustment
   layer's row reopens its panel; double-clicking an ordinary layer's row still renames it.
 - Note: an adjustment layer is never a clipping source.
-- Note: selection-limited adjustments arrive with selections in Phase 4.
 - Note: Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point
   colour cube, so results are slightly more exact than the Mac app's.
-- Note: Motion Blur is an even streak rather than Core Image's tapered one.
 - Note: Image > Grain places its grain in document pixels; the Mac's uses the layer's own
   pixels, so on a scaled layer the grain size differs from the Mac's by the layer's scale.
 
@@ -101,15 +99,14 @@ Photoshop.
 - Image > Black & White and Color Balance, applied to the selected layer.
 - Grain and Add Noise use the Mac 1.2.6 patterns, for layers and for the Image and Filter menus.
 - Folder opacity and saved guides, as the Mac draws and moves them.
-- Note: Motion Blur, as a layer or a filter, is an even streak rather than Core Image's taper.
-  Until that difference is measured, a project with a Motion Blur adjustment layer names it in
-  the notice as drawn approximately, and merging it is refused.
-- Note: a Gaussian Blur reaching more than 48 screen pixels, or a Motion Blur reaching more than
-  12, is computed on a reduced copy. Measured against the exact blur: away from the edges,
-  within 1 level for a Gaussian Blur and 2 for a Motion Blur; up to 4 levels along the canvas
-  edge and along hard edges of transparency; and a long Motion Blur loses fine detail across the
-  streak (up to 20 levels on pixel-sized noise, and 17 at the canvas edge). At export (100%), a
-  Gaussian Blur up to radius 16 and a Motion Blur up to 24 px are exact. Every view of it, and
+- Motion Blur, as a layer or a filter, is Core Image's: a Gaussian along the angle whose sigma is
+  the distance / sqrt(12), within 6 levels of the Mac's own render.
+- Note: a Gaussian Blur or a Motion Blur reaching more than 48 screen pixels (three sigmas: a
+  Motion Blur reaches 0.87 x its distance) is computed on a reduced copy. Measured against the
+  exact blur: away from the edges, within 1 level; up to 4 levels for a Gaussian Blur and 9 for a
+  Motion Blur along the canvas edge and along hard edges of transparency; and a long Motion Blur
+  loses fine detail across its angle (up to 19 levels on pixel-sized noise). At export (100%), a
+  Gaussian Blur up to radius 16 and a Motion Blur up to 55 px are exact. Every view of it, and
   the export, shows the same result. Zoomed far into a very large blur, its edge can show at the
   window's edge.
 - Note: projects are limited to 100 megapixels of layer images (and of masks). Compositor for
@@ -132,6 +129,47 @@ Photoshop.
   measured at about 3 s for a pixel edit and 5 s for each frame of an unlinked mask drag, on a
   3000 x 2000 layer with all six effects. The 8 most recently made images, up to 512 MB, are
   kept.
+
+## Phase 4a: selections
+
+- Marquee (M; Tab switches Rectangle and Ellipse), Lasso (L; Tab switches Freehand and
+  Polygonal) and Magic Wand (W), with New, Add and Subtract in the options bar, or Shift (add)
+  and Alt (subtract) held as a drag or click begins.
+- The Magic Wand's tolerance, sample size (point, 3 by 3, 5 by 5), This Layer or All Layers, and
+  Contiguous. Anti-alias for the Lasso, the Magic Wand and the elliptical Marquee.
+- Drag inside a selection to move its outline; the arrow keys nudge it (Shift = 10 px). A click
+  inside it without a drag deselects (with the Magic Wand, selects afresh from that pixel).
+- The Polygonal Lasso: a click per corner; click the first corner or double-click to close;
+  Backspace removes the last corner, Enter closes, Escape cancels.
+- Select menu: All, Deselect, Inverse, Layer's Pixels, Mask's Black Areas, and Expand, Contract
+  and Feather with an amount; the three are also in the options bar.
+- Ctrl-click a layer's thumbnail to select its pixels (at least half opaque), or a mask's to
+  select its black areas, as on the Mac; Ctrl+Shift adds and Ctrl+Alt subtracts.
+- With a selection: adjustments, filters and Invert change only what is selected (a blur still
+  grows the layer where the selection reaches), and Levels and Curves show the histogram of the
+  selected pixels. Delete clears the selected pixels, or fills a targeted mask white. Add Mask
+  hides the selection (Add Mask (Hide All) shows only it) and uses it up. The Crop tool starts at
+  the selection's bounds. Adjustment layers ignore the selection.
+- An empty selection (after Subtract or Contract) says so in the options bar, and every edit
+  refuses it until it is deselected or replaced.
+- Selections are part of undo and, as on the Mac, are never saved in the project. Crop, Canvas
+  Size and Image Size drop the selection; Flip Canvas mirrors it.
+- Note: dragging a Marquee or an outline past the window's edge does not scroll the view yet.
+- Note: object selection, Select Subject, fills, the clipboard and the brushes are not in this
+  phase.
+
+### Select menu shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Marquee / Lasso / Magic Wand | M / L / W |
+| Switch the Marquee's shape or the Lasso's kind | Tab |
+| Select All | Ctrl+A |
+| Deselect | Ctrl+D |
+| Inverse | Ctrl+Shift+I |
+| Add to / subtract from the selection | Shift / Alt while drawing |
+| Nudge the selection (selection tools) | Arrow keys (Shift = 10 px) |
+| Clear the selected pixels | Delete |
 
 ## Prerequisites
 
@@ -166,14 +204,13 @@ projects from Compositor for Mac 1.2.10 (format version 9) and every earlier for
 writes version 9 as the Mac does, and saves them back without losing anything. What they
 contain is drawn as the Mac draws it, within the reduced-copy blur note above, except:
 
-- Motion Blur adjustment layers, which are drawn approximately and named in the same notice;
-- until follow-up measurements on the Mac are back: Color Burn and Color Dodge on an adjustment
-  layer or a clipped group, where the Mac uses Core Graphics' own formulas and this app the
-  W3C ones; and Soft Light, whose exact variant is not settled yet (within 1 level on the only
-  measurement so far); and the layer effects other than the drop shadow, which follow the Mac's
-  code and its own tests but have not been compared with a Mac render yet, and are written as
-  the Mac's code writes them, not yet checked against a project the Mac itself saved with
-  effects.
+- a layer enlarged in High quality (the default), which Compositor for Mac draws with Core
+  Graphics' high-quality filter and this app bilinearly: sharper soft edges on the Mac, up to 29
+  levels on one probe turned 25 degrees at 150 %, until Phase 3.5d ports the Mac's resampling
+  filter (probe results, "Step probes");
+- layer effects, which match the Mac's renders (11 of the 16 effects probes exactly, 4 within 3
+  levels, and the last apart from the resampling above) but are written as the Mac's code writes
+  them, not yet checked against a project the Mac itself saved with effects.
 
 ## Further reading
 

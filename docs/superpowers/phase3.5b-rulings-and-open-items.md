@@ -68,15 +68,15 @@ For Phase 3.5c (layer effects):
   base's effects today.
 - The `edited-rich-file` probe can only be compared once effects are drawn.
 
-From the follow-up probes (awaiting the user's Mac exports of `build-artifacts/mac-probes/`):
-- Soft Light variant (W3C now; Photoshop and Pegtop still fit the only render within 1).
-- Hard Light, Linear Light and Pin Light on non-pure sources; Hard Mix edge.
-- Color Burn and Color Dodge on adjustment layers and clipped groups: the Mac uses Core Graphics'
-  own formulas there, this port the W3C ones.
-- Motion Blur: even streak vs CIMotionBlur's taper; when settled, drop "drawn approximately" and the
-  merge refusal, or port the taper.
-- Color Balance with preserve on and off, B&W tint, Invert, both noise modes, Gaussian 6 and 40:
-  compare and pin as bit-exact oracles.
+From the follow-up probes: settled by the Mac 1.2.10 exports of 2026-09-27 (probe results;
+pinned in engine/tests/mac_1_2_10.rs by Phase 4a Tasks 1 and 2):
+- Soft Light is Pegtop's formula (the W3C one was 14 levels off at 75 % grey); now within 1.
+- Hard Light, Linear Light and Pin Light on non-pure sources and the Hard Mix edge: within 1.
+- Color Burn and Color Dodge on adjustment layers and clipped groups: bit-identical to the Mac.
+- Motion Blur: CIMotionBlur is a Gaussian along the angle, sigma = distance / sqrt(12); ported, the
+  notice entry and the merge refusal dropped; within 6 levels of the Mac's render (26 before).
+- Color Balance with preserve on and off, Invert, both noise modes: bit-identical; B&W tint within 1;
+  Gaussian 6 and 40 within 2 and 3 premultiplied.
 
 Engineering:
 - A level-0 Gaussian still holds the target plus one working copy (8 B/px); a streaming mix in

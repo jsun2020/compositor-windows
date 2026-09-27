@@ -140,14 +140,15 @@ are ported to Rust under `engine/src/adjust/`, shared by the CPU compositor and 
 live preview path. The WebGL2 renderer does not re-derive the colour tables: the engine
 computes them and uploads them as textures (`adjustment_lut`, `hue_response_table`), so
 only the HSL and grain arithmetic is written twice, once in Rust and once in GLSL, and an
-end-to-end GPU/CPU parity suite holds the two within 2/255 (3/255 for Grain). Two deliberate simplifications from
+end-to-end GPU/CPU parity suite holds the two within 2/255 (3/255 for Grain). One deliberate simplification from
 the macOS behaviour:
 
 - Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point colour
   cube, so results are slightly more exact than the Mac app's.
-- (Until Phase 4a) Motion Blur was an even streak rather than Core Image's tapered one. The Mac 1.2.10
-  probes (2026-09-27) measured CIMotionBlur as a Gaussian along the angle with sigma = distance / sqrt(12),
-  and Phase 4a Task 1 ports that.
+
+Motion Blur was an even streak until Phase 4a. The Mac 1.2.10 probes (2026-09-27) measured
+CIMotionBlur as a Gaussian along the angle with sigma = distance / sqrt(12), and Phase 4a
+Task 2 ports that: one kernel for the filter, the adjustment layer and the GPU.
 
 ## 5. Project format on Windows
 
