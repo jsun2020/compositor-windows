@@ -12,7 +12,7 @@ function layer(id: string, over: Partial<LayerState> = {}): LayerState {
   };
 }
 function document(layers: LayerState[]): DocumentState {
-  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: null, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], layers };
+  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: null, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection: null, layers };
 }
 
 // The expected values here are the same ones asserted against compositor::prefilter_level in

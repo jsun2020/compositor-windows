@@ -7,7 +7,7 @@ import type { DocumentState } from "../../src/engine/types";
 // rectangle instead of an implicit full-canvas default that could never disappear.
 
 function document(): DocumentState {
-  return { id: "D", documentId: "D", width: 120, height: 80, resolution: 72, activeLayerId: null, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], layers: [] };
+  return { id: "D", documentId: "D", width: 120, height: 80, resolution: 72, activeLayerId: null, canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection: null, layers: [] };
 }
 
 describe("crop tool rectangle seeding", () => {

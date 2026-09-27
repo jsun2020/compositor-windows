@@ -102,6 +102,14 @@ impl WasmEngine {
         let request = match request_json { Some(j) => Some(serde_json::from_str::<PreviewRequest>(&j).map_err(js_err)?), None => None };
         serde_json::to_string(&self.engine.set_preview(parse_id(doc)?, request).map_err(js_err)?).map_err(js_err)
     }
+    /// `Engine::selection_outline`: the marching ants' outline, flat (contour count, then each
+    /// contour's point count and x, y pairs), traced coarser when `step` < 1 and it is very detailed.
+    pub fn selection_outline(&self, doc: &str, step: f64) -> Result<js_sys::Float64Array, JsError> {
+        Ok(js_sys::Float64Array::from(self.engine.selection_outline(parse_id(doc)?, step).map_err(js_err)?.as_slice()))
+    }
+    pub fn selection_contains(&self, doc: &str, x: f64, y: f64) -> Result<bool, JsError> {
+        self.engine.selection_contains(parse_id(doc)?, Point { x, y }).map_err(js_err)
+    }
     pub fn histogram(&self, doc: &str, layer: &str) -> Result<String, JsError> {
         serde_json::to_string(&self.engine.histogram(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?).map_err(js_err)
     }

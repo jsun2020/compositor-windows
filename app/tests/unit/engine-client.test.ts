@@ -77,6 +77,17 @@ describe("pixel views survive a wasm memory growth", () => {
     expect(calls).toEqual(["prepare", "release", "prepare", "release"]);
   });
 
+  it("selectionOutline unpacks the engine's flat outline into contours", () => {
+    // Two contours: a triangle and a two-point sliver, as `Engine::selection_outline` lays them out.
+    const flat = new Float64Array([2, 3, 0, 0, 10, 0, 0, 5.5, 2, 7, 8, 9, 10]);
+    const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
+    client.wasm = { selection_outline: (doc: string, step: number) => { expect([doc, step]).toEqual(["D", 0.25]); return flat; } };
+    const c = client as unknown as EngineClient;
+    expect(c.selectionOutline("D", 0.25)).toEqual([[[0, 0], [10, 0], [0, 5.5]], [[7, 8], [9, 10]]]);
+    client.wasm = { selection_outline: () => new Float64Array([]) };
+    expect(c.selectionOutline("D", 1), "no selection").toEqual([]);
+  });
+
   it("both return null rather than a zero-length view when there is nothing to read", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
     const wasm = { layer_pixels_len: () => 0, mask_pixels_len: () => 0, layer_pixels_ptr: () => { throw new Error("must not be called"); }, mask_pixels_ptr: () => { throw new Error("must not be called"); } };

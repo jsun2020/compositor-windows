@@ -122,6 +122,23 @@ export interface DocumentState {
   guides: Guide[];
   /** What this project contains that this build does not draw yet (`Document::undrawn`). */
   undrawn: string[];
+  /** The selection's summary; null when nothing is selected. Its outline is fetched with
+   * `EngineClient.selectionOutline` whenever `revision` changes. */
+  selection: SelectionState | null;
+}
+
+/** How a new outline meets the selection (engine `SelectionMode`). */
+export type SelectionMode = "Replace" | "Add" | "Subtract";
+/** The drawn outline's kind (engine `SelectionShape`): the Lasso's two and the Marquee's two. */
+export type SelectionShape = "Freehand" | "Polygonal" | "Rectangle" | "Ellipse";
+/** The Magic Wand's options (engine `WandSettings`): tolerance 0-255, sample radius 0 (point),
+ * 1 (3x3) or 2 (5x5). */
+export interface WandSettings { tolerance: number; sampleRadius: number; contiguous: boolean; allLayers: boolean; }
+export const DEFAULT_WAND: WandSettings = { tolerance: 32, sampleRadius: 0, contiguous: true, allLayers: false };
+/** Engine `SelectionState`. `empty`: an explicit empty selection, which every edit refuses. */
+export interface SelectionState {
+  revision: number; empty: boolean; bounds: { x: number; y: number; width: number; height: number } | null;
+  antialiased: boolean; feather: number; points: number;
 }
 
 export type Command =
@@ -168,7 +185,20 @@ export type Command =
   | { type: "InvertPixels"; id: string; mask: boolean }
   | { type: "ApplyFilter"; id: string; params: FilterParams }
   | { type: "AddAdjustmentLayer"; kind: AdjustmentKind; seed: number; shadows: [number, number, number] | null; highlights: [number, number, number] | null }
-  | { type: "SetAdjustment"; id: string; adjustment: LayerAdjustment };
+  | { type: "SetAdjustment"; id: string; adjustment: LayerAdjustment }
+  | { type: "SelectShape"; kind: SelectionShape; points: PointTuple[]; mode: SelectionMode; antialiased: boolean }
+  | { type: "SelectAll" }
+  | { type: "Deselect" }
+  | { type: "InvertSelection" }
+  | { type: "MoveSelection"; dx: number; dy: number }
+  | { type: "ExpandSelection"; amount: number }
+  | { type: "ContractSelection"; amount: number }
+  | { type: "FeatherSelection"; amount: number }
+  | { type: "MagicWand"; at: PointTuple; mode: SelectionMode; settings: WandSettings; antialiased: boolean }
+  | { type: "LoadLayerSelection"; id: string; mode: SelectionMode; antialiased: boolean }
+  | { type: "LoadMaskSelection"; id: string; mode: SelectionMode; antialiased: boolean }
+  | { type: "ClearSelectedPixels"; id: string; mask: boolean }
+  | { type: "AddMaskFromSelection"; id: string; revealing: boolean };
 
 export interface Dirty { structure: boolean; canvas: boolean; layers: string[]; }
 

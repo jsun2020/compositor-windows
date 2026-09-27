@@ -14,7 +14,7 @@ function layer(): LayerState {
   };
 }
 function document(): DocumentState {
-  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: "A", canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], layers: [layer()] };
+  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: "A", canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection: null, layers: [layer()] };
 }
 
 /** A stub EngineClient recording every `execute` command, with no wasm involved. */
