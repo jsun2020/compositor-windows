@@ -390,13 +390,16 @@ void main() {
   vec4 c = acc / sum;
   color = last ? vec4(min(c.rgb, vec3(c.a)), c.a) : c;
 }`;
-// motion_blur in engine/src/adjust/filters.rs: an even streak of bilinear samples, zero beyond the
-// raster (sample_zero). dir is (cos a, sin a): these rows run bottom-up, the CPU's top-down.
+// motion_blur in engine/src/adjust/filters.rs: CIMotionBlur's Gaussian along the angle, one bilinear
+// tap per whole pixel out to `radius` (ceil(3 sigma)) either side, weighted exp(-t^2 / 2 sigma^2),
+// zero beyond the raster (sample_zero). dir is (cos a, sin a): these rows run bottom-up, the CPU's
+// top-down.
 const FRAG_MOTION = `#version 300 es
 precision highp float;
 uniform sampler2D src;
 uniform vec2 dir;
-uniform int steps;
+uniform float sigma;
+uniform int radius;
 uniform ivec2 size;
 out vec4 color;
 vec4 fetchZero(ivec2 p) { return (p.x < 0 || p.y < 0 || p.x >= size.x || p.y >= size.y) ? vec4(0.0) : texelFetch(src, p, 0); }
@@ -405,10 +408,13 @@ vec4 bilinearZero(vec2 q) {
   return mix(mix(fetchZero(i), fetchZero(i + ivec2(1, 0)), t.x), mix(fetchZero(i + ivec2(0, 1)), fetchZero(i + ivec2(1, 1)), t.x), t.y);
 }
 void main() {
-  float mid = float(steps - 1) / 2.0;
-  vec4 acc = vec4(0.0);
-  for (int i = 0; i < steps; i++) acc += bilinearZero(gl_FragCoord.xy + dir * (float(i) - mid));
-  vec4 c = acc / float(steps);
+  vec4 acc = vec4(0.0); float sum = 0.0;
+  for (int k = -radius; k <= radius; k++) {
+    float w = exp(-float(k * k) / (2.0 * sigma * sigma));
+    sum += w;
+    acc += bilinearZero(gl_FragCoord.xy + dir * float(k)) * w;
+  }
+  vec4 c = acc / sum;
   color = vec4(min(c.rgb, vec3(c.a)), c.a);
 }`;
 // spatial_target in engine/src/compositor.rs: the blurred copy enlarged (spatial.rs `enlarged`),
@@ -489,7 +495,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
       "bwLow", "bwHigh", "bwTint", "cbShadows", "cbMidtones", "cbHighlights", "cbPreserve", "noiseParams", "noiseSeed"]),
     halve: compile(gl, VERT_SCREEN, FRAG_HALVE, ["src", "size"]),
     gaussian: compile(gl, VERT_SCREEN, FRAG_GAUSSIAN, ["src", "sigma", "radius", "horizontal", "last", "size"]),
-    motion: compile(gl, VERT_SCREEN, FRAG_MOTION, ["src", "dir", "steps", "size"]),
+    motion: compile(gl, VERT_SCREEN, FRAG_MOTION, ["src", "dir", "sigma", "radius", "size"]),
     spatialMix: compile(gl, VERT_SCREEN, FRAG_SPATIAL_MIX, ["original", "adjusted", "coverage", "useCoverage", "opacity", "mode", "keepsAlpha", "level", "adjustedSize", "beyond"]),
     vao, buffer,
   };

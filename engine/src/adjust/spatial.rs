@@ -2,20 +2,16 @@
 //! rules here, so they blur the same image: how much of the work runs at full resolution
 //! (`spatial_blur`), and the lattice the reduced copies are cut on and how far a render pads
 //! (`spatial_grid`, `spatial_span`). The GPU asks for all three through wasm.
-use crate::{compositor::sample, gaussian_blur, gaussian_blur_in_place, motion_blur,AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
+use crate::{compositor::sample, gaussian_blur, gaussian_blur_in_place, motion_blur, motion_reach, motion_sigma, AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
 use serde::Serialize;
 
-/// Output pixels a Gaussian may reach (3 sigma) at full resolution. A longer reach runs on a copy
+/// Output pixels a blur may reach (3 sigma) at full resolution, a Gaussian or a Motion Blur (since
+/// Phase 4a, when the Motion Blur became a Gaussian along its angle run as a row-wise stencil,
+/// `motion_blur`; the even streak before it halved past 12). A longer reach runs on a copy
 /// halved until it fits, then enlarged, which keeps a blur's cost bounded at any radius and zoom.
 /// Measured against the exact kernel (Task 4's bounds test): within 1 level in the interior, and
 /// up to 4 along the canvas edge and hard alpha edges.
 pub const SPATIAL_REACH_LIMIT: f64 = 48.0;
-/// Output pixels a Motion Blur may reach (half the streak) at full resolution. Shorter than a
-/// Gaussian's: the exact streak costs one bilinear tap per pixel of its length (a 90 px streak
-/// over 3000 x 2000 took 45 s in the release wasm), and Motion Blur layers are already drawn
-/// approximately (`Document::undrawn`: the Mac's CIMotionBlur tapers, this port's does not).
-/// Halving averages detail ACROSS the streak, which the exact one keeps (the bounds test).
-pub const MOTION_REACH_LIMIT: f64 = 12.0;
 /// The most output pixels a partial render pads each side by for its blurs (`composite_plan`, and
 /// the GPU's frame). A render zoomed far into a very large blur shows its edge within this.
 pub const SPATIAL_PAD_LIMIT: f64 = 1024.0;
@@ -33,14 +29,12 @@ fn level_within(reach: f64, limit: f64) -> u32 {
     level
 }
 
-/// How many times a Gaussian reaching `reach` output pixels halves its input first.
+/// How many times a blur reaching `reach` output pixels (three sigmas, for a Gaussian and a Motion
+/// Blur alike) halves its input first.
 pub fn spatial_level(reach: f64) -> u32 { level_within(reach, SPATIAL_REACH_LIMIT) }
 
-/// How many times a Motion Blur reaching `reach` output pixels halves its input first.
-pub fn motion_level(reach: f64) -> u32 { level_within(reach, MOTION_REACH_LIMIT) }
-
 /// A blur adjustment at `out_per_doc` output pixels per document pixel: its kernel in output
-/// pixels (`sigma` for a Gaussian; `distance` and `angle` for a Motion Blur) and how many times
+/// pixels (`sigma` for both kinds, and a Motion Blur's `distance` and `angle`) and how many times
 /// its input halves first. The absent settings resolve here (settings.rs:438-440), once.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct SpatialBlur { pub level: u32, pub sigma: f64, pub distance: f64, pub angle: f64 }
@@ -48,15 +42,11 @@ pub struct SpatialBlur { pub level: u32, pub sigma: f64, pub distance: f64, pub 
 pub fn spatial_blur(a: &LayerAdjustment, out_per_doc: f64) -> SpatialBlur {
     let (sigma, distance) = match a.kind {
         AdjustmentKind::GaussianBlur => (a.gaussian_radius() * out_per_doc, 0.0),
-        AdjustmentKind::MotionBlur => (0.0, a.motion_distance_pixels() * out_per_doc),
+        AdjustmentKind::MotionBlur => { let d = a.motion_distance_pixels() * out_per_doc; (motion_sigma(d), d) }
         _ => (0.0, 0.0),
     };
-    // The reach: 3 sigma for a Gaussian, half the streak for a Motion Blur.
-    let level = match a.kind {
-        AdjustmentKind::MotionBlur => motion_level(distance / 2.0),
-        _ => spatial_level(sigma * 3.0),
-    };
-    SpatialBlur { level, sigma, distance, angle: a.motion_angle_degrees() }
+    // Both kernels reach three sigmas, and both halve past SPATIAL_REACH_LIMIT.
+    SpatialBlur { level: spatial_level(sigma * 3.0), sigma, distance, angle: a.motion_angle_degrees() }
 }
 
 /// Every Gaussian or Motion Blur adjustment the plan draws, bottom to top: plain nodes, and the
@@ -149,9 +139,10 @@ pub fn blur_for_layer(raster: Raster, sigma: f64) -> Raster {
     enlarged(&small, level, raster)
 }
 
-/// A streak of `distance` output pixels along `angle` degrees (the Phase 3 filter's even streak).
+/// A Motion Blur of `distance` output pixels along `angle` degrees: the destructive filter's kernel
+/// (`motion_blur`), on a copy halved `spatial_level(motion_reach(distance))` times.
 pub fn streak_for_layer(raster: Raster, angle: f64, distance: f64) -> Raster {
-    let level = motion_level(distance / 2.0);
+    let level = spatial_level(motion_reach(distance));
     if level == 0 { return motion_blur(&raster, angle, distance); }
     let small = motion_blur(&reduced(&raster, level), angle, distance / (1u32 << level) as f64);
     enlarged(&small, level, raster)

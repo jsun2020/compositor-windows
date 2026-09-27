@@ -19,10 +19,7 @@ fn each_undrawn_feature_is_named_once_and_sorted() {
     let mut d = pixel_layer(); d.extra.unknown.insert("fromTheFuture".into(), json!(1));
     let mut e = Layer::blank("Streak", doc.size()); e.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::MotionBlur));
     doc.layers = vec![a, b, c, d, e];
-    assert_eq!(doc.undrawn(), vec![
-        "Motion Blur adjustment layers (drawn approximately)".to_string(),
-        "settings from a newer version of Compositor".to_string(),
-    ]);
+    assert_eq!(doc.undrawn(), vec!["settings from a newer version of Compositor".to_string()]);
 }
 
 #[test]
@@ -36,17 +33,16 @@ fn layer_effects_are_drawn_so_they_are_not_reported() {
 }
 
 #[test]
-fn of_the_six_new_kinds_only_motion_blur_is_reported() {
-    // Ruling G-I2: this port draws Motion Blur as an even streak, Core Image as a tapered one
-    // (Filters.swift:170-208), and the motion probe has not measured the gap yet.
+fn none_of_the_six_new_kinds_is_reported() {
+    // Phase 4a: the Motion Blur is drawn as CIMotionBlur's Gaussian, within 6 levels of the Mac's
+    // render (mac_1_2_10.rs), so it left the notice with the rest (ruling G-I2 closed).
     for kind in [AdjustmentKind::Invert, AdjustmentKind::BlackWhite, AdjustmentKind::ColorBalance, AdjustmentKind::GaussianBlur,
         AdjustmentKind::MotionBlur, AdjustmentKind::AddNoise] {
         let mut doc = Document::new(4, 4);
         let mut layer = Layer::blank("A", doc.size());
         layer.extra.adjustment = Some(LayerAdjustment::new(kind));
         doc.layers = vec![layer];
-        let want: Vec<String> = if kind == AdjustmentKind::MotionBlur { vec!["Motion Blur adjustment layers (drawn approximately)".into()] } else { vec![] };
-        assert_eq!(doc.undrawn(), want, "{kind:?}");
+        assert!(doc.undrawn().is_empty(), "{kind:?}: {:?}", doc.undrawn());
     }
 }
 

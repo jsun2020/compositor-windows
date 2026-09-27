@@ -150,13 +150,16 @@ fn a_halved_gaussian_blur_layer_enlarges_over_its_working_copy() {
 
 #[test]
 fn a_level_0_motion_blur_layer_holds_a_working_copy_and_its_result() {
-    // The streak reads in every direction, so it cannot write over what it still reads. Unchanged.
-    at_most("composite, Motion 20 (level 0)", || composite_peak(Some(motion(20.0))), 12.01);
+    // The kernel reads rows above and below, so it cannot write over what it still reads; its
+    // accumulator is one row of f32 RGBA.
+    assert_eq!(spatial_blur(&motion(20.0), 1.0).level, 0);
+    at_most("composite, Motion 20 (level 0)", || composite_peak(Some(motion(20.0))), 12.06);
 }
 
 #[test]
 fn a_halved_motion_blur_layer_enlarges_over_its_working_copy() {
-    at_most("composite, Motion 60 (level 2)", || composite_peak(Some(motion(60.0))), 9.63); // was 13.68
+    assert_eq!(spatial_blur(&motion(120.0), 1.0).level, 2);
+    at_most("composite, Motion 120 (level 2)", || composite_peak(Some(motion(120.0))), 9.66);
 }
 
 #[test]

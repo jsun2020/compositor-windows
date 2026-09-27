@@ -22,19 +22,25 @@ fn merge_down_bakes_a_new_blend_mode_as_the_canvas_shows_it() {
 }
 
 #[test]
-fn merging_a_folder_holding_a_motion_blur_layer_is_refused_until_the_motion_probe_settles_it() {
-    let mut doc = Document::new(4, 4);
+fn merging_a_folder_holding_a_motion_blur_layer_bakes_what_the_canvas_showed() {
+    // Phase 4a: the Motion Blur is drawn as the Mac draws it (mac_1_2_10.rs), so merge no longer
+    // refuses it. A 6 x 4 block on 12 x 8, blurred 10 px at 30 degrees, so the blur spreads past it.
+    let mut doc = Document::new(12, 8);
     let mut folder = Layer::blank("Folder", doc.size()); folder.is_group = true;
     let folder_id = folder.id;
-    let mut p = Layer::with_pixels("P", Raster::from_premultiplied(4, 4, [200u8, 40, 40, 255].repeat(16)), Point { x: 0.0, y: 0.0 });
+    let mut p = Layer::with_pixels("P", Raster::from_premultiplied(6, 4, [200u8, 40, 40, 255].repeat(24)), Point { x: 3.0, y: 2.0 });
     p.parent_id = Some(folder_id);
     let mut streak = Layer::blank("Streak", doc.size()); streak.parent_id = Some(folder_id);
-    streak.extra.adjustment = Some(LayerAdjustment::new(AdjustmentKind::MotionBlur));
+    let mut a = LayerAdjustment::new(AdjustmentKind::MotionBlur);
+    a.motion_angle = Some(30.0); a.motion_distance = Some(10.0);
+    streak.extra.adjustment = Some(a);
     doc.layers = vec![folder, p, streak];
     doc.active_layer_id = Some(folder_id);
-    let err = ops::merge::merge(&mut doc, &[folder_id]).unwrap_err();
-    assert_eq!(err, CommandError::Argument("Merging would bake Motion Blur adjustment layers (drawn approximately), which this build does not draw yet, or draws differently".into()));
-    assert_eq!(doc.layers.len(), 3, "nothing changed");
+    let shown = composite(&doc, Rect { x: 0.0, y: 0.0, width: 12.0, height: 8.0 }, 12, 8);
+    ops::merge::merge(&mut doc, &[folder_id]).expect("a drawn Motion Blur no longer blocks a merge");
+    assert_eq!(doc.layers.len(), 1);
+    assert_eq!(composite(&doc, Rect { x: 0.0, y: 0.0, width: 12.0, height: 8.0 }, 12, 8).bytes(), shown.bytes(), "the merged pixels are what the canvas showed");
+    assert!(doc.layers[0].pixels.as_ref().unwrap().width > 6, "the blur spread past the block, and the merge kept it");
 }
 
 #[test]

@@ -143,29 +143,75 @@ pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f
     }
 }
 
-/// An even streak of `distance` pixels along `angle` degrees, counter-clockwise from horizontal on
-/// screen (so the direction in top-down pixels is (cos a, -sin a)), as Photoshop smears.
-pub fn motion_blur(raster: &Raster, angle: f64, distance: f64) -> Raster {
-    let steps = distance.round().max(1.0) as i64;
-    if steps <= 1 { return raster.clone(); }
+/// The spread of a Motion Blur `distance` pixels long. The Mac hands CIMotionBlur a radius of
+/// distance / sqrt(12) (`motionRadiusPerPixel`, Filters.swift:170-173; the adjustment layer does
+/// the same), and CIMotionBlur is a Gaussian along the angle whose sigma is that radius (the
+/// motion-blur-30-24 probe, probe results "Phase 3.5b follow-up probes").
+pub fn motion_sigma(distance: f64) -> f64 { distance / 12f64.sqrt() }
+
+/// How far a Motion Blur `distance` pixels long reads along its angle: three sigmas, as far as
+/// `motion_blur` takes taps.
+pub fn motion_reach(distance: f64) -> f64 { motion_sigma(distance) * 3.0 }
+
+/// The Motion Blur kernel as whole-pixel cells: (column offset, row offset, weight), each weight a
+/// Gaussian tap's `exp(-t^2 / 2 sigma^2)` times its bilinear share, cells that several taps reach
+/// summed, rows then columns ascending; and the taps' weight sum. One tap per whole pixel `t` out
+/// to ceil(3 sigma) either side along (cos a, -sin a). A tap at (x + 0.5 + dx t, y + 0.5 + dy t)
+/// splits over the four pixels around it by the same fractions wherever (x, y) is, which is why
+/// the kernel is a fixed stencil. Empty for a blur too short to move anything.
+pub fn motion_stencil(angle: f64, distance: f64) -> (Vec<(i64, i64, f32)>, f32) {
+    let sigma = motion_sigma(distance);
+    let radius = (sigma * 3.0).ceil() as i64;
+    if !(sigma > 0.0) || radius < 1 { return (Vec::new(), 0.0); }
     let radians = angle.to_radians();
     let (dx, dy) = (radians.cos(), -radians.sin());
-    let half = (steps - 1) as f64 / 2.0;
-    let (w, h) = (raster.width, raster.height);
-    let mut out = vec![0u8; (w as usize) * (h as usize) * 4];
-    for y in 0..h { for x in 0..w {
-        let mut acc = [0f32; 4];
-        for i in 0..steps {
-            let t = i as f64 - half;
-            let s = sample_zero(raster, x as f64 + 0.5 + dx * t, y as f64 + 0.5 + dy * t);
-            for c in 0..4 { acc[c] += s[c]; }
+    let mut cells: std::collections::BTreeMap<(i64, i64), f64> = std::collections::BTreeMap::new();
+    let mut sum = 0.0f32;
+    for t in -radius..=radius {
+        let weight = (-((t * t) as f64) / (2.0 * sigma * sigma)).exp() as f32;
+        sum += weight;
+        let (fx, fy) = (dx * t as f64, dy * t as f64);
+        let (ox, oy) = (fx.floor(), fy.floor());
+        let (tx, ty) = (fx - ox, fy - oy);
+        for (cx, cy, share) in [(0, 0, (1.0 - tx) * (1.0 - ty)), (1, 0, tx * (1.0 - ty)), (0, 1, (1.0 - tx) * ty), (1, 1, tx * ty)] {
+            if share > 0.0 { *cells.entry((oy as i64 + cy, ox as i64 + cx)).or_insert(0.0) += weight as f64 * share; }
         }
-        let i = ((y * w + x) * 4) as usize;
-        let alpha = (acc[3] / steps as f32).round().clamp(0.0, 255.0);
-        out[i + 3] = alpha as u8;
-        for c in 0..3 { out[i + c] = (acc[c] / steps as f32).round().clamp(0.0, alpha) as u8; }
-    }}
-    Raster::from_premultiplied(w, h, out)
+    }
+    (cells.into_iter().map(|((oy, ox), w)| (ox, oy, w as f32)).collect(), sum)
+}
+
+/// CIMotionBlur as the Mac draws it: a Gaussian of sigma `motion_sigma(distance)` along `angle`
+/// degrees, counter-clockwise from horizontal on screen (so the direction in top-down pixels is
+/// (cos a, -sin a)): one bilinear tap per whole pixel out to ceil(3 sigma) either side, weighted
+/// exp(-t^2 / 2 sigma^2), transparent beyond the raster (`motion_stencil`). Premultiplied; colour
+/// never exceeds alpha. Run a row at a time over the stencil's cells, so the inner loop reads one
+/// source row in order. `programs.ts` FRAG_MOTION takes the same taps on the GPU.
+pub fn motion_blur(raster: &Raster, angle: f64, distance: f64) -> Raster {
+    let (stencil, sum) = motion_stencil(angle, distance);
+    if stencil.is_empty() || raster.width == 0 || raster.height == 0 { return raster.clone(); }
+    let (w, h) = (raster.width as i64, raster.height as i64);
+    let src = raster.bytes();
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    let mut acc = vec![0f32; (w * 4) as usize];
+    for y in 0..h {
+        acc.fill(0.0);
+        for &(ox, oy, weight) in &stencil {
+            let sy = y + oy;
+            if sy < 0 || sy >= h { continue; }
+            // Output columns whose source column x + ox lies inside the raster.
+            let (x0, x1) = ((-ox).max(0), (w - ox).min(w));
+            if x0 >= x1 { continue; }
+            let row = &src[((sy * w + x0 + ox) * 4) as usize..((sy * w + x1 + ox) * 4) as usize];
+            for (a, s) in acc[(x0 * 4) as usize..(x1 * 4) as usize].iter_mut().zip(row) { *a += *s as f32 * weight; }
+        }
+        let line = &mut out[(y * w * 4) as usize..((y + 1) * w * 4) as usize];
+        for (p, a) in line.chunks_exact_mut(4).zip(acc.chunks_exact(4)) {
+            let alpha = (a[3] / sum).round().clamp(0.0, 255.0);
+            p[3] = alpha as u8;
+            for c in 0..3 { p[c] = (a[c] / sum).round().clamp(0.0, alpha) as u8; }
+        }
+    }
+    Raster::from_premultiplied(raster.width, raster.height, out)
 }
 
 fn noise_hash(mut x: u32) -> u32 {

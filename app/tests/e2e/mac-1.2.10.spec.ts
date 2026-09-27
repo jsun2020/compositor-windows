@@ -130,7 +130,7 @@ test("the engine hands the GPU its blur sizes, the plan's reach and the canvas-a
       api.engine.spatialBlur(layer.adjustment, 2),                                  // radius absent: 10, so sigma 20, reach 60
       api.engine.spatialBlur({ ...layer.adjustment, blurRadius: 16 }, 1),           // reach 48, the limit: no halving
       api.engine.spatialBlur({ ...layer.adjustment, blurRadius: 250 }, 1),          // reach 750: four halvings
-      api.engine.spatialBlur({ ...layer.adjustment, kind: "Motion Blur", motionAngle: 30, motionDistance: 97 }, 1),   // reach 48.5, halved 3x past the Motion Blur limit of 12 (48.5 -> 24.25 -> 12.125 -> 6.0625)
+      api.engine.spatialBlur({ ...layer.adjustment, kind: "Motion Blur", motionAngle: 30, motionDistance: 97 }, 1),   // sigma 97 / sqrt(12), reach 84: one halving
     ];
     api.engine.execute(doc, { type: "SetAdjustment", id: layer.id, adjustment: { ...layer.adjustment, blurRadius: 6 } });
     return {
@@ -143,7 +143,7 @@ test("the engine hands the GPU its blur sizes, the plan's reach and the canvas-a
   expect(r.after, "3 x 6 + 2 document pixels").toBe(20);
   expect(r.blurs).toEqual([
     { level: 1, sigma: 20, distance: 0, angle: 0 }, { level: 0, sigma: 16, distance: 0, angle: 0 },
-    { level: 4, sigma: 250, distance: 0, angle: 0 }, { level: 3, sigma: 0, distance: 97, angle: 30 },
+    { level: 4, sigma: 250, distance: 0, angle: 0 }, { level: 1, sigma: 97 / Math.sqrt(12), distance: 97, angle: 30 },
   ]);
   // Radius 6 at 1 output px per document px: reach 18, no halving, pad 20 + 3 cells of 1. At 4:
   // reach 72, one halving, pad 80 + 3 x 2. At 100: six halvings, and the pad stops at 1024.
@@ -213,6 +213,15 @@ test("the blend-greys probe draws on the GPU as the Mac exported it, Soft Light 
   // The CPU is within 1 of the Mac (mac_1_2_10.rs); W3C's Soft Light was 14 off at the 75% grey.
   // Measured 1 on p4a-scratch (2026-09-27).
   expect(worstOf(await glPixels(page), await macPixels(page, "blend-greys"))).toBeLessThanOrEqual(1);
+});
+
+test("the motion-blur probe draws on the GPU as the Mac exported it", async ({ page }) => {
+  await openProbe(page, "motion-blur-30-24");
+  expect(await onWholePixels(page), "the document sits on whole device pixels").toBe(true);
+  // The CPU is within 6 of the Mac, premultiplied (mac_1_2_10.rs); the even streak was 28 off.
+  // Measured 6 on p4a-scratch (2026-09-27).
+  expect(worstOf(await glPixels(page), await macPixels(page, "motion-blur-30-24"))).toBeLessThanOrEqual(6);
+  await expectMatchesCpu(page, "motion-blur-30-24");
 });
 
 /** A new adjustment layer of `kind` on the active document, with `settings` merged into it; it becomes the active layer. */
@@ -448,12 +457,12 @@ const blurLevel = async (page: Page, id: string) => (await blurOf(page, id)).lev
 test("blur adjustment layers draw on the GPU as on the CPU, reduced or not, dimmed, blended and clipped", async ({ page }) => {
   await setupNoise(page, 721);
   // At one output px per document px: radius 3 reaches 9 px (exact kernel); radius 20 reaches 60,
-  // past SPATIAL_REACH_LIMIT 48 (one halving); a 21-px streak reaches 10.5, within
-  // MOTION_REACH_LIMIT 12 (exact); a 150-px streak reaches 75, which halves to 37.5, 18.75 and
-  // 9.375 (three halvings). A halved case may differ by one more level.
+  // past SPATIAL_REACH_LIMIT 48 (one halving); a 21-px Motion Blur reaches three sigmas, 18.2
+  // (exact); a 150-px one reaches 129.9, which halves to 65 and 32.5 (two halvings). A halved case
+  // may differ by one more level.
   const cases: [string, object, number][] = [
     ["Gaussian Blur", { blurRadius: 3 }, 0], ["Gaussian Blur", { blurRadius: 20 }, 1],
-    ["Motion Blur", { motionAngle: 30, motionDistance: 21 }, 0], ["Motion Blur", { motionAngle: -60, motionDistance: 150 }, 3],
+    ["Motion Blur", { motionAngle: 30, motionDistance: 21 }, 0], ["Motion Blur", { motionAngle: -60, motionDistance: 150 }, 2],
   ];
   for (const [kind, settings, level] of cases) {
     const id = await addAdjustment(page, kind, settings);
@@ -672,7 +681,7 @@ test("a step edge on the lattice blurs on the GPU to the closed form, halved or 
   };
   const cases: [string, object, number][] = [
     ["Gaussian Blur", { blurRadius: 20 }, 1],
-    ["Motion Blur", { motionAngle: 0, motionDistance: 150 }, 3],
+    ["Motion Blur", { motionAngle: 0, motionDistance: 150 }, 2],
     ["Motion Blur", { motionAngle: 0, motionDistance: 21 }, 0],
   ];
   for (const [kind, settings, level] of cases) {
@@ -680,22 +689,16 @@ test("a step edge on the lattice blurs on the GPU to the closed form, halved or 
     const id = await addAdjustment(page, kind, settings);
     const blur = await blurOf(page, id);
     expect(blur.level, `${label}: the engine's level`).toBe(level);
+    if (kind === "Motion Blur") expect(blur.sigma, `${label}: CIMotionBlur's sigma, distance / sqrt(12)`).toBeCloseTo(blur.distance / Math.sqrt(12), 12);
     const f = 2 ** blur.level, edge = EDGE / f;   // the step's column in the reduced copy
-    let b: (k: number) => number;
-    if (kind === "Gaussian Blur") {
-      // gaussian_blur at the reduced sigma: the share of the kernel's weight on the block. Row 96
-      // lies beyond every vertical reach from the canvas's top and bottom, so that pass keeps it.
-      const s = blur.sigma / f, radius = Math.ceil(s * 3);
-      const w = (j: number) => Math.exp(-(j * j) / (2 * s * s));
-      let total = 0; for (let j = -radius; j <= radius; j++) total += w(j);
-      b = (k) => { let on = 0; for (let j = -radius; j <= radius; j++) if (k + j >= 0 && k + j < edge) on += w(j); return 255 * on / total; };
-    } else {
-      // motion_blur at angle 0 over the reduced copy: an odd count of steps lands every sample on a
-      // texel centre, so each column is the share of the streak's samples on the block.
-      const steps = Math.max(1, Math.round(blur.distance / f)), mid = (steps - 1) / 2;
-      expect(steps % 2, `${label}: an odd streak of ${steps}`).toBe(1);
-      b = (k) => { let on = 0; for (let i = 0; i < steps; i++) { const c = k + i - mid; if (c >= 0 && c < edge) on++; } return 255 * on / steps; };
-    }
+    // Both kernels at the reduced sigma: the share of the Gaussian's weight on the block. The
+    // Gaussian's row pass and a Motion Blur at angle 0 take one tap per whole pixel on texel centres;
+    // row 96 lies beyond every vertical reach from the canvas's top and bottom, so the Gaussian's
+    // column pass keeps it (and a Motion Blur at angle 0 reads no other row).
+    const s = blur.sigma / f, radius = Math.ceil(s * 3);
+    const w = (j: number) => Math.exp(-(j * j) / (2 * s * s));
+    let total = 0; for (let j = -radius; j <= radius; j++) total += w(j);
+    const b = (k: number) => { let on = 0; for (let j = -radius; j <= radius; j++) if (k + j >= 0 && k + j < edge) on += w(j); return 255 * on / total; };
     const r = await page.evaluate(async () => {
       const api = (window as any).__compositor; const s = api.store.getState();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

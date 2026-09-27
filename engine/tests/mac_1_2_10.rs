@@ -193,6 +193,19 @@ fn every_band_of_blend_greys_matches_the_mac_render() {
     }
 }
 
+#[test]
+fn the_motion_blur_probe_matches_the_mac_render_as_a_gaussian_along_its_angle() {
+    // 30 degrees, 24 px over a block running off the canvas and a translucent bar. The Mac passes
+    // CIMotionBlur a radius of 24 / sqrt(12) and CIMotionBlur is a Gaussian of that sigma along the
+    // angle (Filters.swift:170-208; probe results). Measured with `motion_blur` on p4a-scratch
+    // (2026-09-27): colour 6, alpha 6, mean 0.195 per byte. The even streak this port drew before
+    // measured 26, 28 and 3.108; a Gaussian cut at 4 sigmas instead of 3 was 6, 6 and 0.138, and one
+    // sampled every quarter pixel 4, 4 and 0.103, at 4 to 8 times the taps.
+    let (colour, alpha, mean) = premultiplied("motion-blur-30-24");
+    assert!(colour <= 6 && alpha <= 6, "colour {colour} alpha {alpha}");
+    assert!(mean <= 0.2, "mean {mean:.3}");
+}
+
 // The Phase 3.5c effects probes and color-balance-preserve, exported by Compositor for Mac 1.2.10 on
 // 2026-09-27 (probe results, "Phase 3.5c effects probes and color-balance-preserve"). Measured
 // premultiplied on p4a-scratch against this build (2026-09-27); the same as the controller's

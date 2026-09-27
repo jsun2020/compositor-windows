@@ -249,7 +249,7 @@ test("a notice names what the project uses that this build does not draw, and Di
   await expect(notice).toBeVisible();
   await expect(notice, "layer effects are drawn now").not.toContainText("layer effects");
   await expect(notice).toContainText("settings from a newer version of Compositor");
-  await expect(notice).toContainText("Motion Blur adjustment layers (drawn approximately)");
+  await expect(notice, "Motion Blur is drawn as the Mac draws it now (Phase 4a)").not.toContainText("Motion Blur");
   // Scoped to the notice: the error banner's button (App.tsx:98) is also named "Dismiss".
   await notice.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(notice).toHaveCount(0);

@@ -133,7 +133,8 @@ fn a_part_of_the_canvas_composites_exactly_as_that_part_of_the_whole() {
         let part = composite(&doc, Rect { x: x as f64, y: y as f64, width: w as f64, height: h as f64 }, w, h);
         assert_eq!(part.bytes(), whole.cropped(x, y, w, h).bytes(), "({x}, {y}) {w} x {h}");
     }
-    assert_eq!(render_plan(&doc, None).spatial_margin, (2.0 * 3.0 + 2.0) + (7.0 / 2.0 + 2.0));
+    // The streak pads by its three sigmas (7 / sqrt(12) each) plus 2, as far as its kernel reads.
+    assert_eq!(render_plan(&doc, None).spatial_margin, (2.0 * 3.0 + 2.0) + (7.0 / 12f64.sqrt() * 3.0 + 2.0));
     let mut hidden = doc.clone();
     hidden.layers[2].visible = false;
     assert_eq!(render_plan(&hidden, None).spatial_margin, 2.0 * 3.0 + 2.0, "a hidden blur reaches nothing");
@@ -179,9 +180,12 @@ fn the_grid_and_the_span_follow_the_plans_blurs() {
     assert_eq!(spatial_grid(&render_plan(&one, None), 0.25), SpatialGrid { cell: 1, pad: 19 });
     let mut two = one.clone();
     let second = streak(&two, 30.0, 150.0); two.layers.push(second);
-    // Stacked blurs compound: 68 + (150 / 2 + 2 + 3 x 8) = 169, the streak's reach of 75 halving
-    // three times past MOTION_REACH_LIMIT; the cell is the larger level's.
-    assert_eq!(spatial_grid(&render_plan(&two, None), 1.0), SpatialGrid { cell: 8, pad: 169 });
+    // Stacked blurs compound: 68 + (motion_reach(150) + 2 + 3 x 4) = 211.9, rounded up; the streak's
+    // reach of 129.9 (three sigmas of 150 / sqrt(12)) halves twice past SPATIAL_REACH_LIMIT, and
+    // the cell is the larger level's.
+    let reach = motion_reach(150.0);
+    assert_eq!(spatial_level(reach), 2);
+    assert_eq!(spatial_grid(&render_plan(&two, None), 1.0), SpatialGrid { cell: 4, pad: (68.0 + reach + 2.0 + 12.0).ceil() as u32 });
     let mut far = one.clone();
     far.layers[1].extra.adjustment.as_mut().unwrap().blur_radius = Some(250.0);
     // At 2 output pixels per document pixel, radius 250 reaches 1500: five halvings, and the pad
@@ -282,9 +286,13 @@ fn a_long_reach_blurs_a_halved_copy_within_the_measured_bound_of_the_exact_kerne
     // the canvas-anchored lattice (plan-fix scratch crate p35b-halving, 2026-09-24), not chosen;
     // the assertion allows 1 more for float ordering. `inset` keeps the comparison reach + 2 cells
     // away from every canvas edge (0: the whole canvas). Radius 20 reaches 60 output pixels (one
-    // halving), radius 40 reaches 120 (two), a 150 px streak reaches 75 (three: a Motion Blur
-    // halves past MOTION_REACH_LIMIT, 12). The streak bounds were re-measured here for that limit
-    // (Task 4 fix round 1, 2026-09-25): at one halving they were 2 and 15.
+    // halving), radius 40 reaches 120 (two). A 150 px Motion Blur reaches three sigmas, 129.9 (two
+    // halvings, as a Gaussian would: Phase 4a's kernel, bounds re-measured on p4a-scratch
+    // 2026-09-27; the even streak before it halved three times, and measured 2, 17 and 20).
+    // Ruling M12: the 150 px Motion Blur's inset by the same formula as the others (reach + 2 cells,
+    // rounded up) instead of the literal 138.
+    let motion_150_reach = motion_reach(150.0);
+    let motion_150_inset = (motion_150_reach + 2.0 * (1u32 << spatial_level(motion_150_reach)) as f64).ceil() as u32;
     let cases: [(&str, Document, u32, u8); 9] = [
         ("the interior of an opaque ramp, radius 20", over(ramp(200, 150, None), |d| blur(d, 20.0)), 64, 1),
         ("the same ramp out to its canvas edge, radius 20", over(ramp(200, 150, None), |d| blur(d, 20.0)), 0, 3),
@@ -292,11 +300,11 @@ fn a_long_reach_blurs_a_halved_copy_within_the_measured_bound_of_the_exact_kerne
         ("an alpha edge off the halving lattice (row 7), radius 20", over(ramp(96, 64, Some(7)), |d| blur(d, 20.0)), 0, 3),
         ("odd sizes, 95 x 63, alpha edge at row 7, radius 20", over(ramp(95, 63, Some(7)), |d| blur(d, 20.0)), 0, 3),
         ("odd sizes, radius 40", over(ramp(95, 63, Some(7)), |d| blur(d, 40.0)), 0, 2),
-        // Three halvings put most of a streak's error at the canvas edge, where the streak fades.
-        ("the interior of an opaque ramp under a 150 px streak", over(ramp(400, 300, None), |d| streak(d, -60.0, 150.0)), 91, 2),
-        ("a 150 px streak over the odd-sized ramp", over(ramp(95, 63, Some(7)), |d| streak(d, -60.0, 150.0)), 0, 17),
-        // A halved streak also averages the detail ACROSS the streak, which the exact one keeps.
-        ("a 150 px streak over per-pixel noise", over(lcg_noise(200, 150), |d| streak(d, 30.0, 150.0)), 0, 20),
+        // Most of a halved Motion Blur's error lies at the canvas edge, where the blur fades.
+        ("the interior of an opaque ramp under a 150 px Motion Blur", over(ramp(400, 300, None), |d| streak(d, -60.0, 150.0)), motion_150_inset, 1),
+        ("a 150 px Motion Blur over the odd-sized ramp", over(ramp(95, 63, Some(7)), |d| streak(d, -60.0, 150.0)), 0, 9),
+        // A halved Motion Blur also averages the detail ACROSS its angle, which the exact one keeps.
+        ("a 150 px Motion Blur over per-pixel noise", over(lcg_noise(200, 150), |d| streak(d, 30.0, 150.0)), 0, 19),
     ];
     for (name, doc, inset, measured) in cases {
         let (under, out) = (beneath(&doc), full(&doc));
@@ -316,19 +324,18 @@ fn a_long_reach_blurs_a_halved_copy_within_the_measured_bound_of_the_exact_kerne
 }
 
 #[test]
-fn a_motion_blur_layer_halves_past_its_own_shorter_reach() {
-    // Task 4 fix round 1. The exact streak costs one tap per pixel of its length (a 90 px streak
-    // over 3000 x 2000 took 45 s in the release wasm), and Motion Blur layers are drawn
-    // approximately anyway, so they halve past MOTION_REACH_LIMIT (12 output pixels). A Gaussian
-    // keeps SPATIAL_REACH_LIMIT (48).
-    let doc = patterned(|d| vec![streak(d, 30.0, 30.0)]);
-    assert_eq!(spatial_blur(doc.layers[1].extra.adjustment.as_ref().unwrap(), 1.0).level, 1, "a 30 px streak reaches 15");
-    assert_eq!([motion_level(12.0), motion_level(12.5), motion_level(24.5), motion_level(45.0)], [0, 1, 2, 2]);
-    let mut gaussian = LayerAdjustment::new(AdjustmentKind::GaussianBlur);
-    gaussian.blur_radius = Some(5.0);
-    assert_eq!(spatial_blur(&gaussian, 1.0).level, 0, "a Gaussian reaching 15 stays exact");
-    // The compositor draws the streak halved too: the exact kernel would match it to the bit.
-    assert_ne!(full(&doc).bytes(), motion_blur(&beneath(&doc), 30.0, 30.0).bytes());
+fn a_motion_blur_layer_halves_past_the_same_reach_as_a_gaussian() {
+    // Phase 4a: the Motion Blur is CIMotionBlur's Gaussian along its angle, sigma = distance /
+    // sqrt(12), reaching three sigmas, and runs as a row-wise stencil cheap enough to share the
+    // Gaussian's SPATIAL_REACH_LIMIT (48). A 55 px blur reaches 47.6 (exact); 56 px reaches 48.5
+    // (one halving).
+    let exact = patterned(|d| vec![streak(d, 30.0, 55.0)]);
+    let b = spatial_blur(exact.layers[1].extra.adjustment.as_ref().unwrap(), 1.0);
+    assert_eq!((b.level, b.sigma, b.distance, b.angle), (0, 55.0 / 12f64.sqrt(), 55.0, 30.0));
+    assert_eq!(full(&exact).bytes(), motion_blur(&beneath(&exact), 30.0, 55.0).bytes(), "the exact kernel on the composite");
+    let halved = patterned(|d| vec![streak(d, 30.0, 56.0)]);
+    assert_eq!(spatial_blur(halved.layers[1].extra.adjustment.as_ref().unwrap(), 1.0).level, 1);
+    assert_ne!(full(&halved).bytes(), motion_blur(&beneath(&halved), 30.0, 56.0).bytes(), "drawn from a halved copy");
 }
 
 #[test]

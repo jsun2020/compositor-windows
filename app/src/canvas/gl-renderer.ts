@@ -388,9 +388,10 @@ export class GlRenderer implements Renderer {
       this.sizedPass(this.programs.gaussian, out, w, h, { src: tmp.tex }, set(false));
     } else {
       const radians = b.angle * Math.PI / 180;
-      const steps = Math.max(1, Math.round(b.distance / factor));
+      // motion_blur at the reduced sigma: taps out to ceil(3 sigma); none past one (a copy) below that.
+      const s = b.sigma / factor, radius = s > 0 ? Math.ceil(s * 3) : 0, sigma = s > 0 ? s : 1;
       this.sizedPass(this.programs.motion, out, w, h, { src: source }, (u) => {
-        gl.uniform2f(u.dir, Math.cos(radians), Math.sin(radians)); gl.uniform1i(u.steps, steps); gl.uniform2i(u.size, w, h);
+        gl.uniform2f(u.dir, Math.cos(radians), Math.sin(radians)); gl.uniform1f(u.sigma, sigma); gl.uniform1i(u.radius, radius); gl.uniform2i(u.size, w, h);
       });
     }
     const p = this.programs.spatialMix;

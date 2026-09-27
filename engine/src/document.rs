@@ -1,4 +1,4 @@
-use crate::{AdjustmentKind, BlendMode, GrayRaster, LayerAdjustment, LayerEffects, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
+use crate::{BlendMode, GrayRaster, LayerAdjustment, LayerEffects, LayerRecord, LayerTransform, Manifest, Point, Raster, Size, DEFAULT_RESOLUTION};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,19 +100,14 @@ impl Layer {
             mask_revision: 1,
         }
     }
-    /// What this layer alone contains that this build does not draw as the Mac does (a Motion Blur
-    /// adjustment, drawn approximately; unknown keys, here or inside its effects), as phrases for
-    /// the notice (`Document::undrawn` collects these across every layer, plus its own
-    /// document-level check). Not sorted or de-duplicated here -- callers that need that pool the
-    /// phrases through a set, as `Document::undrawn` does and as `merge` does when refusing to
-    /// bake one (I1).
+    /// What this layer alone contains that this build does not draw as the Mac does (unknown keys,
+    /// here or inside its effects), as phrases for the notice (`Document::undrawn` collects these
+    /// across every layer, plus its own document-level check). Not sorted or de-duplicated here --
+    /// callers that need that pool the phrases through a set, as `Document::undrawn` does and as
+    /// `merge` does when refusing to bake one (I1). Motion Blur layers left this list in Phase 4a:
+    /// they are drawn as CIMotionBlur's Gaussian (`motion_blur`), measured against the Mac.
     pub fn undrawn_features(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if let Some(a) = &self.extra.adjustment {
-            // Drawn as an even streak where Core Image tapers it (Filters.swift:170-208): named,
-            // and so refused by merge, until the motion probe measures the gap (ruling G-I2).
-            if a.kind == AdjustmentKind::MotionBlur { out.push("Motion Blur adjustment layers (drawn approximately)".to_string()); }
-        }
         // Layer effects are drawn (Phase 3.5c); only keys a later Mac wrote inside them are not.
         let unknown_effects = self.extra.effects.as_ref().is_some_and(LayerEffects::has_unknown);
         if !self.extra.unknown.is_empty() || unknown_effects { out.push("settings from a newer version of Compositor".to_string()); }
@@ -155,8 +150,8 @@ impl Document {
     pub fn index_of(&self, id: Uuid) -> Option<usize> { self.layers.iter().position(|l| l.id == id) }
     pub fn layer(&self, id: Uuid) -> Option<&Layer> { self.layers.iter().find(|l| l.id == id) }
     pub fn layer_mut(&mut self, id: Uuid) -> Option<&mut Layer> { self.layers.iter_mut().find(|l| l.id == id) }
-    /// What this project contains that this build does not draw yet: Motion Blur adjustment
-    /// layers (drawn approximately) and keys from a newer version. Sorted and de-duplicated so
+    /// What this project contains that this build does not draw yet: keys from a newer version.
+    /// Sorted and de-duplicated so
     /// the notice is stable. Everything listed is preserved on save.
     pub fn undrawn(&self) -> Vec<String> {
         let mut out = std::collections::BTreeSet::new();

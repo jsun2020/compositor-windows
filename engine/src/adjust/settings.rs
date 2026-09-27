@@ -445,11 +445,14 @@ impl LayerAdjustment {
     pub fn noise_is_monochromatic(&self) -> bool { self.noise_monochromatic.unwrap_or(false) }
     pub fn noise_seed_or_zero(&self) -> u32 { self.noise_seed.unwrap_or(0) }
     /// Document pixels a partial render must include around what it shows so this layer's blur
-    /// sees everything within its reach (`samplingMargin`, LayerAdjustment.swift:121-127).
+    /// sees everything within its reach (`samplingMargin`, LayerAdjustment.swift:121-127): three
+    /// sigmas plus 2. The Mac pads a Motion Blur by half its distance plus 2; this port's kernel
+    /// reads three sigmas (`crate::motion_reach`, 0.87 x the distance), and a partial render must
+    /// equal the whole one, so it pads that far.
     pub fn sampling_margin(&self) -> f64 {
         match self.kind {
             AdjustmentKind::GaussianBlur => self.gaussian_radius() * 3.0 + 2.0,
-            AdjustmentKind::MotionBlur => self.motion_distance_pixels() / 2.0 + 2.0,
+            AdjustmentKind::MotionBlur => crate::motion_reach(self.motion_distance_pixels()) + 2.0,
             _ => 0.0,
         }
     }
