@@ -9,3 +9,4 @@ pub mod transform;
 pub mod distort;
 pub mod masks;
 pub mod merge;
+pub mod selection;

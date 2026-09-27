@@ -59,6 +59,9 @@ pub struct DocumentState {
     pub guides: Vec<Guide>,
     /// What this project contains that this build does not draw yet (`Document::undrawn`).
     pub undrawn: Vec<String>,
+    /// The selection's summary (Phase 4a); None when nothing is selected. Its outline travels
+    /// separately, when its revision changes (`Engine::selection_outline`).
+    pub selection: Option<SelectionState>,
 }
 
 /// Preview revisions start here so they can never collide with a layer's own, which the engine
@@ -87,6 +90,8 @@ fn renew_revisions(before: &Document, next: &mut Document, counter: &mut u64) {
         if pixels_changed { layer.pixels_revision = issue(); }
         if mask_changed { layer.mask_revision = issue(); }
     }
+    // The selection's outline is fetched by the app when its revision is new (Phase 4a).
+    if next.selection != before.selection { next.selection_revision = issue(); }
 }
 
 #[derive(Default)]
@@ -174,7 +179,38 @@ impl Engine {
             }).collect(),
             guides: d.guides.clone(),
             undrawn: d.undrawn(),
+            selection: d.selection.as_ref().map(|s| SelectionState {
+                revision: d.selection_revision, empty: s.is_empty(), bounds: s.bounds(),
+                antialiased: s.antialiased, feather: s.feather, points: s.point_count(),
+            }),
         })
+    }
+
+    /// The selection's outline for the marching ants, in document pixels, flat: the number of
+    /// contours, then for each its number of points and their x, y. At most `OUTLINE_DETAIL_LIMIT`
+    /// points are sent as they are; past that, and when the view shows fewer than one screen pixel
+    /// per document pixel (`step` < 1, a power of two), the outline traced at that resolution
+    /// (`selection_lod`): never more edges than the screen has pixels for. Empty with no selection.
+    pub fn selection_outline(&self, id: Uuid, step: f64) -> Result<Vec<f64>, CommandError> {
+        let doc = &self.session(id)?.document;
+        let Some(selection) = &doc.selection else { return Ok(Vec::new()) };
+        let contours = if selection.point_count() > OUTLINE_DETAIL_LIMIT && step < 1.0 {
+            selection_lod(selection, doc.width, doc.height, step)
+        } else { selection.points() };
+        let mut out = vec![contours.len() as f64];
+        for c in &contours {
+            out.push(c.len() as f64);
+            for p in c { out.push(p.x); out.push(p.y); }
+        }
+        Ok(out)
+    }
+
+    /// Whether a press at `at` lands inside a selection with something in it, by the winding rule:
+    /// where a drag in New mode moves the outline instead of drawing (`canMoveSelection(at:)`,
+    /// Selection.swift:256-260).
+    pub fn selection_contains(&self, id: Uuid, at: Point) -> Result<bool, CommandError> {
+        let doc = &self.session(id)?.document;
+        Ok(doc.selection.as_ref().map_or(false, |s| !s.is_empty() && s.contains(at)))
     }
 
     /// The document as the canvas should show it: the stored one, or a copy with the open
@@ -241,6 +277,9 @@ impl Engine {
             Command::SetActiveLayer { id } => { ops::layers::set_active_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::CanvasSize { width, height, anchor, fill } => {
                 *doc = ops::canvas_size::canvas_size(doc, ops::canvas_size::CanvasSizeOptions { width, height, anchor, fill, content_offset: None })?;
+                // Canvas Size, Crop and Image Size make a new document on the Mac, which drops the
+                // selection in the same undo step (ImageResizer.swift:109-116).
+                doc.selection = None;
                 Ok(Dirty::everything())
             }
             Command::Crop { x, y, width, height } => {
@@ -255,11 +294,17 @@ impl Engine {
                 *doc = ops::canvas_size::canvas_size(doc, ops::canvas_size::CanvasSizeOptions {
                     width: (x1 - x0) as u32, height: (y1 - y0) as u32, anchor: 4, fill: None,
                     content_offset: Some(Point { x: -x0, y: -y0 }) })?;
+                doc.selection = None;
                 Ok(Dirty::everything())
             }
-            Command::FlipCanvas { horizontal } => { ops::flip::flip_canvas(doc, horizontal); Ok(Dirty::structure()) }
+            Command::FlipCanvas { horizontal } => {
+                ops::flip::flip_canvas(doc, horizontal);
+                ops::selection::flip_selection(doc, horizontal);
+                Ok(Dirty::structure())
+            }
             Command::ImageSize { width, height, resolution, sampling } => {
                 *doc = ops::image_size::image_size(doc, ops::image_size::ImageSizeOptions { width, height, resolution, sampling })?;
+                doc.selection = None;
                 Ok(Dirty::everything())
             }
             Command::SetLayerOpacity { id, opacity } => { ops::appearance::set_opacity(doc, id, opacity)?; Ok(Dirty::structure()) }
@@ -310,6 +355,14 @@ impl Engine {
                 ops::adjust::add_adjustment_layer(doc, kind, seed, gradient)?; Ok(Dirty::structure())
             }
             Command::SetAdjustment { id, adjustment } => { ops::adjust::set_adjustment(doc, id, &adjustment)?; Ok(Dirty::structure()) }
+            Command::SelectShape { kind, points, mode, antialiased } => { ops::selection::select_shape(doc, kind, &points, mode, antialiased)?; Ok(Dirty::structure()) }
+            Command::SelectAll => { ops::selection::select_all(doc); Ok(Dirty::structure()) }
+            Command::Deselect => { ops::selection::deselect(doc); Ok(Dirty::structure()) }
+            Command::InvertSelection => { ops::selection::invert_selection(doc); Ok(Dirty::structure()) }
+            Command::MoveSelection { dx, dy } => { ops::selection::move_selection(doc, dx, dy)?; Ok(Dirty::structure()) }
+            Command::ExpandSelection { amount } => { ops::selection::resize_selection(doc, amount as i64)?; Ok(Dirty::structure()) }
+            Command::ContractSelection { amount } => { ops::selection::resize_selection(doc, -(amount as i64))?; Ok(Dirty::structure()) }
+            Command::FeatherSelection { amount } => { ops::selection::feather_selection(doc, amount)?; Ok(Dirty::structure()) }
         })
     }
 

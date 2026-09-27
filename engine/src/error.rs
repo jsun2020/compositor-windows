@@ -57,4 +57,8 @@ pub enum CommandError {
     Export(#[from] ExportError),
     #[error("Invalid argument: {0}")]
     Argument(String),
+    /// An edit the document's state does not allow, said as the user should read it: an empty
+    /// selection, a Magic Wand outline too detailed to draw (Phase 4a).
+    #[error("{0}")]
+    Refused(String),
 }

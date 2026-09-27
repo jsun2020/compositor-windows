@@ -8,6 +8,8 @@
 //! pixels back into outlines (WandPixels.c `wand_trace`); `wand` is the Magic Wand's matcher.
 pub mod coverage;
 pub mod geometry;
+pub mod outline;
+pub mod trace;
 
 use crate::{Point, Rect};
 use serde::{Deserialize, Serialize};

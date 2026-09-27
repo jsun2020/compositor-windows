@@ -1,4 +1,4 @@
-use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling};
+use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -49,6 +49,17 @@ pub enum Command {
     ApplyFilter { #[serde(with = "ids::upper")] id: Uuid, params: FilterParams },
     AddAdjustmentLayer { kind: AdjustmentKind, #[serde(default)] seed: u32, #[serde(default)] shadows: Option<[f64; 3]>, #[serde(default)] highlights: Option<[f64; 3]> },
     SetAdjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    // The selection (Phase 4a). Each is one undo step, as `setSelection` makes it.
+    /// A Marquee's box (its four corners) or a Lasso's outline, closed and combined by `mode`.
+    SelectShape { kind: SelectionShape, points: Vec<Point>, mode: SelectionMode, antialiased: bool },
+    SelectAll,
+    Deselect,
+    InvertSelection,
+    /// The outline moved by whole pixels (`dx` and `dy` rounded).
+    MoveSelection { dx: f64, dy: f64 },
+    ExpandSelection { amount: u32 },
+    ContractSelection { amount: u32 },
+    FeatherSelection { amount: u32 },
 }
 
 impl Command {
@@ -100,6 +111,15 @@ impl Command {
             Command::ApplyFilter { params, .. } => params.name(),
             Command::AddAdjustmentLayer { kind, .. } => kind.new_action_name(),
             Command::SetAdjustment { adjustment, .. } => adjustment.kind.edit_action_name(),
+            // The Mac's undo names (Selection.swift:228-358, MagicWand.swift:119, MaskTracing.swift:82-93).
+            Command::SelectShape { kind, .. } => kind.action_name(),
+            Command::SelectAll => "Select All",
+            Command::Deselect => "Deselect",
+            Command::InvertSelection => "Inverse",
+            Command::MoveSelection { .. } => "Move Selection",
+            Command::ExpandSelection { .. } => "Expand Selection",
+            Command::ContractSelection { .. } => "Contract Selection",
+            Command::FeatherSelection { .. } => "Feather Selection",
         }
     }
 }

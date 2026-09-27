@@ -1,0 +1,112 @@
+//! The selection commands (Phase 4a): Compositor for Mac's `applySelection`, the Marquee and
+//! Lasso's `finishLasso`, Select All / Deselect / Inverse, the outline move, Expand / Contract /
+//! Feather (Document/Selection.swift:141-359), the Magic Wand (Document/MagicWand.swift:98-137) and
+//! loading a layer's or a mask's pixels as a selection (Document/MaskTracing.swift:73-94).
+use crate::selection::geometry::{self as g, Boolean};
+use crate::*;
+
+/// Said when an edit needs a selection with something in it.
+pub const EMPTY_SELECTION: &str = "The selection is empty";
+/// Said when an edit needs a selection and there is none.
+pub const NO_SELECTION: &str = "Nothing is selected";
+fn refused(message: &str) -> CommandError { CommandError::Refused(message.to_string()) }
+fn canvas(doc: &Document) -> Vec<Contour> { vec![g::rectangle(Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 })] }
+fn check_point(p: Point) -> Result<(), CommandError> {
+    if p.x.is_finite() && p.y.is_finite() && p.x.abs() <= SELECTION_COORDINATE_LIMIT && p.y.abs() <= SELECTION_COORDINATE_LIMIT { Ok(()) }
+    else { Err(CommandError::Argument("outline points must lie within 1,000,000 pixels of the canvas".into())) }
+}
+/// The current selection when it has something in it; the refusal otherwise.
+fn modifiable(doc: &Document) -> Result<&Selection, CommandError> {
+    let s = doc.selection.as_ref().ok_or_else(|| refused(NO_SELECTION))?;
+    if s.is_empty() { return Err(refused(EMPTY_SELECTION)); }
+    Ok(s)
+}
+
+/// `applySelection`: `shape`, cut to the canvas, becomes the selection (Replace), joins it (Add) or
+/// is taken out of it (Subtract; with no selection that changes nothing). The result takes the
+/// given anti-alias flag and no feather, as the Mac's `DocumentSelection(path:antialiased:)` does.
+pub fn apply_selection(doc: &mut Document, shape: &[Contour], mode: SelectionMode, antialiased: bool) {
+    let clipped = g::combine(shape, &canvas(doc), Boolean::Intersection);
+    let result = match (mode, &doc.selection) {
+        (SelectionMode::Replace, _) | (SelectionMode::Add, None) => clipped,
+        (SelectionMode::Add, Some(current)) => g::combine(&current.contours, &clipped, Boolean::Union),
+        (SelectionMode::Subtract, None) => return,
+        (SelectionMode::Subtract, Some(current)) => g::combine(&current.contours, &clipped, Boolean::Difference),
+    };
+    doc.selection = Some(Selection::new(result, antialiased, 0.0));
+}
+
+/// `finishLasso`: the drawn outline closed and combined by `mode`. A Marquee sends its box's four
+/// corners; an Ellipse fills that box (`addEllipse(in:)`). A click or a line, enclosing nothing,
+/// deselects in Replace and changes nothing otherwise.
+pub fn select_shape(doc: &mut Document, kind: SelectionShape, points: &[Point], mode: SelectionMode, antialiased: bool) -> Result<(), CommandError> {
+    for p in points { check_point(*p)?; }
+    let (xs, ys) = (points.iter().map(|p| p.x), points.iter().map(|p| p.y));
+    let (x0, x1) = (xs.clone().fold(f64::INFINITY, f64::min), xs.fold(f64::NEG_INFINITY, f64::max));
+    let (y0, y1) = (ys.clone().fold(f64::INFINITY, f64::min), ys.fold(f64::NEG_INFINITY, f64::max));
+    let is_ellipse = kind == SelectionShape::Ellipse && points.len() == 4;
+    if !(points.len() >= 3 || kind == SelectionShape::Ellipse) || !(x1 - x0 > 0.0) || !(y1 - y0 > 0.0) {
+        if mode == SelectionMode::Replace { doc.selection = None; }
+        return Ok(());
+    }
+    let outline = if is_ellipse { g::ellipse(Rect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }) } else { g::polygon(points) };
+    apply_selection(doc, &[outline], mode, antialiased);
+    Ok(())
+}
+
+/// Select All: the canvas, antialiased, no feather.
+pub fn select_all(doc: &mut Document) { doc.selection = Some(Selection::new(canvas(doc), true, 0.0)); }
+
+/// Deselect: no selection.
+pub fn deselect(doc: &mut Document) { doc.selection = None; }
+
+/// Inverse: the canvas minus the selection, its flags kept; nothing without one.
+pub fn invert_selection(doc: &mut Document) {
+    let Some(current) = doc.selection.clone() else { return };
+    doc.selection = Some(Selection::new(g::combine(&canvas(doc), &current.contours, Boolean::Difference), current.antialiased, current.feather));
+}
+
+/// The outline moved by whole pixels (`moveSelection(by:)`: offsets rounded), not cut to the canvas,
+/// so it can leave and come back whole.
+pub fn move_selection(doc: &mut Document, dx: f64, dy: f64) -> Result<(), CommandError> {
+    if !dx.is_finite() || !dy.is_finite() { return Err(CommandError::Argument("the offset must be finite".into())); }
+    let current = modifiable(doc)?;
+    let (dx, dy) = (dx.round(), dy.round());
+    let b = current.bounds().unwrap_or(Rect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 });
+    for p in [Point { x: b.x + dx, y: b.y + dy }, Point { x: b.max_x() + dx, y: b.max_y() + dy }] { check_point(p)?; }
+    doc.selection = Some(current.translated((dx * SUBPIXEL) as i32, (dy * SUBPIXEL) as i32));
+    Ok(())
+}
+
+/// Expand (`delta` > 0) or Contract: the round-capped, round-joined band `|delta|` wide either
+/// side of the outline, added and cut to the canvas, or taken away (so Contract also moves in from
+/// the canvas edges, and can leave an empty selection). `resizeSelection`, Selection.swift:333-342.
+pub fn resize_selection(doc: &mut Document, delta: i64) -> Result<(), CommandError> {
+    if delta == 0 || delta.unsigned_abs() > MAX_RESIZE as u64 { return Err(CommandError::Argument("Expand and Contract take 1 to 500 pixels".into())); }
+    let current = modifiable(doc)?.clone();
+    let band = g::band(&current.contours, delta.unsigned_abs() as f64);
+    let result = if delta > 0 {
+        g::combine(&g::combine(&current.contours, &band, Boolean::Union), &canvas(doc), Boolean::Intersection)
+    } else {
+        g::combine(&current.contours, &band, Boolean::Difference)
+    };
+    doc.selection = Some(Selection::new(result, current.antialiased, current.feather));
+    Ok(())
+}
+
+/// Feather: two soft edges together spread as blurs do, sqrt(a^2 + b^2), at most 250.
+pub fn feather_selection(doc: &mut Document, amount: u32) -> Result<(), CommandError> {
+    if !(1..=MAX_FEATHER as u32).contains(&amount) { return Err(CommandError::Argument("Feather takes 1 to 250 pixels".into())); }
+    let current = modifiable(doc)?;
+    let softened = (current.feather * current.feather + (amount as f64) * (amount as f64)).sqrt().min(MAX_FEATHER);
+    doc.selection = Some(Selection { feather: softened, ..current.clone() });
+    Ok(())
+}
+
+/// The mirrored selection for Flip Canvas (LayerFlip.swift:69-76).
+pub fn flip_selection(doc: &mut Document, horizontal: bool) {
+    let (w, h) = ((doc.width as f64 * SUBPIXEL) as i32, (doc.height as f64 * SUBPIXEL) as i32);
+    if let Some(s) = &mut doc.selection {
+        for c in &mut s.contours { for p in c.iter_mut() { if horizontal { p[0] = w - p[0]; } else { p[1] = h - p[1]; } } }
+    }
+}
