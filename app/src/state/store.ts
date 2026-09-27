@@ -1,6 +1,9 @@
 import { create } from "zustand";
-import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit } from "../engine/types";
+import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit, SelectionMode, WandSettings } from "../engine/types";
+import { DEFAULT_WAND } from "../engine/types";
 import type { EngineClient } from "../engine/client";
+import { cropSeed } from "../tools/crop-tool";
+import type { LassoKind, MarqueeKind, SelectionDraft } from "../tools/selection-draft";
 import type { ShellBridge } from "../shell/bridge";
 import { Viewport } from "../canvas/viewport";
 import type { Rect } from "../tools/crop-geometry";
@@ -10,9 +13,25 @@ import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
 
-export type Tool = "move" | "hand" | "zoom" | "crop";
+export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
-export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" };
+/** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
+export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
+export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" }
+  | { kind: "selectionAmount"; operation: SelectionAmountOperation };
+
+/** The selection tools' settings, kept per app session as the Mac keeps them per session
+ * (EditorSession.swift:232-285): the options bar's mode, Anti-alias, the Marquee's and the Lasso's
+ * kinds, the Magic Wand's settings, and the Expand / Contract / Feather amounts. */
+export interface SelectionOptions {
+  mode: SelectionMode; antialiased: boolean; marquee: MarqueeKind; lasso: LassoKind; wand: WandSettings;
+  expand: number; contract: number; feather: number;
+}
+export const DEFAULT_SELECTION_OPTIONS: SelectionOptions = {
+  mode: "Replace", antialiased: true, marquee: "Rectangle", lasso: "Freehand", wand: DEFAULT_WAND, expand: 1, contract: 1, feather: 2,
+};
+/** The largest amount each operation takes (Selection.swift:307). */
+export const SELECTION_AMOUNT_MAX: Record<SelectionAmountOperation, number> = { Expand: 500, Contract: 500, Feather: 250 };
 
 export interface TransformEdit {
   kind: "layer" | "group" | "mask";
@@ -46,6 +65,8 @@ export interface EditorStore {
   busy: boolean;
   rendererKind: "gl" | "cpu" | null;
   renderTick: number;
+  /** Bumped when only the overlay changes (an outline being drawn or dragged): no re-render of the picture. */
+  overlayTick: number;
   recentTick: number;
   selectedLayerIds: string[];
   maskSelected: boolean;
@@ -57,6 +78,13 @@ export interface EditorStore {
   showGuides: boolean;
   blendPreview: BlendMode | null;
   adjustEdit: AdjustEdit | null;
+  selectionOptions: SelectionOptions;
+  /** A Marquee or Lasso outline being drawn; never in the document until it is finished. */
+  selectionDraft: SelectionDraft | null;
+  /** The whole-pixel offset of the outline while it is being dragged; sent as one MoveSelection on release. */
+  outlineMove: { dx: number; dy: number } | null;
+  /** The mode Shift / Alt held over the canvas imply, for the options bar (`heldSelectionMode`). */
+  heldSelectionMode: SelectionMode | null;
   setEngine(engine: EngineClient): void;
   setBridge(bridge: ShellBridge): void;
   setBusy(busy: boolean): void;
@@ -78,6 +106,7 @@ export interface EditorStore {
   setError(error: string | null): void;
   setRendererKind(kind: "gl" | "cpu"): void;
   invalidate(): void;
+  repaintOverlay(): void;
   selectLayers(ids: string[], primary: string | null): void;
   setMaskSelected(v: boolean): void;
   toggleCollapsed(id: string): void;
@@ -111,6 +140,18 @@ export interface EditorStore {
   previewSettling(): boolean;
   commitAdjust(): void;
   cancelAdjust(): void;
+  setSelectionOptions(patch: Partial<SelectionOptions>): void;
+  setSelectionDraft(draft: SelectionDraft | null): void;
+  /** Sends the draft's outline to the engine as one SelectShape and drops the draft. */
+  finishSelectionDraft(): void;
+  setOutlineMove(offset: { dx: number; dy: number } | null): void;
+  setHeldSelectionMode(mode: SelectionMode | null): void;
+  /** Expand / Contract / Feather by `amount`, remembered as that operation's amount. False when out of range or refused. */
+  modifySelection(operation: SelectionAmountOperation, amount: number): boolean;
+  /** Tab: the Marquee's Rectangle / Ellipse, the Lasso's Freehand / Polygonal (`cycleToolMode`). */
+  cycleToolMode(): void;
+  /** Whether the document has a selection with something in it (`canModifySelection`, less the draft rule). */
+  hasSelection(): boolean;
 }
 
 /** Commands that insert a layer or move one into a folder, and so make it active somewhere the
@@ -146,10 +187,11 @@ function loadShowGuides(): boolean {
 
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
-  sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, recentTick: 0,
+  sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, showGuides: loadShowGuides(),
   blendPreview: null,
   adjustEdit: null,
+  selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
   setEngine: (engine) => set({ engine }),
   setBridge: (bridge) => set({ bridge }),
   setBusy: (busy) => set({ busy }),
@@ -163,7 +205,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const viewport = new Viewport();
     set((s) => ({ documents: { ...s.documents, [id]: state }, order: s.order.includes(id) ? s.order : [...s.order, id],
       viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
-      selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null }));
+      selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null, selectionDraft: null, outlineMove: null }));
   },
   closeDocument: (id) => {
     get().commitTransform();
@@ -177,7 +219,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
       const activeId = s.activeId === id ? order[order.length - 1] ?? null : s.activeId;
       const active = activeId ? documents[activeId] : null;
       return { documents, viewports, order, activeId, cropRect: null,
-        selectedLayerIds: active?.activeLayerId ? [active.activeLayerId] : [], maskSelected: false, transformEdit: null };
+        selectedLayerIds: active?.activeLayerId ? [active.activeLayerId] : [], maskSelected: false, transformEdit: null,
+        ...(s.activeId === id ? { selectionDraft: null, outlineMove: null } : {}) };
     });
   },
   setActive: (id) => {
@@ -186,7 +229,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().commitTransform();
     dropOpenPanel();
     const state = get().documents[id];
-    set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null });
+    set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null, selectionDraft: null, outlineMove: null });
   },
   refresh: (id) => {
     const target = id ?? get().activeId;
@@ -245,13 +288,16 @@ export const useEditor = create<EditorStore>((set, get) => ({
   redo: () => { if (get().panelOwnsDocument()) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
-    // Entering the crop tool seeds a full-canvas rectangle, as macOS does (EditorSession.selectTool);
-    // the frame, the size readout and the Apply/Cancel buttons follow that rectangle, so once Apply
+    // Entering the crop tool seeds a rectangle, as macOS does (EditorSession.selectTool): the
+    // selection's bounds when there is a selection with something in it, else the canvas (cropSeed).
+    // The frame, the size readout and the Apply/Cancel buttons follow that rectangle, so once Apply
     // or Cancel clears it nothing is drawn until the user drags a new one. Leaving the tool clears it.
+    // Changing tool drops an outline being drawn (`cancelLasso`, EditorSession.swift:284).
     const { activeId, documents, cropRect } = get();
     const doc = activeId ? documents[activeId] : null;
-    const seeded = tool === "crop" ? (cropRect ?? (doc ? { x: 0, y: 0, width: doc.width, height: doc.height } : null)) : null;
-    set({ tool, cropRect: seeded });
+    const seeded = tool === "crop" ? (cropRect ?? (doc ? cropSeed(doc) : null)) : null;
+    set({ tool, cropRect: seeded, ...(tool !== get().tool ? { selectionDraft: null, outlineMove: null } : {}) });
+    get().invalidate();
   },
   setCropRect: (cropRect) => set({ cropRect }),
   setCropRatio: (cropRatio) => set({ cropRatio }),
@@ -262,6 +308,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setError: (error) => set({ error }),
   setRendererKind: (rendererKind) => set({ rendererKind }),
   invalidate: () => set((s) => ({ renderTick: s.renderTick + 1 })),
+  repaintOverlay: () => set((s) => ({ overlayTick: s.overlayTick + 1 })),
   selectLayers: (ids, primary) => {
     const { engine, activeId } = get(); if (!engine || !activeId) return;
     // `SetActiveLayer` records no history, but every `execute` clears the engine's preview, so a
@@ -394,7 +441,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!activeId || get().panelOwnsDocument()) return false;
     const state = documents[activeId];
     const layer = activeLayer(state);
-    return !!layer && !layer.isGroup && layer.hasPixels && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id);
+    // An empty selection refuses every edit (`canAdjustColors`: `selection?.isEmpty != true`).
+    return !!layer && !layer.isGroup && layer.hasPixels && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id)
+      && state.selection?.empty !== true;
   },
   beginAdjust: ({ kind, layerId, target }) => {
     const { engine, activeId } = get(); if (!engine || !activeId) return false;
@@ -500,5 +549,39 @@ export const useEditor = create<EditorStore>((set, get) => ({
     dropOpenPanel();
     get().refresh(activeId);
     get().invalidate();
+  },
+  setSelectionOptions: (patch) => {
+    // Changing the Marquee's or the Lasso's kind drops an outline being drawn (LassoControls.swift:10-37).
+    const kindChanged = (patch.marquee !== undefined && patch.marquee !== get().selectionOptions.marquee)
+      || (patch.lasso !== undefined && patch.lasso !== get().selectionOptions.lasso);
+    set((s) => ({ selectionOptions: { ...s.selectionOptions, ...patch }, ...(kindChanged ? { selectionDraft: null } : {}) }));
+    if (kindChanged) get().repaintOverlay();
+  },
+  setSelectionDraft: (selectionDraft) => { set({ selectionDraft }); get().repaintOverlay(); },
+  finishSelectionDraft: () => {
+    const draft = get().selectionDraft; if (!draft) return;
+    set({ selectionDraft: null });
+    get().run(draft.finish(get().selectionOptions.antialiased));
+    get().invalidate();
+  },
+  setOutlineMove: (outlineMove) => { set({ outlineMove }); get().repaintOverlay(); },
+  setHeldSelectionMode: (heldSelectionMode) => { if (heldSelectionMode !== get().heldSelectionMode) set({ heldSelectionMode }); },
+  modifySelection: (operation, amount) => {
+    if (!Number.isInteger(amount) || amount < 1 || amount > SELECTION_AMOUNT_MAX[operation] || !get().hasSelection()) return false;
+    const key = operation === "Expand" ? "expand" : operation === "Contract" ? "contract" : "feather";
+    set((s) => ({ selectionOptions: { ...s.selectionOptions, [key]: amount } }));
+    const command: Command = operation === "Expand" ? { type: "ExpandSelection", amount }
+      : operation === "Contract" ? { type: "ContractSelection", amount } : { type: "FeatherSelection", amount };
+    return get().run(command);
+  },
+  cycleToolMode: () => {
+    const { tool, selectionOptions: o } = get();
+    if (tool === "marquee") get().setSelectionOptions({ marquee: o.marquee === "Rectangle" ? "Ellipse" : "Rectangle" });
+    else if (tool === "lasso") get().setSelectionOptions({ lasso: o.lasso === "Freehand" ? "Polygonal" : "Freehand" });
+  },
+  hasSelection: () => {
+    const { activeId, documents } = get();
+    const selection = activeId ? documents[activeId]?.selection : null;
+    return !!selection && !selection.empty;
   },
 }));

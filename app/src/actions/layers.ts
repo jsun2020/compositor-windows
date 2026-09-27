@@ -1,6 +1,6 @@
 import { useEditor } from "../state/store";
-import { activeLayer } from "../state/selection";
-import type { AdjustmentKind, BlendMode } from "../engine/types";
+import { activeLayer, visibleIds } from "../state/selection";
+import type { AdjustmentKind, BlendMode, SelectionMode } from "../engine/types";
 import { isEditableKind } from "../engine/types";
 import type { DropTarget } from "../panels/layer-rows";
 
@@ -30,7 +30,36 @@ export function addFolder(): void { const c = ctx(); if (!c) return; c.s.commitT
 // like every other action here. Without that, a pending mask move survives the mask it moves
 // and Enter later fails with "the layer has no mask"; macOS disables both menu items while a
 // transform is pending (canEditLayers requires transformEdit == nil).
-export function addMaskToActive(revealing: boolean): void { const c = ctx(); if (!c?.active || c.active.hasMask) return; c.s.commitTransform(); c.s.run({ type: "AddMask", id: c.active.id, revealing }); c.s.setMaskSelected(true); }
+// With a selection, Add Mask paints the opposite tone through it and uses it up, one undo step
+// ("Add Mask from Selection", LayerMask.swift:228-260); every Add Mask entry point on the Mac goes
+// through that one `addMask`.
+export function addMaskToActive(revealing: boolean): void {
+  const c = ctx(); if (!c?.active || c.active.hasMask) return; c.s.commitTransform();
+  const ok = c.s.run(c.doc.selection ? { type: "AddMaskFromSelection", id: c.active.id, revealing } : { type: "AddMask", id: c.active.id, revealing });
+  if (ok) c.s.setMaskSelected(true);
+}
+/** Whether Delete may clear through the selection now (`canPaint`, EditorSession+Brush.swift:5-11):
+ * one layer targeted, shown, a pixel layer or an enabled mask, and a selection with something in it. */
+export function canClearSelected(): boolean {
+  const c = ctx(); if (!c?.active || !c.doc.selection || c.doc.selection.empty || c.selected.length !== 1 || c.s.panelOwnsDocument()) return false;
+  if (!visibleIds(c.doc).has(c.active.id)) return false;
+  return c.s.maskSelected && c.active.hasMask ? c.active.maskEnabled : !c.active.isGroup && c.active.hasPixels;
+}
+/** Delete / Backspace (`deleteKeyPressed`, SelectionEdits.swift:60-63): with a selection, clears the
+ * selected pixels, or fills the targeted mask white there ("Clear" / "Fill Mask"); an edit that may
+ * not paint now does nothing. Without one, deletes the selected layers as before. */
+export function deleteKeyPressed(): void {
+  const c = ctx(); if (!c) return;
+  if (!c.doc.selection) { deleteSelected(); return; }
+  if (!canClearSelected()) return;
+  c.s.run({ type: "ClearSelectedPixels", id: c.active!.id, mask: c.s.maskSelected && c.active!.hasMask });
+}
+/** Ctrl-click on a thumbnail, or Select > Layer's Pixels / Mask's Black Areas (MaskTracing.swift:73-94). */
+export function loadSelection(id: string, mask: boolean, mode: SelectionMode = "Replace"): void {
+  const c = ctx(); if (!c) return;
+  const antialiased = c.s.selectionOptions.antialiased;
+  c.s.run(mask ? { type: "LoadMaskSelection", id, mode, antialiased } : { type: "LoadLayerSelection", id, mode, antialiased });
+}
 export function deleteMaskOfActive(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.commitTransform(); c.s.run({ type: "DeleteMask", id: c.active.id }); c.s.setMaskSelected(false); }
 export function toggleMaskEnabled(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.run({ type: "SetMaskEnabled", id: c.active.id, enabled: !c.active.maskEnabled }); }
 export function toggleMaskLink(): void { const c = ctx(); if (!c?.active?.hasMask) return; c.s.commitTransform(); c.s.run({ type: "SetMaskLinked", id: c.active.id, linked: !c.active.maskLinked }); }
@@ -74,13 +103,15 @@ export function cycleBlendMode(forward: boolean): void {
 }
 /** Image > Invert: immediate, one undo step, on the mask when the mask chip is selected. */
 export function invertActive(): void {
-  const c = ctx(); if (!c?.active) return;
+  const c = ctx(); if (!c?.active || !canInvert()) return;
   const mask = c.s.maskSelected && c.active.hasMask;
   if (!mask && !c.active.hasPixels) return;
   c.s.run({ type: "InvertPixels", id: c.active.id, mask });
 }
 export function canInvert(): boolean {
   const c = ctx(); if (!c?.active || c.active.isGroup) return false;
+  // An empty selection inverts nothing (`canInvert`, SelectionEdits.swift:77-83).
+  if (c.doc.selection?.empty) return false;
   return (c.s.maskSelected && c.active.hasMask) || c.active.hasPixels;
 }
 /** Layer > New <kind> Adjustment. Each Grain layer gets its own pattern, and a Gradient Map

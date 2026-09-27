@@ -35,6 +35,19 @@ export function snapTargets(state: DocumentState): { xs: number[]; ys: number[] 
   return { xs, ys };
 }
 
+/** Where the crop starts when the tool is chosen (`selectTool`, EditorSession.swift:349-358): the
+ * selection's bounds rounded out and cut to the canvas when there is a selection with something in
+ * it, as Photoshop's C then Enter crops to it; else, or when that is not a valid crop, the canvas. */
+export function cropSeed(state: DocumentState): Rect {
+  const canvas = { x: 0, y: 0, width: state.width, height: state.height };
+  const b = state.selection && !state.selection.empty ? state.selection.bounds : null;
+  if (!b) return canvas;
+  const x0 = Math.max(0, Math.floor(b.x)), y0 = Math.max(0, Math.floor(b.y));
+  const x1 = Math.min(state.width, Math.ceil(b.x + b.width)), y1 = Math.min(state.height, Math.ceil(b.y + b.height));
+  const rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  return isValid(rect) ? rect : canvas;
+}
+
 export function ratioValue(choice: CropRatio, state: DocumentState): number | null {
   switch (choice) { case "Original": return state.width / state.height; case "1:1": return 1; case "4:3": return 4 / 3; case "16:9": return 16 / 9; default: return null; }
 }

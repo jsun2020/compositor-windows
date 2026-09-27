@@ -25,6 +25,17 @@ describe("crop tool rectangle seeding", () => {
     expect(useEditor.getState().cropRect).toEqual({ x: 10, y: 10, width: 50, height: 40 });
   });
 
+  it("seeds the selection's bounds, rounded out and cut to the canvas (EditorSession.swift:349-358)", () => {
+    const selected = { ...document(), selection: { revision: 5, empty: false, bounds: { x: -3.5, y: 10.25, width: 50, height: 20.5 }, antialiased: true, feather: 0, points: 4 } };
+    useEditor.setState({ engine: null, activeId: "D", documents: { D: selected }, tool: "marquee", cropRect: null, transformEdit: null });
+    useEditor.getState().setTool("crop");
+    expect(useEditor.getState().cropRect).toEqual({ x: 0, y: 10, width: 47, height: 21 });
+    const empty = { ...selected, selection: { ...selected.selection, empty: true } };
+    useEditor.setState({ documents: { D: empty }, tool: "marquee", cropRect: null });
+    useEditor.getState().setTool("crop");
+    expect(useEditor.getState().cropRect, "an empty selection seeds the canvas").toEqual({ x: 0, y: 0, width: 120, height: 80 });
+  });
+
   it("seeds nothing without a document", () => {
     useEditor.setState({ engine: null, activeId: null, documents: {}, tool: "move", cropRect: null, transformEdit: null });
     useEditor.getState().setTool("crop");
