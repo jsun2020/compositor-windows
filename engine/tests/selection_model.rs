@@ -1,0 +1,218 @@
+//! The selection's outline and its coverage (engine/src/selection): Core Graphics' winding fill of
+//! the Mac's `DocumentSelection` (Selection.swift:7-49), its booleans and its Expand band. Expected
+//! values come from the geometry (areas, Gaussian weights) or from Compositor for Mac's own tests
+//! (CompositorTests/SelectionTests.swift, SelectionFeatherTests.swift).
+use compositor_engine::selection::geometry::{band, combine, ellipse, polygon, rectangle, Boolean};
+use compositor_engine::*;
+
+fn p(x: f64, y: f64) -> Point { Point { x, y } }
+fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect { Rect { x, y, width, height } }
+
+/// The selection's coverage over a `width` x `height` canvas, 0-255, as the Mac's tests read it
+/// (`coverage(width:height:)`): the clip placed on the canvas's own pixels.
+fn coverage(selection: &Selection, width: u32, height: u32) -> GrayRaster {
+    SelectionClip::new(selection, width, height).on_grid(&Affine::IDENTITY, width, height)
+}
+fn at(c: &GrayRaster, x: u32, y: u32) -> u8 { c.bytes()[(y * c.width + x) as usize] }
+
+#[test]
+fn a_whole_pixel_rectangle_covers_exactly_its_pixels_with_or_without_antialiasing() {
+    // An oblong box off every axis of symmetry: 40 x 41 at (20, 30), on 100 x 100.
+    for antialiased in [true, false] {
+        let s = Selection::new(vec![rectangle(rect(20.0, 30.0, 40.0, 41.0))], antialiased, 0.0);
+        let c = coverage(&s, 100, 100);
+        for (x, y, want) in [(20, 30, 255), (19, 30, 0), (20, 29, 0), (59, 70, 255), (60, 70, 0), (59, 71, 0), (40, 50, 255)] {
+            assert_eq!(at(&c, x, y), want, "({x}, {y}) antialiased {antialiased}");
+        }
+        assert_eq!(c.bytes().iter().filter(|&&v| v == 255).count(), 40 * 41);
+        assert!(c.bytes().iter().all(|&v| v == 0 || v == 255));
+    }
+}
+
+#[test]
+fn antialiasing_controls_edge_coverage() {
+    // SelectionTests.antialiasingControlsEdgeCoverage: the triangle (0,0), (100,0), (0,100). Its
+    // edge x + y = 100 cuts each pixel (x, 99 - x) along its diagonal, so antialiased that pixel is
+    // half covered: 255 x 0.5, rounded, 128. Aliased every pixel is 0 or 255.
+    let triangle = vec![polygon(&[p(0.0, 0.0), p(100.0, 0.0), p(0.0, 100.0)])];
+    let soft = coverage(&Selection::new(triangle.clone(), true, 0.0), 100, 100);
+    for x in 0..100 { assert_eq!(at(&soft, x, 99 - x), 128, "antialiased at ({x}, {})", 99 - x); }
+    let hard = coverage(&Selection::new(triangle, false, 0.0), 100, 100);
+    assert!(hard.bytes().iter().all(|&v| v == 0 || v == 255));
+    for x in 0..99 { assert_eq!(at(&hard, x, 98 - x), 255, "inside the edge at ({x}, {})", 98 - x); }
+    // A pixel whose centre lies exactly on the edge is left out (half-open, as the fill's own rule).
+    for x in 0..100 { assert_eq!(at(&hard, x, 99 - x), 0); }
+}
+
+#[test]
+fn a_thin_sliver_and_a_contour_off_the_canvas_cover_by_area() {
+    // A 0.25-px-wide sliver down column 10 covers a quarter of each pixel: 64. A square from -30 to
+    // 5 covers columns 0..5 fully: the part off the canvas folds in as nothing.
+    let s = Selection::new(vec![rectangle(rect(10.5, 2.0, 0.25, 6.0)), rectangle(rect(-30.0, 3.0, 35.0, 2.0))], true, 0.0);
+    let c = coverage(&s, 20, 10);
+    assert_eq!(at(&c, 10, 4), 64);
+    assert_eq!((at(&c, 0, 3), at(&c, 4, 4), at(&c, 5, 4)), (255, 255, 0));
+}
+
+/// The fraction of pixel (x, y) inside the ellipse `CGPath.addEllipse` builds in `box`, from a
+/// 16 x 16 grid of samples against the four Beziers' implicit ellipse: the true ellipse, whose
+/// distance from the Beziers is 0.027% of a half-axis.
+fn true_ellipse_coverage(b: Rect, x: u32, y: u32) -> f64 {
+    let (cx, cy, rx, ry) = (b.x + b.width / 2.0, b.y + b.height / 2.0, b.width / 2.0, b.height / 2.0);
+    let mut inside = 0;
+    for j in 0..16 { for i in 0..16 {
+        let (sx, sy) = (x as f64 + (i as f64 + 0.5) / 16.0, y as f64 + (j as f64 + 0.5) / 16.0);
+        if ((sx - cx) / rx).powi(2) + ((sy - cy) / ry).powi(2) <= 1.0 { inside += 1; }
+    }}
+    inside as f64 / 256.0
+}
+
+#[test]
+fn an_ellipse_fills_its_box_as_an_oval_with_soft_edges() {
+    // SelectionTests.marqueeEllipseSelectsAnOvalInItsBox: the box (10, 20)-(70, 60).
+    let b = rect(10.0, 20.0, 60.0, 40.0);
+    let s = Selection::new(vec![ellipse(b)], true, 0.0);
+    let bounds = s.bounds().unwrap();
+    assert!((bounds.x - 10.0).abs() < 0.5 && (bounds.max_x() - 70.0).abs() < 0.5 && (bounds.y - 20.0).abs() < 0.5 && (bounds.max_y() - 60.0).abs() < 0.5);
+    let c = coverage(&s, 80, 80);
+    assert_eq!(at(&c, 40, 40), 255, "the middle");
+    assert_eq!(at(&c, 11, 21), 0, "the box's corner lies outside the oval");
+    // Every pixel against the true ellipse's area coverage. Measured on p4a-scratch (2026-09-27):
+    // worst 4 levels: the Beziers' own distance from the ellipse, the flattening (CURVE_TOLERANCE)
+    // and the 1/256 sampling grid together. Unflattened chords of 45 degrees measure far more.
+    let mut worst = 0u8;
+    for y in 0..80 { for x in 0..80 {
+        let want = (true_ellipse_coverage(b, x, y) * 255.0).round() as i64;
+        worst = worst.max((at(&c, x, y) as i64 - want).unsigned_abs() as u8);
+    }}
+    assert!(worst <= 4, "worst {worst}");
+}
+
+#[test]
+fn union_intersection_and_difference_keep_whole_pixel_edges_exact() {
+    let a = vec![rectangle(rect(10.0, 10.0, 40.0, 40.0))];
+    let b = vec![rectangle(rect(30.0, 20.0, 40.0, 50.0))];
+    let union = Selection::new(combine(&a, &b, Boolean::Union), true, 0.0);
+    assert_eq!(union.bounds(), Some(rect(10.0, 10.0, 60.0, 60.0)));
+    let meet = Selection::new(combine(&a, &b, Boolean::Intersection), true, 0.0);
+    assert_eq!(meet.bounds(), Some(rect(30.0, 20.0, 20.0, 30.0)));
+    let cut = Selection::new(combine(&a, &b, Boolean::Difference), true, 0.0);
+    let c = coverage(&cut, 80, 80);
+    assert_eq!((at(&c, 15, 15), at(&c, 35, 35), at(&c, 35, 15), at(&c, 60, 60)), (255, 0, 255, 0));
+    assert_eq!(c.bytes().iter().filter(|&&v| v == 255).count(), 40 * 40 - 20 * 30);
+    // Subtracting everything leaves an outline with no area: an explicit empty selection.
+    let gone = Selection::new(combine(&a, &[rectangle(rect(0.0, 0.0, 80.0, 80.0))], Boolean::Difference), true, 0.0);
+    assert!(gone.is_empty() && gone.bounds().is_none());
+}
+
+#[test]
+fn a_band_round_joined_about_the_outline_grows_and_shrinks_it() {
+    // SelectionTests.expandAndContractGrowAndShrinkTheOutline, on the outline: the square
+    // (40,40)-(60,60), grown by 5, then that shrunk by 8.
+    let square = vec![rectangle(rect(40.0, 40.0, 20.0, 20.0))];
+    let grown = combine(&square, &band(&square, 5.0), Boolean::Union);
+    let g = Selection::new(grown.clone(), true, 0.0).bounds().unwrap();
+    assert!((g.x - 35.0).abs() < 0.01 && (g.width - 30.0).abs() < 0.01, "{g:?}");
+    let c = coverage(&Selection::new(grown.clone(), true, 0.0), 100, 100);
+    assert_eq!((at(&c, 37, 50), at(&c, 33, 50)), (255, 0));
+    // The joins are round: pixel (35, 35) is the square's grown corner, and its nearest point,
+    // (36, 36), lies 5.66 px from the corner (40, 40), outside the 5-px arc. A mitred join fills it.
+    assert_eq!(at(&c, 35, 35), 0);
+    let shrunk = combine(&grown, &band(&grown, 8.0), Boolean::Difference);
+    let s = Selection::new(shrunk, true, 0.0).bounds().unwrap();
+    assert!((s.x - 43.0).abs() < 0.01 && (s.width - 14.0).abs() < 0.01, "{s:?}");
+}
+
+#[test]
+fn a_feather_blurs_the_coverage_by_half_its_amount() {
+    // SelectionFeatherTests.featherSoftensTheSelectionAndWhatItClips: the rectangle (20, 0)-(40, 20)
+    // on 60 x 20, feather 6. Every row is the same, so the column profile is the fill's row
+    // blurred by a Gaussian of sigma 3 (radius 9), the region's edge repeated: at column x,
+    // 255 x (the kernel's weight on columns 20..40) / (all of it).
+    let s = Selection::new(vec![rectangle(rect(20.0, 0.0, 20.0, 20.0))], true, 6.0);
+    let c = coverage(&s, 60, 20);
+    let w = |j: i64| (-((j * j) as f64) / 18.0).exp();
+    let total: f64 = (-9..=9).map(w).sum();
+    for x in 0..60i64 {
+        let want = 255.0 * (-9..=9).filter(|j| (20..40).contains(&(x + j))).map(w).sum::<f64>() / total;
+        assert!((at(&c, x as u32, 10) as f64 - want).abs() <= 1.0, "column {x}: {} vs {want:.2}", at(&c, x as u32, 10));
+    }
+    let fading = (0..60).filter(|x| { let v = at(&c, *x, 10); v > 8 && v < 247 }).count();
+    assert!(fading >= 4, "the Mac's own check: {fading} fading columns");
+}
+
+#[test]
+fn the_clip_covers_the_coverage_bounds_and_a_pixel_cut_to_the_canvas() {
+    // `clip(canvas:)`: a 10 x 6 box at (-3, 20) with feather 2 reaches ceil(4) = 4 px further, and a
+    // pixel more; the canvas cuts it at x = 0.
+    let s = Selection::new(vec![rectangle(rect(-3.0, 20.0, 10.0, 6.0))], true, 2.0);
+    let clip = SelectionClip::new(&s, 100, 50);
+    let c = clip.coverage.as_ref().unwrap();
+    assert_eq!(clip.origin, (0, 15));
+    assert_eq!((c.width, c.height), (7 + 4 + 1, 6 + 2 * (4 + 1)));
+    // An explicit empty selection clips everything away.
+    let empty = SelectionClip::new(&Selection::new(vec![], true, 0.0), 100, 50);
+    assert!(empty.coverage.is_none());
+    assert!(empty.on_grid(&Affine::IDENTITY, 100, 50).bytes().iter().all(|&v| v == 0));
+}
+
+#[test]
+fn coverage_on_a_scaled_layer_samples_the_canvas_coverage_at_each_pixel_centre() {
+    // SelectionEditTests.clipFollowsScaledLayersAndSoftensEdges: a 50 x 20 layer stretched to
+    // 100 x 40 at the origin, under the triangle (0,0), (100,0), (0,40). Layer pixel (i, j)
+    // centres on document (2i + 1, 2j + 1).
+    let s = Selection::new(vec![polygon(&[p(0.0, 0.0), p(100.0, 0.0), p(0.0, 40.0)])], true, 0.0);
+    let layer = LayerTransform::axis_aligned(p(0.0, 0.0), Size { width: 100.0, height: 40.0 });
+    let grid = SelectionClip::new(&s, 100, 40).on_grid(&layer.pixel_to_document(50, 20), 50, 20);
+    let canvas = coverage(&s, 100, 40);
+    assert_eq!(at(&grid, 5, 5), 255, "inside");
+    assert_eq!(at(&grid, 45, 17), 0, "outside");
+    // Bilinear between the canvas pixels around each centre: centre (2i + 1, 2j + 1) is the shared
+    // corner of canvas pixels 2i..2i+1 and 2j..2j+1, so it is their mean.
+    for j in 0..20u32 { for i in 0..50u32 {
+        let mean = (at(&canvas, 2 * i, 2 * j) as f64 + at(&canvas, 2 * i + 1, 2 * j) as f64 + at(&canvas, 2 * i, 2 * j + 1) as f64 + at(&canvas, 2 * i + 1, 2 * j + 1) as f64) / 4.0;
+        assert!((at(&grid, i, j) as f64 - mean).abs() <= 1.0, "({i}, {j}): {} vs {mean}", at(&grid, i, j));
+    }}
+    assert!(grid.bytes().iter().any(|&v| v > 0 && v < 255), "the diagonal is soft");
+}
+
+#[test]
+fn coverage_on_a_layer_moved_by_whole_pixels_is_the_canvas_coverage_cropped() {
+    // Ruling M13: comparing the moved layer's grid only against `coverage(&s, 60, 40)` would test
+    // `on_grid`'s whole-pixel copy branch against itself (both go through the same fast path, one
+    // with a real (9, -4) translation, the other with the identity, so a bug shared by both offsets
+    // could still pass). Instead, build the SAME ellipse translated by the layer's own offset
+    // (-9, +4 in document pixels, since layer pixel (i, j) sits on document (9 + i, -4 + j)) and
+    // rasterise THAT outline directly through `SelectionClip` + `on_grid` with the plain identity
+    // (no (9, -4) translation involved at all): a bug in the real whole-pixel move arithmetic (a
+    // swapped axis, a wrong sign, an off-by-one in the crop) changes `grid` without touching this
+    // independently-positioned rasterisation.
+    let s = Selection::new(vec![ellipse(rect(12.0, 7.0, 31.0, 18.0))], true, 1.5);
+    let canvas = coverage(&s, 60, 40);
+    let layer = LayerTransform::axis_aligned(p(9.0, -4.0), Size { width: 30.0, height: 25.0 });
+    let grid = SelectionClip::new(&s, 60, 40).on_grid(&layer.pixel_to_document(30, 25), 30, 25);
+    for j in 0..25u32 { for i in 0..30u32 {
+        let want = if j >= 4 { at(&canvas, 9 + i, j - 4) } else { 0 };
+        assert_eq!(at(&grid, i, j), want, "({i}, {j})");
+    }}
+    // Independent rasterisation: the ellipse re-expressed in the layer's own local frame (document
+    // minus the layer's (9, -4) origin), cleared of any canvas clipping by using a generous canvas
+    // so its coverage region lands exactly as it would unclipped, then read with the identity (no
+    // whole-pixel translation math shared with `grid`'s computation above).
+    let shifted = Selection::new(vec![ellipse(rect(12.0 - 9.0, 7.0 + 4.0, 31.0, 18.0))], true, 1.5);
+    let direct = SelectionClip::new(&shifted, 200, 150).on_grid(&Affine::IDENTITY, 30, 25);
+    for j in 0..25u32 { for i in 0..30u32 {
+        let (g, d) = (at(&grid, i, j) as i64, at(&direct, i, j) as i64);
+        assert!((g - d).abs() <= 1, "independent rasterisation at ({i}, {j}): {g} vs {d}");
+    }}
+}
+
+#[test]
+fn an_outline_knows_what_it_contains_and_moves_by_whole_units() {
+    let s = Selection::new(vec![rectangle(rect(10.0, 10.0, 20.0, 20.0))], true, 0.0);
+    assert!(s.contains(p(20.0, 20.0)) && !s.contains(p(60.0, 60.0)) && !s.contains(p(9.5, 20.0)));
+    let moved = s.translated(40 * SUBPIXEL as i32, 40 * SUBPIXEL as i32);
+    assert_eq!(moved.bounds(), Some(rect(50.0, 50.0, 20.0, 20.0)));
+    assert!(!s.is_empty());
+    assert!(Selection::new(vec![polygon(&[p(3.0, 3.0), p(9.0, 3.0), p(12.0, 3.0)])], true, 0.0).is_empty(), "no area");
+}

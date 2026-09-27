@@ -125,12 +125,19 @@ pub struct Document {
     pub active_layer_id: Option<Uuid>,
     pub guides: Vec<crate::Guide>,
     pub unknown: serde_json::Map<String, serde_json::Value>,
+    /// The selection (Phase 4a): None is no selection, an empty one is an explicit empty
+    /// selection. Part of the document so undo covers it; never saved (EditorSession.swift:70-71),
+    /// so a document opened or made fresh has none.
+    pub selection: Option<crate::Selection>,
+    /// Issued by the engine's revision counter whenever `selection` changes (`Engine::edit`), so the
+    /// app fetches an outline only when there is a new one. Not content: `same_content` skips it.
+    pub selection_revision: u64,
 }
 
 impl Document {
     pub fn new(width: u32, height: u32) -> Document {
         Document { id: Uuid::new_v4(), width, height, resolution: DEFAULT_RESOLUTION, layers: vec![], active_layer_id: None,
-            guides: vec![], unknown: Default::default() }
+            guides: vec![], unknown: Default::default(), selection: None, selection_revision: 1 }
     }
     pub fn size(&self) -> Size { Size { width: self.width as f64, height: self.height as f64 } }
     pub fn manifest(&self) -> Manifest {
@@ -232,11 +239,12 @@ impl Document {
     ///
     /// Destructured without `..` on purpose: a field added to `Document` later is then a compile
     /// error here rather than a field silently left out of the undo comparison, which would make
-    /// edits to it quietly un-undoable.
+    /// edits to it quietly un-undoable. The selection is content (the Mac's `CanvasDocument`
+    /// equality includes it, so a selection change is one undo step); its revision is bookkeeping.
     pub fn same_content(&self, other: &Document) -> bool {
-        let Document { id, width, height, resolution, layers, active_layer_id: _, guides, unknown } = self;
+        let Document { id, width, height, resolution, layers, active_layer_id: _, guides, unknown, selection, selection_revision: _ } = self;
         *id == other.id && *width == other.width && *height == other.height
             && *resolution == other.resolution && *layers == other.layers
-            && *guides == other.guides && *unknown == other.unknown
+            && *guides == other.guides && *unknown == other.unknown && *selection == other.selection
     }
 }

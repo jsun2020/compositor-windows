@@ -51,6 +51,8 @@ pub fn open_package(pkg: &Package) -> Result<Document, ProjectError> {
         id: manifest.document_id, width: manifest.width as u32, height: manifest.height as u32,
         resolution: manifest.resolution.unwrap_or(DEFAULT_RESOLUTION), layers, active_layer_id: manifest.active_layer_id,
         guides: manifest.guides.clone().unwrap_or_default(), unknown: manifest.unknown.clone(),
+        // The Mac never saves a selection (ProjectStore.swift:13-56): an opened project has none.
+        selection: None, selection_revision: 1,
     })
 }
 
