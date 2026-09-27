@@ -63,6 +63,10 @@ pub enum Command {
     MagicWand { at: Point, mode: SelectionMode, settings: WandSettings, antialiased: bool },
     LoadLayerSelection { #[serde(with = "ids::upper")] id: Uuid, mode: SelectionMode, antialiased: bool },
     LoadMaskSelection { #[serde(with = "ids::upper")] id: Uuid, mode: SelectionMode, antialiased: bool },
+    /// Delete with a selection: the selected pixels cleared, or the mask filled white there (`mask`).
+    ClearSelectedPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
+    /// Add Mask with a selection: `revealing` white with the selection black, or the reverse.
+    AddMaskFromSelection { #[serde(with = "ids::upper")] id: Uuid, revealing: bool },
 }
 
 impl Command {
@@ -126,6 +130,10 @@ impl Command {
             Command::MagicWand { .. } => "Magic Wand",
             Command::LoadLayerSelection { .. } => "Load Layer Selection",
             Command::LoadMaskSelection { .. } => "Load Mask Selection",
+            // SelectionEdits.swift:46 and :55, LayerMask.swift:254.
+            Command::ClearSelectedPixels { mask: false, .. } => "Clear",
+            Command::ClearSelectedPixels { mask: true, .. } => "Fill Mask",
+            Command::AddMaskFromSelection { .. } => "Add Mask from Selection",
         }
     }
 }

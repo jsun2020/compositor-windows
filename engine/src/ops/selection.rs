@@ -160,6 +160,62 @@ pub fn load_layer_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, a
     Ok(())
 }
 
+/// Delete with a selection (`clearSelectedPixels`, SelectionEdits.swift:51-56): the layer's pixels
+/// fade to transparent by the selection's coverage (`clearPixels`, BrushStroke.swift:631-637); with
+/// the mask targeted, the mask fills white there instead, the mask palette's background ("Fill
+/// Mask"). A 1x1 mask takes the layer's pixel grid first. Needs a selection with something in it,
+/// and an enabled mask (`canPaint`, EditorSession+Brush.swift:5-11).
+pub fn clear_selected(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), CommandError> {
+    modifiable(doc)?;
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    if mask {
+        let m = layer.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
+        if !m.enabled { return Err(CommandError::Argument("the mask is turned off".into())); }
+        crate::ops::masks::expand_uniform(doc, id)?;
+        let layer = doc.layer(id).unwrap();
+        let m = layer.mask.as_ref().unwrap();
+        let grid = m.placement.unwrap_or(layer.transform);
+        let coverage = crate::ops::adjust::edit_coverage(doc, &grid, m.pixels.width, m.pixels.height)?.unwrap();
+        let white = GrayRaster::from_bytes(m.pixels.width, m.pixels.height, vec![255; (m.pixels.width * m.pixels.height) as usize]);
+        let filled = adjust::apply::blend_gray_by_coverage(&white, &m.pixels, &coverage);
+        doc.layer_mut(id).unwrap().mask_mut().unwrap().pixels = filled;
+        return Ok(());
+    }
+    if layer.is_group { return Err(CommandError::Argument("folders have no pixels".into())); }
+    let raster = layer.pixels.as_ref().ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
+    let coverage = crate::ops::adjust::edit_coverage(doc, &layer.transform, raster.width, raster.height)?.unwrap();
+    let mut data = raster.bytes().to_vec();
+    for (p, &k) in data.chunks_exact_mut(4).zip(coverage.bytes()) {
+        if k == 0 { continue; }
+        let keep = 255 - k as u32;
+        for v in p.iter_mut() { *v = ((*v as u32 * keep + 127) / 255) as u8; }
+    }
+    let cleared = Raster::from_premultiplied(raster.width, raster.height, data);
+    doc.layer_mut(id).unwrap().set_pixels(Some(cleared));
+    Ok(())
+}
+
+/// Add Mask with a selection (`addMask(revealing:)`, LayerMask.swift:233-260): a mask on the
+/// layer's pixel grid (its rectangle when it has none), white when `revealing` and black
+/// otherwise, painted the opposite tone through the selection's clip -- its coverage with the
+/// feather, cut to the canvas (`selection.clip(canvas:)`, :245-249). The selection is used up in
+/// the same step. An empty selection clips everything away: a plain mask, the selection used up.
+pub fn add_mask_from_selection(doc: &mut Document, id: Uuid, revealing: bool) -> Result<(), CommandError> {
+    let selection = doc.selection.clone().ok_or_else(|| refused(NO_SELECTION))?;
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    if layer.mask.is_some() { return Err(CommandError::Argument("the layer already has a mask".into())); }
+    let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round() as i64, layer.transform.size.height.round() as i64), |p| (p.width as i64, p.height as i64));
+    if w < 1 || h < 1 || w > MAX_SIDE || h > MAX_SIDE || (w * h) as u64 > MAX_PIXELS - doc.used_mask_pixels().min(MAX_PIXELS) {
+        return Err(CommandError::Project(ProjectError::TooLarge));
+    }
+    let (w, h) = (w as u32, h as u32);
+    let coverage = SelectionClip::new(&selection, doc.width, doc.height).on_grid(&layer.transform.pixel_to_document(w, h), w, h);
+    let pixels = if revealing { GrayRaster::from_bytes(w, h, coverage.bytes().iter().map(|c| 255 - c).collect()) } else { coverage };
+    doc.layer_mut(id).unwrap().set_mask(Some(Mask { pixels, enabled: true, placement: None, linked: None }));
+    doc.selection = None;
+    Ok(())
+}
+
 /// Ctrl-click on a mask's thumbnail (`loadMaskSelection`): the mask's BLACK areas, darker than 50%
 /// grey, which is what it hides (Photoshop loads the white; the Mac, and so this port, the
 /// black), through where the mask sits, combined by `mode`.

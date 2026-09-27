@@ -370,6 +370,8 @@ impl Engine {
             Command::MagicWand { at, mode, settings, antialiased } => { ops::selection::magic_wand_select(doc, at, mode, &settings, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadLayerSelection { id, mode, antialiased } => { ops::selection::load_layer_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadMaskSelection { id, mode, antialiased } => { ops::selection::load_mask_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
+            Command::ClearSelectedPixels { id, mask } => { ops::selection::clear_selected(doc, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
+            Command::AddMaskFromSelection { id, revealing } => { ops::selection::add_mask_from_selection(doc, id, revealing)?; Ok(Dirty::structure()) }
         })
     }
 
