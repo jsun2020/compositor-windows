@@ -216,3 +216,9 @@ contain is drawn as the Mac draws it, within the reduced-copy blur note above, e
 
 - Design specs: `docs/superpowers/specs`
 - Implementation plans: `docs/superpowers/plans`
+
+## Credits
+
+The tool rail's icons are from [Lucide](https://lucide.dev) (ISC License; the notice is in
+`app/src/panels/tool-icons.tsx`). The Mac app draws its tools with Apple's SF Symbols, which are
+licensed for Apple platforms only, so this port uses the closest Lucide icons instead.
