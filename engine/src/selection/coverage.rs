@@ -5,7 +5,8 @@
 //! :39-48); and that coverage on a layer's own pixel grid (`PixelAdjust.coverage`,
 //! PixelAdjust.swift:23-34).
 use super::{Contour, Selection, SUBPIXEL};
-use crate::{blur_gray, Affine, Document, GrayRaster, Point};
+use super::feather::feather_blur;
+use crate::{Affine, Document, GrayRaster, Point};
 
 /// One edge of an outline in region pixels, `y0 < y1`, `dir` +1 when the contour runs down.
 #[derive(Clone, Copy)]
@@ -37,13 +38,20 @@ fn accumulate(acc: &mut [f32], width: usize, e: &Edge, y: f64) {
     let dxdy = (e.x1 - e.x0) / (e.y1 - e.y0);
     // The piece of the edge inside this row, split where it crosses x = 0 and x = width.
     let (xa, xb) = (e.x0 + (top - e.y0) * dxdy, e.x0 + (bottom - e.y0) * dxdy);
-    let mut cuts = vec![(top, xa)];
+    // At most four points, in a fixed array: this runs for every active edge on every row.
+    let mut cuts = [(top, xa); 4];
+    let mut count = 1;
     for bound in [0.0, width as f64] {
-        if (xa - bound) * (xb - bound) < 0.0 { let t = (bound - xa) / (xb - xa); cuts.push((top + (bottom - top) * t, bound)); }
+        if (xa - bound) * (xb - bound) < 0.0 { let t = (bound - xa) / (xb - xa); cuts[count] = (top + (bottom - top) * t, bound); count += 1; }
     }
-    cuts.push((bottom, xb));
-    cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
-    for pair in cuts.windows(2) {
+    cuts[count] = (bottom, xb);
+    count += 1;
+    // In order down the row; a stable insertion sort, so equal heights keep their order.
+    for i in 1..count {
+        let mut j = i;
+        while j > 0 && cuts[j - 1].0.total_cmp(&cuts[j].0) == std::cmp::Ordering::Greater { cuts.swap(j - 1, j); j -= 1; }
+    }
+    for pair in cuts[..count].windows(2) {
         let ((ya, mut x0), (yb, mut x1)) = (pair[0], pair[1]);
         let dy = yb - ya;
         if !(dy > 0.0) { continue; }
@@ -97,13 +105,17 @@ pub fn rasterize(contours: &[Contour], left: f64, top: f64, width: u32, height: 
         active.retain(|e| e.y1 > row_top);
         let line = &mut out[y * w..(y + 1) * w];
         if antialiased {
-            acc.iter_mut().for_each(|a| *a = 0.0);
             for e in &active { accumulate(&mut acc, w, e, row_top); }
             let mut sum = 0f32;
-            for (x, px) in line.iter_mut().enumerate() {
-                sum += acc[x];
-                *px = (sum.abs().min(1.0) * 255.0).round() as u8;
+            // Each cell is read once and cleared for the next row. Rounded half up in f64, where
+            // v + 0.5 is exact: the same as f32::round on 0..=255, without its library call.
+            for (px, cell) in line.iter_mut().zip(acc.iter_mut()) {
+                sum += *cell;
+                *cell = 0.0;
+                *px = ((sum.abs().min(1.0) * 255.0) as f64 + 0.5) as u8;
             }
+            acc[w] = 0.0;
+            acc[w + 1] = 0.0;
         } else {
             // Nonzero winding at the row's centre line, half-open at each edge's ends.
             let yc = y as f64 + 0.5;
@@ -145,7 +157,7 @@ impl SelectionClip {
         if !(x1 - x0 >= 1.0) || !(y1 - y0 >= 1.0) { return none; }
         let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
         let filled = rasterize(&selection.contours, x0, y0, w, h, selection.antialiased || selection.feather > 0.0);
-        let coverage = if selection.feather > 0.0 { blur_gray(&filled, selection.feather / 2.0) } else { filled };
+        let coverage = if selection.feather > 0.0 { feather_blur(&filled, selection.feather / 2.0) } else { filled };
         SelectionClip { origin: (x0 as i64, y0 as i64), coverage: Some(coverage) }
     }
 

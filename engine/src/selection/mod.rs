@@ -7,6 +7,7 @@
 //! equal selections compare equal. `coverage` rasterises it as Core Graphics fills it; `trace` turns
 //! pixels back into outlines (WandPixels.c `wand_trace`); `wand` is the Magic Wand's matcher.
 pub mod coverage;
+pub mod feather;
 pub mod geometry;
 pub mod outline;
 pub mod trace;

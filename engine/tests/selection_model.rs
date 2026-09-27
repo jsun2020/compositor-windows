@@ -54,6 +54,25 @@ fn a_thin_sliver_and_a_contour_off_the_canvas_cover_by_area() {
     assert_eq!((at(&c, 0, 3), at(&c, 4, 4), at(&c, 5, 4)), (255, 255, 0));
 }
 
+#[test]
+fn edges_slanting_across_the_canvas_sides_cover_by_area() {
+    // A trapezium whose left side x = 2y - 20.5 crosses x = 0 at y = 10.25 and whose right side
+    // x = 50.5 - 2y crosses x = 30 there too, both in the middle of row 10, on 30 x 16: each pixel is
+    // the area between the two lines inside it, integrated down the pixel (4000 midpoint rows, far
+    // finer than a level for these piecewise-linear widths). Row 10's edge pieces are cut where they
+    // leave the canvas, the part left of it folded in as coverage (`accumulate`'s cuts).
+    let s = Selection::new(vec![polygon(&[p(-20.5, 0.0), p(50.5, 0.0), p(18.5, 16.0), p(11.5, 16.0)])], true, 0.0);
+    let c = coverage(&s, 30, 16);
+    for j in 0..16u32 { for i in 0..30u32 {
+        let area: f64 = (0..4000).map(|k| {
+            let y = j as f64 + (k as f64 + 0.5) / 4000.0;
+            ((i as f64 + 1.0).min(50.5 - 2.0 * y) - (i as f64).max(2.0 * y - 20.5)).clamp(0.0, 1.0)
+        }).sum::<f64>() / 4000.0;
+        let want = area * 255.0;
+        assert!((at(&c, i, j) as f64 - want).abs() <= 1.0, "({i}, {j}): {} vs {want:.2}", at(&c, i, j));
+    }}
+}
+
 /// The fraction of pixel (x, y) inside the ellipse `CGPath.addEllipse` builds in `box`, from a
 /// 16 x 16 grid of samples against the four Beziers' implicit ellipse: the true ellipse, whose
 /// distance from the Beziers is 0.027% of a half-axis.
@@ -123,22 +142,111 @@ fn a_band_round_joined_about_the_outline_grows_and_shrinks_it() {
     assert!((s.x - 43.0).abs() < 0.01 && (s.width - 14.0).abs() < 0.01, "{s:?}");
 }
 
+/// The box over columns `from..to` and every row of a `width` x 20 canvas, feathered by `feather`,
+/// against the formula on rows 0, 10 and 19, within 1 level: every row is the same, so each is the
+/// fill's row blurred by a Gaussian of sigma feather / 2 (radius ceil(3 sigma)) over the region --
+/// the box's bounds grown by ceil(2 x feather) and a pixel, cut to the canvas -- with the region's
+/// edge pixels repeated beyond it: at column x, 255 x (the kernel's weight on the columns, clamped
+/// into the region, that lie in the box) / (all of it); 0 outside the region. Returns the coverage.
+fn assert_feather_profile(feather: f64, width: u32, from: u32, to: u32) -> GrayRaster {
+    let s = Selection::new(vec![rectangle(rect(from as f64, 0.0, (to - from) as f64, 20.0))], true, feather);
+    let c = coverage(&s, width, 20);
+    let sigma = feather / 2.0;
+    let radius = (3.0 * sigma).ceil() as i64;
+    let grow = (2.0 * feather).ceil();
+    let (left, right) = ((from as f64 - grow - 1.0).floor().max(0.0) as i64, (to as f64 + grow + 1.0).ceil().min(width as f64) as i64);
+    let w = |j: i64| (-((j * j) as f64) / (2.0 * sigma * sigma)).exp();
+    let total: f64 = (-radius..=radius).map(w).sum();
+    for x in 0..width as i64 {
+        let want = if x < left || x >= right { 0.0 } else {
+            255.0 * (-radius..=radius).filter(|j| (from as i64..to as i64).contains(&(x + j).clamp(left, right - 1))).map(w).sum::<f64>() / total
+        };
+        for y in [0, 10, 19] {
+            assert!((at(&c, x as u32, y) as f64 - want).abs() <= 1.0, "feather {feather}, ({x}, {y}): {} vs {want:.2}", at(&c, x as u32, y));
+        }
+    }
+    c
+}
+
 #[test]
 fn a_feather_blurs_the_coverage_by_half_its_amount() {
     // SelectionFeatherTests.featherSoftensTheSelectionAndWhatItClips: the rectangle (20, 0)-(40, 20)
-    // on 60 x 20, feather 6. Every row is the same, so the column profile is the fill's row
-    // blurred by a Gaussian of sigma 3 (radius 9), the region's edge repeated: at column x,
-    // 255 x (the kernel's weight on columns 20..40) / (all of it).
-    let s = Selection::new(vec![rectangle(rect(20.0, 0.0, 20.0, 20.0))], true, 6.0);
-    let c = coverage(&s, 60, 20);
-    let w = |j: i64| (-((j * j) as f64) / 18.0).exp();
-    let total: f64 = (-9..=9).map(w).sum();
-    for x in 0..60i64 {
-        let want = 255.0 * (-9..=9).filter(|j| (20..40).contains(&(x + j))).map(w).sum::<f64>() / total;
-        assert!((at(&c, x as u32, 10) as f64 - want).abs() <= 1.0, "column {x}: {} vs {want:.2}", at(&c, x as u32, 10));
-    }
+    // on 60 x 20, feather 6.
+    let c = assert_feather_profile(6.0, 60, 20, 40);
     let fading = (0..60).filter(|x| { let v = at(&c, *x, 10); v > 8 && v < 247 }).count();
     assert!(fading >= 4, "the Mac's own check: {fading} fading columns");
+    // Larger feathers (final review F1), each box reaching the canvas's right edge, where the
+    // region's edge is repeated: 255 held to the edge, not the half a transparent beyond would give.
+    // The canvas is 20 rows high, so every column is repeated past its top and bottom as well.
+    for feather in [6.0f64, 20.0, 63.0] {
+        let grow = (2.0 * feather).ceil() as u32;
+        let width = 4 * grow + 40;
+        let c = assert_feather_profile(feather, width, width / 2, width);
+        assert_eq!(at(&c, width - 1, 10), 255, "feather {feather}: the edge repeated");
+    }
+}
+
+/// A fixed-seed generator for the sweep below (Knuth's MMIX LCG, top bits).
+struct Lcg(u64);
+impl Lcg {
+    fn next(&mut self) -> u64 { self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); self.0 >> 33 }
+    fn below(&mut self, n: u64) -> u64 { self.next() % n }
+}
+
+/// The feather's formula on `c`: the sampled Gaussian of `sigma` out to ceil(3 sigma), normalized,
+/// along rows and then columns, the raster's edge pixels repeated, in f64, rounded once.
+fn formula_blur(c: &GrayRaster, sigma: f64) -> Vec<u8> {
+    let (w, h) = (c.width as i64, c.height as i64);
+    let radius = (3.0 * sigma).ceil() as i64;
+    let kernel: Vec<f64> = (-radius..=radius).map(|j| (-((j * j) as f64) / (2.0 * sigma * sigma)).exp()).collect();
+    let total: f64 = kernel.iter().sum();
+    let mut rows = vec![0f64; (w * h) as usize];
+    for y in 0..h { for x in 0..w {
+        rows[(y * w + x) as usize] = kernel.iter().enumerate().map(|(k, weight)| c.bytes()[(y * w + (x + k as i64 - radius).clamp(0, w - 1)) as usize] as f64 * weight).sum::<f64>() / total;
+    }}
+    let mut out = vec![0u8; (w * h) as usize];
+    for y in 0..h { for x in 0..w {
+        let v = kernel.iter().enumerate().map(|(k, weight)| rows[((y + k as i64 - radius).clamp(0, h - 1) * w + x) as usize] * weight).sum::<f64>() / total;
+        out[(y * w + x) as usize] = v.round().clamp(0.0, 255.0) as u8;
+    }}
+    out
+}
+
+#[test]
+fn the_feather_blur_is_the_formula_within_a_level_on_a_randomized_sweep() {
+    // LL-071: an approximation with an error bound gets a randomized sweep over its boundaries. 240
+    // cases: sizes 1 to 96 on each axis (one-pixel lines included), sigma from 0.3 to 125 (both sides
+    // of DIRECT_SIGMA_LIMIT, and kernels far wider than the raster), content of hard boxes, single
+    // dots, soft values and noise, every pixel against the formula computed here.
+    let mut rng = Lcg(0x5e1ec7);
+    let sigmas = [0.3, 0.75, 1.0, 1.5, DIRECT_SIGMA_LIMIT - 0.01, DIRECT_SIGMA_LIMIT, 2.5, 3.0, 4.5, 7.0, 10.0, 16.0, 31.5, 60.0, 125.0];
+    let mut worst = (0i32, String::new());
+    for case in 0..240 {
+        let (w, h) = (1 + rng.below(96) as u32, 1 + rng.below(96) as u32);
+        let sigma = if case < sigmas.len() * 8 { sigmas[case % sigmas.len()] } else { 0.3 + rng.below(1250) as f64 / 10.0 };
+        let base = [0u8, 255][rng.below(2) as usize];
+        let mut data = vec![base; (w * h) as usize];
+        match rng.below(4) {
+            0 => for _ in 0..1 + rng.below(4) {
+                let (x0, y0) = (rng.below(w as u64) as u32, rng.below(h as u64) as u32);
+                let (x1, y1) = ((x0 + 1 + rng.below(w as u64) as u32).min(w), (y0 + 1 + rng.below(h as u64) as u32).min(h));
+                let v = [0u8, 255, rng.below(256) as u8][rng.below(3) as usize];
+                for y in y0..y1 { for x in x0..x1 { data[(y * w + x) as usize] = v; } }
+            },
+            1 => { let (x, y) = (rng.below(w as u64) as u32, rng.below(h as u64) as u32); data[(y * w + x) as usize] = 255 - base; }
+            2 => for (i, v) in data.iter_mut().enumerate() { *v = ((i as u32 % w) * 255 / w.max(1)) as u8; },
+            _ => for v in data.iter_mut() { *v = rng.below(256) as u8; },
+        }
+        let c = GrayRaster::from_bytes(w, h, data);
+        let fast = feather_blur(&c, sigma);
+        let want = formula_blur(&c, sigma);
+        for (i, (&a, &b)) in fast.bytes().iter().zip(&want).enumerate() {
+            let d = (a as i32 - b as i32).abs();
+            if d > worst.0 { worst = (d, format!("case {case}: {w} x {h}, sigma {sigma}, pixel ({}, {}): {a} vs {b}", i as u32 % w, i as u32 / w)); }
+        }
+    }
+    println!("feather sweep: worst {} ({})", worst.0, worst.1);
+    assert!(worst.0 <= 1, "worst {}: {}", worst.0, worst.1);
 }
 
 #[test]
@@ -202,12 +310,12 @@ fn coverage_on_a_layer_moved_by_whole_pixels_is_the_canvas_coverage_cropped() {
     // computation -- only `rasterize` and the blur, called directly, over a region ((-20, -20), 80 x
     // 80) chosen generously enough (the outline's own feathered bounds, shifted into this frame, are
     // (-6, 8)-(31, 32) -- comfortably inside with margin far past the blur's kernel radius) that no
-    // edge clamp in `blur_gray` reaches pixel (0, 0)..(30, 25) of this region, so those pixels equal
+    // edge clamp in `feather_blur` reaches pixel (0, 0)..(30, 25) of this region, so those pixels equal
     // exactly what an unclipped rasterisation and blur of the moved outline would give.
     let shifted = s.translated((-15.0 * SUBPIXEL) as i32, (4.0 * SUBPIXEL) as i32);
     let (region_left, region_top, region_w, region_h) = (-20.0, -20.0, 80u32, 80u32);
     let filled = rasterize(&shifted.contours, region_left, region_top, region_w, region_h, shifted.antialiased || shifted.feather > 0.0);
-    let reference = if shifted.feather > 0.0 { blur_gray(&filled, shifted.feather / 2.0) } else { filled };
+    let reference = if shifted.feather > 0.0 { feather_blur(&filled, shifted.feather / 2.0) } else { filled };
     for j in 0..25u32 { for i in 0..30u32 {
         let (bx, by) = ((i as i64 - region_left as i64) as u32, (j as i64 - region_top as i64) as u32);
         assert_eq!(at(&grid, i, j), at(&reference, bx, by), "independent reference at ({i}, {j})");

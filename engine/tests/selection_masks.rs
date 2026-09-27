@@ -137,12 +137,13 @@ fn a_mask_from_a_feathered_selection_takes_the_feather() {
     let sigma = 2.0;
     let expected_outside = 255.0 * (1.0 - phi(-1.5 / sigma));
     let expected_inside = 255.0 * (1.0 - phi(1.5 / sigma));
-    // Tolerance, not measured: the production blur truncates the Gaussian kernel at 3 sigma
-    // (radius = ceil(sigma * 3), masks.rs blur_gray) and renormalizes, which redistributes under
-    // 0.3% of the mass (the two-tailed mass beyond 3 sigma), and it convolves discrete pixel
-    // samples rather than integrating the continuous Gaussian, whose Poisson-summation error is
-    // negligible at sigma = 2 px. Both effects bound the deviation from the continuous Phi
-    // formula to well under 3 of 255 levels; the +-8 in the brief was a hand-computed round number.
+    // Tolerance, not measured: the feather's formula truncates the Gaussian kernel at 3 sigma
+    // (radius = ceil(sigma * 3)) and renormalizes, which redistributes under 0.3% of the mass (the
+    // two-tailed mass beyond 3 sigma), and it convolves discrete pixel samples rather than
+    // integrating the continuous Gaussian, whose Poisson-summation error is negligible at sigma =
+    // 2 px; the production blur (selection/feather.rs) is that formula within 1 level. Together they
+    // bound the deviation from the continuous Phi formula to under 3 of 255 levels; the +-8 in the
+    // brief was a hand-computed round number.
     let tol = 3.0;
     assert!((outside - expected_outside).abs() <= tol, "outside {outside}, expected {expected_outside}");
     assert!((inside - expected_inside).abs() <= tol, "inside {inside}, expected {expected_inside}");
