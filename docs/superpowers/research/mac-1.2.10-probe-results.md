@@ -176,6 +176,40 @@ Open: the enlargement curve (awaiting the step probes), the turned-edge anti-ali
 reduction (`.low`, max 40) and the mask path. Together they are one resampling task, not part of
 Phase 4a.
 
+## Step probes (exported 2026-09-27): the Mac's resampling filter, settled
+
+The three step probes came back (not re-saved). High quality and Smooth are byte-identical again.
+Reading every output column of the 1600 % and 700 % renders, the share f of the far pixel takes only
+the values 0, 1/16, 1/8, 1/4, 1/2, 3/4, 7/8, 15/16 and 1, constant over bands 1/8 of a source pixel
+wide. So the Mac's resample (as Core Graphics draws an image layer, for `.high` and `.low` alike) is:
+
+- the two nearest source pixels on each axis (centres at i + 0.5), edge-clamped inside the layer;
+- the phase t rounded to eighths, q = round(8 t);
+- the far pixel's weight w = [0, 1/16, 1/8, 1/4, 1/2, 3/4, 7/8, 15/16, 1][q], separable in x and y,
+  on premultiplied values;
+- an anti-aliased edge: the result times the pixel's area coverage by the layer's rectangle.
+
+Measured with that model (scratch test, premultiplied, rounding to nearest):
+
+| probe | max | mean |
+|---|---|---|
+| sampling-high-400, sampling-smooth-400 | 2 | 0.041 |
+| sampling-high-150 | 2 | 0.008 |
+| sampling-steps-high-1600 | 1 | 0.066 |
+| sampling-steps-high-700 | 1 | 0.014 |
+| sampling-high-mask-400 (the mask resampled the same way) | 1 | 0.024 |
+| sampling-high-shrink-65 (a 0.65 reduction, `.low`) | 9 (one pixel on the layer's edge) | 0.041 |
+| sampling-high-rotated, interior | 1 | 0.098 |
+| sampling-high-rotated, all (8 x 8 supersampled area coverage for the edge) | 31 (edge pixels) | 0.263 |
+
+against bilinear's 29 / 40 / 40 and the port's hard turned edge (164). The edge coverage is Core
+Graphics' anti-aliasing, which exact area only approximates (31 at worst); the rest is within 2.
+Not measured: the sharp halvings for reductions past 2x (the Mac's DownsampleCache uses vImage
+Lanczos halvings, DownsampleCache.swift:7, :79; the port's `Raster::halved` is a box) and the GPU
+path. This is the resampling task: the CPU compositor's `sample`, the GLSL layer and mask programs
+(hardware bilinear today: the shader must fetch the four texels and weight them by the table), and
+edge coverage for turned and fractionally placed layers on both.
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor
