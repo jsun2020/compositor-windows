@@ -305,3 +305,22 @@ fn the_wand_refuses_an_outline_too_detailed_to_draw() {
     assert_eq!(err.to_string(), "That selection is too detailed to outline. Try a different Tolerance, or turn on Contiguous.");
     assert!(e.document(id).unwrap().selection.is_none());
 }
+
+#[test]
+fn loading_pixels_too_detailed_to_outline_says_so_without_the_wands_advice() {
+    // Final review M4: a thumbnail's Ctrl-click has no Tolerance or Contiguous to change. A 2001 x
+    // 2000 checkerboard traces to 8,004,000 edges, past WAND_EDGE_LIMIT, as the wand test above.
+    use compositor_engine::ops::selection::{load_layer_selection, load_mask_selection, LAYER_TOO_DETAILED, MASK_TOO_DETAILED};
+    let mut doc = Document::new(2001, 2000);
+    let mut layer = Layer::with_pixels("Checker", image(2001, 2000, |x, y| if (x + y) % 2 == 0 { RED } else { [0, 0, 0, 0] }), p(0.0, 0.0));
+    let mask = GrayRaster::from_bytes(2001, 2000, (0..2001u32 * 2000).map(|i| if (i % 2001 + i / 2001) % 2 == 0 { 0 } else { 255 }).collect());
+    layer.set_mask(Some(Mask { pixels: mask, enabled: true, placement: None, linked: None }));
+    let id = layer.id;
+    doc.layers = vec![layer];
+    let layer_err = load_layer_selection(&mut doc, id, SelectionMode::Replace, true).unwrap_err();
+    assert_eq!(layer_err, CommandError::Refused(LAYER_TOO_DETAILED.into()));
+    let mask_err = load_mask_selection(&mut doc, id, SelectionMode::Replace, true).unwrap_err();
+    assert_eq!(mask_err, CommandError::Refused(MASK_TOO_DETAILED.into()));
+    for err in [layer_err, mask_err] { assert!(!err.to_string().contains("Tolerance"), "{err}"); }
+    assert!(doc.selection.is_none());
+}

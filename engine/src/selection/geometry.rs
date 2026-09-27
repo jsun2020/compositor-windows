@@ -88,12 +88,16 @@ pub fn combine(a: &[Contour], b: &[Contour], op: Boolean) -> Vec<Contour> {
 /// The band `half_width` pixels either side of every contour: `copy(strokingWithWidth: 2 x
 /// half_width, lineCap: .round, lineJoin: .round)` (Selection.swift:336), as a filled outline.
 /// Round joins turn in steps whose chords stray at most `CURVE_TOLERANCE` from the arc.
-pub fn band(contours: &[Contour], half_width: f64) -> Vec<Contour> {
+pub fn band(contours: &[Contour], half_width: f64) -> Option<Vec<Contour>> {
     let radius = (half_width * SUBPIXEL).round();
     // The chord of an arc of radius r over angle a strays r (1 - cos(a / 2)) from it.
     let step = 2.0 * (1.0 - CURVE_TOLERANCE * SUBPIXEL / radius).clamp(-1.0, 1.0).acos();
     let arc = ArcOptions { max_step: Angle::from_radians(step).unwrap_or(ArcOptions::MIN_STEP), rotation_precision: 32 };
     let style = IntStrokeStyle::new(2 * radius as i32).line_join(IntLineJoin::Round(arc)).start_cap(IntLineCap::Round(arc)).end_cap(IntLineCap::Round(arc));
     let paths = to_int(contours);
-    match paths.as_slice().stroke(&style, true) { Ok(shapes) => from_shapes(shapes), Err(_) => Vec::new() }
+    // i_overlay's stroke assumes its safe coordinate range (2^30 units) without checking it (a debug
+    // panic, a garbled band in release), so it is checked first: None, never an empty band, which
+    // would quietly drop the selection on Expand (final review M2).
+    paths.as_slice().validate_stroke(&style).ok()?;
+    paths.as_slice().stroke(&style, true).ok().map(from_shapes)
 }

@@ -8,10 +8,17 @@ use uuid::Uuid;
 
 /// Said when an edit needs a selection with something in it.
 pub const EMPTY_SELECTION: &str = "The selection is empty";
+/// Said when the Expand or Contract band cannot be made (an outline past the geometry's range).
+pub const EXPAND_FAILED: &str = "The selection could not be expanded";
+pub const CONTRACT_FAILED: &str = "The selection could not be contracted";
 /// Said when an edit needs a selection and there is none.
 pub const NO_SELECTION: &str = "Nothing is selected";
 /// The Magic Wand's refusal of an outline past `WAND_EDGE_LIMIT` (MagicWand.swift:28).
 pub const TOO_DETAILED: &str = "That selection is too detailed to outline. Try a different Tolerance, or turn on Contiguous.";
+/// Loading a layer's or a mask's pixels past the same limit (the Mac beeps): no Wand advice, which
+/// would not apply to a thumbnail's Ctrl-click (final review M4).
+pub const LAYER_TOO_DETAILED: &str = "That layer is too detailed to load as a selection.";
+pub const MASK_TOO_DETAILED: &str = "That mask is too detailed to load as a selection.";
 
 fn refused(message: &str) -> CommandError { CommandError::Refused(message.to_string()) }
 fn canvas(doc: &Document) -> Vec<Contour> { vec![g::rectangle(Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 })] }
@@ -88,7 +95,7 @@ pub fn move_selection(doc: &mut Document, dx: f64, dy: f64) -> Result<(), Comman
 pub fn resize_selection(doc: &mut Document, delta: i64) -> Result<(), CommandError> {
     if delta == 0 || delta.unsigned_abs() > MAX_RESIZE as u64 { return Err(CommandError::Argument("Expand and Contract take 1 to 500 pixels".into())); }
     let current = modifiable(doc)?.clone();
-    let band = g::band(&current.contours, delta.unsigned_abs() as f64);
+    let band = g::band(&current.contours, delta.unsigned_abs() as f64).ok_or_else(|| refused(if delta > 0 { EXPAND_FAILED } else { CONTRACT_FAILED }))?;
     let result = if delta > 0 {
         g::combine(&g::combine(&current.contours, &band, Boolean::Union), &canvas(doc), Boolean::Intersection)
     } else {
@@ -153,7 +160,7 @@ pub fn magic_wand_select(doc: &mut Document, at: Point, mode: SelectionMode, set
 pub fn load_layer_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, antialiased: bool) -> Result<(), CommandError> {
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     let raster = layer.pixels.as_ref().filter(|_| !layer.is_group).ok_or_else(|| refused("The layer has no pixels to select"))?;
-    let traced = opaque_pixels(raster).map_err(|_| refused(TOO_DETAILED))?;
+    let traced = opaque_pixels(raster).map_err(|_| refused(LAYER_TOO_DETAILED))?;
     if traced.is_empty() { return Err(refused("The layer has no pixels at least half opaque")); }
     let outline = g::transformed(&traced, &layer.transform.pixel_to_document(raster.width, raster.height));
     apply_selection(doc, &outline, mode, antialiased);
@@ -223,7 +230,7 @@ pub fn add_mask_from_selection(doc: &mut Document, clips: &SelectionClips, id: U
 pub fn load_mask_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, antialiased: bool) -> Result<(), CommandError> {
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     let mask = layer.mask.as_ref().ok_or_else(|| refused("The layer has no mask"))?;
-    let traced = dark_pixels(&mask.pixels).map_err(|_| refused(TOO_DETAILED))?;
+    let traced = dark_pixels(&mask.pixels).map_err(|_| refused(MASK_TOO_DETAILED))?;
     if traced.is_empty() { return Err(refused("The mask has no black areas to select")); }
     let placement = mask.placement.unwrap_or(layer.transform);
     let outline = g::transformed(&traced, &placement.pixel_to_document(mask.pixels.width, mask.pixels.height));

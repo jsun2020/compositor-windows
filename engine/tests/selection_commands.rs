@@ -354,3 +354,21 @@ fn a_press_moves_the_outline_only_inside_a_selection_with_something_in_it() {
     lasso(&mut e, id, square(0.0, 0.0, 60.0), SelectionMode::Subtract);
     assert!(!e.selection_contains(id, p(20.0, 20.0)).unwrap(), "an empty selection does not move");
 }
+
+#[test]
+fn a_band_the_geometry_cannot_stroke_refuses_rather_than_dropping_the_selection() {
+    // Final review M2: i_overlay's stroke assumes its safe range (2^30 units, 4,194,304 document
+    // pixels), and a failed band used to be an empty one, which made Expand wipe the selection.
+    // Commands keep outlines within SELECTION_COORDINATE_LIMIT, so this one is set directly.
+    use compositor_engine::ops::selection::{resize_selection, CONTRACT_FAILED, EXPAND_FAILED};
+    use compositor_engine::selection::geometry::rectangle;
+    let far = 4_200_000.0;
+    assert!(far * SUBPIXEL > (1u64 << 30) as f64, "past the safe range");
+    let mut doc = Document::new(100, 100);
+    doc.selection = Some(Selection::new(vec![rectangle(rect(10.0, 10.0, 30.0, 30.0)), rectangle(rect(far, 10.0, 30.0, 30.0))], true, 0.0));
+    let before = doc.selection.clone();
+    assert_eq!(resize_selection(&mut doc, 5), Err(CommandError::Refused(EXPAND_FAILED.into())));
+    assert_eq!(resize_selection(&mut doc, -5), Err(CommandError::Refused(CONTRACT_FAILED.into())));
+    assert_eq!(doc.selection, before, "the selection is kept");
+    assert!(compositor_engine::selection::geometry::band(&before.unwrap().contours, 5.0).is_none());
+}
