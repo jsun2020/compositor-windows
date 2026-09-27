@@ -59,6 +59,55 @@ Not yet settled by a Mac render: the Soft Light variant, and Hard Light / Linear
 source that is not pure green. A follow-up probe with 25%, 50% and 75% grey sources, opaque and
 translucent, would settle them.
 
+## Phase 3.5b follow-up probes (exported 2026-09-27)
+
+The user exported 14 of the 15 Phase 3.5b follow-up probes from Compositor 1.2.10 (color-balance-preserve
+was not exported; none of the 16 Phase 3.5c effects probes nor mac-effects yet). None was re-saved by the
+Mac. They are committed beside the first set in `engine/tests/fixtures/mac-1.2.10-probes/`. Compared with
+the port's CPU compositor at 12a0e34 (scratch test, deleted), straight RGBA8 and premultiplied:
+
+| probe | result |
+|---|---|
+| color-balance-no-preserve, add-noise-uniform, add-noise-gaussian-mono, cgmode-levels-divide, color-dodge-adjustment, cgmode-stack-bases, invert | bit-identical on every pixel |
+| black-white-tint | colour max 1 (2 pixels) |
+| cgmode-blur-linear-burn | colour max 3, 28 pixels over 2, all at the canvas edge (the canvas edge does not fade: ruling E-I1 confirmed) |
+| gaussian-blur-6 | premultiplied colour 2, alpha 2 (straight colour is ill-conditioned where alpha is a few units) |
+| gaussian-blur-40 | premultiplied colour 2, alpha 3 (the halved path) |
+| blur-soft-mask | premultiplied colour 1, alpha 1 |
+| blend-greys | Hard Light, Linear Light, Pin Light, Vivid Light and Hard Mix within 1 at every grey and alpha; Soft Light 14 off at 75 % grey (see below) |
+| motion-blur-30-24 | premultiplied colour 26, alpha 28, mean 3.1 (see below) |
+
+So Color Burn and Color Dodge on adjustment layers and clipped groups, Hard Light / Linear Light /
+Pin Light on non-pure sources, the Hard Mix edge, Color Balance without Preserve Luminosity, the B&W
+tint, Invert, both noise modes and both Gaussian radii are settled as the port draws them.
+
+Soft Light: fitted on band 0 of blend-greys (interior of each 40 x 60 column, R G B, W3C alpha model
+`(1 - a) cb + a B(cb, cs)`), max / mean error in 8-bit levels:
+
+| formula | 25 % | 50 % | 75 % | 25 % half alpha | 50 % half alpha | 75 % half alpha |
+|---|---|---|---|---|---|---|
+| W3C / PDF (the port) | 1 / 0.05 | 0 / 0 | 14 / 7.86 | 1 / 0.02 | 0 / 0 | 7 / 3.77 |
+| Photoshop (sqrt always) | 1 / 0.05 | 0 / 0 | 15 / 8.19 | 1 / 0.02 | 0 / 0 | 7 / 3.77 |
+| Pegtop `(1 - 2cs) cb^2 + 2 cs cb` | 1 / 0.05 | 0 / 0 | 1 / 0.05 | 1 / 0.02 | 0 / 0 | 1 / 0.02 |
+
+The Mac's Soft Light is Pegtop's formula.
+
+Motion Blur (30 degrees, 24 px; the Mac passes CIMotionBlur a radius of distance / sqrt(12),
+Filters.swift:170-207, and so does the adjustment layer): models run on the port's composite of the
+layers under the blur, sampled bilinearly every 0.25 px along the angle, transparent outside the
+canvas, compared premultiplied:
+
+| model | max | mean |
+|---|---|---|
+| the port (even streak of length 24) | 28 | 3.108 |
+| Gaussian along the angle, sigma = 0.75 r | 36 | 4.529 |
+| Gaussian along the angle, sigma = r = 6.93 | 4 | 0.103 |
+| Gaussian along the angle, sigma = 1.25 r | 27 | 4.381 |
+| tent with the same spread | 8 | 0.938 |
+
+CIMotionBlur is a Gaussian along the angle whose sigma is its radius; with the Mac's radius that is
+sigma = distance / sqrt(12).
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor

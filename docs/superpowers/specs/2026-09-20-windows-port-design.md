@@ -47,7 +47,13 @@ The behavioural oracle from Phase 3.5 onward was the user's fork at Compositor 1
 Phase 3.5 is delivered in three parts. 3.5a (done, 0.3.5): open and save v1-9 without loss, folder opacity, saved guides, and a notice for what is not drawn yet. 3.5b: draw the eleven blend modes and the six adjustment kinds (with their editors and New Adjustment menu entries), and port the 1.2.6 Grain and Add Noise kernels for adjustment layers and destructive filters alike. 3.5c: draw the six layer effects on the CPU and the GPU, and type their JSON.
 
 Phase 4, selections and retouching:
-Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic Wand, add and subtract, move outline, move and duplicate pixels inside, load layer or mask as selection, Brush with size, hardness and opacity and Shift for straight lines, Spot Healing Brush, Clone Stamp (aligned or not, current layer or all), Blur tool, Content-Aware Fill including extending past edges, Gradient tool, Shape tool (rectangle, rounded rectangle, ellipse), Eyedropper, full colour picker, Copy Merged, Photoshop-style keyboard shortcuts. Selection-limited adjustments and filters (the coverage path Phase 3 built but always passed `None`). Re-scoped against Compositor 1.2.6 before planning: its object selection and floating selection are candidates.
+Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic Wand, add and subtract, move outline, move and duplicate pixels inside, load layer or mask as selection, Brush with size, hardness and opacity and Shift for straight lines, Spot Healing Brush, Clone Stamp (aligned or not, current layer or all), Blur tool, Content-Aware Fill including extending past edges, Gradient tool, Shape tool (rectangle, rounded rectangle, ellipse), Eyedropper, full colour picker, Copy Merged, Photoshop-style keyboard shortcuts. Selection-limited adjustments and filters (the coverage path Phase 3 built but always passed `None`). Re-scoped against Compositor 1.2.10 before planning (2026-09-27, `docs/superpowers/research/phase4-mac-1.2.10-selection-and-retouching.md`): floating selection (Transform Selection) is in; Object Selection and Select Subject are out, with Remove Background, because they need a segmentation model (Apple Vision on the Mac). Decisions the user took on 2026-09-27: Phase 4 ships in four parts, each with a portable build, like Phase 3.5; where the Mac differs from Photoshop (Ctrl-clicking a mask loads its black areas; Add Mask (Reveal) with a selection hides the selection) Windows follows the Mac; Copy and Paste use the Windows system clipboard (PNG), as the Mac uses the system pasteboard. Also ruled then: the Shape tool includes the Mac's Line shape; shapes are not redrawn on scale until Phase 5's live shape layers; the shortcut map is fixed (no remapping editor) in Phase 4.
+
+Phase 4 is delivered in four parts:
+- 4a Selections: the selection model (a vector outline with anti-alias and feather, undoable, never saved, as on the Mac); Rectangle and Ellipse Marquee, Freehand and Polygonal Lasso, Magic Wand; replace, add and subtract; move and nudge the outline; Select All, Deselect, Inverse, Expand, Contract, Feather; load a layer's pixels or a mask's black areas as a selection; marching ants; destructive adjustments, filters and Invert limited to the selection, with the histogram weighted by it; Delete clears the selected pixels; Add Mask from Selection; the Crop tool starts at the selection's bounds.
+- 4b Colour, fills and clipboard: foreground and background colours, the colour picker, the Eyedropper tool, Fill, the Gradient and Shape tools, Cut, Copy, Paste, Copy Merged and Layer via Copy on the system clipboard, moving and duplicating selected pixels, Transform Selection; and the groundwork the brushes need: a history cap like the Mac's (100 entries, 256 MB), partial texture uploads, and reduced display effects images built off the UI thread (Phase 3.5c OQ6).
+- 4c Brushes: Brush and Eraser with size, hardness, opacity, smoothing and Shift for straight lines, mask painting, the Blur tool, Clone Stamp.
+- 4d Spot Healing Brush and Content-Aware Fill (including extending past edges).
 
 Phase 5, text and layer effects (added 2026-09-24 at the user's request): the type tool and editable text layers, live shape layers, and editing layer effects (stroke, drop shadow). Phase 3.5 already renders and preserves all three.
 
@@ -139,7 +145,9 @@ the macOS behaviour:
 
 - Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point colour
   cube, so results are slightly more exact than the Mac app's.
-- Motion Blur is an even streak rather than Core Image's tapered one.
+- (Until Phase 4a) Motion Blur was an even streak rather than Core Image's tapered one. The Mac 1.2.10
+  probes (2026-09-27) measured CIMotionBlur as a Gaussian along the angle with sigma = distance / sqrt(12),
+  and Phase 4a Task 1 ports that.
 
 ## 5. Project format on Windows
 
@@ -147,7 +155,7 @@ The Windows app reads and writes the macOS folder package unchanged: a `<name>.c
 
 JSON encoding follows the structure of Swift's Codable output so either app parses the other's manifest: UUIDs are uppercase hyphenated strings, `origin` is a two-element array `[x, y]`, `size` is `[width, height]`, enum values are their display strings (`"High quality"`, `"Color Dodge"`), absent optionals are omitted, keys are sorted and the JSON is pretty-printed. Whitespace need not match byte for byte.
 
-Undo history and viewport are session-only. Opening fits the canvas, restores the selection and starts with clean history.
+Undo history, viewport and the selection are session-only (the Mac never saves a selection, ProjectStore.swift). Opening fits the canvas, starts with no selection and starts with clean history.
 
 ## 6. Performance and limits
 
