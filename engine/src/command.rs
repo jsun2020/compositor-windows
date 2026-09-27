@@ -1,4 +1,4 @@
-use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape};
+use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape, WandSettings};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -60,6 +60,9 @@ pub enum Command {
     ExpandSelection { amount: u32 },
     ContractSelection { amount: u32 },
     FeatherSelection { amount: u32 },
+    MagicWand { at: Point, mode: SelectionMode, settings: WandSettings, antialiased: bool },
+    LoadLayerSelection { #[serde(with = "ids::upper")] id: Uuid, mode: SelectionMode, antialiased: bool },
+    LoadMaskSelection { #[serde(with = "ids::upper")] id: Uuid, mode: SelectionMode, antialiased: bool },
 }
 
 impl Command {
@@ -120,6 +123,9 @@ impl Command {
             Command::ExpandSelection { .. } => "Expand Selection",
             Command::ContractSelection { .. } => "Contract Selection",
             Command::FeatherSelection { .. } => "Feather Selection",
+            Command::MagicWand { .. } => "Magic Wand",
+            Command::LoadLayerSelection { .. } => "Load Layer Selection",
+            Command::LoadMaskSelection { .. } => "Load Mask Selection",
         }
     }
 }

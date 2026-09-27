@@ -363,6 +363,9 @@ impl Engine {
             Command::ExpandSelection { amount } => { ops::selection::resize_selection(doc, amount as i64)?; Ok(Dirty::structure()) }
             Command::ContractSelection { amount } => { ops::selection::resize_selection(doc, -(amount as i64))?; Ok(Dirty::structure()) }
             Command::FeatherSelection { amount } => { ops::selection::feather_selection(doc, amount)?; Ok(Dirty::structure()) }
+            Command::MagicWand { at, mode, settings, antialiased } => { ops::selection::magic_wand_select(doc, at, mode, &settings, antialiased)?; Ok(Dirty::structure()) }
+            Command::LoadLayerSelection { id, mode, antialiased } => { ops::selection::load_layer_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
+            Command::LoadMaskSelection { id, mode, antialiased } => { ops::selection::load_mask_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
         })
     }
 

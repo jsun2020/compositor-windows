@@ -4,11 +4,15 @@
 //! loading a layer's or a mask's pixels as a selection (Document/MaskTracing.swift:73-94).
 use crate::selection::geometry::{self as g, Boolean};
 use crate::*;
+use uuid::Uuid;
 
 /// Said when an edit needs a selection with something in it.
 pub const EMPTY_SELECTION: &str = "The selection is empty";
 /// Said when an edit needs a selection and there is none.
 pub const NO_SELECTION: &str = "Nothing is selected";
+/// The Magic Wand's refusal of an outline past `WAND_EDGE_LIMIT` (MagicWand.swift:28).
+pub const TOO_DETAILED: &str = "That selection is too detailed to outline. Try a different Tolerance, or turn on Contiguous.";
+
 fn refused(message: &str) -> CommandError { CommandError::Refused(message.to_string()) }
 fn canvas(doc: &Document) -> Vec<Contour> { vec![g::rectangle(Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 })] }
 fn check_point(p: Point) -> Result<(), CommandError> {
@@ -109,4 +113,63 @@ pub fn flip_selection(doc: &mut Document, horizontal: bool) {
     if let Some(s) = &mut doc.selection {
         for c in &mut s.contours { for p in c.iter_mut() { if horizontal { p[0] = w - p[0]; } else { p[1] = h - p[1]; } } }
     }
+}
+
+/// What the Magic Wand reads, at canvas size (`selectionSample`): the visible composite, or the
+/// active layer's own pixels through its transform, without its mask or opacity. A folder, an
+/// adjustment layer or a blank layer reads as transparent.
+pub fn wand_sample(doc: &Document, all_layers: bool) -> Raster {
+    let canvas = Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 };
+    if all_layers { return composite(doc, canvas, doc.width, doc.height); }
+    let mut target = vec![0u8; (doc.width as usize) * (doc.height as usize) * 4];
+    if let Some(layer) = doc.active_layer_id.and_then(|id| doc.layer(id)).filter(|l| !l.is_group && l.pixels.is_some()) {
+        let mut alone = layer.clone();
+        alone.opacity = 1.0;
+        alone.mask = None;
+        compositor::render_layer(&mut target, doc.width, doc.height, canvas, &alone);
+    }
+    Raster::from_premultiplied(doc.width, doc.height, target)
+}
+
+/// The Magic Wand at a document point: its outline, combined by `mode`. In Replace the traced
+/// outline is taken as it is (it already lies on the canvas); nothing matched deselects in
+/// Replace. `magicWand(at:mode:)`, MagicWand.swift:98-123.
+pub fn magic_wand_select(doc: &mut Document, at: Point, mode: SelectionMode, settings: &WandSettings, antialiased: bool) -> Result<(), CommandError> {
+    if !(at.x >= 0.0 && at.y >= 0.0 && at.x < doc.width as f64 && at.y < doc.height as f64) {
+        return Err(CommandError::Argument("the Magic Wand's point must lie on the canvas".into()));
+    }
+    if settings.tolerance > 255 || settings.sample_radius > 2 { return Err(CommandError::Argument("tolerance is 0 to 255, sample radius 0 to 2".into())); }
+    let sample = wand_sample(doc, settings.all_layers);
+    match magic_wand(&sample, at, settings) {
+        Err(TraceError::TooDetailed) => Err(refused(TOO_DETAILED)),
+        Ok(None) => { if mode == SelectionMode::Replace { doc.selection = None; } Ok(()) }
+        Ok(Some(outline)) if mode == SelectionMode::Replace => { doc.selection = Some(Selection::new(outline, antialiased, 0.0)); Ok(()) }
+        Ok(Some(outline)) => { apply_selection(doc, &outline, mode, antialiased); Ok(()) }
+    }
+}
+
+/// Ctrl-click on a layer's thumbnail (`loadLayerSelection`): its pixels at least 50% opaque,
+/// whatever its mask, through its transform, combined by `mode`.
+pub fn load_layer_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, antialiased: bool) -> Result<(), CommandError> {
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    let raster = layer.pixels.as_ref().filter(|_| !layer.is_group).ok_or_else(|| refused("The layer has no pixels to select"))?;
+    let traced = opaque_pixels(raster).map_err(|_| refused(TOO_DETAILED))?;
+    if traced.is_empty() { return Err(refused("The layer has no pixels at least half opaque")); }
+    let outline = g::transformed(&traced, &layer.transform.pixel_to_document(raster.width, raster.height));
+    apply_selection(doc, &outline, mode, antialiased);
+    Ok(())
+}
+
+/// Ctrl-click on a mask's thumbnail (`loadMaskSelection`): the mask's BLACK areas, darker than 50%
+/// grey, which is what it hides (Photoshop loads the white; the Mac, and so this port, the
+/// black), through where the mask sits, combined by `mode`.
+pub fn load_mask_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, antialiased: bool) -> Result<(), CommandError> {
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    let mask = layer.mask.as_ref().ok_or_else(|| refused("The layer has no mask"))?;
+    let traced = dark_pixels(&mask.pixels).map_err(|_| refused(TOO_DETAILED))?;
+    if traced.is_empty() { return Err(refused("The mask has no black areas to select")); }
+    let placement = mask.placement.unwrap_or(layer.transform);
+    let outline = g::transformed(&traced, &placement.pixel_to_document(mask.pixels.width, mask.pixels.height));
+    apply_selection(doc, &outline, mode, antialiased);
+    Ok(())
 }

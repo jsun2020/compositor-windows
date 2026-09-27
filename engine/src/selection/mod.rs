@@ -10,6 +10,7 @@ pub mod coverage;
 pub mod geometry;
 pub mod outline;
 pub mod trace;
+pub mod wand;
 
 use crate::{Point, Rect};
 use serde::{Deserialize, Serialize};

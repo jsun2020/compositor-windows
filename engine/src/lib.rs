@@ -50,3 +50,4 @@ pub use selection::{Contour, Selection, SelectionMode, SelectionShape, Selection
 pub use selection::coverage::{rasterize, selection_coverage, SelectionClip};
 pub use selection::outline::{selection_lod, OUTLINE_DETAIL_LIMIT, OUTLINE_MASK_LIMIT};
 pub use selection::trace::{dark_pixels, opaque_pixels, trace_pixels, TraceError, WAND_EDGE_LIMIT};
+pub use selection::wand::{magic_wand, wand_mask, WandSettings};
