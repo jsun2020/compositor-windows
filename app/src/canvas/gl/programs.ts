@@ -50,11 +50,7 @@ float sep(int mode, float cb, float cs) {
   if (mode == 8) return cb >= 1.0 ? 1.0 : (cs <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / cs));
   if (mode == 13) return max(0.0, cb + cs - 1.0);
   if (mode == 14) return min(1.0, cb + cs);
-  if (mode == 15) {
-    if (cs <= 0.5) return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);
-    float d = cb <= 0.25 ? ((16.0 * cb - 12.0) * cb + 4.0) * cb : sqrt(cb);
-    return cb + (2.0 * cs - 1.0) * (d - cb);
-  }
+  if (mode == 15) return (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb;   // Pegtop, as blend.rs soft_light
   if (mode == 16) { if (cs <= 0.5) return cb * 2.0 * cs; float s = 2.0 * cs - 1.0; return cb + s - cb * s; }
   if (mode == 17) {
     if (cs <= 0.5) { float s = 2.0 * cs; return cb >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / s)); }

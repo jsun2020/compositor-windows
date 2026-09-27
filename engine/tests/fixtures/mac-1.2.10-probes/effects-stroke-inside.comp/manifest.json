@@ -1,0 +1,61 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "61D4D8BE-599C-4D0D-BCBA-3FD4E953495C",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "7342B5DA-587D-42FB-A9E9-AFF360DC66C4",
+      "imageFile": "7342B5DA-587D-42FB-A9E9-AFF360DC66C4.png",
+      "isVisible": true,
+      "name": "Tonal sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    },
+    {
+      "effects": {
+        "stroke": {
+          "blue": 0.9,
+          "green": 0.3,
+          "inside": true,
+          "opacity": 0.6,
+          "red": 0.1,
+          "size": 5
+        }
+      },
+      "id": "FAFAA10E-7F80-4B1A-B6E1-A3326828C174",
+      "imageFile": "FAFAA10E-7F80-4B1A-B6E1-A3326828C174.png",
+      "isVisible": true,
+      "name": "Styled",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

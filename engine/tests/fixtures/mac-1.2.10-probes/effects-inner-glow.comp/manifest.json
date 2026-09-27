@@ -1,0 +1,40 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "D16F991A-2147-46C0-B570-6E87A5B54A23",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "effects": {
+        "innerGlow": {
+          "blue": 1,
+          "green": 0.9,
+          "opacity": 0.85,
+          "red": 0.2,
+          "size": 9
+        }
+      },
+      "id": "782046A1-20D3-436E-8D1C-29511B75A345",
+      "imageFile": "782046A1-20D3-436E-8D1C-29511B75A345.png",
+      "isVisible": true,
+      "name": "Styled",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

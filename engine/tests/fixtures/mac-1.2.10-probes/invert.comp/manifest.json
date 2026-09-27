@@ -1,0 +1,135 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "59700667-C04E-4470-855A-1C911E2B74B8",
+  "format": "com.compositor.project",
+  "height": 60,
+  "layers": [
+    {
+      "id": "BAAB7226-EE6C-4815-AAEA-D263E873FE0A",
+      "imageFile": "BAAB7226-EE6C-4815-AAEA-D263E873FE0A.png",
+      "isVisible": true,
+      "name": "Tonal sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          120,
+          60
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Invert",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "saturation": 0
+      },
+      "id": "C02B029F-C971-4EEB-934E-F2E6291C5D4E",
+      "isVisible": true,
+      "name": "Invert",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          120,
+          60
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 120
+}

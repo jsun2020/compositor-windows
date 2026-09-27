@@ -1,0 +1,139 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "F13FE296-4C0E-4553-B13D-5656F704D9F9",
+  "format": "com.compositor.project",
+  "height": 60,
+  "layers": [
+    {
+      "id": "3115D265-A155-43ED-A3DC-D7E0BEE8EDC2",
+      "imageFile": "3115D265-A155-43ED-A3DC-D7E0BEE8EDC2.png",
+      "isVisible": true,
+      "name": "Tonal sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          120,
+          60
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Add Noise",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "noiseAmount": 25,
+        "noiseGaussian": false,
+        "noiseMonochromatic": false,
+        "noiseSeed": 12345,
+        "saturation": 0
+      },
+      "id": "9C38BFB4-E0B1-4A0E-8BFC-91C70006B790",
+      "isVisible": true,
+      "name": "Add Noise",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          120,
+          60
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 120
+}

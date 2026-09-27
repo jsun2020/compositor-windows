@@ -1,0 +1,147 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "F65E1373-F580-4405-BA4B-0110A3F2ACE3",
+  "format": "com.compositor.project",
+  "height": 120,
+  "layers": [
+    {
+      "id": "C542BA9E-B02C-41B8-84EE-9CA0EF695B5D",
+      "imageFile": "C542BA9E-B02C-41B8-84EE-9CA0EF695B5D.png",
+      "isVisible": true,
+      "name": "Tonal sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          240,
+          120
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "colorBalanceSettings": {
+          "highlightCyanRed": 20,
+          "highlightMagentaGreen": 45,
+          "highlightYellowBlue": -50,
+          "midCyanRed": -35,
+          "midMagentaGreen": 25,
+          "midYellowBlue": -15,
+          "preserveLuminosity": true,
+          "shadowCyanRed": 40,
+          "shadowMagentaGreen": -20,
+          "shadowYellowBlue": 30
+        },
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Color Balance",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "saturation": 0
+      },
+      "id": "FE803CD7-8D70-45B2-AF73-F971137A205B",
+      "isVisible": true,
+      "name": "Color Balance",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          240,
+          120
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 240
+}

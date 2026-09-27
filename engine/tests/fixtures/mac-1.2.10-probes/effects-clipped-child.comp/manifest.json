@@ -1,0 +1,69 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "E4CC0213-C0EE-4CB7-9B29-55EEAF3E21F9",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "AF80A6C4-26AB-4745-9979-443F36DC40DF",
+      "imageFile": "AF80A6C4-26AB-4745-9979-443F36DC40DF.png",
+      "isVisible": true,
+      "name": "Styled",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    },
+    {
+      "effects": {
+        "outerGlow": {
+          "blue": 0.1,
+          "green": 0.6,
+          "opacity": 0.9,
+          "red": 1,
+          "size": 13
+        },
+        "stroke": {
+          "blue": 1,
+          "green": 0.2,
+          "inside": false,
+          "opacity": 1,
+          "red": 0.9,
+          "size": 6
+        }
+      },
+      "id": "0B0351B4-E88F-40D1-A606-17186D18BF2C",
+      "imageFile": "0B0351B4-E88F-40D1-A606-17186D18BF2C.png",
+      "isVisible": true,
+      "maskSourceID": "AF80A6C4-26AB-4745-9979-443F36DC40DF",
+      "name": "Styled child",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          60,
+          40
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          30,
+          20
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

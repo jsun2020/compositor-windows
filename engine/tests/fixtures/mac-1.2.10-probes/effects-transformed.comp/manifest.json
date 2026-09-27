@@ -1,0 +1,73 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "95768BB0-1BD7-48D2-A9E3-D24B844087ED",
+  "format": "com.compositor.project",
+  "height": 120,
+  "layers": [
+    {
+      "effects": {
+        "shadow": {
+          "angle": 30,
+          "blue": 0,
+          "blur": 6,
+          "distance": 12,
+          "green": 0,
+          "opacity": 0.8,
+          "red": 0
+        }
+      },
+      "id": "647F127D-9ADB-4E10-BF1E-C7747BEB3310",
+      "imageFile": "647F127D-9ADB-4E10-BF1E-C7747BEB3310.png",
+      "isVisible": true,
+      "name": "Flipped",
+      "transform": {
+        "flipX": false,
+        "flipY": true,
+        "origin": [
+          20,
+          20
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    },
+    {
+      "effects": {
+        "shadow": {
+          "angle": 30,
+          "blue": 0,
+          "blur": 6,
+          "distance": 12,
+          "green": 0,
+          "opacity": 0.8,
+          "red": 0
+        }
+      },
+      "id": "3FA02512-BA62-4499-9FEE-42F7AA0A8BF5",
+      "imageFile": "3FA02512-BA62-4499-9FEE-42F7AA0A8BF5.png",
+      "isVisible": true,
+      "name": "Turned",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          95,
+          31
+        ],
+        "rotation": 25,
+        "sampling": "High quality",
+        "size": [
+          90,
+          54
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 200
+}

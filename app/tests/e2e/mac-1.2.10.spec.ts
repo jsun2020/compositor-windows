@@ -196,6 +196,25 @@ test("the new-blend-modes probe draws on the GPU as the Mac exported it", async 
   expect(worstOf(await glPixels(page), await macPixels(page, "new-blend-modes"))).toBeLessThanOrEqual(2);
 });
 
+/** Whether the document's device rect starts on whole device pixels (LL-065(6)): checked, not assumed. */
+async function onWholePixels(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = api.store.getState(); const d = s.documents[s.activeId]; const dpr = window.devicePixelRatio || 1;
+    const rect = s.viewports[s.activeId].documentRect({ width: d.width, height: d.height });
+    return Number.isInteger(rect.x * dpr) && Number.isInteger(rect.y * dpr);
+  });
+}
+
+test("the blend-greys probe draws on the GPU as the Mac exported it, Soft Light included", async ({ page }) => {
+  await openProbe(page, "blend-greys");
+  expect(await onWholePixels(page), "the document sits on whole device pixels").toBe(true);
+  // The CPU is within 1 of the Mac (mac_1_2_10.rs); W3C's Soft Light was 14 off at the 75% grey.
+  // Measured 1 on p4a-scratch (2026-09-27).
+  expect(worstOf(await glPixels(page), await macPixels(page, "blend-greys"))).toBeLessThanOrEqual(1);
+});
+
 /** A new adjustment layer of `kind` on the active document, with `settings` merged into it; it becomes the active layer. */
 async function addAdjustment(page: Page, kind: string, settings: object | null): Promise<string> {
   return page.evaluate(({ kind, settings }) => {

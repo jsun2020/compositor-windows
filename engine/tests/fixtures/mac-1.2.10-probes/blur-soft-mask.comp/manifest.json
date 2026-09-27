@@ -1,0 +1,159 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "CB6AC565-4CE9-4EF5-8789-0B207D90A88E",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "8AD6F149-39A6-4517-9968-F3D592EED32F",
+      "imageFile": "8AD6F149-39A6-4517-9968-F3D592EED32F.png",
+      "isVisible": true,
+      "name": "Block",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          -12,
+          20
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          92,
+          60
+        ]
+      }
+    },
+    {
+      "id": "93ED0B97-DA3A-48BD-9FA5-C570FD65668D",
+      "imageFile": "93ED0B97-DA3A-48BD-9FA5-C570FD65668D.png",
+      "isVisible": true,
+      "name": "Bar",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          110,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          30,
+          80
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "blurRadius": 6,
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Gaussian Blur",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "saturation": 0
+      },
+      "id": "385B0C71-A894-47FF-B8AD-DD4279D4DA52",
+      "isVisible": true,
+      "maskEnabled": true,
+      "maskFile": "385B0C71-A894-47FF-B8AD-DD4279D4DA52.mask.png",
+      "name": "Gaussian Blur",
+      "opacity": 0.6,
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

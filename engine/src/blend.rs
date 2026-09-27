@@ -10,15 +10,10 @@ pub const HARD_MIX_MARGIN: f32 = 0.5 / 255.0;
 fn color_dodge(cb: f32, cs: f32) -> f32 { if cb <= 0.0 { 0.0 } else if cs >= 1.0 { 1.0 } else { (cb / (1.0 - cs)).min(1.0) } }
 fn color_burn(cb: f32, cs: f32) -> f32 { if cb >= 1.0 { 1.0 } else if cs <= 0.0 { 0.0 } else { 1.0 - ((1.0 - cb) / cs).min(1.0) } }
 
-/// W3C / PDF Soft Light, which Core Graphics draws (R 4.4). The first Mac render could not tell it
-/// from Photoshop's or Pegtop's (probe results); the Task 12 probe settles it.
-fn soft_light(cb: f32, cs: f32) -> f32 {
-    if cs <= 0.5 { cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb) }
-    else {
-        let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
-        cb + (2.0 * cs - 1.0) * (d - cb)
-    }
-}
+/// Pegtop's Soft Light, `(1 - 2 cs) cb^2 + 2 cs cb`: what Compositor for Mac 1.2.10 draws. The
+/// blend-greys probe fits it within 1 level at every grey and alpha, where the W3C / PDF formula is
+/// 14 levels off at a 75% grey source (probe results, "Phase 3.5b follow-up probes").
+fn soft_light(cb: f32, cs: f32) -> f32 { (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb }
 
 /// PDF separable blend function B(cb, cs) on straight (unpremultiplied) channel values.
 pub fn separable(mode: BlendMode, cb: f32, cs: f32) -> f32 {

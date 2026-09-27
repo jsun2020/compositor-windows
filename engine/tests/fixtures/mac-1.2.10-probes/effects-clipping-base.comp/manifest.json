@@ -1,0 +1,71 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "31365EF3-ED0E-4A2F-845F-54046FC15B62",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "effects": {
+        "shadow": {
+          "angle": 120,
+          "blue": 0,
+          "blur": 9,
+          "distance": 14,
+          "green": 0,
+          "opacity": 0.7,
+          "red": 0
+        },
+        "stroke": {
+          "blue": 1,
+          "green": 1,
+          "inside": false,
+          "opacity": 1,
+          "red": 1,
+          "size": 8
+        }
+      },
+      "id": "5EC52186-4604-4A19-95C3-AC2E2ACE329F",
+      "imageFile": "5EC52186-4604-4A19-95C3-AC2E2ACE329F.png",
+      "isVisible": true,
+      "name": "Styled",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    },
+    {
+      "id": "1B49B71C-7F3B-4457-B787-DB2D1A56C1C5",
+      "imageFile": "1B49B71C-7F3B-4457-B787-DB2D1A56C1C5.png",
+      "isVisible": true,
+      "maskSourceID": "5EC52186-4604-4A19-95C3-AC2E2ACE329F",
+      "name": "Clipped",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

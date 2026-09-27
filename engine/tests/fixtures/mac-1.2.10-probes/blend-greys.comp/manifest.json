@@ -1,0 +1,787 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "E73B997C-158C-426D-895A-FAB0A88BE43C",
+  "format": "com.compositor.project",
+  "height": 360,
+  "layers": [
+    {
+      "id": "5C5915DB-3AB5-4247-94DE-C3F06FEFF1CF",
+      "imageFile": "5C5915DB-3AB5-4247-94DE-C3F06FEFF1CF.png",
+      "isVisible": true,
+      "name": "Hue sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          240,
+          360
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "58C9C34B-03E8-41F8-9A8F-DBBD7EC094E0",
+      "imageFile": "58C9C34B-03E8-41F8-9A8F-DBBD7EC094E0.png",
+      "isVisible": true,
+      "name": "SoftLight 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "03891312-1C53-4D3D-9A26-FAC2747EAB98",
+      "imageFile": "03891312-1C53-4D3D-9A26-FAC2747EAB98.png",
+      "isVisible": true,
+      "name": "SoftLight 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "6238DCF3-9140-4277-99CE-4D6B1D315458",
+      "imageFile": "6238DCF3-9140-4277-99CE-4D6B1D315458.png",
+      "isVisible": true,
+      "name": "SoftLight 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "54A1713B-3015-42DF-A7CC-098C9C08C67C",
+      "imageFile": "54A1713B-3015-42DF-A7CC-098C9C08C67C.png",
+      "isVisible": true,
+      "name": "SoftLight 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "B3D9CCA6-2618-4F7C-B3F3-A89BAA500F98",
+      "imageFile": "B3D9CCA6-2618-4F7C-B3F3-A89BAA500F98.png",
+      "isVisible": true,
+      "name": "SoftLight 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Soft Light",
+      "id": "7239B271-CEAB-4B51-B845-15455154E8B9",
+      "imageFile": "7239B271-CEAB-4B51-B845-15455154E8B9.png",
+      "isVisible": true,
+      "name": "SoftLight 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "503A30F6-9AA3-465C-B245-B1EAB320C888",
+      "imageFile": "503A30F6-9AA3-465C-B245-B1EAB320C888.png",
+      "isVisible": true,
+      "name": "HardLight 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "D746D51D-AE1A-4C02-87F1-0EE26B4B1005",
+      "imageFile": "D746D51D-AE1A-4C02-87F1-0EE26B4B1005.png",
+      "isVisible": true,
+      "name": "HardLight 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "BEF8650D-D63C-48BD-A6E1-4F620D03DBA5",
+      "imageFile": "BEF8650D-D63C-48BD-A6E1-4F620D03DBA5.png",
+      "isVisible": true,
+      "name": "HardLight 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "29464778-B33B-459F-9E44-A20D53EED1AE",
+      "imageFile": "29464778-B33B-459F-9E44-A20D53EED1AE.png",
+      "isVisible": true,
+      "name": "HardLight 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "258466A5-894E-47BD-B505-DEA6221AE23F",
+      "imageFile": "258466A5-894E-47BD-B505-DEA6221AE23F.png",
+      "isVisible": true,
+      "name": "HardLight 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Light",
+      "id": "00D4EA5A-1731-459F-8E9F-C0543BDA521A",
+      "imageFile": "00D4EA5A-1731-459F-8E9F-C0543BDA521A.png",
+      "isVisible": true,
+      "name": "HardLight 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          60
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "69ED70E3-A738-4DCE-B0B3-51CDB446F0AE",
+      "imageFile": "69ED70E3-A738-4DCE-B0B3-51CDB446F0AE.png",
+      "isVisible": true,
+      "name": "LinearLight 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "1237240D-D2B2-49D0-BF3D-22AF957A14A8",
+      "imageFile": "1237240D-D2B2-49D0-BF3D-22AF957A14A8.png",
+      "isVisible": true,
+      "name": "LinearLight 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "0D2B24C0-CCEE-472E-B894-39E200A39251",
+      "imageFile": "0D2B24C0-CCEE-472E-B894-39E200A39251.png",
+      "isVisible": true,
+      "name": "LinearLight 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "46631288-A4DC-4FF5-84DD-782BCBBF4466",
+      "imageFile": "46631288-A4DC-4FF5-84DD-782BCBBF4466.png",
+      "isVisible": true,
+      "name": "LinearLight 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "F9B9903E-C045-41DE-AD84-7F109E77ED9F",
+      "imageFile": "F9B9903E-C045-41DE-AD84-7F109E77ED9F.png",
+      "isVisible": true,
+      "name": "LinearLight 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Linear Light",
+      "id": "F03C9758-B32D-4EC4-AED2-EF899C7631CF",
+      "imageFile": "F03C9758-B32D-4EC4-AED2-EF899C7631CF.png",
+      "isVisible": true,
+      "name": "LinearLight 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          120
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "2EBF382B-7AF0-48C5-B009-67374F0B927E",
+      "imageFile": "2EBF382B-7AF0-48C5-B009-67374F0B927E.png",
+      "isVisible": true,
+      "name": "PinLight 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "F864C464-29F8-4622-B2EE-F7971A8C0A0C",
+      "imageFile": "F864C464-29F8-4622-B2EE-F7971A8C0A0C.png",
+      "isVisible": true,
+      "name": "PinLight 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "EE896E2B-8066-47B5-A469-DE8CAEB161ED",
+      "imageFile": "EE896E2B-8066-47B5-A469-DE8CAEB161ED.png",
+      "isVisible": true,
+      "name": "PinLight 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "0A8D8DBA-40BE-443D-8DA3-7F5021EBAA47",
+      "imageFile": "0A8D8DBA-40BE-443D-8DA3-7F5021EBAA47.png",
+      "isVisible": true,
+      "name": "PinLight 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "D819BDB8-D06B-41A1-873A-695AAD315EB1",
+      "imageFile": "D819BDB8-D06B-41A1-873A-695AAD315EB1.png",
+      "isVisible": true,
+      "name": "PinLight 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Pin Light",
+      "id": "936629FE-70B0-4861-803E-2A9453AE612F",
+      "imageFile": "936629FE-70B0-4861-803E-2A9453AE612F.png",
+      "isVisible": true,
+      "name": "PinLight 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          180
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "2AE60A38-C632-4DEA-BAF1-481EF8AFB2E0",
+      "imageFile": "2AE60A38-C632-4DEA-BAF1-481EF8AFB2E0.png",
+      "isVisible": true,
+      "name": "VividLight 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "77E10861-50DB-463F-99DA-D7A868A71729",
+      "imageFile": "77E10861-50DB-463F-99DA-D7A868A71729.png",
+      "isVisible": true,
+      "name": "VividLight 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "D3DD151E-4CAE-467C-83B6-135F87DE6427",
+      "imageFile": "D3DD151E-4CAE-467C-83B6-135F87DE6427.png",
+      "isVisible": true,
+      "name": "VividLight 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "76D7FDF1-C2CE-44D7-BE15-8BFB56D466CD",
+      "imageFile": "76D7FDF1-C2CE-44D7-BE15-8BFB56D466CD.png",
+      "isVisible": true,
+      "name": "VividLight 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "5DC66A25-3EA6-48A5-825A-B72AFC69A841",
+      "imageFile": "5DC66A25-3EA6-48A5-825A-B72AFC69A841.png",
+      "isVisible": true,
+      "name": "VividLight 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Vivid Light",
+      "id": "4752766F-0871-4EB9-A72A-534C16F88001",
+      "imageFile": "4752766F-0871-4EB9-A72A-534C16F88001.png",
+      "isVisible": true,
+      "name": "VividLight 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          240
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "74DBFEFA-3F1C-471E-94D2-19D9139BC4EB",
+      "imageFile": "74DBFEFA-3F1C-471E-94D2-19D9139BC4EB.png",
+      "isVisible": true,
+      "name": "HardMix 0",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "02476D7F-052E-49EB-941D-639EC2AB8FA7",
+      "imageFile": "02476D7F-052E-49EB-941D-639EC2AB8FA7.png",
+      "isVisible": true,
+      "name": "HardMix 1",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          40,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "1B35D24B-B6D2-4A2A-AE7C-A33221A624A1",
+      "imageFile": "1B35D24B-B6D2-4A2A-AE7C-A33221A624A1.png",
+      "isVisible": true,
+      "name": "HardMix 2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          80,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "00ED4C62-3EBB-4D33-B13B-7C5B777A9A46",
+      "imageFile": "00ED4C62-3EBB-4D33-B13B-7C5B777A9A46.png",
+      "isVisible": true,
+      "name": "HardMix 3",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          120,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "90CB9C2A-DBAA-4F3C-94E6-D18AA341F698",
+      "imageFile": "90CB9C2A-DBAA-4F3C-94E6-D18AA341F698.png",
+      "isVisible": true,
+      "name": "HardMix 4",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          160,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    },
+    {
+      "blendMode": "Hard Mix",
+      "id": "60366B92-A191-4B59-8CD3-36F18405EBC3",
+      "imageFile": "60366B92-A191-4B59-8CD3-36F18405EBC3.png",
+      "isVisible": true,
+      "name": "HardMix 5",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          200,
+          300
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          40,
+          60
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 240
+}

@@ -1,0 +1,157 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "973C74A9-FB48-44EE-9628-119EC3C0B5B6",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "6C5F1B56-B25B-49C6-80A1-0AB30087D146",
+      "imageFile": "6C5F1B56-B25B-49C6-80A1-0AB30087D146.png",
+      "isVisible": true,
+      "name": "Block",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          -12,
+          20
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          92,
+          60
+        ]
+      }
+    },
+    {
+      "id": "8C9C063B-AFDC-4FFA-AEF1-14F66BD097B6",
+      "imageFile": "8C9C063B-AFDC-4FFA-AEF1-14F66BD097B6.png",
+      "isVisible": true,
+      "name": "Bar",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          110,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          30,
+          80
+        ]
+      }
+    },
+    {
+      "adjustment": {
+        "colorize": false,
+        "curves": {
+          "channel": "RGB",
+          "channels": [
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          ]
+        },
+        "hue": 0,
+        "kind": "Motion Blur",
+        "levels": {
+          "channel": "RGB",
+          "ranges": [
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            },
+            {
+              "black": 0,
+              "gamma": 1,
+              "outputBlack": 0,
+              "outputWhite": 255,
+              "white": 255
+            }
+          ]
+        },
+        "lightness": 0,
+        "motionAngle": 30,
+        "motionDistance": 24,
+        "saturation": 0
+      },
+      "id": "E2A97AC4-8ADF-488D-B061-CA3513E6CCF6",
+      "isVisible": true,
+      "name": "Motion Blur",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

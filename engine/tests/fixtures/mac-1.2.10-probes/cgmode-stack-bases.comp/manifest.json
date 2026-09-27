@@ -1,0 +1,115 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "428C0049-8DC0-4BC8-93B1-B303AB220F71",
+  "format": "com.compositor.project",
+  "height": 120,
+  "layers": [
+    {
+      "id": "EFE063A1-15BD-4BB6-90C2-AE78CA86B0B9",
+      "imageFile": "EFE063A1-15BD-4BB6-90C2-AE78CA86B0B9.png",
+      "isVisible": true,
+      "name": "Hue sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          240,
+          120
+        ]
+      }
+    },
+    {
+      "blendMode": "Subtract",
+      "id": "89B300BA-3BB8-458F-8225-9D4E9A62690A",
+      "imageFile": "89B300BA-3BB8-458F-8225-9D4E9A62690A.png",
+      "isVisible": true,
+      "name": "Subtract base",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          10,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          100,
+          100
+        ]
+      }
+    },
+    {
+      "id": "5D76522A-B1EF-434A-AD80-A64772963D50",
+      "imageFile": "5D76522A-B1EF-434A-AD80-A64772963D50.png",
+      "isVisible": true,
+      "maskSourceID": "89B300BA-3BB8-458F-8225-9D4E9A62690A",
+      "name": "Subtract child",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          30,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          100
+        ]
+      }
+    },
+    {
+      "blendMode": "Color Burn",
+      "id": "056E558E-0674-4A59-91F0-33E977519E0F",
+      "imageFile": "056E558E-0674-4A59-91F0-33E977519E0F.png",
+      "isVisible": true,
+      "name": "ColorBurn base",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          130,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          100,
+          100
+        ]
+      }
+    },
+    {
+      "id": "660ECEC7-A683-4845-805F-C71626847449",
+      "imageFile": "660ECEC7-A683-4845-805F-C71626847449.png",
+      "isVisible": true,
+      "maskSourceID": "056E558E-0674-4A59-91F0-33E977519E0F",
+      "name": "ColorBurn child",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          150,
+          10
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          100
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 240
+}

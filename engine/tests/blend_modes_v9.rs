@@ -39,19 +39,16 @@ fn a_new_mode_still_needs_version_3_like_every_non_normal_mode() {
 /// The W3C / PDF separable blend functions, plus the edge rules the Mac render showed (probe
 /// results "Blend modes"), written out independently of blend.rs, on straight colours in 0..1.
 /// This is a second transcription of the same published formulas, so it cannot catch a misreading
-/// both copies share. For Soft Light, Hard Light, Linear Light and Pin Light the first Mac probe
-/// could not tell the formula apart (a pure-green source); the Task 12 blend-greys probe settles
-/// them, and its render joins mac_1_2_10.rs when it comes back.
+/// both copies share; the Mac's blend-greys render (mac_1_2_10.rs) is the oracle for Soft Light,
+/// Hard Light, Linear Light, Pin Light, Vivid Light and Hard Mix on grey sources.
 fn expected_blend(mode: &str, cb: f32, cs: f32) -> f32 {
     let burn = |b: f32, s: f32| if b >= 1.0 { 1.0 } else if s <= 0.0 { 0.0 } else { 1.0 - ((1.0 - b) / s).min(1.0) };
     let dodge = |b: f32, s: f32| if b <= 0.0 { 0.0 } else if s >= 1.0 { 1.0 } else { (b / (1.0 - s)).min(1.0) };
     match mode {
         "Linear Burn" => (cb + cs - 1.0).max(0.0),
         "Linear Dodge (Add)" => (cb + cs).min(1.0),
-        "Soft Light" => if cs <= 0.5 { cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb) } else {
-            let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
-            cb + (2.0 * cs - 1.0) * (d - cb)
-        },
+        // Pegtop's, which the blend-greys probe fits within 1 level (probe results).
+        "Soft Light" => (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb,
         "Hard Light" => if cs <= 0.5 { cb * 2.0 * cs } else { let s = 2.0 * cs - 1.0; cb + s - cb * s },
         "Vivid Light" => if cs <= 0.5 { burn(cb, 2.0 * cs) } else { dodge(cb, 2.0 * cs - 1.0) },
         "Linear Light" => (cb + 2.0 * cs - 1.0).clamp(0.0, 1.0),

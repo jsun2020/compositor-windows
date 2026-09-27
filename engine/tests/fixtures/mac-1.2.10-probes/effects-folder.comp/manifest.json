@@ -1,0 +1,66 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "C0B6FA7E-0BF2-43D1-82AE-E60B2F082E50",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "A1A1CB72-902B-4190-9620-6733E7FB4DE2",
+      "isGroup": true,
+      "isVisible": true,
+      "maskEnabled": true,
+      "maskFile": "A1A1CB72-902B-4190-9620-6733E7FB4DE2.mask.png",
+      "name": "Folder",
+      "opacity": 0.5,
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    },
+    {
+      "effects": {
+        "shadow": {
+          "angle": 120,
+          "blue": 0.5,
+          "blur": 9,
+          "distance": 14,
+          "green": 0.1,
+          "opacity": 0.7,
+          "red": 0.2
+        }
+      },
+      "id": "3467A8B7-4112-4176-969B-DB42C693A44B",
+      "imageFile": "3467A8B7-4112-4176-969B-DB42C693A44B.png",
+      "isVisible": true,
+      "name": "Styled",
+      "parentID": "A1A1CB72-902B-4190-9620-6733E7FB4DE2",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}

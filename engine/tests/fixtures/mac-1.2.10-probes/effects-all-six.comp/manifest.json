@@ -1,0 +1,102 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "D9DADBCD-A562-4BC7-A01C-80E7F02FED47",
+  "format": "com.compositor.project",
+  "height": 100,
+  "layers": [
+    {
+      "id": "5315530C-2176-4E20-BFB8-37959BBBCDDF",
+      "imageFile": "5315530C-2176-4E20-BFB8-37959BBBCDDF.png",
+      "isVisible": true,
+      "name": "Tonal sweep",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          160,
+          100
+        ]
+      }
+    },
+    {
+      "blendMode": "Multiply",
+      "effects": {
+        "colorOverlay": {
+          "blue": 0.3,
+          "green": 0.7,
+          "opacity": 0.35,
+          "red": 0.1
+        },
+        "innerGlow": {
+          "blue": 1,
+          "enabled": false,
+          "green": 0.9,
+          "opacity": 0.85,
+          "red": 0.2,
+          "size": 9
+        },
+        "innerShadow": {
+          "angle": -35,
+          "blue": 0,
+          "blur": 4,
+          "distance": 6.5,
+          "green": 0.05,
+          "opacity": 0.8,
+          "red": 0.1
+        },
+        "outerGlow": {
+          "blue": 0.1,
+          "green": 0.6,
+          "opacity": 0.9,
+          "red": 1,
+          "size": 13
+        },
+        "shadow": {
+          "angle": 120,
+          "blue": 0.5,
+          "blur": 9,
+          "distance": 14,
+          "green": 0.1,
+          "opacity": 0.7,
+          "red": 0.2
+        },
+        "stroke": {
+          "blue": 0.1,
+          "green": 0.55,
+          "inside": false,
+          "opacity": 0.8,
+          "red": 0.95,
+          "size": 5
+        }
+      },
+      "id": "E018C357-3C61-4626-8F42-9C93C5A0D15D",
+      "imageFile": "E018C357-3C61-4626-8F42-9C93C5A0D15D.png",
+      "isVisible": true,
+      "name": "Styled",
+      "opacity": 0.7,
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          50,
+          32
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          60,
+          36
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 160
+}
