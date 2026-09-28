@@ -136,6 +136,13 @@ export class JobClient {
     if (this.newest.get(job.channel) !== job.id) { job.resolve(null); void this.pump(); return; }
     this.running = job;
     await (this.worker && this.ready ? this.ready : this.start());
+    // `job` may have been displaced (fix round 1, issue 3's preemption) while this awaited the
+    // worker's own start-up: `this.running` was set to null and this very job rejected already, and
+    // `this.worker` now names a second, later worker a concurrent `pump()` call is starting up for
+    // whatever preempted it. Posting `job`'s (stale, already-settled) message to that worker would
+    // run a job the client already told its caller was dropped, and confuse the fresh worker's own
+    // pending job with an extra reply it never asked for (fix round 2, minor finding).
+    if (this.running !== job) return;
     const message: ToWorker = { type: "job", id: job.id, request: job.request };
     this.worker!.postMessage(message, transferables(job.request));
   }

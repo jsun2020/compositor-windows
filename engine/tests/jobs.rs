@@ -210,9 +210,9 @@ fn styled() -> (Engine, Uuid, Uuid) {
     (e, handle, id)
 }
 
-/// The key the job's own `EffectsDraw` carries (`effects-images.ts`'s `bytesKey`), what
-/// `keep_effects_image` now compares against `effects_draw(l, edit)` freshly, instead of the whole
-/// stamp (fix round 1, issue 2).
+/// The engine's own `EffectsDraw.key` (not `effects-images.ts`'s own compound `bytesKey`, which the
+/// engine never sees), what `keep_effects_image` now compares against `effects_draw(l, edit)`
+/// freshly, instead of the whole stamp (fix round 1, issue 2).
 fn key_of(e: &Engine, id: Uuid, layer: Uuid) -> String {
     effects_draw(e.document(id).unwrap().layer(layer).unwrap(), None).unwrap().key
 }

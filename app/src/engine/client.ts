@@ -149,8 +149,8 @@ export class EngineClient {
   }
   /** Keeps a full-size effects image the job worker made (engine `keep_effects_image`), when the
    * layer's pixels and mask are still what the job took (the stamp in `input`) and its current
-   * `EffectsDraw` still equals `key` (the one the job was asked to draw, `EffectsImages`'s
-   * `bytesKey`; fix round 1, issue 2); false when it is not kept. */
+   * `EffectsDraw` still equals `key` (the engine's own `EffectsDraw.key` the job was asked to draw,
+   * not `EffectsImages`'s own compound `bytesKey`; fix round 1, issue 2); false when it is not kept. */
   keepEffectsImage(doc: string, layer: string, input: string, key: string, edit: PreviewEdit | null, width: number, height: number, bytes: ArrayBuffer): boolean {
     const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
     return this.wasm.keep_effects_image(doc, layer, stamp, key, edit ? JSON.stringify(edit) : undefined, width, height, new Uint8Array(bytes));

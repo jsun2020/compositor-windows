@@ -170,10 +170,11 @@ impl Engine {
     /// 1, issue 2: the whole `LayerStamp` (transform, canvas size, selection revision) used to be
     /// compared, but none of those change the effects image, so a move or a new selection made while
     /// the job ran refused a perfectly good result. Only `pixels_revision` and `mask_revision` (what
-    /// the job's buffers actually came from) are compared now, together with `key`, the `EffectsDraw`
-    /// the job was asked to draw (`effects-images.ts`'s `bytesKey`): comparing it against what
-    /// `effects_draw(l, edit)` gives *now* catches an effects (or mask-placement) change the two
-    /// revisions alone would miss, even one that happens to leave the padding (`inset`) the same.
+    /// the job's buffers actually came from) are compared now, together with `key`, the job's own
+    /// `EffectsDraw.key` at ask time (not `effects-images.ts`'s own compound `bytesKey`, which the
+    /// engine has never heard of): comparing it against what `effects_draw(l, edit)` gives *now*
+    /// catches an effects (or mask-placement) change the two revisions alone would miss, even one
+    /// that happens to leave the padding (`inset`) the same.
     /// Otherwise nothing is kept and false comes back.
     pub fn keep_effects_image(&self, id: Uuid, layer: Uuid, stamp: LayerStamp, key: &str, edit: Option<&PreviewEdit>, image: Raster) -> Result<bool, CommandError> {
         let doc = self.render_document(id)?;
