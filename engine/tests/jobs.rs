@@ -210,14 +210,22 @@ fn styled() -> (Engine, Uuid, Uuid) {
     (e, handle, id)
 }
 
+/// The key the job's own `EffectsDraw` carries (`effects-images.ts`'s `bytesKey`), what
+/// `keep_effects_image` now compares against `effects_draw(l, edit)` freshly, instead of the whole
+/// stamp (fix round 1, issue 2).
+fn key_of(e: &Engine, id: Uuid, layer: Uuid) -> String {
+    effects_draw(e.document(id).unwrap().layer(layer).unwrap(), None).unwrap().key
+}
+
 #[test]
 fn a_full_size_effects_image_a_job_made_is_found_as_if_the_engine_had_made_it() {
     let (e, id, layer) = styled();
     assert!(!e.has_effects_image(id, layer, None).unwrap());
     let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let key = key_of(&e, id, layer);
     let (_, image) = run_effects_job(&input, pixels.unwrap(), mask, 1.0, None).unwrap().unwrap();
     let bytes = image.bytes().to_vec();
-    assert!(e.keep_effects_image(id, layer, input.stamp, None, image).unwrap());
+    assert!(e.keep_effects_image(id, layer, input.stamp, &key, None, image).unwrap());
     assert!(e.has_effects_image(id, layer, None).unwrap());
     let made = e.effects_cache().made();
     let drawn = e.draw_raster(id, layer, 0, None).unwrap().unwrap();
@@ -229,12 +237,51 @@ fn a_full_size_effects_image_a_job_made_is_found_as_if_the_engine_had_made_it() 
 fn an_effects_image_is_not_kept_for_a_layer_that_changed_or_at_another_size() {
     let (mut e, id, layer) = styled();
     let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let key = key_of(&e, id, layer);
     let (_, image) = run_effects_job(&input, pixels.clone().unwrap(), mask.clone(), 1.0, None).unwrap().unwrap();
     let (_, small) = run_effects_job(&input, pixels.unwrap().halved(), mask, 0.5, None).unwrap().unwrap();
-    assert!(!e.keep_effects_image(id, layer, input.stamp, None, small).unwrap(), "a reduced image is not the full one");
+    assert!(!e.keep_effects_image(id, layer, input.stamp, &key, None, small).unwrap(), "a reduced image is not the full one");
     run(&mut e, id, Command::InvertPixels { id: layer, mask: false });
-    assert!(!e.keep_effects_image(id, layer, input.stamp, None, image).unwrap(), "the pixels changed");
+    assert!(!e.keep_effects_image(id, layer, input.stamp, &key, None, image).unwrap(), "the pixels changed");
     assert!(!e.has_effects_image(id, layer, None).unwrap());
+}
+
+/// Fix round 1, issue 2: `keep_effects_image` used to compare the whole `LayerStamp` (transform,
+/// canvas size, selection revision too), none of which the effects image depends on, so a move or a
+/// new selection made while the job ran refused a perfectly good result; only `pixels_revision`,
+/// `mask_revision` and the job's own `EffectsDraw` key are compared now.
+#[test]
+fn an_effects_image_is_kept_despite_a_move_or_a_new_selection_between_ask_and_keep() {
+    let (mut e, id, layer) = styled();
+    let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let key = key_of(&e, id, layer);
+    let (_, image) = run_effects_job(&input, pixels.unwrap(), mask, 1.0, None).unwrap().unwrap();
+    // A move (the transform; not part of the new comparison) and a new selection (the selection
+    // revision; not part of it either) made after the job took its input.
+    run(&mut e, id, Command::NudgeLayers { ids: vec![layer], dx: 3.0, dy: -2.0 });
+    run(&mut e, id, Command::SelectShape { kind: SelectionShape::Rectangle, points: vec![p(0.0, 0.0), p(10.0, 0.0), p(10.0, 10.0), p(0.0, 10.0)], mode: SelectionMode::Replace, antialiased: false });
+    assert!(e.keep_effects_image(id, layer, input.stamp, &key, None, image).unwrap(), "a move and a new selection do not touch the effects image");
+    assert!(e.has_effects_image(id, layer, None).unwrap());
+}
+
+/// Fix round 1, issue 2: an effects change between ask and keep is refused even when it happens to
+/// leave the padding (`inset`) exactly as it was, which the old width/height check alone would miss.
+#[test]
+fn an_effects_image_is_refused_when_the_effects_changed_with_the_same_inset() {
+    let (e, id, layer) = styled();
+    let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let key = key_of(&e, id, layer);
+    let (_, image) = run_effects_job(&input, pixels.unwrap(), mask, 1.0, None).unwrap().unwrap();
+    // A different stroke colour, the same stroke size (6): the margin, and so the image's own
+    // dimensions, stay exactly as they were.
+    let mut doc = e.document(id).unwrap().clone();
+    doc.layers[0].extra.effects = Some(serde_json::from_value(serde_json::json!({
+        "stroke": { "blue": 0.9, "green": 0.1, "inside": false, "opacity": 0.8, "red": 0.1, "size": 6 },
+        "shadow": { "angle": 120, "blue": 0.5, "blur": 9, "distance": 14, "green": 0.1, "opacity": 0.7, "red": 0.2 } })).unwrap());
+    let mut e2 = Engine::new();
+    let id2 = e2.insert_document(doc);
+    assert!(!e2.keep_effects_image(id2, layer, input.stamp, &key, None, image).unwrap(), "the effects changed with the same inset");
+    assert!(!e2.has_effects_image(id2, layer, None).unwrap());
 }
 
 #[test]

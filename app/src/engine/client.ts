@@ -147,11 +147,13 @@ export class EngineClient {
   hasEffectsImage(doc: string, layer: string, edit: PreviewEdit | null): boolean {
     return this.wasm.has_effects_image(doc, layer, edit ? JSON.stringify(edit) : undefined);
   }
-  /** Keeps a full-size effects image the job worker made (engine `keep_effects_image`), when the layer
-   * is still what the job took (the stamp in `input`); false when it is not kept. */
-  keepEffectsImage(doc: string, layer: string, input: string, edit: PreviewEdit | null, width: number, height: number, bytes: ArrayBuffer): boolean {
+  /** Keeps a full-size effects image the job worker made (engine `keep_effects_image`), when the
+   * layer's pixels and mask are still what the job took (the stamp in `input`) and its current
+   * `EffectsDraw` still equals `key` (the one the job was asked to draw, `EffectsImages`'s
+   * `bytesKey`; fix round 1, issue 2); false when it is not kept. */
+  keepEffectsImage(doc: string, layer: string, input: string, key: string, edit: PreviewEdit | null, width: number, height: number, bytes: ArrayBuffer): boolean {
     const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
-    return this.wasm.keep_effects_image(doc, layer, stamp, edit ? JSON.stringify(edit) : undefined, width, height, new Uint8Array(bytes));
+    return this.wasm.keep_effects_image(doc, layer, stamp, key, edit ? JSON.stringify(edit) : undefined, width, height, new Uint8Array(bytes));
   }
   /** What changed in the layer's pixels since revision `from` (engine `pixels_delta`): a rectangle of
    * its pixel grid, empty when nothing did, or null when the whole raster must be uploaded again. */

@@ -94,12 +94,13 @@ impl WasmEngine {
         self.engine.has_effects_image(parse_id(doc)?, parse_id(layer)?, edit.as_ref()).map_err(js_err)
     }
     /// `Engine::keep_effects_image`: a full-size effects image from the worker, kept in the engine's
-    /// cache when the layer is still what the job took (`stamp_json`).
-    pub fn keep_effects_image(&self, doc: &str, layer: &str, stamp_json: &str, edit_json: Option<String>, width: u32, height: u32, bytes: Vec<u8>) -> Result<bool, JsError> {
+    /// cache when the layer's pixels and mask are still what the job took (`stamp_json`) and its
+    /// current `EffectsDraw` still matches what the job was asked to draw (`key`, fix round 1 issue 2).
+    pub fn keep_effects_image(&self, doc: &str, layer: &str, stamp_json: &str, key: &str, edit_json: Option<String>, width: u32, height: u32, bytes: Vec<u8>) -> Result<bool, JsError> {
         let stamp: LayerStamp = serde_json::from_str(stamp_json).map_err(js_err)?;
         let edit = Self::parse_edit(edit_json)?;
         let image = raster_of(Some((width, height)), Some(bytes))?.unwrap();
-        self.engine.keep_effects_image(parse_id(doc)?, parse_id(layer)?, stamp, edit.as_ref(), image).map_err(js_err)
+        self.engine.keep_effects_image(parse_id(doc)?, parse_id(layer)?, stamp, key, edit.as_ref(), image).map_err(js_err)
     }
     /// `run_edit_job` (in the worker): the output as JSON; the buffers it replaced are kept. `points`
     /// as `job_points_ptr` hands them out, when `input.selection` is not None.

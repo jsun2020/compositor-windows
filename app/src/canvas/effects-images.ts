@@ -6,7 +6,7 @@
 // draws it until its first preview is ready. Small images are made at once on the UI thread, as before.
 import type { Corners, LayerDraw, LayerTransform, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
-import type { JobClient } from "../engine/jobs";
+import { EFFECTS_JOB_DISPLACED, type JobClient } from "../engine/jobs";
 import { sizeAtLevel } from "./layer-textures";
 import { fromTuple, homographyUnitTo, mat3Apply, toTuple } from "../tools/transform-geometry";
 
@@ -69,12 +69,17 @@ export class EffectsImages {
     const next = have?.key === key || level === 0 ? (wantFull ? "full" : null) : "reduced";
     if (next && this.asked.get(k) !== `${key}:${next}`) {
       this.asked.set(k, `${key}:${next}`);
-      this.ask(engine, doc, layer, key, next === "full" ? 0 : level, pixelsWidth, edit);
+      // `key` is this class's own compound identity for the image (`doc:layer`'s caller-supplied
+      // `bytesKey`, e.g. gl-renderer.ts's "fx:pixelsRev:maskRev:inset:engineKey"); `draw.effects.key`
+      // is the engine's own `EffectsDraw.key` alone, in the engine's own format -- `keep_effects_image`
+      // (fix round 1, issue 2) compares against exactly that, freshly recomputed, so it must be told
+      // that one, not this class's compound string, which the engine has never heard of.
+      this.ask(engine, doc, layer, key, draw.effects!.key, next === "full" ? 0 : level, pixelsWidth, edit);
     }
     return have;
   }
 
-  private ask(engine: EngineClient, doc: string, layer: string, key: string, level: number, pixelsWidth: number, edit: PreviewEdit | null): void {
+  private ask(engine: EngineClient, doc: string, layer: string, key: string, engineKey: string, level: number, pixelsWidth: number, edit: PreviewEdit | null): void {
     const jobs = this.jobs(); if (!jobs) return;
     const copy = engine.displayJobInput(doc, layer, level);
     const width = (JSON.parse(copy.input) as { pixels: [number, number] }).pixels[0];
@@ -89,10 +94,16 @@ export class EffectsImages {
       // Superseded by a newer image's job, or nothing to draw.
       if (!result?.header || !result.pixels) return;
       const image = JSON.parse(result.header) as { width: number; height: number; inset: number };
-      if (level === 0) engine.keepEffectsImage(doc, layer, copy.input, edit, image.width, image.height, result.pixels);
+      if (level === 0) engine.keepEffectsImage(doc, layer, copy.input, engineKey, edit, image.width, image.height, result.pixels);
       else this.reduced.set(k, { key, ...image, bytes: new Uint8Array(result.pixels) });
       this.landed();
-    }).catch(settled);
+    }).catch((e) => {
+      settled();
+      // An edit or histogram job displaced this one (fix round 1, issue 3): it still needs making,
+      // so the next frame must notice and ask again -- unlike an ordinary refusal or a dead worker,
+      // which leave the picture exactly as it was, nothing new to redraw for.
+      if (e instanceof Error && e.message === EFFECTS_JOB_DISPLACED) this.landed();
+    });
   }
 
   /** Forgets the layers of `doc` not in `ids`, and every other document's. */

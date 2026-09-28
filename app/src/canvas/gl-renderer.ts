@@ -127,7 +127,17 @@ export class GlRenderer implements Renderer {
       // image by both revisions and the whole EffectsDraw: a pixel edit, a mask edit, an undo, a
       // redo or a panel preview each upload again, and a move that keeps the image does not.
       const bytesKey = fx ? `fx:${layer.pixelsRevision}:${layer.maskRevision}:${fx.inset}:${fx.key}` : `px:${layer.pixelsRevision}`;
-      if (!fx || fx.width * fx.height <= EFFECTS_LIMITS.sync || this.largeEffects(engine, state, layer.id, bytesKey, fx.draw, nearest, outPerDoc, edit)) this.placements.delete(layer.id);
+      // A large styled layer whose texture already holds this very full image: keep drawing it and
+      // never re-consult the engine's cache or the worker (`largeEffects` -> `EffectsImages.choose`
+      // -> `hasEffectsImage`), even once the engine's own cache has evicted its copy of it meanwhile
+      // -- the texture is the source of truth once it has the bytes (fix round 1, issue 1: otherwise
+      // an engine-cache eviction replaced a full image already on screen with a reduced one and asked
+      // the worker to make it all over again, forever, once enough other layers' images displaced it
+      // from the engine's 8-entry cache). Consulted again only once the key or the upload level
+      // itself changes (a pixel edit, an undo, a zoom past a prefilter boundary, ...).
+      const already = fx && this.textures.get(state.id, layer.id);
+      const stillFull = !!(fx && already && already.key === bytesKey && already.level === level && already.nearest === nearest);
+      if (!fx || fx.width * fx.height <= EFFECTS_LIMITS.sync || stillFull || this.largeEffects(engine, state, layer.id, bytesKey, fx.draw, nearest, outPerDoc, edit)) this.placements.delete(layer.id);
       else continue;
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
@@ -144,9 +154,15 @@ export class GlRenderer implements Renderer {
         }
       }
       const upload = (pixels: Uint8Array | null) => this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size, fx ? null : layer.pixelsRevision);
-      // An effects image is dropped by the engine as soon as the upload has copied it.
+      // An effects image is dropped by the engine as soon as the upload has copied it. A texture
+      // that is *not* the plan's full-size effects image (this layer draws none right now: hidden,
+      // or a distortion whose folded corners make `effects_draw` return None) forgets what
+      // `largeEffects` last showed for it here (fix round 1, issue 4): otherwise, once nothing new
+      // has landed yet, a later frame that wants to keep showing "whatever was last drawn" would
+      // place these very (unrelated, plain) pixels as if they were that old padded image, stretched
+      // to its old inset.
       if (fx) engine.drawPixels(state.id, layer.id, level, edit, upload);
-      else upload(width === 0 ? null : engine.layerPixels(state.id, layer.id, level));
+      else { upload(width === 0 ? null : engine.layerPixels(state.id, layer.id, level)); this.shown.delete(layer.id); }
       if (fx) this.shown.set(layer.id, { width: layer.pixelsWidth, height: layer.pixelsHeight, inset: fx.inset });
     }
     this.textures.retainOnly(state.id, keep);
@@ -173,7 +189,9 @@ export class GlRenderer implements Renderer {
     // Nothing for these pixels yet: the image on the texture stays, where the layer is now.
     const shown = this.shown.get(id);
     if (shown && this.textures.get(state.id, id)) { this.placements.set(id, placedLike(draw, shown.width, shown.height, shown.inset)); return false; }
-    // No image at all yet: the layer's own pixels, plainly.
+    // No image at all yet: the layer's own pixels, plainly. Forgets whatever `shown` said before
+    // (fix round 1, issue 4): the texture about to hold these plain pixels is not that image.
+    this.shown.delete(id);
     const plain = placedLike(draw, layer.pixelsWidth, layer.pixelsHeight, 0);
     this.placements.set(id, plain);
     const plainLevel = nearest || plain.corners ? 0 : prefilterLevel(layer.pixelsWidth, layer.pixelsHeight, layer.pixelsWidth / Math.max(1e-9, plain.transform.size[0] * outPerDoc));

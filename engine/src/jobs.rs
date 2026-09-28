@@ -166,14 +166,21 @@ impl Engine {
         Ok(effects_draw(l, edit).is_some_and(|draw| self.effects_cache().contains(l, &draw)))
     }
     /// Keeps an effects image the job worker made at full size for `layer` as the canvas showed it
-    /// (with `edit`), in the engine's cache, where `draw_raster` finds it as if made here. Only while
-    /// the layer is still what the job took (`stamp`), draws effects, and needs an image of this size:
-    /// otherwise nothing is kept and false comes back.
-    pub fn keep_effects_image(&self, id: Uuid, layer: Uuid, stamp: LayerStamp, edit: Option<&PreviewEdit>, image: Raster) -> Result<bool, CommandError> {
+    /// (with `edit`), in the engine's cache, where `draw_raster` finds it as if made here. Fix round
+    /// 1, issue 2: the whole `LayerStamp` (transform, canvas size, selection revision) used to be
+    /// compared, but none of those change the effects image, so a move or a new selection made while
+    /// the job ran refused a perfectly good result. Only `pixels_revision` and `mask_revision` (what
+    /// the job's buffers actually came from) are compared now, together with `key`, the `EffectsDraw`
+    /// the job was asked to draw (`effects-images.ts`'s `bytesKey`): comparing it against what
+    /// `effects_draw(l, edit)` gives *now* catches an effects (or mask-placement) change the two
+    /// revisions alone would miss, even one that happens to leave the padding (`inset`) the same.
+    /// Otherwise nothing is kept and false comes back.
+    pub fn keep_effects_image(&self, id: Uuid, layer: Uuid, stamp: LayerStamp, key: &str, edit: Option<&PreviewEdit>, image: Raster) -> Result<bool, CommandError> {
         let doc = self.render_document(id)?;
         let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
-        if LayerStamp::of(&doc, l) != stamp { return Ok(false); }
+        if l.pixels_revision != stamp.pixels_revision || l.mask_revision != stamp.mask_revision { return Ok(false); }
         let (Some(draw), Some(pixels)) = (effects_draw(l, edit), l.pixels.as_ref()) else { return Ok(false) };
+        if draw.key != key { return Ok(false); }
         if (image.width, image.height) != (pixels.width + 2 * draw.inset, pixels.height + 2 * draw.inset) { return Ok(false); }
         self.effects_cache().insert(l, &draw, image);
         Ok(true)

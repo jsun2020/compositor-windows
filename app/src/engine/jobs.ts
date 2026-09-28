@@ -30,6 +30,12 @@ export type FromWorker = { type: "ready" } | { type: "done"; id: number; result:
  * shrinks, and a second heap of gigabytes would crowd the app's own. */
 export const WORKER_MEMORY_LIMIT = 1024 * 1024 * 1024;
 
+/** The message a displaced effects job's promise rejects with (fix round 1, issue 3): an edit or
+ * histogram job outranked it while it was running. Distinct from an ordinary refusal or a dead
+ * worker, so `EffectsImages.ask` can tell "still needs making, ask again" apart from "nothing to
+ * redraw for" without guessing from a bare null. */
+export const EFFECTS_JOB_DISPLACED = "An edit or histogram job took the worker; this effects job will be asked for again.";
+
 /** The buffers a request hands over, for `postMessage`'s transfer list. */
 export function transferables(request: JobRequest): ArrayBuffer[] {
   const points = "points" in request ? request.points : null;
@@ -65,6 +71,22 @@ export class JobClient {
       // A job waiting on this channel is superseded before it ever starts.
       this.queue = this.queue.filter((p) => { if (p.channel !== channel) return true; p.resolve(null); return false; });
       this.queue.push({ id, channel, request, resolve, reject });
+      // An edit or histogram job outranks any effects-image job (fix round 1, issue 3): opening a
+      // panel or pressing OK must never wait behind one, which can run 10-15 s. A running effects
+      // job is stopped outright -- its worker is replaced, the same way a fatal wasm trap replaces
+      // one -- and its promise rejects with `EFFECTS_JOB_DISPLACED`, a signal distinct from an
+      // ordinary supersede or "nothing to draw" (both of which resolve null and need no retry):
+      // `EffectsImages.ask` (effects-images.ts) reacts to this one specifically by invalidating, so
+      // a later frame notices and asks again with fresh buffers. The buffers already transferred to
+      // the old worker are detached by then, so the interrupted request itself can never safely run
+      // again unchanged -- letting its own asker rebuild a fresh request is the only sound way to
+      // let it "run again after" the job that displaced it, not a literal re-queue of this Pending.
+      if (request.kind !== "effects" && this.running && this.running.request.kind === "effects") {
+        const displaced = this.running;
+        this.running = null;
+        this.worker?.terminate(); this.worker = null; this.ready = null;
+        displaced.reject(new Error(EFFECTS_JOB_DISPLACED));
+      }
       void this.pump();
     });
   }
@@ -99,9 +121,17 @@ export class JobClient {
     return this.ready;
   }
 
+  /** The next job to run: an edit or histogram job outranks any effects-image job (fix round 1,
+   * issue 3), so newly asked edit/histogram work never waits behind one already queued; effects
+   * jobs stay FIFO among themselves. */
+  private next(): Pending {
+    const i = this.queue.findIndex((p) => p.request.kind !== "effects");
+    return this.queue.splice(i >= 0 ? i : 0, 1)[0];
+  }
+
   private async pump(): Promise<void> {
     if (this.running || this.queue.length === 0) return;
-    const job = this.queue.shift()!;
+    const job = this.next();
     // Superseded while it waited behind another job.
     if (this.newest.get(job.channel) !== job.id) { job.resolve(null); void this.pump(); return; }
     this.running = job;
