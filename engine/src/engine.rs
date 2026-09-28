@@ -120,14 +120,18 @@ fn selection_regions(doc: &Document, clips: &SelectionClips, layer: Uuid, plane:
 
 /// Gives each layer's new pixels, changed only within a reported region, the halvings its old pixels
 /// had, redone only there (`Raster::seed_halvings`): the GPU at a reduced zoom then uploads the region
-/// without halving the whole layer again.
+/// without halving the whole layer again. Skips a layer whose transform moved between `before` and
+/// `after` (bug 1): a spreading filter can grow a buffer and trim it back to the SAME size on a
+/// SHIFTED grid, and `Raster::seed_halvings` only checks width and height -- it cannot see that the
+/// grid itself moved, so the caller must refuse to seed from a different grid's halvings, which are
+/// of different content at every index.
 fn seed_halvings(before: &Document, after: &Document, regions: &[Region]) {
     let mut per_layer: HashMap<Uuid, PixelRect> = HashMap::new();
     for r in regions.iter().filter(|r| r.plane == Plane::Pixels) { per_layer.entry(r.layer).and_modify(|u| *u = u.union(&r.rect)).or_insert(r.rect); }
     for (layer, rect) in per_layer {
-        let old = before.layer(layer).and_then(|l| l.pixels.as_ref());
-        let new = after.layer(layer).and_then(|l| l.pixels.as_ref());
-        if let (Some(old), Some(new)) = (old, new) { new.seed_halvings(old, rect); }
+        let (Some(old_layer), Some(new_layer)) = (before.layer(layer), after.layer(layer)) else { continue };
+        if old_layer.transform != new_layer.transform { continue; }
+        if let (Some(old), Some(new)) = (&old_layer.pixels, &new_layer.pixels) { new.seed_halvings(old, rect); }
     }
 }
 

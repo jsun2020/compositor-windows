@@ -2,7 +2,7 @@
 //! to another. The GPU keeps each texture keyed by the revision it uploaded, asks what changed since
 //! (`Engine::pixels_delta`, `Engine::mask_delta`) and uploads only that part; a question survives
 //! skipped frames, undo and redo, where a per-command notice would not.
-use crate::{Document, PixelRect, Plane, Region};
+use crate::{Document, LayerTransform, PixelRect, Plane, Region};
 use std::collections::{HashMap, VecDeque};
 use uuid::Uuid;
 
@@ -18,12 +18,17 @@ struct Change { layer: Uuid, plane: Plane, from: u64, to: u64, rect: Option<Pixe
 #[derive(Debug, Default)]
 pub struct Lineage { changes: VecDeque<Change> }
 
-/// Every layer buffer of `doc`: its revision and size.
-fn planes(doc: &Document) -> HashMap<(Uuid, Plane), (u64, (u32, u32))> {
+/// Every layer buffer of `doc`: its revision, size and placement grid (a layer's own transform for
+/// its pixels; a mask's own placement, falling back to the layer's transform). A spreading filter
+/// (Gaussian / Motion blur) can grow a buffer and then trim it back to the SAME size on a SHIFTED
+/// grid (`ops::adjust::grown`/`trimmed` moving the transform): size equality alone cannot tell that
+/// case from an untouched grid, so the grid travels alongside the size wherever "unchanged" matters
+/// (Task 3 fix round 1, bug 1).
+fn planes(doc: &Document) -> HashMap<(Uuid, Plane), (u64, (u32, u32), LayerTransform)> {
     let mut out = HashMap::new();
     for l in &doc.layers {
-        if let Some(p) = &l.pixels { out.insert((l.id, Plane::Pixels), (l.pixels_revision, (p.width, p.height))); }
-        if let Some(m) = &l.mask { out.insert((l.id, Plane::Mask), (l.mask_revision, (m.pixels.width, m.pixels.height))); }
+        if let Some(p) = &l.pixels { out.insert((l.id, Plane::Pixels), (l.pixels_revision, (p.width, p.height), l.transform)); }
+        if let Some(m) = &l.mask { out.insert((l.id, Plane::Mask), (l.mask_revision, (m.pixels.width, m.pixels.height), m.placement.unwrap_or(l.transform))); }
     }
     out
 }
@@ -34,29 +39,32 @@ impl Lineage {
         self.changes.push_back(change);
     }
     /// Records how `after` differs from `before` after an edit: every buffer whose revision moved,
-    /// within the union of the `regions` reported for it when it kept its size, wholly otherwise.
+    /// within the union of the `regions` reported for it when it kept both its size AND its grid
+    /// (bug 1: a same-size buffer on a moved grid holds different content at every index), wholly
+    /// otherwise.
     pub fn record_edit(&mut self, before: &Document, after: &Document, regions: &[Region]) {
         let old = planes(before);
-        for ((layer, plane), (to, size)) in planes(after) {
+        for ((layer, plane), (to, size, grid)) in planes(after) {
             let was = old.get(&(layer, plane));
             if was.map(|w| w.0) == Some(to) { continue; }
             let reported = regions.iter().filter(|r| r.layer == layer && r.plane == plane).map(|r| r.rect).reduce(|a, b| a.union(&b));
-            let rect = if was.map(|w| w.1) == Some(size) { reported } else { None };
+            let same_grid = was.map(|w| (w.1, w.2)) == Some((size, grid));
+            let rect = if same_grid { reported } else { None };
             self.push(Change { layer, plane, from: was.map_or(0, |w| w.0), to, rect });
         }
     }
     /// Records an undo, redo or revert from `before` to `after`: each buffer whose revision moved
     /// changed where the edit joining those two revisions changed it (in either direction), or wholly
-    /// when that edit is no longer remembered.
+    /// when that edit is no longer remembered, or when the grid does not match on both ends (bug 1).
     pub fn record_return(&mut self, before: &Document, after: &Document) {
         let old = planes(before);
-        for ((layer, plane), (to, size)) in planes(after) {
+        for ((layer, plane), (to, size, grid)) in planes(after) {
             let was = old.get(&(layer, plane));
-            let Some(&(from, old_size)) = was else { self.push(Change { layer, plane, from: 0, to, rect: None }); continue };
+            let Some(&(from, old_size, old_grid)) = was else { self.push(Change { layer, plane, from: 0, to, rect: None }); continue };
             if from == to { continue; }
             let joined = self.changes.iter().rev().find(|c| c.layer == layer && c.plane == plane
                 && ((c.from == from && c.to == to) || (c.from == to && c.to == from)));
-            let rect = if old_size == size { joined.and_then(|c| c.rect) } else { None };
+            let rect = if old_size == size && old_grid == grid { joined.and_then(|c| c.rect) } else { None };
             self.push(Change { layer, plane, from, to, rect });
         }
     }

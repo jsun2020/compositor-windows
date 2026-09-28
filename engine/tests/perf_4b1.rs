@@ -22,7 +22,12 @@ fn filled(width: u32, height: u32) -> (Engine, Uuid, Uuid) {
 #[test]
 #[ignore]
 fn halving_and_a_clear_in_a_selection_at_24_and_100_mp() {
-    for (label, w, h) in [("24 MP", 6000u32, 4000u32), ("100 MP", 10000, 10000)] {
+    // Budgets (ruling I2): 1.5x a measurement taken on this machine before this assertion existed --
+    // 59 ms at 24 MP and 245 ms at 100 MP (`cargo test --release -p compositor-engine --test perf_4b1
+    // -- --ignored --nocapture --test-threads=1 halving_and_a_clear_in_a_selection_at_24_and_100_mp`,
+    // Task 3 fix round 1). Not the release wasm's own budget (that is `perf-4b1.spec.ts`'s, per
+    // LL-073): this only catches this native path regressing hard from what it measured at.
+    for (label, w, h, budget) in [("24 MP", 6000u32, 4000u32, 88.5), ("100 MP", 10000, 10000, 367.5)] {
         let (mut e, id, layer) = filled(w, h);
         let raster = e.document(id).unwrap().layers[0].pixels.clone().unwrap();
         let t = Instant::now();
@@ -40,6 +45,7 @@ fn halving_and_a_clear_in_a_selection_at_24_and_100_mp() {
         let after = ms(t);
         println!("{label}: halving chain to level 3 {chain:.0} ms; clear in a 1024 px selection {clear:.0} ms; level 3 after it {after:.2} ms");
         assert_eq!(seeded.width, w / 8);
+        assert!(clear <= budget, "{label}: clear in a 1024 px selection took {clear:.0} ms, budget {budget} ms");
     }
 }
 

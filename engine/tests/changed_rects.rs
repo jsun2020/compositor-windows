@@ -227,28 +227,109 @@ fn a_mask_fill_on_a_mask_placed_apart_from_its_layer_reports_the_rectangle_on_th
     run(&mut e, id, Command::SetMaskPlacement { id: layer, placement: apart });
     select(&mut e, id, 50.0, 40.0, 70.0, 60.0);
     let m0 = e.state(id).unwrap().layers[0].mask_revision;
+    let before = e.document(id).unwrap().layers[0].mask.as_ref().unwrap().pixels.clone();
     run(&mut e, id, Command::ClearSelectedPixels { id: layer, mask: true });
+    let after = e.document(id).unwrap().layers[0].mask.as_ref().unwrap().pixels.clone();
     let expected = expected_region(50.0, 40.0, 70.0, 60.0, &apart, 120, 80, 120, 80);
     // The layer's own grid (no offset applied, since `document()`'s layer sits at (0, 0) 1:1) would
     // report a different rectangle: not a coincidence.
     let on_layer = LayerTransform::axis_aligned(p(0.0, 0.0), Size { width: 120.0, height: 80.0 });
     assert_ne!(expected, expected_region(50.0, 40.0, 70.0, 60.0, &on_layer, 120, 80, 120, 80));
     assert_eq!(e.mask_delta(id, layer, m0).unwrap(), Some(expected));
+    // Nothing outside the reported rectangle changed, on the MASK's own grid (fix round 1, ruling I4
+    // evidence): using the layer's grid here instead of the mask's placement would misplace this
+    // check the same way it would misplace the reported rectangle.
+    for y in 0..80 { for x in 0..120 {
+        let inside = x >= expected.x && x < expected.x + expected.width && y >= expected.y && y < expected.y + expected.height;
+        if !inside { assert_eq!(before.bytes()[(y * 120 + x) as usize], after.bytes()[(y * 120 + x) as usize], "({x}, {y})"); }
+    }}
+}
+
+/// Bug (Task 3 fix round 1, #1): `apply_filter_with` grows a layer's grid to give a spreading blur
+/// (Gaussian / Motion) room, blends it back through the selection on that grown grid, then trims it
+/// to the alpha bounds and moves the transform (`ops::adjust::grown` / `trimmed`) -- so the result
+/// can come back the SAME width and height it started at, but on a SHIFTED grid. A layer whose left
+/// `k` columns are transparent and whose content touches its top and bottom rows, blurred inside a
+/// selection that crosses only its right edge and spreads past it, is exactly such a case: `k = 6`
+/// here empirically moves the origin by 6 while leaving both width and height unchanged (confirmed
+/// below), which "same size" alone cannot distinguish from an untouched grid.
+#[test]
+fn a_blur_inside_a_selection_that_shifts_the_grid_at_the_same_size_is_taken_whole() {
+    let mut e = Engine::new();
+    let id = e.new_document(100, 40, false).unwrap();
+    let (w, h, k) = (40u32, 20u32, 6u32);
+    let mut data = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h { for x in k..w {
+        let i = ((y * w + x) * 4) as usize;
+        data[i..i + 4].copy_from_slice(&[200, 150, 50, 255]);
+    }}
+    let raster = Raster::from_premultiplied(w, h, data);
+    let png = encode_png(&raster, DEFAULT_RESOLUTION).unwrap();
+    // Origin (10, 5), size (40, 20): centre (30, 15). Every opaque column spans the full height, so
+    // the content touches both the top and the bottom row.
+    e.import_image(Some(id), &png, "L", Some(p(30.0, 15.0))).unwrap();
+    let layer = e.state(id).unwrap().layers[0].id;
+    let old_transform = e.state(id).unwrap().layers[0].transform;
+    // The selection matches the layer's own vertical extent exactly, so the grown grid's top and
+    // bottom padding stays unselected (and so exactly transparent, pinning the height); it starts
+    // well inside the opaque content (document x 34, well past the transparent columns which end at
+    // document x 16) and crosses only the layer's right edge (document x 50), spreading past it.
+    select(&mut e, id, 34.0, 5.0, 90.0, 25.0);
+    let r0 = revision(&e, id);
+    let old = pixels(&e, id);
+    let _ = old.halved(); // Seeded on the OLD grid, before the shift.
+    run(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 2.0 } });
+    let new_transform = e.state(id).unwrap().layers[0].transform;
+    let new = pixels(&e, id);
+    // The scenario this test exists to set up: same size, moved grid.
+    assert_eq!((new.width, new.height), (old.width, old.height), "same size is the whole point of this test");
+    assert_eq!(new_transform.size, old_transform.size);
+    assert_ne!(new_transform.origin, old_transform.origin, "and the grid moved");
+    // Whole, not a rectangle: the grid changed, so a reported rectangle no longer means what it used
+    // to at any pixel index.
+    assert_eq!(e.pixels_delta(id, layer, r0).unwrap(), None);
+    // Not seeded from the old grid's halvings either: they are of different content at every index
+    // now, so inheriting them (even just outside the reported rectangle) would be wrong pixels at a
+    // reduced zoom.
+    assert!(new.memoized_half().is_none(), "a shifted grid must not inherit the old grid's halvings");
 }
 
 #[test]
 fn the_lineage_forgets_changes_past_its_limit() {
-    let (mut e, id, layer) = document();
+    let (mut e, id, layer_a) = document();
+    // A second layer at the same (0, 0), 120 x 80, 1:1 placement, sharing the one selection: the ring
+    // (`Lineage`) is shared by every layer of a document, so interleaving edits on two layers fills it
+    // with roughly half as many edits per layer as editing one layer alone would need (ruling M5: the
+    // original version of this test edited a single layer exactly `LINEAGE_LIMIT` times, which makes
+    // the ring's real capacity and `Lineage::delta`'s own `for _ in 0..LINEAGE_LIMIT` loop bound the
+    // same number -- indistinguishable. Removing the ring's eviction entirely still left that test
+    // green, because `delta` gives up on its own once it has walked back `LINEAGE_LIMIT` links for
+    // that one layer, whether or not that link was ever evicted).
+    let png_b = encode_png(&pattern(120, 80, 13), DEFAULT_RESOLUTION).unwrap();
+    e.import_image(Some(id), &png_b, "B", Some(p(60.0, 40.0))).unwrap();
+    let layer_b = e.state(id).unwrap().layers[1].id;
     select(&mut e, id, 10.0, 10.0, 12.0, 12.0);
-    let r0 = revision(&e, id);
-    for _ in 0..LINEAGE_LIMIT { run(&mut e, id, Command::InvertPixels { id: layer, mask: false }); }
-    assert_eq!(e.pixels_delta(id, layer, r0).unwrap(), None, "the first change is forgotten");
-    let recent = revision(&e, id);
-    run(&mut e, id, Command::InvertPixels { id: layer, mask: false });
-    // Strengthened (ruling M5): not just "changed", but the exact rectangle the unchanged selection
-    // keeps reporting on every one of these edits (the formula from the first test, at this
-    // selection's bounds).
     let identity = LayerTransform::axis_aligned(p(0.0, 0.0), Size { width: 120.0, height: 80.0 });
     let expected = expected_region(10.0, 10.0, 12.0, 12.0, &identity, 120, 80, 120, 80);
-    assert_eq!(e.pixels_delta(id, layer, recent).unwrap(), Some(expected));
+    let r0 = revision(&e, id);
+    // LINEAGE_LIMIT + 2 total edits, alternating A, B, A, B, ...: layer A itself is touched only
+    // about half of LINEAGE_LIMIT times (well under `delta`'s own loop bound), while the ring -
+    // shared with B - holds only the last LINEAGE_LIMIT of all LINEAGE_LIMIT + 2 pushes, so exactly
+    // the first 2 (A's very first edit, then B's) fall out. A's own edit count staying far below
+    // LINEAGE_LIMIT is what makes the `None` below possible only through real eviction.
+    let rounds = LINEAGE_LIMIT + 2;
+    let mut checkpoint = None;
+    for i in 0..rounds {
+        let target = if i % 2 == 0 { layer_a } else { layer_b };
+        run(&mut e, id, Command::InvertPixels { id: target, mask: false });
+        // A snapshot of layer A's revision LINEAGE_LIMIT / 2 rounds before the end: still comfortably
+        // inside the ring (only the first 2 pushes were evicted), so its delta to the current
+        // revision must walk many interleaved links and land on the exact rectangle, not just "some"
+        // value (ruling M5).
+        if i == rounds - 1 - LINEAGE_LIMIT / 2 { checkpoint = Some(revision(&e, id)); }
+    }
+    assert_eq!(e.pixels_delta(id, layer_a, r0).unwrap(), None,
+        "layer A's first edit was evicted, though A itself was touched far fewer than LINEAGE_LIMIT times");
+    assert_eq!(e.pixels_delta(id, layer_a, checkpoint.expect("captured")).unwrap(), Some(expected),
+        "still inside the ring: the exact rectangle every one of these edits reports, not just a value");
 }

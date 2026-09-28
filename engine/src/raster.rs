@@ -182,6 +182,13 @@ impl Raster {
     /// outside `rect` (a changed rectangle: an edit that kept the grid). Each kept level is copied and
     /// only the part `rect` reaches is halved again, so the result is bit-identical to halving from
     /// scratch at a fraction of the cost. Levels the parent never made are left to be made on demand.
+    ///
+    /// This only checks that the two buffers are the same WIDTH and HEIGHT: a `Raster` does not know
+    /// the document transform that places its pixels, so it cannot tell a buffer that merely kept its
+    /// size from one that was also cropped back onto a SHIFTED grid (a spreading filter's
+    /// grow-then-trim can do exactly that, same size, moved origin). The caller is responsible for
+    /// only calling this when the grid itself -- not just its size -- is unchanged (`engine.rs`'s
+    /// `seed_halvings`, Task 3 fix round 1, bug 1).
     pub fn seed_halvings(&self, parent: &Raster, rect: PixelRect) {
         if self.width != parent.width || self.height != parent.height || self.same_pixels(parent) { return; }
         let Some(parent_half) = parent.memoized_half() else { return };
