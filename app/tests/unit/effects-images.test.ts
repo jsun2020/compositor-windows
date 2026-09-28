@@ -63,14 +63,17 @@ describe("EffectsImages.choose", () => {
     } as unknown as EngineClient;
     const jobs = { run: (_c: string, r: JobRequest) => { asked.push(r); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
     let landed = 0;
-    const images = new EffectsImages(() => jobs, () => { landed++; });
-    return { images, engine, asked, state, finish: (r: JobResult | null) => finish(r), landed: () => landed };
+    // Frames are painted only when the test says so (`paint`).
+    const frames: (() => void)[] = [];
+    const images = new EffectsImages(() => jobs, () => { landed++; }, (f) => { frames.push(f); });
+    const paint = () => { for (const f of frames.splice(0)) f(); };
+    return { images, engine, asked, state, finish: (r: JobResult | null) => finish(r), landed: () => landed, paint };
   }
   const flush = () => new Promise((r) => setTimeout(r, 0));
 
   it("asks for a reduced image, then the full one, once each, and draws what has landed", async () => {
     EFFECTS_LIMITS.reduced = 32;
-    const { images, engine, asked, state, finish, landed } = setup();
+    const { images, engine, asked, state, finish, landed, paint } = setup();
     expect(images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null)).toBeNull();
     expect(images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null)).toBeNull();
     expect(asked.map((r) => (r as { factor: number }).factor), "one reduced job, halved once").toEqual([0.5]);
@@ -87,11 +90,40 @@ describe("EffectsImages.choose", () => {
     await flush();
     expect(state.kept, "the full image goes to the engine").toBe(1);
     state.full = true;
+    paint(); // drawn a frame later (fix round 5; the next test pins that)
     expect(images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null)).toBe("full");
     // New pixels: the last reduced image is drawn meanwhile, and a reduced one for them is asked for.
     state.full = false;
     expect(images.choose(engine, "D", "A", "fx:2", drawOf(), 40, 24, null)).toMatchObject({ key: "fx:1" });
     expect(asked.length).toBe(3);
+  });
+
+  it("draws a kept full-size image a frame later, not in the task that kept it, and not at all for pixels that changed meanwhile", async () => {
+    EFFECTS_LIMITS.reduced = 32;
+    const { images, engine, asked, state, finish, landed, paint } = setup();
+    images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    finish({ header: JSON.stringify({ width: 32, height: 24, inset: 6 }), pixels: new ArrayBuffer(32 * 24 * 4), mask: null });
+    await flush();
+    paint();
+    images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush(); // the deferred full-size ask
+    const redraws = landed();
+    // The worker's full image comes back and the engine keeps it (the stub then reports it).
+    finish({ header: JSON.stringify({ width: 60, height: 44, inset: 10 }), pixels: new ArrayBuffer(60 * 44 * 4), mask: null });
+    await flush();
+    state.full = true;
+    expect(state.kept).toBe(1);
+    expect(landed(), "no redraw asked for in the task that kept it").toBe(redraws);
+    expect(images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null), "a render meanwhile keeps the reduced image").toMatchObject({ key: "fx:1", width: 32 });
+    expect(asked.length, "and asks for nothing").toBe(2);
+    // New pixels meanwhile: not the kept image; their own reduced one is asked for.
+    state.full = false;
+    expect(images.choose(engine, "D", "A", "fx:2", drawOf(), 40, 24, null)).toMatchObject({ key: "fx:1" });
+    expect(asked.length).toBe(3);
+    state.full = true;
+    paint();
+    expect(landed(), "the next frame asks for the redraw").toBe(redraws + 1);
+    expect(images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null), "which draws the full image").toBe("full");
   });
 
   it("asks for nothing at full size past the full-size limit, and for the full image at once when no reduction is needed", async () => {

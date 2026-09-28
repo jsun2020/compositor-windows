@@ -46,7 +46,9 @@ const look = (page: Page, name: string) => page.evaluate((name) => {
   pictures[name] = gpu;
   let outside = 0;
   for (let y = 0; y < 73; y++) for (let x = 0; x < 96; x++) if ((x < 28 || x >= 68 || y < 24 || y >= 48) && gpu[(y * 96 + x) * 4 + 3] > 0) outside++;
-  return { outside, full: api.engine.hasEffectsImage(s.activeId, s.documents[s.activeId].layers[0].id, null) as boolean };
+  const id = s.documents[s.activeId].layers[0].id;
+  return { outside, full: api.engine.hasEffectsImage(s.activeId, id, null) as boolean,
+    drawn: String(api.renderer.textureKey(s.activeId, id) ?? "").startsWith("fx:") };
 }, name);
 /** The largest channel difference between two kept pictures, or the kept `a` and the CPU's composite. */
 const worst = (page: Page, a: string, b: string | "cpu") => page.evaluate(([a, b]) => {
@@ -80,9 +82,10 @@ test("a styled layer too large for the UI thread is drawn plainly, then from the
   await page.evaluate(() => { const api = (window as any).__compositor; api.store.setState({ jobs: (window as any).__realJobs }); api.store.getState().invalidate(); });
   await expect.poll(async () => (await look(page, "reduced")).outside, { timeout: 15_000 }).toBeGreaterThan(50);
   expect((await look(page, "reduced")).full).toBe(false);
-  // Full size allowed again: the worker's image goes into the engine's cache and the GPU draws it.
+  // Full size allowed again: the worker's image goes into the engine's cache and the GPU draws it
+  // (a frame after it is kept: effects-images.ts holds the reduced image until then).
   await page.evaluate(() => { const api = (window as any).__compositor; api.effectsLimits.full = 24_000_000; api.store.getState().invalidate(); });
-  await expect.poll(async () => (await look(page, "full")).full, { timeout: 15_000 }).toBe(true);
+  await expect.poll(async () => { const l = await look(page, "full"); return l.full && l.drawn; }, { timeout: 15_000 }).toBe(true);
   expect((await look(page, "full")).outside).toBeGreaterThan(50);
   expect(await worst(page, "full", "cpu"), "the full-size image is the CPU's").toBeLessThanOrEqual(2);
   expect(await worst(page, "reduced", "full"), "the reduced image was a reduced one").toBeGreaterThan(2);

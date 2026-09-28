@@ -53,17 +53,26 @@ export class EffectsImages {
   private reduced = new Map<string, ReducedImage>();
   /** What was last asked for each `doc:layer`, so a frame asks once. */
   private asked = new Map<string, string>();
+  /** A full-size image just kept in the engine, by `doc:layer`, with the key it was asked under: not
+   * drawn until `nextFrame` has run (fix round 5). Taking the image back (`keepEffectsImage`, 78-127 ms
+   * at 24 MP) and the render that halves and uploads it (60-109 ms) then never share one frame. */
+  private held = new Map<string, string>();
 
-  constructor(private readonly jobs: () => JobClient | null, private readonly landed: () => void) {}
+  /** `nextFrame` runs its callback once a frame has been painted after this one (tests pass their own). */
+  constructor(private readonly jobs: () => JobClient | null, private readonly landed: () => void,
+    private readonly nextFrame: (f: () => void) => void = (f) => requestAnimationFrame(() => requestAnimationFrame(f))) {}
 
   /** For a large styled layer this frame: "full" when the engine has the full-size image (draw it the
    * usual way), else the reduced image to draw (null: none yet, draw the layer plainly). Asks the
    * worker for what the image named `key` still lacks. */
   choose(engine: EngineClient, doc: string, layer: string, key: string, draw: LayerDraw, pixelsWidth: number, pixelsHeight: number, edit: PreviewEdit | null): "full" | ReducedImage | null {
     const k = `${doc}:${layer}`;
+    const have = this.reduced.get(k) ?? null;
+    // The full image for these very pixels was just kept: what is on screen stays one frame more,
+    // and nothing is asked (the engine has the image; a changed layer has another key).
+    if (this.held.get(k) === key) return have;
     const wantFull = pixelsWidth * pixelsHeight <= EFFECTS_LIMITS.full;
     if (wantFull && engine.hasEffectsImage(doc, layer, edit)) return "full";
-    const have = this.reduced.get(k) ?? null;
     const level = reducedLevel(pixelsWidth, pixelsHeight);
     // A layer small enough needs no reduced image: its full-size one is asked for straight away.
     const next = have?.key === key || level === 0 ? (wantFull ? "full" : null) : "reduced";
@@ -115,8 +124,15 @@ export class EffectsImages {
       // Superseded by a newer image's job, or nothing to draw.
       if (!result?.header || !result.pixels) return;
       const image = JSON.parse(result.header) as { width: number; height: number; inset: number };
-      if (level === 0) engine.keepEffectsImage(doc, layer, copy.input, engineKey, edit, image.width, image.height, result.pixels);
-      else this.reduced.set(k, { key, ...image, bytes: new Uint8Array(result.pixels) });
+      if (level === 0) {
+        // Drawn on a later frame, not in this task (fix round 5): the next render after `nextFrame`
+        // finds the image in the engine (`choose` -> "full"), or, if the layer changed or its
+        // document closed meanwhile, whatever is current then.
+        if (engine.keepEffectsImage(doc, layer, copy.input, engineKey, edit, image.width, image.height, result.pixels)) this.held.set(k, key);
+        this.nextFrame(() => { if (this.held.get(k) === key) this.held.delete(k); this.landed(); });
+        return;
+      }
+      this.reduced.set(k, { key, ...image, bytes: new Uint8Array(result.pixels) });
       this.landed();
     }).catch((e) => {
       settled();
@@ -129,7 +145,7 @@ export class EffectsImages {
 
   /** Forgets the layers of `doc` not in `ids`, and every other document's. */
   retainOnly(doc: string, ids: Set<string>): void {
-    for (const map of [this.reduced, this.asked] as Map<string, unknown>[]) {
+    for (const map of [this.reduced, this.asked, this.held] as Map<string, unknown>[]) {
       for (const k of [...map.keys()]) { const [d, l] = k.split(":"); if (d !== doc || !ids.has(l)) map.delete(k); }
     }
   }
