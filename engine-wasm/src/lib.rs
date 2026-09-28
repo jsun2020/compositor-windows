@@ -198,6 +198,18 @@ impl WasmEngine {
         let raster = self.engine.composite_edit(parse_id(doc)?, edit.as_ref(), Rect { x, y, width: w, height: h }, out_w, out_h).map_err(js_err)?;
         Ok(Uint8Array::from(raster.bytes()))
     }
+    /// `Engine::pixels_delta`: `[x, y, width, height]` of what changed in the layer's pixels since
+    /// revision `from` (width 0 for nothing), or an empty array when the whole raster must be uploaded.
+    /// Revisions stay below 2^53, so they travel as numbers.
+    pub fn pixels_delta(&self, doc: &str, layer: &str, from: f64) -> Result<Vec<f64>, JsError> {
+        let rect = self.engine.pixels_delta(parse_id(doc)?, parse_id(layer)?, from as u64).map_err(js_err)?;
+        Ok(rect.map_or_else(Vec::new, |r| vec![r.x as f64, r.y as f64, r.width as f64, r.height as f64]))
+    }
+    /// `Engine::mask_delta`, in the mask's own grid, as `pixels_delta`.
+    pub fn mask_delta(&self, doc: &str, layer: &str, from: f64) -> Result<Vec<f64>, JsError> {
+        let rect = self.engine.mask_delta(parse_id(doc)?, parse_id(layer)?, from as u64).map_err(js_err)?;
+        Ok(rect.map_or_else(Vec::new, |r| vec![r.x as f64, r.y as f64, r.width as f64, r.height as f64]))
+    }
     pub fn mask_pixels_ptr(&self, doc: &str, layer: &str) -> Result<*const u8, JsError> {
         let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
         let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;

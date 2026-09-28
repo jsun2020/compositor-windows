@@ -204,5 +204,7 @@ export type Command =
   | { type: "AddMaskFromSelection"; id: string; revealing: boolean };
 
 export interface Dirty { structure: boolean; canvas: boolean; layers: string[]; }
+/** A rectangle of a layer's pixel grid (or its mask's), in whole pixels (engine `PixelRect`). */
+export interface PixelRect { x: number; y: number; width: number; height: number; }
 
 export interface PackageFiles { manifest: string; images: { name: string; bytes: Uint8Array }[]; }

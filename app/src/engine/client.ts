@@ -1,5 +1,8 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
-import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
+import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PixelRect, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
+
+/** `[x, y, width, height]` from the engine as a rectangle; an empty array as null (take it whole). */
+function rectOf(v: ArrayLike<number>): PixelRect | null { return v.length === 4 ? { x: v[0], y: v[1], width: v[2], height: v[3] } : null; }
 
 export class EngineClient {
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
@@ -92,6 +95,11 @@ export class EngineClient {
     const ptr = this.wasm.mask_pixels_ptr(doc, layer);
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
+  /** What changed in the layer's pixels since revision `from` (engine `pixels_delta`): a rectangle of
+   * its pixel grid, empty when nothing did, or null when the whole raster must be uploaded again. */
+  pixelsDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.pixels_delta(doc, layer, from)); }
+  /** `pixelsDelta` for the layer's mask, in the mask's own grid (engine `mask_delta`). */
+  maskDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.mask_delta(doc, layer, from)); }
   clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }
   mergeAction(doc: string, ids: string[]): string | null { return this.wasm.merge_action(doc, JSON.stringify(ids)) ?? null; }
   groupBox(doc: string, ids: string[]): LayerTransform | null { const t = this.wasm.group_box(doc, JSON.stringify(ids)); return t ? (JSON.parse(t) as LayerTransform) : null; }

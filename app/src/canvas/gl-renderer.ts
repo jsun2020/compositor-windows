@@ -2,7 +2,7 @@ import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, isSpatialKind, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
-import { LayerTextures, prefilterLevel, sizeAtLevel } from "./layer-textures";
+import { LayerTextures, levelRect, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderOptions, Renderer } from "./renderer";
 import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
 import { FboPool, type Target } from "./gl/framebuffers";
@@ -121,7 +121,18 @@ export class GlRenderer implements Renderer {
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
       const size = sizeAtLevel(width, height, level);
-      const upload = (pixels: Uint8Array | null) => this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size);
+      // Plain pixels at the same level and size: ask what changed since the uploaded revision and
+      // upload only that (Engine::pixels_delta); a change the engine cannot bound goes whole.
+      const kept = fx ? undefined : this.textures.get(state.id, layer.id);
+      if (kept && kept.revision !== null && kept.level === level && kept.nearest === nearest && kept.width === size.width && kept.height === size.height) {
+        const delta = engine.pixelsDelta(state.id, layer.id, kept.revision);
+        if (delta) {
+          const rect = levelRect(delta, level, width, height);
+          const pixels = rect.width > 0 && rect.height > 0 ? engine.layerPixels(state.id, layer.id, level) : null;
+          if (rect.width === 0 || rect.height === 0 || pixels) { this.textures.update(state.id, layer.id, bytesKey, layer.pixelsRevision, rect, pixels ?? new Uint8Array(0)); continue; }
+        }
+      }
+      const upload = (pixels: Uint8Array | null) => this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size, fx ? null : layer.pixelsRevision);
       // An effects image is dropped by the engine as soon as the upload has copied it.
       if (fx) engine.drawPixels(state.id, layer.id, level, edit, upload);
       else upload(width === 0 ? null : engine.layerPixels(state.id, layer.id, level));
@@ -165,7 +176,12 @@ export class GlRenderer implements Renderer {
 
   private syncMasks(engine: EngineClient, state: DocumentState, plan: RenderPlan): void {
     const keep = new Set<string>();
-    const visit = (c: Coverage) => { keep.add(c.layerId); const px = engine.maskPixels(state.id, c.layerId); if (px) this.masks.sync(state.id, c.layerId, c.maskRevision, c.width, c.height, px); };
+    const visit = (c: Coverage) => {
+      keep.add(c.layerId);
+      if (this.masks.has(state.id, c.layerId, c.maskRevision)) return;
+      const px = engine.maskPixels(state.id, c.layerId);
+      if (px) this.masks.sync(state.id, c.layerId, c.maskRevision, c.width, c.height, px, (from) => engine.maskDelta(state.id, c.layerId, from));
+    };
     for (const n of plan.nodes) { if (n.kind === "layer") n.draw.coverages.forEach(visit); else { n.base.coverages.forEach(visit); n.children.forEach((c) => c.coverages.forEach(visit)); n.folderCoverages.forEach(visit); } }
     for (const s of plan.sources) s.coverages.forEach(visit);
     this.masks.retainOnly(state.id, keep);

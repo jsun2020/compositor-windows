@@ -22,9 +22,31 @@ export function sizeAtLevel(width: number, height: number, level: number): { wid
   return { width: w, height: h };
 }
 
+import type { PixelRect } from "../engine/types";
+
+/** The part of the raster after `level` halvings that a changed rectangle of the full raster
+ * (`width` x `height`) reaches: each halving takes every pixel whose 2 x 2 block meets it, cut to the
+ * smaller size, exactly as the engine's `PixelRect::halved`, so a partial upload at a reduced zoom
+ * covers every texel the change moved. */
+export function levelRect(rect: PixelRect, level: number, width: number, height: number): PixelRect {
+  let r = rect, w = width, h = height;
+  for (let i = 0; i < level; i++) {
+    if (w <= 1 || h <= 1) break;
+    w = Math.max(1, Math.floor(w / 2)); h = Math.max(1, Math.floor(h / 2));
+    if (r.width === 0 || r.height === 0) return { x: 0, y: 0, width: 0, height: 0 };
+    const x0 = Math.min(Math.floor(r.x / 2), w), y0 = Math.min(Math.floor(r.y / 2), h);
+    const x1 = Math.min(Math.ceil((r.x + r.width) / 2), w), y1 = Math.min(Math.ceil((r.y + r.height) / 2), h);
+    r = { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) };
+  }
+  // A change only in a dropped odd last row or column reaches nothing.
+  return r.width === 0 || r.height === 0 ? { x: 0, y: 0, width: 0, height: 0 } : r;
+}
+
 export interface Chunk { texture: WebGLTexture; x: number; y: number; width: number; height: number; }
-/** `key` names the bytes: the layer's pixels at a revision, or its effects image (GlRenderer.syncTextures). */
-export interface LayerTexture { key: string; level: number; width: number; height: number; nearest: boolean; chunks: Chunk[]; }
+/** `key` names the bytes: the layer's pixels at a revision, or its effects image (GlRenderer.syncTextures).
+ * `revision` is the pixels revision uploaded, for asking the engine what changed since (null for an
+ * effects image, which is always uploaded whole). */
+export interface LayerTexture { key: string; revision: number | null; level: number; width: number; height: number; nearest: boolean; chunks: Chunk[]; }
 
 /** Two sessions opened from the same `.comp` file carry identical layer ids (they come from
  * the manifest), so the cache is keyed by document handle *and* layer id -- otherwise one
@@ -51,7 +73,7 @@ export class LayerTextures {
    * No mipmaps: the chain would be built per 2048-pixel chunk with CLAMP_TO_EDGE, which seams
    * a large layer at low zoom, and the CPU compositor has no equivalent. Both renderers instead
    * reduce the whole raster with the same `prefilterLevel` rule and take one LINEAR tap. */
-  sync(docId: string, id: string, bytesKey: string, nearest: boolean, pixels: Uint8Array | null, level: number, size: { width: number; height: number }): void {
+  sync(docId: string, id: string, bytesKey: string, nearest: boolean, pixels: Uint8Array | null, level: number, size: { width: number; height: number }, revision: number | null = null): void {
     const k = key(docId, id);
     const existing = this.layers.get(k);
     if (!pixels || size.width === 0 || size.height === 0) { if (existing) this.remove(docId, id); return; }
@@ -79,7 +101,32 @@ export class LayerTextures {
     gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-    this.layers.set(k, { key: bytesKey, level, width: size.width, height: size.height, nearest, chunks });
+    this.layers.set(k, { key: bytesKey, revision, level, width: size.width, height: size.height, nearest, chunks });
+  }
+  /** Uploads only `rect` (in the texture's own pixels, at its level) of `pixels`, the whole raster at
+   * that level, into every chunk it meets, straight from the view: `texSubImage2D` with the row length
+   * and skips set, no copy. The texture then names `bytesKey` and `revision`. */
+  update(docId: string, id: string, bytesKey: string, revision: number, rect: PixelRect, pixels: Uint8Array): void {
+    const t = this.layers.get(key(docId, id));
+    if (!t) return;
+    const gl = this.gl;
+    if (rect.width > 0 && rect.height > 0) {
+      gl.pixelStorei(gl.UNPACK_ROW_LENGTH, t.width);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      for (const c of t.chunks) {
+        const x0 = Math.max(rect.x, c.x), y0 = Math.max(rect.y, c.y);
+        const x1 = Math.min(rect.x + rect.width, c.x + c.width), y1 = Math.min(rect.y + rect.height, c.y + c.height);
+        if (x1 <= x0 || y1 <= y0) continue;
+        gl.bindTexture(gl.TEXTURE_2D, c.texture);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x0 - c.x, y0 - c.y, x1 - x0, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      }
+      gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+      gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+      gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    }
+    t.key = bytesKey; t.revision = revision;
   }
   remove(docId: string, id: string): void {
     const k = key(docId, id);
