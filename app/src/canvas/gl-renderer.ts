@@ -6,7 +6,7 @@ import { LayerTextures, levelRect, prefilterLevel, sizeAtLevel } from "./layer-t
 import type { RenderOptions, Renderer } from "./renderer";
 import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
 import { FboPool, type Target } from "./gl/framebuffers";
-import { MaskTextures } from "./gl/mask-textures";
+import { MaskTextures, syncMask } from "./gl/mask-textures";
 import { AdjustTextures } from "./gl/adjust-textures";
 import { cornersOf, fromTuple, homographyUnitTo, mat3Invert, mat3Mul, pixelToDocument, type Mat3, type P } from "../tools/transform-geometry";
 
@@ -178,9 +178,8 @@ export class GlRenderer implements Renderer {
     const keep = new Set<string>();
     const visit = (c: Coverage) => {
       keep.add(c.layerId);
-      if (this.masks.has(state.id, c.layerId, c.maskRevision)) return;
-      const px = engine.maskPixels(state.id, c.layerId);
-      if (px) this.masks.sync(state.id, c.layerId, c.maskRevision, c.width, c.height, px, (from) => engine.maskDelta(state.id, c.layerId, from));
+      syncMask(this.masks, state.id, c.layerId, c.maskRevision, c.width, c.height,
+        (from) => engine.maskDelta(state.id, c.layerId, from), () => engine.maskPixels(state.id, c.layerId));
     };
     for (const n of plan.nodes) { if (n.kind === "layer") n.draw.coverages.forEach(visit); else { n.base.coverages.forEach(visit); n.children.forEach((c) => c.coverages.forEach(visit)); n.folderCoverages.forEach(visit); } }
     for (const s of plan.sources) s.coverages.forEach(visit);

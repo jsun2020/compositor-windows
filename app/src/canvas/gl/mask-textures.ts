@@ -11,15 +11,27 @@ export class MaskTextures {
   get(docId: string, layerId: string): WebGLTexture | undefined { return this.masks.get(this.key(docId, layerId))?.tex; }
   /** Whether the mask at `revision` is already uploaded: nothing to read from the engine. */
   has(docId: string, layerId: string, revision: number): boolean { return this.masks.get(this.key(docId, layerId))?.revision === revision; }
-  /** Uploads the mask at `revision` unless it is there. A mask of the same size already uploaded at
-   * another revision takes only what changed since (`delta`, the engine's `mask_delta`: a rectangle,
-   * or null for the whole mask), with `texSubImage2D` straight from `pixels`. */
-  sync(docId: string, layerId: string, revision: number, width: number, height: number, pixels: Uint8Array, delta?: (from: number) => PixelRect | null): WebGLTexture {
+  /** The revision currently cached for this mask, when it is there and its size still matches
+   * (`width`/`height`): the baseline a caller asks the engine's `mask_delta` from. Undefined with
+   * nothing cached, or a size change, either of which forces a whole upload.
+   *
+   * Split out from `sync` so the caller asks for the delta BEFORE it reads the mask's pixels: the
+   * engine's `mask_delta` call marshals two strings into wasm and allocates its return value,
+   * either of which can grow linear memory and detach an already-captured pixels view. Asking
+   * first, then reading pixels, keeps the view that finally reaches `sync` valid. */
+  cachedRevision(docId: string, layerId: string, width: number, height: number): number | undefined {
+    const e = this.masks.get(this.key(docId, layerId));
+    return e && e.width === width && e.height === height ? e.revision : undefined;
+  }
+  /** Uploads the mask at `revision` unless it is there. `rect` is the caller's already-resolved
+   * `mask_delta` result (from `cachedRevision`'s baseline): a rectangle takes only what changed,
+   * with `texSubImage2D` straight from `pixels`; `null` or `undefined` (no cached revision to diff
+   * against, or the engine could not bound the change) uploads the whole mask. */
+  sync(docId: string, layerId: string, revision: number, width: number, height: number, pixels: Uint8Array, rect?: PixelRect | null): WebGLTexture {
     const k = this.key(docId, layerId); const e = this.masks.get(k);
     if (e && e.revision === revision) return e.tex;
     const gl = this.gl;
-    if (e && e.width === width && e.height === height && delta) {
-      const rect = delta(e.revision);
+    if (e && e.width === width && e.height === height && rect !== undefined) {
       if (rect) {
         if (rect.width > 0 && rect.height > 0) {
           gl.bindTexture(gl.TEXTURE_2D, e.tex);
@@ -50,4 +62,21 @@ export class MaskTextures {
     for (const k of [...this.masks.keys()]) { const [d, l] = k.split(":"); if (d !== docId || !layerIds.has(l)) { this.gl.deleteTexture(this.masks.get(k)!.tex); this.masks.delete(k); } }
   }
   dispose(): void { for (const e of this.masks.values()) this.gl.deleteTexture(e.tex); this.masks.clear(); }
+}
+
+/** Resolves and uploads one coverage's mask texture (`GlRenderer.syncMasks`'s `visit`): asks
+ * `maskDelta` for what changed since the cached revision BEFORE calling `maskPixels`, so a wasm
+ * call in between (mask_delta marshals two strings in and allocates its own return value, either
+ * of which can grow linear memory and detach an already-captured pixels view) can never hand a
+ * detached buffer to `sync`. Nothing is asked, and the mask uploads whole, when there is nothing
+ * cached at this size (`cachedRevision` returns undefined). */
+export function syncMask(
+  masks: MaskTextures, docId: string, layerId: string, revision: number, width: number, height: number,
+  maskDelta: (from: number) => PixelRect | null, maskPixels: () => Uint8Array | null,
+): void {
+  if (masks.has(docId, layerId, revision)) return;
+  const from = masks.cachedRevision(docId, layerId, width, height);
+  const rect = from !== undefined ? maskDelta(from) : undefined;
+  const pixels = maskPixels();
+  if (pixels) masks.sync(docId, layerId, revision, width, height, pixels, rect);
 }

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { LayerTextures, levelRect, sizeAtLevel } from "../../src/canvas/layer-textures";
-import { MaskTextures } from "../../src/canvas/gl/mask-textures";
+import { MaskTextures, syncMask } from "../../src/canvas/gl/mask-textures";
 import type { PixelRect } from "../../src/engine/types";
 
-/** Just enough of WebGL2 for the texture caches, recording every upload with the pixel-store state. */
+/** Just enough of WebGL2 for the texture caches, recording every upload with the pixel-store state.
+ * `pixelsLengths` records the byte length of whatever buffer each call actually received, parallel
+ * to `calls` -- so a test can tell a live upload from one fed a detached (zero-length) view, which
+ * the pixel-store fields alone (`calls`) cannot show. */
 function stubGl() {
   const calls: { kind: "image" | "sub"; x: number; y: number; width: number; height: number; skipX: number; skipY: number; rowLength: number }[] = [];
+  const pixelsLengths: number[] = [];
   const store: Record<number, number> = {};
   let next = 1;
   const gl = {
@@ -15,14 +19,16 @@ function stubGl() {
     createTexture: () => ({ id: next++ }) as unknown as WebGLTexture,
     bindTexture: () => {}, texParameteri: () => {}, deleteTexture: () => {},
     pixelStorei: (k: number, v: number) => { store[k] = v; },
-    texImage2D: (_t: number, _l: number, _i: number, width: number, height: number) => {
+    texImage2D: (_t: number, _l: number, _i: number, width: number, height: number, _b: number, _f: number, _ty: number, pixels: ArrayBufferView) => {
       calls.push({ kind: "image", x: 0, y: 0, width, height, skipX: store[7] ?? 0, skipY: store[8] ?? 0, rowLength: store[6] ?? 0 });
+      pixelsLengths.push(pixels.byteLength);
     },
-    texSubImage2D: (_t: number, _l: number, x: number, y: number, width: number, height: number) => {
+    texSubImage2D: (_t: number, _l: number, x: number, y: number, width: number, height: number, _f: number, _ty: number, pixels: ArrayBufferView) => {
       calls.push({ kind: "sub", x, y, width, height, skipX: store[7] ?? 0, skipY: store[8] ?? 0, rowLength: store[6] ?? 0 });
+      pixelsLengths.push(pixels.byteLength);
     },
   } as unknown as WebGL2RenderingContext;
-  return { gl, calls };
+  return { gl, calls, pixelsLengths };
 }
 
 /** Independently of `levelRect`: the pixels after `level` halvings whose block of source pixels,
@@ -73,17 +79,57 @@ describe("MaskTextures partial uploads", () => {
     const { gl, calls } = stubGl();
     const masks = new MaskTextures(gl);
     masks.sync("D", "A", 1, 60, 40, new Uint8Array(2400));
-    const asked: number[] = [];
-    masks.sync("D", "A", 2, 60, 40, new Uint8Array(2400), (from) => { asked.push(from); return { x: 3, y: 5, width: 7, height: 9 }; });
-    expect(asked).toEqual([1]);
+    expect(masks.cachedRevision("D", "A", 60, 40)).toBe(1);
+    masks.sync("D", "A", 2, 60, 40, new Uint8Array(2400), { x: 3, y: 5, width: 7, height: 9 });
     expect(calls.at(-1)).toEqual({ kind: "sub", x: 3, y: 5, width: 7, height: 9, skipX: 3, skipY: 5, rowLength: 60 });
     expect(masks.has("D", "A", 2)).toBe(true);
-    masks.sync("D", "A", 3, 60, 40, new Uint8Array(2400), () => null);
+    masks.sync("D", "A", 3, 60, 40, new Uint8Array(2400), null);
     expect(calls.at(-1)?.kind).toBe("image");
-    // Another size is always uploaded whole, without asking.
-    const before = asked.length;
-    masks.sync("D", "A", 4, 30, 40, new Uint8Array(1200), (from) => { asked.push(from); return { x: 0, y: 0, width: 1, height: 1 }; });
-    expect(asked.length).toBe(before);
+    // Another size is always uploaded whole: cachedRevision returns undefined for it, so a caller
+    // never asks for a delta against it.
+    expect(masks.cachedRevision("D", "A", 30, 40)).toBeUndefined();
+    masks.sync("D", "A", 4, 30, 40, new Uint8Array(1200), undefined);
     expect(calls.at(-1)).toMatchObject({ kind: "image", width: 30, height: 40 });
+  });
+});
+
+describe("syncMask", () => {
+  it("asks maskDelta before maskPixels, so a wasm call that grows memory in between cannot hand a detached view to the GPU", () => {
+    const { gl, calls, pixelsLengths } = stubGl();
+    const masks = new MaskTextures(gl);
+    masks.sync("D", "A", 1, 60, 40, new Uint8Array(2400));
+
+    // A real WebAssembly.Memory stands in for the engine's linear memory, exactly what
+    // EngineClient.maskPixels views: growing it detaches any view already taken on its old buffer
+    // (WebAssembly.Memory.grow does this per spec), just as mask_delta's own string marshalling and
+    // Vec<f64> allocation can do to a view EngineClient.maskPixels already handed out.
+    const mem = new WebAssembly.Memory({ initial: 1 });
+    const maskPixels = () => new Uint8Array(mem.buffer, 0, 2400).fill(42);
+    const asked: number[] = [];
+    const maskDelta = (from: number) => { asked.push(from); mem.grow(1); return { x: 3, y: 5, width: 7, height: 9 }; };
+
+    // A view taken before the delta call is detached by it, in production exactly what the pre-fix
+    // `visit` (maskPixels, then a delta callback inside sync) would have hung on to.
+    const staleIfReadFirst = maskPixels();
+    maskDelta(1);
+    expect(staleIfReadFirst.length, "growing memory really does detach the earlier view").toBe(0);
+    asked.length = 0;
+
+    // syncMask (the production ordering): delta before pixels, so what reaches sync is never stale.
+    syncMask(masks, "D", "A", 2, 60, 40, maskDelta, maskPixels);
+    expect(asked).toEqual([1]);
+    expect(calls.at(-1)).toEqual({ kind: "sub", x: 3, y: 5, width: 7, height: 9, skipX: 3, skipY: 5, rowLength: 60 });
+    // The buffer that actually reached texSubImage2D is the fresh one (2400 bytes), never the
+    // detached one growing memory during the delta call would have left behind.
+    expect(pixelsLengths.at(-1)).toBe(2400);
+    expect(masks.has("D", "A", 2)).toBe(true);
+  });
+  it("asks nothing and uploads whole when nothing is cached at this size", () => {
+    const { gl, calls } = stubGl();
+    const masks = new MaskTextures(gl);
+    const asked: number[] = [];
+    syncMask(masks, "D", "A", 1, 60, 40, (from) => { asked.push(from); return { x: 0, y: 0, width: 1, height: 1 }; }, () => new Uint8Array(2400));
+    expect(asked).toEqual([]);
+    expect(calls.at(-1)).toMatchObject({ kind: "image", width: 60, height: 40 });
   });
 });
