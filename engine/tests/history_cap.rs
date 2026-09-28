@@ -136,6 +136,42 @@ fn the_undo_entry_id_follows_its_entry_and_survives_the_cap() {
 }
 
 #[test]
+fn undo_trims_redo_entries_whose_only_raster_the_live_document_no_longer_holds() {
+    // Fix round 1, finding 1(a): the byte-limit trim after undo/redo was untested. A rename does
+    // not touch pixels, so the entry it pushes shares the layer's raster with the live document
+    // and costs nothing; only once TWO undos land back before the layer existed at all does the
+    // raster become retained-only, over the limit, and both redo entries that reach it (the
+    // renamed state and the just-filled state) go in the trim that follows the second undo.
+    let bytes = 100usize * 100 * 4; // one 100 x 100 raster, computed rather than pasted
+    let mut e = Engine::with_history_limits(100, bytes - 10_000);
+    let id = filled(&mut e, 100, 100);
+    let layer = layer_id(&e, id);
+    run(&mut e, id, Command::RenameLayer { id: layer, name: "x".into() });
+    e.undo(id).unwrap();
+    e.undo(id).unwrap();
+    assert!(!e.state(id).unwrap().can_redo, "both redo entries reach the raster the live document (back at its blank start) no longer holds");
+}
+
+#[test]
+fn undo_can_run_out_before_reaching_a_saved_state_the_front_trim_dropped() {
+    // Fix round 1, finding 1(b): no test covered a saved state whose entry was trimmed away.
+    // Unlike trimming_the_front_leaves_the_saved_state_findable (where the saved entry survives
+    // the trim), the fourth rename here trims the very entry that carries the saved token, so the
+    // saved state can never be reached again -- the document reports modified even once undo runs
+    // out entirely, rather than (wrongly) reporting "back at the saved state" by coincidence of
+    // depth.
+    let mut e = Engine::with_history_limits(3, usize::MAX);
+    let id = e.new_document(10, 10, true).unwrap();
+    let layer = layer_id(&e, id);
+    e.mark_saved(id, None);
+    for n in ["a", "b", "c", "d"] { run(&mut e, id, Command::RenameLayer { id: layer, name: n.into() }); }
+    assert_eq!(e.state(id).unwrap().undo_depth, 3, "the fourth rename trimmed the entry that held the saved token");
+    for _ in 0..3 { e.undo(id).unwrap(); }
+    assert!(!e.state(id).unwrap().can_undo);
+    assert!(e.state(id).unwrap().is_modified, "undo ran out before reaching the saved state: its entry was trimmed away");
+}
+
+#[test]
 fn history_lets_go_of_the_halvings_of_rasters_only_it_holds() {
     let mut e = Engine::new();
     let id = filled(&mut e, 64, 48);

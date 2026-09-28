@@ -14,7 +14,7 @@ async function ready(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("engine-ready")).toBeVisible();
 }
 
-test("history: whole-layer edits at 24 and 100 MP stay within memory, and a push at the cap is cheap", async ({ page }) => {
+test("history: whole-layer edits at 24 and 100 MP stay within memory, and a push or undo at the cap is cheap", async ({ page }) => {
   test.setTimeout(900_000);
   await ready(page);
   const out = await page.evaluate(() => {
@@ -50,8 +50,10 @@ test("history: whole-layer edits at 24 and 100 MP stay within memory, and a push
     }
     result["1000 layers, 100 entries: rename at the cap, ms (mean of 10)"] = Math.round(10 * pushes.reduce((a, b) => a + b, 0) / pushes.length) / 10;
     result["1000 layers: undo depth"] = api.engine.state(doc).undoDepth;
-    // Ruling I2: undo at the cap gets the same budget as the push at the cap above (still 100
-    // entries after each undo: the entry trimmed on the way in does not come back).
+    // Ruling I2: undo at the cap gets the same budget as the push at the cap above. An undo at the
+    // ENTRY cap keeps the count at 100 (moving an entry from undo to redo does not change the
+    // total, so trim has nothing to drop): this times the bookkeeping (hold/release/id-tracking),
+    // not a trim.
     const undos: number[] = [];
     for (let i = 0; i < 10; i++) {
       const t0 = performance.now();
