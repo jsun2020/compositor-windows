@@ -165,7 +165,9 @@ impl Engine {
         self.order.push(handle);
         handle
     }
-    fn session(&self, id: Uuid) -> Result<&Session, CommandError> { self.sessions.get(&id).ok_or(CommandError::NoDocument) }
+    /// A document of its own, with fresh history: a job's document (`jobs.rs`).
+    pub fn insert_document(&mut self, document: Document) -> Uuid { self.insert(document, None) }
+    pub(crate) fn session(&self, id: Uuid) -> Result<&Session, CommandError> { self.sessions.get(&id).ok_or(CommandError::NoDocument) }
     fn session_mut(&mut self, id: Uuid) -> Result<&mut Session, CommandError> { self.sessions.get_mut(&id).ok_or(CommandError::NoDocument) }
 
     pub fn document_ids(&self) -> Vec<Uuid> { self.order.clone() }
@@ -287,7 +289,7 @@ impl Engine {
     /// The document as the canvas should show it: the stored one, or a copy with the open
     /// panel's preview substituted for one layer. Every render path reads this; `export_*` and
     /// the ops do not, because a preview is not committed.
-    fn render_document(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> {
+    pub(crate) fn render_document(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> {
         let s = self.session(id)?;
         let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
         let mut doc = s.document.clone();
@@ -326,11 +328,11 @@ impl Engine {
         s.preview = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
         Ok(Dirty::pixels(layers))
     }
-    fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
+    pub(crate) fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
 
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
     /// `f` reads the selection's clip through the engine's cache (`SelectionClips`).
-    fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
+    pub(crate) fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
     where F: FnOnce(&mut Document, &SelectionClips) -> Result<Dirty, CommandError> {
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let mut next = s.document.clone();

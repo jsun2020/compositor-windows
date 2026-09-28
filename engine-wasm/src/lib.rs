@@ -5,7 +5,28 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub struct WasmEngine { engine: Engine, pending_saves: HashMap<Uuid, Package>, drawn: Option<Raster> }
+pub struct WasmEngine {
+    engine: Engine, pending_saves: HashMap<Uuid, Package>, drawn: Option<Raster>,
+    /// A job's pixel and mask buffers, kept while the app copies them out: a job's input on the main
+    /// thread, a job's result in the worker (`job_buffer_ptr`, `release_job`).
+    job: (Option<Raster>, Option<GrayRaster>),
+}
+
+/// A buffer's bytes as a raster, when its size is known.
+fn raster_of(size: Option<(u32, u32)>, bytes: Option<Vec<u8>>) -> Result<Option<Raster>, JsError> {
+    match (size, bytes) {
+        (Some((w, h)), Some(b)) if b.len() == (w as usize) * (h as usize) * 4 => Ok(Some(Raster::from_premultiplied(w, h, b))),
+        (None, None) => Ok(None),
+        _ => Err(JsError::new("a job's pixels do not match its size")),
+    }
+}
+fn gray_of(size: Option<(u32, u32)>, bytes: Option<Vec<u8>>) -> Result<Option<GrayRaster>, JsError> {
+    match (size, bytes) {
+        (Some((w, h)), Some(b)) if b.len() == (w as usize) * (h as usize) => Ok(Some(GrayRaster::from_bytes(w, h, b))),
+        (None, None) => Ok(None),
+        _ => Err(JsError::new("a job's mask does not match its size")),
+    }
+}
 
 fn js_err<E: std::fmt::Display>(e: E) -> JsError { JsError::new(&e.to_string()) }
 fn parse_id(text: &str) -> Result<Uuid, JsError> { Uuid::parse_str(text).map_err(js_err) }
@@ -15,7 +36,68 @@ impl WasmEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
         console_error_panic_hook::set_once();
-        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None }
+        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None, job: (None, None) }
+    }
+
+    // Jobs (Phase 4b-1, engine `jobs.rs`). On the main thread: `prepare_job` or `prepare_display_job`,
+    // copy the buffers out, `release_job`; later `install_job`. In the worker: a `run_*_job`, copy the
+    // result buffers out, `release_job`.
+
+    /// `Engine::job_input` as JSON; the layer's pixels and mask are kept for `job_buffer_ptr`.
+    pub fn prepare_job(&mut self, doc: &str, layer: &str) -> Result<String, JsError> {
+        let (input, pixels, mask) = self.engine.job_input(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?;
+        self.job = (pixels, mask);
+        serde_json::to_string(&input).map_err(js_err)
+    }
+    /// `Engine::display_job_input` (an effects job's input at `level` halvings) as JSON.
+    pub fn prepare_display_job(&mut self, doc: &str, layer: &str, level: u32) -> Result<String, JsError> {
+        let (input, pixels, mask) = self.engine.display_job_input(parse_id(doc)?, parse_id(layer)?, level).map_err(js_err)?;
+        self.job = (Some(pixels), mask);
+        serde_json::to_string(&input).map_err(js_err)
+    }
+    /// The kept job buffer: the pixels, or the mask; null when there is none. A view on it is valid
+    /// until the next engine call.
+    pub fn job_buffer_ptr(&self, mask: bool) -> *const u8 {
+        if mask { self.job.1.as_ref().map_or(std::ptr::null(), |m| m.bytes().as_ptr()) } else { self.job.0.as_ref().map_or(std::ptr::null(), |r| r.bytes().as_ptr()) }
+    }
+    pub fn job_buffer_len(&self, mask: bool) -> usize {
+        if mask { self.job.1.as_ref().map_or(0, |m| m.bytes().len()) } else { self.job.0.as_ref().map_or(0, |r| r.bytes().len()) }
+    }
+    pub fn release_job(&mut self) { self.job = (None, None); }
+    /// `Engine::install_job`: an edit job's result put back, if the layer still matches `stamp`.
+    pub fn install_job(&mut self, doc: &str, layer: &str, stamp_json: &str, output_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>) -> Result<String, JsError> {
+        let stamp: LayerStamp = serde_json::from_str(stamp_json).map_err(js_err)?;
+        let output: JobOutput = serde_json::from_str(output_json).map_err(js_err)?;
+        let (pixels, mask) = (raster_of(output.pixels, pixels)?, gray_of(output.mask, mask)?);
+        let dirty = self.engine.install_job(parse_id(doc)?, parse_id(layer)?, stamp, output, pixels, mask).map_err(js_err)?;
+        serde_json::to_string(&dirty).map_err(js_err)
+    }
+    /// `run_edit_job` (in the worker): the output as JSON; the buffers it replaced are kept.
+    pub fn run_edit_job(&mut self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, command_json: &str) -> Result<String, JsError> {
+        let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
+        let command: Command = serde_json::from_str(command_json).map_err(js_err)?;
+        let (pixels, mask) = (raster_of(input.pixels, pixels)?, gray_of(input.mask, mask)?);
+        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, command).map_err(js_err)?;
+        self.job = (new_pixels, new_mask);
+        serde_json::to_string(&output).map_err(js_err)
+    }
+    /// `run_histogram_job` (in the worker): four arrays of 256 bins, as JSON.
+    pub fn run_histogram_job(&self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>) -> Result<String, JsError> {
+        let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
+        let (pixels, mask) = (raster_of(input.pixels, pixels)?, gray_of(input.mask, mask)?);
+        serde_json::to_string(&run_histogram_job(&input, pixels, mask).map_err(js_err)?).map_err(js_err)
+    }
+    /// `run_effects_job` (in the worker): the image's size and inset as JSON (the image is kept), or
+    /// None when the layer draws no effects.
+    pub fn run_effects_job(&mut self, input_json: &str, pixels: Vec<u8>, mask: Option<Vec<u8>>, factor: f64, edit_json: Option<String>) -> Result<Option<String>, JsError> {
+        let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
+        let pixels = raster_of(input.pixels, Some(pixels))?.ok_or_else(|| JsError::new("an effects job needs pixels"))?;
+        let mask = gray_of(input.mask, mask)?;
+        let edit = Self::parse_edit(edit_json)?;
+        match run_effects_job(&input, pixels, mask, factor, edit.as_ref()).map_err(js_err)? {
+            Some((image, raster)) => { self.job = (Some(raster), None); Ok(Some(serde_json::to_string(&image).map_err(js_err)?)) }
+            None => { self.job = (None, None); Ok(None) }
+        }
     }
     pub fn version(&self) -> String { Engine::version().to_string() }
 
