@@ -38,7 +38,8 @@ export function LevelsPanel() {
         <label key={key}>{label} <input aria-label={label} type="number" step={key === "gamma" ? 0.01 : 1} value={range[key]}
           onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) update({ [key]: v } as Partial<LevelRange>); }} /></label>
       ))}
-      <label>Auto <select data-testid="levels-auto" value="" onChange={(e) => { if (e.target.value) s.autoLevels(e.target.value as LevelsAuto); }}>
+      {!edit.histogram && <span className="hint" data-testid="histogram-pending">Reading the histogram...</span>}
+      <label>Auto <select data-testid="levels-auto" value="" disabled={!edit.histogram} onChange={(e) => { if (e.target.value) s.autoLevels(e.target.value as LevelsAuto); }}>
         <option value="">Choose...</option>
         <option value="Contrast">Contrast</option>
         <option value="Color">Color</option>

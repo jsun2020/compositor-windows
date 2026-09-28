@@ -103,6 +103,59 @@ test("partial uploads: the frame after an edit inside a selection, at fit and at
   }
 });
 
+test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP, and the page's frames meanwhile", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      // The main thread's two copies, timed where the store makes them.
+      const timed = (name: string) => { const f = api.engine[name].bind(api.engine); api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); } }; };
+      timed("jobInput"); timed("installJob");
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      api.store.getState().openDocument(doc);
+      await settle(); frame();
+      // The longest gap between animation frames while `until` is false.
+      const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+        let last = performance.now(), gap = 0;
+        const tick = (t: number) => { gap = Math.max(gap, t - last); last = t; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      let t0 = performance.now();
+      api.store.getState().beginAdjust({ kind: "Levels" });
+      result["Levels opens (UI thread) ms"] = Math.round(performance.now() - t0);
+      result["histogram: longest frame gap while the worker reads it"] = await longestGap(() => api.store.getState().adjustEdit?.histogram !== null);
+      result["histogram arrives after ms"] = Math.round(performance.now() - t0);
+      const adjustment = JSON.parse(JSON.stringify(api.store.getState().adjustEdit.adjustment));
+      adjustment.levels.ranges[0].outputWhite = 200;
+      api.store.getState().updateAdjust({ adjustment });
+      await new Promise((r) => setTimeout(r, 400));
+      t0 = performance.now();
+      api.store.getState().commitAdjust();
+      result["OK (UI thread) ms"] = Math.round(performance.now() - t0);
+      result["commit: longest frame gap while the worker edits"] = await longestGap(() => !api.store.getState().working);
+      result["commit done after ms"] = Math.round(performance.now() - t0);
+      result["frame after the result is put back"] = Math.round(frame());
+      result["undo depth"] = api.engine.state(doc).undoDepth;
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`jobs (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const label of ["24 MP", "100 MP"]) {
+    // The worker's own time never holds the page up past 100 ms; the copies are budgeted per size.
+    expect(out[`${label}: histogram: longest frame gap while the worker reads it`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+  }
+});
+
 test("history: whole-layer edits at 24 and 100 MP stay within memory, and a push or undo at the cap is cheap", async ({ page }) => {
   test.setTimeout(900_000);
   await ready(page);

@@ -8,7 +8,8 @@ function ctx() {
 
 async function guarded(work: () => Promise<void>): Promise<void> {
   const s = useEditor.getState();
-  if (s.busy) return;
+  // Nothing is opened or saved while an edit job's result is still to come (the Mac's isProjectBusy).
+  if (s.busy || s.working) return;
   s.setBusy(true);
   try { await work(); }
   catch (e) { useEditor.getState().setError(e instanceof Error ? e.message : String(e)); }

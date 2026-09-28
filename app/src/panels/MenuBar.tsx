@@ -140,7 +140,7 @@ export function MenuBar() {
           {openMenu === m.title && (
             <div className="menu-items">
               {m.items.map((it, i) => it === "separator" ? <hr key={i} /> : (
-                <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy} onClick={() => { setOpenMenu(null); it.run(); }}>{it.label}</button>
+                <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy || s.working} onClick={() => { setOpenMenu(null); it.run(); }}>{it.label}</button>
               ))}
             </div>
           )}

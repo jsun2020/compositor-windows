@@ -4,12 +4,22 @@ import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, Le
 /** `[x, y, width, height]` from the engine as a rectangle; an empty array as null (take it whole). */
 function rectOf(v: ArrayLike<number>): PixelRect | null { return v.length === 4 ? { x: v[0], y: v[1], width: v[2], height: v[3] } : null; }
 
-export class EngineClient {
-  private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory) {}
+/** A job's input copied out of wasm memory (engine `job_input`): the JSON header, the layer's pixel
+ * and mask bytes, and its selection's points (if any), each its own buffer, ready to transfer to the
+ * job worker. `points` is null exactly when the input has no selection; a selection with nothing in
+ * it is still a (zero-length) buffer, never null (jobs.ts explains why the distinction matters). */
+export interface JobInputCopy { input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; }
 
+export class EngineClient {
+  private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory, readonly module: WebAssembly.Module) {}
+
+  /** Compiles the engine's wasm once and instantiates it; the compiled module is kept for the job
+   * worker, which instantiates a second engine from it (`JobClient`). */
   static async load(): Promise<EngineClient> {
-    const exports = await init();
-    return new EngineClient(new WasmEngine(), exports.memory);
+    const response = await fetch(new URL("./pkg/compositor_engine_bg.wasm", import.meta.url));
+    const module = await WebAssembly.compile(await response.arrayBuffer());
+    const exports = await init({ module_or_path: module });
+    return new EngineClient(new WasmEngine(), exports.memory, module);
   }
 
   version(): string { return this.wasm.version(); }
@@ -94,6 +104,43 @@ export class EngineClient {
     if (len === 0) return null;
     const ptr = this.wasm.mask_pixels_ptr(doc, layer);
     return new Uint8Array(this.memory.buffer, ptr, len);
+  }
+  /** Copies the kept job buffers out of wasm memory (pixels, mask, then the selection's points, in
+   * that order: each pointer call can grow memory, which detaches any buffer already read, so every
+   * buffer is sliced out immediately after its own pointer call, before the next one), then lets the
+   * engine drop them (`release_job`). `input` is `prepare_job` / `prepare_display_job`'s JSON, whose
+   * `selection` field decides whether `points` is a (possibly empty) buffer or null: `job_points_len`
+   * alone cannot tell an empty selection from no selection at all. */
+  private takeJob(input: string): JobInputCopy {
+    try {
+      const copy = (mask: boolean) => {
+        const len = this.wasm.job_buffer_len(mask);
+        if (len === 0) return null;
+        const ptr = this.wasm.job_buffer_ptr(mask);
+        return new Uint8Array(this.memory.buffer, ptr, len).slice().buffer;
+      };
+      const pixels = copy(false);
+      const mask = copy(true);
+      const hasSelection = (JSON.parse(input) as { selection?: unknown }).selection != null;
+      let points: ArrayBuffer | null = null;
+      if (hasSelection) {
+        const len = this.wasm.job_points_len();
+        const ptr = this.wasm.job_points_ptr();
+        points = new Uint8Array(this.memory.buffer, ptr, len).slice().buffer;
+      }
+      return { input, pixels, mask, points };
+    } finally { this.wasm.release_job(); }
+  }
+  /** A job's input for `layer` (engine `job_input`): the stored layer, never a preview. */
+  jobInput(doc: string, layer: string): JobInputCopy { return this.takeJob(this.wasm.prepare_job(doc, layer)); }
+  /** An effects job's input (engine `display_job_input`): the layer as the canvas shows it, its pixels
+   * after `level` halvings. */
+  displayJobInput(doc: string, layer: string, level: number): JobInputCopy { return this.takeJob(this.wasm.prepare_display_job(doc, layer, level)); }
+  /** Puts an edit job's result back (engine `install_job`), only onto the layer exactly as the job took
+   * it (its stamp, read from `input`); a changed layer refuses with the engine's message. */
+  installJob(doc: string, layer: string, input: string, output: string, pixels: ArrayBuffer | null, mask: ArrayBuffer | null): Dirty {
+    const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
+    return JSON.parse(this.wasm.install_job(doc, layer, stamp, output, pixels ? new Uint8Array(pixels) : undefined, mask ? new Uint8Array(mask) : undefined)) as Dirty;
   }
   /** What changed in the layer's pixels since revision `from` (engine `pixels_delta`): a rectangle of
    * its pixel grid, empty when nothing did, or null when the whole raster must be uploaded again. */

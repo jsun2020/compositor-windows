@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { EngineClient } from "./engine/client";
+import { JobClient } from "./engine/jobs";
 import { BUILD_MARKER } from "./build-info";
 import { installTestApi } from "./test-api";
 import { useEditor } from "./state/store";
@@ -32,6 +33,7 @@ export function App() {
   const [version, setVersion] = useState("");
   const sheet = useEditor((s) => s.sheet);
   const banner = useEditor((s) => s.error);
+  const working = useEditor((s) => s.working);
   // React 18 StrictMode double-invokes effects in dev (which is what `pnpm dev` - and
   // so every e2e run - uses). This effect has no cleanup, so without a guard that
   // double-invoke calls EngineClient.load() twice, constructing two WasmEngine
@@ -52,6 +54,8 @@ export function App() {
     loadedRef.current = true;
     Promise.all([EngineClient.load(), getBridge()]).then(([engine, bridge]) => {
       useEditor.getState().setEngine(engine); useEditor.getState().setBridge(bridge);
+      // The job worker: a second engine for work on one layer off the UI thread (engine jobs.rs).
+      useEditor.getState().setJobs(new JobClient(engine.module, () => new Worker(new URL("./engine/job-worker.ts", import.meta.url), { type: "module" })));
       installTestApi({ engine, bridge, store: useEditor });
       bridge.onFileDrop((paths, position) => {
         const projects = paths.filter((p) => p.toLowerCase().endsWith(".comp"));
@@ -99,7 +103,7 @@ export function App() {
       </div>
       <AdjustPanel />
       <UndrawnNotice />
-      <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER})</div>
+      <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){working && <span data-testid="working"> - Working...</span>}</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}
       {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}

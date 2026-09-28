@@ -87,6 +87,49 @@ describe("pixel views survive a wasm memory growth", () => {
     expect(c.selectionOutline("D", 0.25)).toBe(flat);
   });
 
+  it("jobInput copies the kept buffers out after each pointer call, into buffers of their own, then releases them", () => {
+    const memory = new WebAssembly.Memory({ initial: 1, maximum: 8 });
+    new Uint8Array(memory.buffer).set([1, 2, 3, 4, 9, 8], 0);
+    const calls: string[] = [];
+    const wasm = {
+      prepare_job: (doc: string, layer: string) => { calls.push(`prepare ${doc} ${layer}`); return '{"stamp":{}}'; },
+      job_buffer_len: (mask: boolean) => (mask ? 2 : 4),
+      // Marshalling can grow memory, detaching any buffer read before the pointer call.
+      job_buffer_ptr: (mask: boolean) => { calls.push(`ptr ${mask}`); memory.grow(1); return mask ? 4 : 0; },
+      release_job: () => { calls.push("release"); },
+    };
+    const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
+    client.wasm = wasm; client.memory = memory;
+    const copy = (client as unknown as EngineClient).jobInput("D", "A");
+    expect(Array.from(new Uint8Array(copy.pixels!))).toEqual([1, 2, 3, 4]);
+    expect(Array.from(new Uint8Array(copy.mask!))).toEqual([9, 8]);
+    expect(copy.pixels!.byteLength, "a buffer of its own, transferable").toBe(4);
+    // No "selection" key in the fake input, so no points buffer, and no job_points_* call (the stub
+    // has none -- calling one would throw).
+    expect(copy.points).toBeNull();
+    expect(calls).toEqual(["prepare D A", "ptr false", "ptr true", "release"]);
+  });
+
+  it("jobInput copies an empty selection's points as a zero-length buffer, never null", () => {
+    const memory = new WebAssembly.Memory({ initial: 1, maximum: 8 });
+    const calls: string[] = [];
+    const wasm = {
+      prepare_job: () => { calls.push("prepare"); return '{"selection":{"contourLengths":[],"antialiased":true,"feather":0}}'; },
+      job_buffer_len: () => 0,
+      job_buffer_ptr: () => { throw new Error("must not be called"); },
+      job_points_len: () => { calls.push("points_len"); return 0; },
+      job_points_ptr: () => { calls.push("points_ptr"); return 0; },
+      release_job: () => { calls.push("release"); },
+    };
+    const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
+    client.wasm = wasm; client.memory = memory;
+    const copy = (client as unknown as EngineClient).jobInput("D", "A");
+    expect(copy.pixels).toBeNull();
+    expect(copy.points, "an explicit empty selection is Some with zero contours, not null").not.toBeNull();
+    expect(copy.points!.byteLength).toBe(0);
+    expect(calls).toEqual(["prepare", "points_len", "points_ptr", "release"]);
+  });
+
   it("both return null rather than a zero-length view when there is nothing to read", () => {
     const memory = new WebAssembly.Memory({ initial: 1 });
     const wasm = { layer_pixels_len: () => 0, mask_pixels_len: () => 0, layer_pixels_ptr: () => { throw new Error("must not be called"); }, mask_pixels_ptr: () => { throw new Error("must not be called"); } };

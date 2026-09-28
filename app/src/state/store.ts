@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit, SelectionMode, WandSettings } from "../engine/types";
 import { DEFAULT_WAND } from "../engine/types";
-import type { EngineClient } from "../engine/client";
+import type { EngineClient, JobInputCopy } from "../engine/client";
+import type { JobClient } from "../engine/jobs";
 import { cropSeed } from "../tools/crop-tool";
 import type { LassoKind, MarqueeKind, SelectionDraft } from "../tools/selection-draft";
 import type { ShellBridge } from "../shell/bridge";
@@ -51,8 +52,21 @@ export interface TransformEdit {
   duplicateEntry: number | null;
 }
 
+/** A layer with more pixels than this is edited, and its histogram read, by the job worker rather than
+ * on the UI thread (ruling OQ5): at 4 MP a Levels commit took about 0.35 s here. Below it a job's two
+ * copies and the worker's round trip cost more than they save. */
+export const JOB_PIXELS = 4_000_000;
+/** Said when a command arrives while a job's result is still to come. */
+export const BUSY_MESSAGE = "Wait for the current edit to finish.";
+
 export interface EditorStore {
   engine: EngineClient | null;
+  /** The job worker's client (engine `jobs.rs`); null until the engine has loaded. */
+  jobs: JobClient | null;
+  /** Layers with more pixels than this use the job worker (`JOB_PIXELS`; tests lower it). */
+  jobPixels: number;
+  /** True while an edit job's result is still to come (`runEditJob`): the Mac's `isProjectBusy`. */
+  working: boolean;
   bridge: ShellBridge | null;
   documents: Record<string, DocumentState>;
   order: string[];
@@ -87,6 +101,13 @@ export interface EditorStore {
   /** The mode Shift / Alt held over the canvas imply, for the options bar (`heldSelectionMode`). */
   heldSelectionMode: SelectionMode | null;
   setEngine(engine: EngineClient): void;
+  setJobs(jobs: JobClient): void;
+  /** Whether an edit of `layerId`'s pixels goes to the job worker: it has more than `jobPixels`. */
+  usesJob(layerId: string): boolean;
+  /** Runs `command` on `layerId` in the job worker and puts the result back as one undo step, unless
+   * the layer changed meanwhile. The document is busy until then: other commands, undo and redo wait.
+   * The canvas keeps what it showed (an open panel's preview) until the result is in. */
+  runEditJob(command: Command, layerId: string): Promise<boolean>;
   setBridge(bridge: ShellBridge): void;
   setBusy(busy: boolean): void;
   bumpRecent(): void;
@@ -187,13 +208,47 @@ function loadShowGuides(): boolean {
 }
 
 export const useEditor = create<EditorStore>((set, get) => ({
-  engine: null, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
+  engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, showGuides: loadShowGuides(),
   blendPreview: null,
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
   setEngine: (engine) => set({ engine }),
+  setJobs: (jobs) => set({ jobs }),
+  usesJob: (layerId) => {
+    const { jobs, activeId, documents, jobPixels } = get();
+    const layer = activeId ? documents[activeId]?.layers.find((l) => l.id === layerId) : undefined;
+    return !!jobs && !!layer && layer.pixelsWidth * layer.pixelsHeight > jobPixels;
+  },
+  runEditJob: async (command, layerId) => {
+    const { engine, jobs, activeId } = get();
+    if (!engine || !jobs || !activeId) return false;
+    if (get().working) { set({ error: BUSY_MESSAGE }); return false; }
+    const doc = activeId;
+    let copy: JobInputCopy;
+    try { copy = engine.jobInput(doc, layerId); } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
+    set({ working: true });
+    let installed = false;
+    try {
+      const result = await jobs.run(`edit:${doc}`, { kind: "edit", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points, command: JSON.stringify(command) });
+      // Closed meanwhile: nothing to put back.
+      if (!result || !get().documents[doc]) return false;
+      engine.installJob(doc, layerId, copy.input, result.header!, result.pixels, result.mask);
+      installed = true;
+      return true;
+    } catch (e) {
+      set({ error: String(e instanceof Error ? e.message : e) });
+      return false;
+    } finally {
+      set({ working: false });
+      if (get().documents[doc]) {
+        // A result that was not put back leaves a panel's preview behind: take it away.
+        if (!installed) engine.setPreview(doc, null);
+        get().refresh(doc);
+      }
+    }
+  },
   setBridge: (bridge) => set({ bridge }),
   setBusy: (busy) => set({ busy }),
   bumpRecent: () => set((s) => ({ recentTick: s.recentTick + 1 })),
@@ -262,6 +317,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   run: (command) => {
     // Its own commit clears `adjustEdit` before calling this, so a panel's OK is never refused.
     if (get().panelOwnsDocument(true)) return false;
+    // A job's result is still to come: the layer it will land on must not change first.
+    if (get().working) { set({ error: BUSY_MESSAGE }); return false; }
     // A pending transform is closed before any other command records history. macOS refuses
     // these outright while `transformEdit != nil` (canEditLayers); committing is the gentler
     // equivalent and is what every action in actions/layers.ts already did individually.
@@ -285,8 +342,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   // A panel owns the document while it is open, as macOS's canEditLayers does; the menu items
   // for these are already disabled, so this stays quiet rather than raising the error banner.
-  undo: () => { if (get().panelOwnsDocument()) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
-  redo: () => { if (get().panelOwnsDocument()) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
+  undo: () => { if (get().panelOwnsDocument() || get().working) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
+  redo: () => { if (get().panelOwnsDocument() || get().working) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
     // Entering the crop tool seeds a rectangle, as macOS does (EditorSession.selectTool): the
@@ -463,13 +520,24 @@ export const useEditor = create<EditorStore>((set, get) => ({
       kind, target: editing ? "adjustmentLayer" : "layer", layerId: layer.id,
       adjustment, params: filter ? defaultFilterParams(kind as FilterKind) : null,
       original: editing ? layer.adjustment! : null, preview: true, sampleMode: null,
-      // Levels and Curves draw a histogram of what they are about to change.
-      histogram: kind === "Levels" || kind === "Curves" ? engine.histogram(activeId, layer.id) : null,
+      // Levels and Curves draw a histogram of what they are about to change: a large layer's comes from
+      // the job worker once the panel is open, which it opens without waiting for.
+      histogram: kind === "Levels" || kind === "Curves" ? (!editing && get().usesJob(layer.id) ? null : engine.histogram(activeId, layer.id)) : null,
     };
     // The crop tool's rectangle goes, as macOS's beginFilter calls cancelCrop first: a pending
     // crop would otherwise answer the same Enter and Escape as the panel.
     set({ adjustEdit: edit, cropRect: null });
     get().applyAdjustPreview();
+    if ((kind === "Levels" || kind === "Curves") && !edit.histogram) {
+      const doc = activeId, jobs = get().jobs!;
+      const copy = engine.jobInput(doc, layer.id);
+      void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
+        const open = get().adjustEdit;
+        // Only into the panel it was read for.
+        if (!result?.header || get().activeId !== doc || open?.layerId !== layer.id || open.kind !== kind) return;
+        set({ adjustEdit: { ...open, histogram: JSON.parse(result.header) as number[][] } });
+      }).catch((e) => set({ error: String(e instanceof Error ? e.message : e) }));
+    }
     return true;
   },
   updateAdjust: (patch) => {
@@ -535,11 +603,20 @@ export const useEditor = create<EditorStore>((set, get) => ({
   previewSettling: () => settleTimer !== null,
   commitAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
-    dropOpenPanel();
-    if (isAdjustIdentity(edit, (a) => engine.adjustmentIsIdentity(a))) { get().refresh(activeId); get().invalidate(); return; }
+    const identity = isAdjustIdentity(edit, (a) => engine.adjustmentIsIdentity(a));
     const command: Command = edit.target === "adjustmentLayer" ? { type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }
       : edit.params ? { type: "ApplyFilter", id: edit.layerId, params: edit.params }
       : { type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! };
+    // A large layer is edited by the job worker: the panel closes but the canvas keeps its preview
+    // until the result is put back (runEditJob clears it then); the document is busy meanwhile.
+    if (!identity && edit.target === "layer" && get().usesJob(edit.layerId)) {
+      cancelSettle();
+      set({ adjustEdit: null });
+      void get().runEditJob(command, edit.layerId);
+      return;
+    }
+    dropOpenPanel();
+    if (identity) { get().refresh(activeId); get().invalidate(); return; }
     // A refused command (settings the engine will not accept) leaves the panel open with the
     // user's settings and its preview, under the banner, rather than discarding the edit.
     if (!get().run(command)) { set({ adjustEdit: edit }); get().applyAdjustPreview(); }
