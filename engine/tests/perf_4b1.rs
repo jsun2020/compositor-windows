@@ -9,6 +9,40 @@ use uuid::Uuid;
 fn run(e: &mut Engine, id: Uuid, c: Command) { e.execute(id, c).unwrap_or_else(|err| panic!("{err}")); }
 fn ms(t: Instant) -> f64 { t.elapsed().as_secs_f64() * 1000.0 }
 
+/// A `width` x `height` document with one opaque layer over it (Canvas Size's fill), active.
+fn filled(width: u32, height: u32) -> (Engine, Uuid, Uuid) {
+    let mut e = Engine::new();
+    let id = e.new_document(10, 10, false).unwrap();
+    run(&mut e, id, Command::CanvasSize { width, height, anchor: 4, fill: Some([0.5, 0.4, 0.3]) });
+    let layer = e.state(id).unwrap().layers[0].id;
+    run(&mut e, id, Command::SetActiveLayer { id: Some(layer) });
+    (e, id, layer)
+}
+
+#[test]
+#[ignore]
+fn halving_and_a_clear_in_a_selection_at_24_and_100_mp() {
+    for (label, w, h) in [("24 MP", 6000u32, 4000u32), ("100 MP", 10000, 10000)] {
+        let (mut e, id, layer) = filled(w, h);
+        let raster = e.document(id).unwrap().layers[0].pixels.clone().unwrap();
+        let t = Instant::now();
+        let _ = raster.halved().halved().halved();
+        let chain = ms(t);
+        // A 1024 x 1024 selection cleared: the edit copies the layer; the new pixels are handed the
+        // old halvings (three levels) with only the cleared part redone.
+        run(&mut e, id, Command::SelectShape { kind: SelectionShape::Rectangle, points: vec![Point { x: 1000.0, y: 1000.0 }, Point { x: 2024.0, y: 1000.0 }, Point { x: 2024.0, y: 2024.0 }, Point { x: 1000.0, y: 2024.0 }], mode: SelectionMode::Replace, antialiased: false });
+        let t = Instant::now();
+        run(&mut e, id, Command::ClearSelectedPixels { id: layer, mask: false });
+        let clear = ms(t);
+        let new = e.document(id).unwrap().layers[0].pixels.clone().unwrap();
+        let t = Instant::now();
+        let seeded = new.halved().halved().halved();
+        let after = ms(t);
+        println!("{label}: halving chain to level 3 {chain:.0} ms; clear in a 1024 px selection {clear:.0} ms; level 3 after it {after:.2} ms");
+        assert_eq!(seeded.width, w / 8);
+    }
+}
+
 #[test]
 #[ignore]
 fn a_rename_at_the_history_cap_with_a_thousand_layers() {

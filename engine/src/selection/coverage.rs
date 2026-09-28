@@ -6,7 +6,7 @@
 //! PixelAdjust.swift:23-34).
 use super::{Contour, Selection, SUBPIXEL};
 use super::feather::feather_blur;
-use crate::{Affine, Document, GrayRaster, Point};
+use crate::{Affine, Document, GrayRaster, PixelRect, Point};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
@@ -170,6 +170,25 @@ impl SelectionClip {
         let (x, y) = (p.x - self.origin.0 as f64, p.y - self.origin.1 as f64);
         if x < 0.0 || y < 0.0 || x >= c.width as f64 || y >= c.height as f64 { return 0.0; }
         crate::compositor::gray_sample(c, x, y, false)
+    }
+
+    /// The part of a `width` x `height` pixel grid that `to_document` places on the canvas where
+    /// `on_grid` can give coverage above 0: the region's rectangle mapped onto the grid, a pixel
+    /// wider on every side for the bilinear sampling, cut to the grid (empty when it misses). None
+    /// for an empty selection, which clips every edit away, or a grid that cannot be inverted.
+    pub fn rect_on_grid(&self, to_document: &Affine, width: u32, height: u32) -> Option<PixelRect> {
+        let c = self.coverage.as_ref()?;
+        let inverse = to_document.invert()?;
+        let (x0, y0) = (self.origin.0 as f64, self.origin.1 as f64);
+        let (x1, y1) = (x0 + c.width as f64, y0 + c.height as f64);
+        let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].map(|(x, y)| inverse.apply(Point { x, y }));
+        let (lx, hx) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.x), h.max(p.x)));
+        let (ly, hy) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.y), h.max(p.y)));
+        let gx0 = (lx.floor() - 1.0).clamp(0.0, width as f64) as u32;
+        let gy0 = (ly.floor() - 1.0).clamp(0.0, height as f64) as u32;
+        let gx1 = (hx.ceil() + 1.0).clamp(0.0, width as f64) as u32;
+        let gy1 = (hy.ceil() + 1.0).clamp(0.0, height as f64) as u32;
+        Some(PixelRect { x: gx0, y: gy0, width: gx1.saturating_sub(gx0), height: gy1.saturating_sub(gy0) })
     }
 
     /// The coverage on a `width` x `height` pixel grid that `to_document` places on the canvas (a

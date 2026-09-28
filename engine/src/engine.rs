@@ -8,6 +8,8 @@ pub struct Session {
     pub history: History,
     pub path: Option<String>,
     pub preview: Option<PixelPreview>,
+    /// The recent changed rectangles of its layers' buffers (`Engine::pixels_delta`).
+    pub lineage: Lineage,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -104,6 +106,31 @@ pub struct Engine {
     history_limits: Option<(usize, usize)>,
 }
 
+/// Where the document's selection reaches `layer`'s pixel or mask grid: the clip's rectangle on that
+/// grid (`SelectionClip::rect_on_grid`). Nothing without a selection.
+fn selection_regions(doc: &Document, clips: &SelectionClips, layer: Uuid, plane: Plane) -> Vec<Region> {
+    let (Some(clip), Some(l)) = (clips.clip(doc), doc.layer(layer)) else { return vec![] };
+    let (grid, w, h) = match (plane, &l.pixels, &l.mask) {
+        (Plane::Pixels, Some(p), _) => (l.transform, p.width, p.height),
+        (Plane::Mask, _, Some(m)) => (m.placement.unwrap_or(l.transform), m.pixels.width, m.pixels.height),
+        _ => return vec![],
+    };
+    clip.rect_on_grid(&grid.pixel_to_document(w, h), w, h).map(|rect| vec![Region { layer, plane, rect }]).unwrap_or_default()
+}
+
+/// Gives each layer's new pixels, changed only within a reported region, the halvings its old pixels
+/// had, redone only there (`Raster::seed_halvings`): the GPU at a reduced zoom then uploads the region
+/// without halving the whole layer again.
+fn seed_halvings(before: &Document, after: &Document, regions: &[Region]) {
+    let mut per_layer: HashMap<Uuid, PixelRect> = HashMap::new();
+    for r in regions.iter().filter(|r| r.plane == Plane::Pixels) { per_layer.entry(r.layer).and_modify(|u| *u = u.union(&r.rect)).or_insert(r.rect); }
+    for (layer, rect) in per_layer {
+        let old = before.layer(layer).and_then(|l| l.pixels.as_ref());
+        let new = after.layer(layer).and_then(|l| l.pixels.as_ref());
+        if let (Some(old), Some(new)) = (old, new) { new.seed_halvings(old, rect); }
+    }
+}
+
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
         return Err(CommandError::Argument("width and height must be 1 to 30000".into()));
@@ -130,7 +157,7 @@ impl Engine {
     fn insert(&mut self, document: Document, path: Option<String>) -> Uuid {
         let handle = Uuid::new_v4();
         let history = self.history_limits.map_or_else(History::default, |(entries, bytes)| History::with_limits(entries, bytes));
-        self.sessions.insert(handle, Session { document, history, path, preview: None });
+        self.sessions.insert(handle, Session { document, history, path, preview: None, lineage: Lineage::default() });
         self.order.push(handle);
         handle
     }
@@ -230,6 +257,21 @@ impl Engine {
         Ok(out)
     }
 
+    /// What changed in `layer`'s pixels since revision `from`, as the canvas shows them (a preview's
+    /// pixels have revisions of their own): an empty rectangle for nothing, a rectangle of the pixel
+    /// grid, or None when the whole raster must be uploaded again (`Lineage::delta`).
+    pub fn pixels_delta(&self, id: Uuid, layer: Uuid, from: u64) -> Result<Option<PixelRect>, CommandError> {
+        let doc = self.render_document(id)?;
+        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(self.session(id)?.lineage.delta(layer, Plane::Pixels, from, l.pixels_revision))
+    }
+    /// `pixels_delta` for the layer's mask, in the mask's own grid.
+    pub fn mask_delta(&self, id: Uuid, layer: Uuid, from: u64) -> Result<Option<PixelRect>, CommandError> {
+        let s = self.session(id)?;
+        let l = s.document.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(s.lineage.delta(layer, Plane::Mask, from, l.mask_revision))
+    }
+
     /// Whether a press at `at` lands inside a selection with something in it, by the winding rule:
     /// where a drag in New mode moves the outline instead of drawing (`canMoveSelection(at:)`,
     /// Selection.swift:256-260).
@@ -271,14 +313,14 @@ impl Engine {
         // can never be answered with stale pixels (phase 3 open item N3).
         let s = self.session(id)?;
         if let (Some(r), Some(current)) = (&request, &s.preview) {
-            if current.answers(r, &PreviewSource::of(&s.document, r.layer())) { return Ok(Dirty { structure: false, canvas: false, layers: vec![] }); }
+            if current.answers(r, &PreviewSource::of(&s.document, r.layer())) { return Ok(Dirty::default()); }
         }
         let revision = { self.preview_revision += 1; PREVIEW_REVISION_BASE + self.preview_revision };
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
         let clips = &self.clips;
         s.preview = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
-        Ok(Dirty { structure: true, canvas: false, layers })
+        Ok(Dirty::pixels(layers))
     }
     fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
 
@@ -293,6 +335,8 @@ impl Engine {
         // still applies, but records no history entry and so leaves redo intact, as macOS does.
         let content_changed = !next.same_content(&s.document);
         renew_revisions(&s.document, &mut next, &mut self.revision);
+        s.lineage.record_edit(&s.document, &next, &dirty.regions);
+        seed_halvings(&s.document, &next, &dirty.regions);
         let before = std::mem::replace(&mut s.document, next);
         if content_changed { s.history.push(before); s.history.trim(&s.document); }
         self.clips.retain_current(&s.document);
@@ -354,34 +398,45 @@ impl Engine {
                     ops::hierarchy::clip_dependents(doc, &ids).into_iter().filter(|d| doc.layer(*d).map_or(false, |l| l.has_pixels())).collect()
                 } else { Vec::new() };
                 ops::hierarchy::delete_layers(doc, &ids, bake)?;
-                Ok(Dirty { structure: true, canvas: false, layers: baked })
+                Ok(Dirty::pixels(baked))
             }
             Command::SetLayerTransform { id, transform } => { ops::transform::set_transform(doc, id, transform)?; Ok(Dirty::structure()) }
             Command::TransformLayers { ids, bounds, draft } => { ops::transform::transform_group(doc, &ids, &bounds, &draft)?; Ok(Dirty::structure()) }
             Command::FlipLayers { ids, horizontal } => { ops::transform::flip_layers(doc, &ids, horizontal)?; Ok(Dirty::structure()) }
             Command::NudgeLayers { ids, dx, dy } => { ops::transform::nudge(doc, &ids, dx, dy)?; Ok(Dirty::structure()) }
-            Command::DistortLayer { id, transform, corners } => { ops::distort::distort_layer(doc, id, &transform, &corners)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::DistortLayer { id, transform, corners } => { ops::distort::distort_layer(doc, id, &transform, &corners)?; Ok(Dirty::pixels(vec![id])) }
             Command::DistortLayers { ids, bounds, draft, corners } => {
                 let touched = ops::transform::members(doc, &ids);
                 ops::distort::distort_group(doc, &ids, &bounds, &draft, &corners)?;
-                Ok(Dirty { structure: true, canvas: false, layers: touched })
+                Ok(Dirty::pixels(touched))
             }
             Command::SetMaskPlacement { id, placement } => { ops::transform::set_mask_placement(doc, id, placement)?; Ok(Dirty::structure()) }
             Command::AddMask { id, revealing } => { ops::masks::add_mask(doc, id, revealing)?; Ok(Dirty::structure()) }
             Command::DeleteMask { id } => { ops::masks::delete_mask(doc, id)?; Ok(Dirty::structure()) }
             Command::SetMaskEnabled { id, enabled } => { ops::masks::set_mask_enabled(doc, id, enabled)?; Ok(Dirty::structure()) }
             Command::SetMaskLinked { id, linked } => { ops::masks::set_mask_linked(doc, id, linked)?; Ok(Dirty::structure()) }
-            Command::InvertMask { id } => { ops::adjust::invert_layer_with(doc, clips, id, true)?; Ok(Dirty::structure()) }
+            Command::InvertMask { id } => { ops::adjust::invert_layer_with(doc, clips, id, true)?; Ok(Dirty::structure().within(selection_regions(doc, clips, id, Plane::Mask))) }
             Command::FillMask { id, white } => { ops::masks::fill_mask(doc, id, white)?; Ok(Dirty::structure()) }
             Command::BlurMask { id, radius } => { ops::masks::blur_mask(doc, id, radius)?; Ok(Dirty::structure()) }
             Command::CopyMask { from, to } => { ops::masks::copy_mask(doc, from, to)?; Ok(Dirty::structure()) }
             Command::ToggleClipping { id } => { ops::hierarchy::toggle_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::ReleaseClipping { id } => { ops::hierarchy::release_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::LinkMask { source, target } => { ops::hierarchy::link_mask(doc, source, target)?; Ok(Dirty::structure()) }
-            Command::MergeLayers { ids } => { let m = ops::merge::merge(doc, &ids)?; Ok(Dirty { structure: true, canvas: false, layers: vec![m] }) }
-            Command::ApplyAdjustment { id, adjustment } => { ops::adjust::apply_adjustment_to_layer_with(doc, clips, id, &adjustment)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
-            Command::InvertPixels { id, mask } => { ops::adjust::invert_layer_with(doc, clips, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
-            Command::ApplyFilter { id, params } => { ops::adjust::apply_filter_with(doc, clips, id, &params)?; Ok(Dirty { structure: true, canvas: false, layers: vec![id] }) }
+            Command::MergeLayers { ids } => { let m = ops::merge::merge(doc, &ids)?; Ok(Dirty::pixels(vec![m])) }
+            // Inside a selection these change only what the selection reaches on the layer's grid.
+            Command::ApplyAdjustment { id, adjustment } => {
+                ops::adjust::apply_adjustment_to_layer_with(doc, clips, id, &adjustment)?;
+                Ok(Dirty::pixels(vec![id]).within(selection_regions(doc, clips, id, Plane::Pixels)))
+            }
+            Command::InvertPixels { id, mask } => {
+                ops::adjust::invert_layer_with(doc, clips, id, mask)?;
+                let plane = if mask { Plane::Mask } else { Plane::Pixels };
+                Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
+            }
+            Command::ApplyFilter { id, params } => {
+                ops::adjust::apply_filter_with(doc, clips, id, &params)?;
+                Ok(Dirty::pixels(vec![id]).within(selection_regions(doc, clips, id, Plane::Pixels)))
+            }
             Command::AddAdjustmentLayer { kind, seed, shadows, highlights } => {
                 let gradient = match (shadows, highlights) { (Some(s), Some(h)) => Some((s, h)), _ => None };
                 ops::adjust::add_adjustment_layer(doc, kind, seed, gradient)?; Ok(Dirty::structure())
@@ -398,7 +453,11 @@ impl Engine {
             Command::MagicWand { at, mode, settings, antialiased } => { ops::selection::magic_wand_select(doc, at, mode, &settings, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadLayerSelection { id, mode, antialiased } => { ops::selection::load_layer_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
             Command::LoadMaskSelection { id, mode, antialiased } => { ops::selection::load_mask_selection(doc, id, mode, antialiased)?; Ok(Dirty::structure()) }
-            Command::ClearSelectedPixels { id, mask } => { ops::selection::clear_selected(doc, clips, id, mask)?; Ok(Dirty { structure: true, canvas: false, layers: if mask { vec![] } else { vec![id] } }) }
+            Command::ClearSelectedPixels { id, mask } => {
+                ops::selection::clear_selected(doc, clips, id, mask)?;
+                let plane = if mask { Plane::Mask } else { Plane::Pixels };
+                Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
+            }
             Command::AddMaskFromSelection { id, revealing } => { ops::selection::add_mask_from_selection(doc, clips, id, revealing)?; Ok(Dirty::structure()) }
         })
     }
@@ -414,14 +473,22 @@ impl Engine {
     pub fn undo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
-        if let Some(before) = s.history.undo(&s.document) { s.document = before; s.history.trim(&s.document); }
+        if let Some(before) = s.history.undo(&s.document) {
+            let after = std::mem::replace(&mut s.document, before);
+            s.lineage.record_return(&after, &s.document);
+            s.history.trim(&s.document);
+        }
         self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
-        if let Some(after) = s.history.redo(&s.document) { s.document = after; s.history.trim(&s.document); }
+        if let Some(after) = s.history.redo(&s.document) {
+            let before = std::mem::replace(&mut s.document, after);
+            s.lineage.record_return(&before, &s.document);
+            s.history.trim(&s.document);
+        }
         self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
@@ -432,7 +499,10 @@ impl Engine {
     pub fn revert(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         self.clear_preview(id);
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
-        if let Some(before) = s.history.revert() { s.document = before; }
+        if let Some(before) = s.history.revert() {
+            let after = std::mem::replace(&mut s.document, before);
+            s.lineage.record_return(&after, &s.document);
+        }
         self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }

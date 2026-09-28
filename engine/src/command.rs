@@ -138,6 +138,16 @@ impl Command {
     }
 }
 
+/// Which of a layer's buffers: its pixels or its mask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Plane { Pixels, Mask }
+
+/// Where a command changed one layer's buffer, in that buffer's own grid: nothing outside `rect`
+/// differs. A command that knows this reports it, so the engine can record a changed rectangle
+/// (`Engine::pixels_delta`) and halve only that part again (`Raster::seed_halvings`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Region { pub layer: Uuid, pub plane: Plane, pub rect: crate::PixelRect }
+
 /// What a command changed, so the renderer re-syncs only what it must.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Dirty {
@@ -148,6 +158,10 @@ pub struct Dirty {
     /// Layers whose pixels were replaced.
     #[serde(serialize_with = "serialize_ids", deserialize_with = "deserialize_ids")]
     pub layers: Vec<Uuid>,
+    /// The rectangles changed buffers were changed within, where the command knows them. Engine-side
+    /// only: the app asks for changed rectangles by revision (`Engine::pixels_delta`).
+    #[serde(skip)]
+    pub regions: Vec<Region>,
 }
 
 fn serialize_ids<S: serde::Serializer>(ids: &[Uuid], s: S) -> Result<S::Ok, S::Error> {
@@ -161,6 +175,10 @@ fn deserialize_ids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Uuid>, 
 }
 
 impl Dirty {
-    pub fn everything() -> Dirty { Dirty { structure: true, canvas: true, layers: vec![] } }
+    pub fn everything() -> Dirty { Dirty { structure: true, canvas: true, ..Default::default() } }
     pub fn structure() -> Dirty { Dirty { structure: true, ..Default::default() } }
+    /// The structure, and the pixels of `layers`.
+    pub fn pixels(layers: Vec<Uuid>) -> Dirty { Dirty { structure: true, layers, ..Default::default() } }
+    /// This, with `regions` reported.
+    pub fn within(mut self, regions: Vec<Region>) -> Dirty { self.regions = regions; self }
 }

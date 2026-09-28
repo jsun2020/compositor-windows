@@ -17,6 +17,7 @@ pub mod plan;
 pub mod preview;
 pub mod effects;
 pub mod selection;
+pub mod lineage;
 
 pub use adjust::settings::*;
 pub use adjust::levels::*;
@@ -45,6 +46,7 @@ pub use preview::*;
 pub use effects::*;
 pub use effects::settings::*;
 pub use effects::render::*;
+pub use lineage::*;
 pub use ops::masks::blur_gray;
 pub use selection::{Contour, Selection, SelectionMode, SelectionShape, SelectionState, MAX_FEATHER, MAX_RESIZE, SELECTION_COORDINATE_LIMIT, SUBPIXEL};
 pub use selection::coverage::{rasterize, selection_coverage, selection_coverage_with, SelectionClip, SelectionClips};
