@@ -33,13 +33,15 @@ fn document() -> (Engine, Uuid, Uuid) {
     (e, id, layer)
 }
 
-/// The job's input as it crosses to the worker: JSON, and the buffers' bytes.
-fn crossed(e: &Engine, id: Uuid, layer: Uuid) -> (JobInput, Option<Raster>, Option<GrayRaster>) {
-    let (input, pixels, mask) = e.job_input(id, layer).unwrap();
+/// The job's input as it crosses to the worker: JSON, and the buffers' bytes - the pixels and mask as
+/// the wasm bridge's `job_buffer_ptr` hands them out, the selection's points as `job_points_ptr` does
+/// (a flat i32 buffer, never JSON: `JobSelection::flatten`).
+fn crossed(e: &Engine, id: Uuid, layer: Uuid) -> (JobInput, Option<Raster>, Option<GrayRaster>, Option<Vec<i32>>) {
+    let (input, pixels, mask, points) = e.job_input(id, layer).unwrap();
     let input: JobInput = serde_json::from_str(&serde_json::to_string(&input).unwrap()).unwrap();
     let pixels = pixels.map(|r| Raster::from_premultiplied(r.width, r.height, r.bytes().to_vec()));
     let mask = mask.map(|m| GrayRaster::from_bytes(m.width, m.height, m.bytes().to_vec()));
-    (input, pixels, mask)
+    (input, pixels, mask, points)
 }
 
 fn levels() -> LayerAdjustment {
@@ -62,8 +64,8 @@ fn an_edit_made_by_a_job_and_put_back_equals_the_edit_made_in_place() {
         let (mut there, tid, tlayer) = document();
         let depth = there.state(tid).unwrap().undo_depth;
         run(&mut here, id, commands(layer)[i].clone());
-        let (input, pixels, mask) = crossed(&there, tid, tlayer);
-        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, commands(tlayer)[i].clone()).unwrap();
+        let (input, pixels, mask, points) = crossed(&there, tid, tlayer);
+        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), commands(tlayer)[i].clone()).unwrap();
         there.install_job(tid, tlayer, input.stamp, output, new_pixels, new_mask).unwrap();
         let (a, b) = (&here.document(id).unwrap().layers[0], &there.document(tid).unwrap().layers[0]);
         assert_eq!(a.pixels.as_ref().unwrap().bytes(), b.pixels.as_ref().unwrap().bytes(), "command {i}: pixels");
@@ -77,8 +79,8 @@ fn an_edit_made_by_a_job_and_put_back_equals_the_edit_made_in_place() {
 fn a_job_inside_a_selection_brings_its_changed_rectangle_back() {
     let (mut e, id, layer) = document();
     let before = e.state(id).unwrap().layers[0].pixels_revision;
-    let (input, pixels, mask) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, Command::InvertPixels { id: layer, mask: false }).unwrap();
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }).unwrap();
     assert!(new_mask.is_none(), "the mask was not touched, so it does not travel back");
     assert_eq!(output.regions.len(), 1);
     e.install_job(id, layer, input.stamp, output.clone(), new_pixels, new_mask).unwrap();
@@ -89,8 +91,8 @@ fn a_job_inside_a_selection_brings_its_changed_rectangle_back() {
 fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
     for change in ["pixels", "transform", "mask"] {
         let (mut e, id, layer) = document();
-        let (input, pixels, mask) = crossed(&e, id, layer);
-        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+        let (input, pixels, mask, points) = crossed(&e, id, layer);
+        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
         match change {
             "pixels" => run(&mut e, id, Command::InvertPixels { id: layer, mask: false }),
             "transform" => run(&mut e, id, Command::NudgeLayers { ids: vec![layer], dx: 1.0, dy: 0.0 }),
@@ -104,18 +106,92 @@ fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
     }
     // A change that leaves the layer's pixels, mask and place alone does not stop it.
     let (mut e, id, layer) = document();
-    let (input, pixels, mask) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
     run(&mut e, id, Command::RenameLayer { id: layer, name: "Renamed".into() });
     e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
     assert_eq!(e.state(id).unwrap().layers[0].name, "Renamed");
 }
 
+/// Controller fix round 1, finding 2: the stamp also covers the canvas's size and the selection's
+/// revision, not only the layer, so a change to either between the job's input and its install is
+/// caught too.
+#[test]
+fn a_selection_change_between_job_input_and_install_refuses_the_result() {
+    let (mut e, id, layer) = document();
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    // Nothing about the layer itself changes: only the selection a clipped job was computed against.
+    run(&mut e, id, Command::Deselect);
+    let (doc, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
+    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask);
+    assert_eq!(refused, Err(CommandError::Refused(LAYER_CHANGED.into())));
+    assert!(e.document(id).unwrap().same_content(&doc), "untouched");
+    assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
+}
+
+/// Controller fix round 1, finding 2: a Canvas Size anchored top-left leaves this layer's transform,
+/// pixels and mask exactly as they were (the offset is (0, 0)) and the selection alone (it is already
+/// none here), yet the canvas grows - the stamp must catch that too.
+#[test]
+fn a_top_left_canvas_size_between_job_input_and_install_refuses_the_result() {
+    let (mut e, id, layer) = document();
+    run(&mut e, id, Command::Deselect); // isolate the canvas size: no selection change either
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    let before = e.document(id).unwrap().layers[0].clone();
+    run(&mut e, id, Command::CanvasSize { width: 200, height: 150, anchor: 0, fill: None });
+    let after = e.document(id).unwrap().layers[0].clone();
+    assert_eq!(before.transform, after.transform, "a top-left anchor leaves this layer's transform alone");
+    assert_eq!(before.pixels_revision, after.pixels_revision, "and its pixels");
+    let (doc, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
+    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask);
+    assert_eq!(refused, Err(CommandError::Refused(LAYER_CHANGED.into())));
+    assert!(e.document(id).unwrap().same_content(&doc), "untouched");
+    assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
+}
+
+/// Controller fix round 1, finding 1: a transform with a decimal serde_json's parser cannot
+/// round-trip exactly without the `float_roundtrip` feature (measured: "911.6760726776201" comes
+/// back as 911.67607267762) must still survive the stamp's and the output's JSON exactly as the wasm
+/// bridge sends them - `prepare_job`'s `input_json` to the worker, then `install_job`'s `stamp_json`
+/// and `output_json` back - and install onto the unmoved layer bit-identically.
+#[test]
+fn a_fractional_transform_survives_the_json_the_wasm_bridge_uses_for_install() {
+    let mut e = Engine::new();
+    let id = e.new_document(160, 110, false).unwrap();
+    // `import_image` places by its raster's center, floored to a whole pixel, so it cannot land a
+    // fractional origin directly: a 2 x 2 raster centered at (1, 1) floors to origin (0, 0) exactly,
+    // then a nudge from exactly zero by the target values lands them bit-identically (adding to 0.0
+    // rounds nothing).
+    let png = encode_png(&pattern(2, 2), DEFAULT_RESOLUTION).unwrap();
+    e.import_image(Some(id), &png, "Pattern", Some(p(1.0, 1.0))).unwrap();
+    let layer = e.state(id).unwrap().layers[0].id;
+    assert_eq!(e.document(id).unwrap().layers[0].transform.origin, p(0.0, 0.0), "the fixture starts at exactly zero");
+    let origin = p(911.6760726776201, 47.0);
+    run(&mut e, id, Command::NudgeLayers { ids: vec![layer], dx: origin.x, dy: origin.y });
+    assert_eq!(e.document(id).unwrap().layers[0].transform.origin, origin, "the fixture itself holds the exact literal");
+
+    // `prepare_job`'s JSON (JobInput, including the stamp).
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    assert_eq!(input.stamp.transform.origin, origin, "the stamp survives prepare_job's JSON round trip");
+
+    // The worker's edit (one that does not move the layer) and its own JSON (JobOutput).
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }).unwrap();
+    let output: JobOutput = serde_json::from_str(&serde_json::to_string(&output).unwrap()).unwrap();
+    assert_eq!(output.transform.origin, origin, "an edit that does not move the layer reports the same origin, exactly");
+
+    // `install_job`'s own JSON of the stamp it is handed back (`stamp_json`).
+    let stamp: LayerStamp = serde_json::from_str(&serde_json::to_string(&input.stamp).unwrap()).unwrap();
+    e.install_job(id, layer, stamp, output, new_pixels, new_mask).unwrap();
+    assert_eq!(e.document(id).unwrap().layers[0].transform.origin, origin, "install keeps the exact origin");
+}
+
 #[test]
 fn a_histogram_job_equals_the_histogram_in_place() {
     let (e, id, layer) = document();
-    let (input, pixels, mask) = crossed(&e, id, layer);
-    assert_eq!(run_histogram_job(&input, pixels, mask).unwrap(), e.histogram(id, layer).unwrap());
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    assert_eq!(run_histogram_job(&input, pixels, mask, points.as_deref()).unwrap(), e.histogram(id, layer).unwrap());
 }
 
 #[test]
@@ -129,7 +205,7 @@ fn an_effects_job_at_full_size_equals_the_engines_own_image_and_a_reduced_one_sc
     doc.layers[0].extra.effects = Some(effects.clone());
     let mut e = Engine::new();
     let id = e.insert_document(doc);
-    let (input, pixels, mask) = crossed(&e, id, layer);
+    let (input, pixels, mask, _points) = crossed(&e, id, layer);
     let (image, raster) = run_effects_job(&input, pixels.clone().unwrap(), mask.clone(), 1.0, None).unwrap().unwrap();
     let own = e.draw_raster(id, layer, 0, None).unwrap().unwrap();
     assert_eq!(raster.bytes(), own.bytes(), "the job's image is the engine's image");
