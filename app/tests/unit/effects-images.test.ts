@@ -76,6 +76,9 @@ describe("EffectsImages.choose", () => {
     expect(landed()).toBe(1);
     const reduced = images.choose(engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
     expect(reduced).toMatchObject({ key: "fx:1", width: 32, inset: 6 });
+    // The full ask is deferred a task (fix round 3), so it lands after the reduced image's own frame,
+    // not inside the same synchronous `choose()` call that just returned it.
+    await flush();
     expect(asked.map((r) => (r as { factor: number }).factor), "then the full one").toEqual([0.5, 1]);
     finish({ header: JSON.stringify({ width: 60, height: 44, inset: 10 }), pixels: new ArrayBuffer(60 * 44 * 4), mask: null });
     await flush();
@@ -99,6 +102,8 @@ describe("EffectsImages.choose", () => {
     EFFECTS_LIMITS.reduced = 1536; EFFECTS_LIMITS.full = defaults.full;
     const small = setup();
     small.images.choose(small.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    // Deferred a task too (fix round 3): no reduction stage at all, but still a full-size ask.
+    await flush();
     expect(small.asked.map((r) => (r as { factor: number }).factor)).toEqual([1]);
   });
 });

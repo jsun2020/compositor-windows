@@ -300,6 +300,11 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
               result["longtasks inside the full window (count)"] = longtasksHere.length;
               result["longest longtask inside the full window, ms"] = longtasksHere.length ? Math.round(Math.max(...longtasksHere.map((t) => t.duration))) : 0;
             }
+            // Diagnostic (fix round 3): the deferred full ask's own displayJobInput cost, wherever it
+            // actually ran (not bucketed to a window: fix round 3 moves it out of any `frame()` call
+            // entirely, via `setTimeout`, so it never shows up in the windowed metrics above at all).
+            result["longest displayJobInput call anywhere (unwindowed), ms"] = displayJobInputCalls.length ? Math.max(...displayJobInputCalls) : 0;
+            result["displayJobInput calls made (total count)"] = displayJobInputCalls.length;
             phase = "done";
           } else if (phase === "full" && now - fullWindowStart > 120_000) {
             result["full image kept after, ms"] = -1;
@@ -362,21 +367,35 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
   // tick blocks on the GPU), which is inherent to how a test polls this way rather than a cost the
   // engine or renderer could avoid. Left unfixed (nothing identified to fix), comfortably in budget.
   expect(out["100 MP: longest frame gap until then"]).toBeLessThan(200);
-  // Fix round 2, issue C: measured 138-183 ms over seven runs after making the windows contiguous
-  // (previously the frame that actually lands the full image could fall in the gap between windows
-  // and be charged to neither budget). Four of seven runs exceeded the existing 150 ms budget (164,
-  // 183, 151, 162; the other three were 143, 148, 138); the 164 ms run coincided with a 447 ms single
-  // `frame()` call ("frame that draws it" below), but the 183, 151 and 162 ms runs did not (14, 14
-  // and 15 ms single-frame costs respectively) -- the same GC/scheduling-jitter pattern as the
-  // 100 MP window above, now landing inside a tighter budget. Per instruction, not widened: reported
-  // for the controller to rule on.
+  // Fix round 2, issue C found this budget newly failing (138-183 ms, four of seven runs over 150)
+  // once the windows were made contiguous: the frame that draws the reduced image also fires the
+  // full-size ask (a synchronous `displayJobInput` copy, 89-135 ms at 24 MP), stacking both costs
+  // into one frame. Fix round 3 (controller ruling) split them: `EffectsImages.choose` now defers
+  // the full-size ask to a fresh task (`setTimeout(fn, 0)`, effects-images.ts) instead of asking
+  // inline, so the frame that draws the reduced image no longer also does the copy -- confirmed by
+  // "longest single render frame inside the full window, ms" below, now 13-19 ms in every run (was
+  // up to 447 ms before the split).
+  //
+  // The split narrowed the range (146-152 ms over seven runs, down from 138-183) and eliminated the
+  // large outlier, but did not reliably bring it under 150: the deferred ask's own copy (87-103 ms in
+  // these seven runs, "longest displayJobInput call anywhere (unwindowed)" below -- not attributed to
+  // either window's `frame()`-scoped metric, since fix round 3 moves it out of `frame()` entirely) now
+  // runs during a `setTimeout` callback instead, but that callback still executes *within* the "full"
+  // window's own time span and still blocks the main thread for that whole duration; `gap` measures
+  // wall-clock time between animation-frame ticks, so the copy's cost still counts toward whichever
+  // window is open when it happens, wherever it happens. Three of seven runs still exceeded 150 (152,
+  // 152, 150); the other four were 149, 148, 146, 149 -- see the per-run table in the fix report for
+  // what each run's longest single frame and longest `displayJobInput` call were (the browser's own
+  // `PerformanceObserver` longtask API caught the copy directly in two of seven runs, 62 and 70 ms;
+  // in the other five it reported none, the same inconsistency issue B found for the 100 MP window).
+  // Per instruction, not widened: reported for the controller to rule on.
   expect(out["24 MP: longest frame gap while the worker made it"]).toBeLessThan(150);
   // Fix round 1, issue 6: measured but not asserted before. The frame that uploads the full image
-  // (24 MP only; past that no full image is ever made) measured 13-24 ms in five of six runs, and
-  // once 447 ms (fix round 2: this was the actual GPU upload cost this time, not a bystander -- see
-  // the sibling budget's comment just above). A GC pause or OS/driver scheduling hiccup on the
-  // machine, not a cost inherent to this frame every time; the sibling budget is pre-existing and
-  // outside this fix round's scope to change, left as is.
+  // (24 MP only; past that no full image is ever made) measured 13-24 ms in fix round 2's own runs,
+  // and once 447 ms there (the actual GPU upload cost that time, coinciding with a gap-budget
+  // failure). Fix round 3's ask/draw split (see the sibling budget's comment just above) removed that
+  // outlier entirely: 13-19 ms in every one of seven runs this round, since the frame that uploads the
+  // full image once it lands never also has to synchronously ask for anything.
   expect(out["24 MP: frame that draws it (halving and upload), ms"]).toBeLessThan(150);
 });
 

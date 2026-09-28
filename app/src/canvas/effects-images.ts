@@ -68,13 +68,34 @@ export class EffectsImages {
     // A layer small enough needs no reduced image: its full-size one is asked for straight away.
     const next = have?.key === key || level === 0 ? (wantFull ? "full" : null) : "reduced";
     if (next && this.asked.get(k) !== `${key}:${next}`) {
-      this.asked.set(k, `${key}:${next}`);
+      const asked = `${key}:${next}`;
+      this.asked.set(k, asked);
       // `key` is this class's own compound identity for the image (`doc:layer`'s caller-supplied
       // `bytesKey`, e.g. gl-renderer.ts's "fx:pixelsRev:maskRev:inset:engineKey"); `draw.effects.key`
       // is the engine's own `EffectsDraw.key` alone, in the engine's own format -- `keep_effects_image`
       // (fix round 1, issue 2) compares against exactly that, freshly recomputed, so it must be told
       // that one, not this class's compound string, which the engine has never heard of.
-      this.ask(engine, doc, layer, key, draw.effects!.key, next === "full" ? 0 : level, pixelsWidth, edit);
+      const engineKey = draw.effects!.key;
+      if (next === "full") {
+        // Deferred to a fresh task (fix round 3): asking for the full image copies the whole layer
+        // synchronously (`displayJobInput`, measured 89-135 ms at 24 MP). Doing that in the very
+        // frame that just drew the reduced image (or, for a layer needing no reduction at all, the
+        // frame that first draws it plainly) stacks two costs into one frame's budget. `setTimeout`,
+        // not `requestAnimationFrame`: this module is also exercised from a plain Node unit test
+        // (effects-images.test.ts) with no `requestAnimationFrame`, and either way the goal is only
+        // "after this frame is done with its own work," not "on the next vsync" specifically. The
+        // full image simply starts one frame later, which is negligible next to the job itself.
+        setTimeout(() => {
+          // Dropped if superseded meanwhile (a newer key asked for this layer, this ask cancelled,
+          // or the layer forgotten via `retainOnly`): `this.asked` still names this exact ask only if
+          // nothing else has happened, the same check `ask`'s own settling already relies on.
+          if (this.asked.get(k) !== asked) return;
+          try { this.ask(engine, doc, layer, key, engineKey, 0, pixelsWidth, edit); }
+          catch { this.asked.delete(k); } // the document or layer closed meanwhile: nothing to ask for.
+        }, 0);
+      } else {
+        this.ask(engine, doc, layer, key, engineKey, level, pixelsWidth, edit);
+      }
     }
     return have;
   }
