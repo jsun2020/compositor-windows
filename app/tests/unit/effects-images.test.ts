@@ -51,11 +51,14 @@ describe("EffectsImages.choose", () => {
    * when `finish` is called. */
   function setup() {
     const asked: JobRequest[] = [];
-    const state = { full: false, kept: 0 };
+    const state = { full: false, kept: 0, closed: false };
     let finish: (r: JobResult | null) => void = () => {};
     const engine = {
       hasEffectsImage: () => state.full,
-      displayJobInput: (_d: string, _l: string, level: number) => ({ input: JSON.stringify({ pixels: [40 >> level, 24 >> level], stamp: {} }), pixels: new ArrayBuffer(4), mask: null }),
+      displayJobInput: (_d: string, _l: string, level: number) => {
+        if (state.closed) throw new Error("no such document"); // the engine's NoDocument
+        return { input: JSON.stringify({ pixels: [40 >> level, 24 >> level], stamp: {} }), pixels: new ArrayBuffer(4), mask: null };
+      },
       keepEffectsImage: () => { state.kept++; return true; },
     } as unknown as EngineClient;
     const jobs = { run: (_c: string, r: JobRequest) => { asked.push(r); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
@@ -105,5 +108,30 @@ describe("EffectsImages.choose", () => {
     // Deferred a task too (fix round 3): no reduction stage at all, but still a full-size ask.
     await flush();
     expect(small.asked.map((r) => (r as { factor: number }).factor)).toEqual([1]);
+  });
+
+  it("drops a deferred full-size ask superseded or forgotten before it runs, and one whose document closed is asked again later", async () => {
+    // 40 x 24 needs no reduction: every choose() below defers a full-size ask (fix round 3).
+    const superseded = setup();
+    superseded.images.choose(superseded.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    superseded.images.choose(superseded.engine, "D", "A", "fx:2", drawOf(), 40, 24, null);
+    await flush();
+    expect(superseded.asked.length, "only the newer pixels' image is asked for").toBe(1);
+    const forgotten = setup();
+    forgotten.images.choose(forgotten.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    forgotten.images.retainOnly("D", new Set());
+    await flush();
+    expect(forgotten.asked.length, "a layer let go asks for nothing").toBe(0);
+    // The copy throws (the document closed meanwhile): nothing escapes the task, and the ask is not
+    // left pending, so the same image is asked for again once it can be.
+    const closed = setup();
+    closed.state.closed = true;
+    closed.images.choose(closed.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush();
+    expect(closed.asked.length).toBe(0);
+    closed.state.closed = false;
+    closed.images.choose(closed.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush();
+    expect(closed.asked.length, "asked again").toBe(1);
   });
 });

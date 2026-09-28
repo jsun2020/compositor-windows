@@ -220,6 +220,28 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
         const s = performance.now();
         try { return realDisplayJobInput(...a); } finally { displayJobInputCalls.push(Math.round(performance.now() - s)); }
       };
+      // Fix round 4: the other work that can run between two ticks, timed where it runs: the engine
+      // taking the worker's full image back (`keepEffectsImage`) and the app's own renders (the
+      // canvas redraws itself when an image lands, apart from this test's `frame()`).
+      const keepMs: number[] = [], appRenderMs: number[] = [];
+      const realKeep = api.engine.keepEffectsImage.bind(api.engine);
+      api.engine.keepEffectsImage = (...a: unknown[]) => {
+        const s = performance.now();
+        try { return realKeep(...a); } finally { keepMs.push(Math.round(performance.now() - s)); }
+      };
+      // The render that first puts the full image on the texture, whichever made it: the app's own
+      // (it redraws as soon as the image is kept) or this test's `frame()`.
+      let inTestFrame = false, fullDrawnMs = -1, fullDrawnByApp = 0;
+      const realRender = api.renderer.render.bind(api.renderer);
+      api.renderer.render = (...a: unknown[]) => {
+        const s = performance.now();
+        try { return realRender(...a); } finally {
+          const ms = Math.round(performance.now() - s);
+          if (!inTestFrame) appRenderMs.push(ms);
+          if (fullDrawnMs < 0 && shown() === "fx") { fullDrawnMs = ms; fullDrawnByApp = inTestFrame ? 0 : 1; }
+        }
+      };
+      const testFrame = () => { inTestFrame = true; try { return frame(); } finally { inTestFrame = false; } };
       // What the layer's texture holds: "px" its own pixels, "rd" a reduced image, "fx" the full one.
       const shown = () => String(api.renderer.textureKey(doc, layer) ?? "").slice(0, 2);
       // Diagnostic (fix round 2, issue B): every long task the browser itself notices on the main
@@ -236,7 +258,7 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
       // cost, nothing left to upload, was reported as "the first frame" instead).
       const t0 = performance.now();
       api.store.getState().openDocument(doc);
-      result["first frame (the layer plainly), ms"] = Math.round(frame());
+      result["first frame (the layer plainly), ms"] = Math.round(testFrame());
       result["the first frame draws the layer plainly (1 = yes)"] = shown() === "px" ? 1 : 0;
 
       // Fix round 2, issue C: the windows must be contiguous. Reading and resetting `gap` from
@@ -247,41 +269,72 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
       // synchronous task that detected "done", before any tick had a chance to charge that frame to
       // anything. Fixed by driving the whole poll from inside the tick callback: `frame()`, the
       // "done" check, and the phase switch (with its readout and reset, atomically) all happen there
-      // now, so every inter-tick interval belongs to exactly one window and every `displayJobInput`
-      // call is attributed to the window whose `frame()` call actually made it.
+      // now, so every inter-tick interval belongs to exactly one window. Fix round 4: what ran inside
+      // an interval is charged with it -- the previous tick's `frame()`, and every `displayJobInput`,
+      // `keepEffectsImage` and app render made since the previous tick, inside that `frame()` or in a
+      // task between ticks (the deferred full-size ask, fix round 3) -- so a window's diagnostics
+      // describe exactly the intervals its gap is taken over, and the longest interval's contents
+      // are recorded. (A `displayJobInput` call inside `frame()` is counted in both.)
       type Phase = "reduced" | "full" | "done";
       const wantsFull = w * h <= 24_000_000; // EFFECTS_LIMITS.full
       let phase: Phase = "reduced";
       let last = performance.now(), gap = 0;
       const reducedWindowStart = last;
       let fullWindowStart = 0;
+      // Anything before this point ran in the exempt opening frame.
+      let seen = displayJobInputCalls.length, seenKeep = keepMs.length, seenRender = appRenderMs.length;
+      let previousFrameMs = 0;
       let callsThisWindow: number[] = [];
       // Diagnostic (fix round 2, issue B): the renderer's own per-frame cost while nothing new has
       // landed yet, to tell apart from `displayJobInput`'s -- the 100 MP "reduced" window's gap was
       // guessed, not shown, to be `displayJobInput`'s halving; this checks that directly by timing
       // every `frame()` call in the window and reporting the longest.
       let frameMsThisWindow: number[] = [];
+      // The longest interval of the open window and what ran in it, ms.
+      const noHolds = { displayJobInput: 0, keepEffectsImage: 0, appRender: 0, frame: 0 };
+      let longestHolds = noHolds;
+
+      // Ends the reduced window at `at` (read out and reset at once) and opens the next.
+      const endReduced = (at: number) => {
+        result["reduced image drawn after, ms"] = Math.round(at - t0);
+        result["longest frame gap until then"] = Math.round(gap);
+        for (const [what, ms] of Object.entries(longestHolds)) result[`that longest gap holds: ${what} ms`] = ms;
+        result["longest displayJobInput call inside that window, ms"] = callsThisWindow.length ? Math.max(...callsThisWindow) : 0;
+        result["longest single render frame inside that window, ms"] = frameMsThisWindow.length ? Math.round(Math.max(...frameMsThisWindow)) : 0;
+        const longtasksHere = longtasks.filter((t) => t.start >= reducedWindowStart && t.start < at);
+        result["longtasks inside that window (count)"] = longtasksHere.length;
+        result["longest longtask inside that window, ms"] = longtasksHere.length ? Math.round(Math.max(...longtasksHere.map((t) => t.duration))) : 0;
+        gap = 0; callsThisWindow = []; frameMsThisWindow = []; longestHolds = noHolds; fullWindowStart = at;
+        phase = wantsFull ? "full" : "done";
+      };
 
       await new Promise<void>((resolve) => {
         const tick = () => {
           const now = performance.now();
-          gap = Math.max(gap, now - last);
+          // Fix round 4: the reduced image drawn since the last tick, by the app's own render (it
+          // redraws as soon as an image lands): the interval that drew it belongs to the full window,
+          // as the interval after this test's own `frame()` does when that frame draws it (below) --
+          // "until the reduced image is drawn" holds nothing done after it, such as the full-size ask
+          // that follows the draw in a task of its own (fix round 3).
+          if (phase === "reduced" && shown() === "rd") endReduced(last);
+          const interval = now - last;
+          const callsInInterval = displayJobInputCalls.slice(seen);
+          seen = displayJobInputCalls.length;
+          callsThisWindow.push(...callsInInterval);
+          frameMsThisWindow.push(previousFrameMs);
+          const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+          const keepInInterval = keepMs.slice(seenKeep), rendersInInterval = appRenderMs.slice(seenRender);
+          seenKeep = keepMs.length; seenRender = appRenderMs.length;
+          if (interval > gap) {
+            gap = interval;
+            longestHolds = { displayJobInput: sum(callsInInterval), keepEffectsImage: sum(keepInInterval), appRender: sum(rendersInInterval), frame: Math.round(previousFrameMs) };
+          }
           last = now;
-          const before = displayJobInputCalls.length;
-          const frameMs = frame();
-          for (let i = before; i < displayJobInputCalls.length; i++) callsThisWindow.push(displayJobInputCalls[i]);
-          frameMsThisWindow.push(frameMs);
+          const frameMs = testFrame();
+          previousFrameMs = frameMs;
 
           if (phase === "reduced" && shown() === "rd") {
-            result["reduced image drawn after, ms"] = Math.round(now - t0);
-            result["longest frame gap until then"] = Math.round(gap);
-            result["longest displayJobInput call inside that window, ms"] = callsThisWindow.length ? Math.max(...callsThisWindow) : 0;
-            result["longest single render frame inside that window, ms"] = frameMsThisWindow.length ? Math.round(Math.max(...frameMsThisWindow)) : 0;
-            const longtasksHere = longtasks.filter((t) => t.start >= reducedWindowStart && t.start < now);
-            result["longtasks inside that window (count)"] = longtasksHere.length;
-            result["longest longtask inside that window, ms"] = longtasksHere.length ? Math.round(Math.max(...longtasksHere.map((t) => t.duration))) : 0;
-            gap = 0; callsThisWindow = []; frameMsThisWindow = []; fullWindowStart = now;
-            phase = wantsFull ? "full" : "done";
+            endReduced(now);
           } else if (phase === "reduced" && now - reducedWindowStart > 60_000) {
             result["reduced image drawn after, ms"] = -1;
             result["longest frame gap until then"] = Math.round(gap);
@@ -291,7 +344,11 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
           } else if (phase === "full" && api.engine.hasEffectsImage(doc, layer, null)) {
             result["full image kept after, ms"] = Math.round(now - fullWindowStart);
             result["longest frame gap while the worker made it"] = Math.round(gap);
-            result["frame that draws it (halving and upload), ms"] = Math.round(frameMs);
+            for (const [what, ms] of Object.entries(longestHolds)) result[`the full window's longest gap holds: ${what} ms`] = ms;
+            // Fix round 4: the render that actually drew it (usually the app's own, before this tick),
+            // not this tick's `frame()`, which then finds the texture up to date.
+            result["frame that draws it (halving and upload), ms"] = fullDrawnMs >= 0 ? fullDrawnMs : Math.round(frameMs);
+            result["that frame was the app's own render (1 = yes)"] = fullDrawnByApp;
             result["then drawn at full size (1 = yes)"] = shown() === "fx" ? 1 : 0;
             result["longest displayJobInput call inside the full window, ms"] = callsThisWindow.length ? Math.max(...callsThisWindow) : 0;
             result["longest single render frame inside the full window, ms"] = frameMsThisWindow.length ? Math.round(Math.max(...frameMsThisWindow)) : 0;
@@ -300,9 +357,8 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
               result["longtasks inside the full window (count)"] = longtasksHere.length;
               result["longest longtask inside the full window, ms"] = longtasksHere.length ? Math.round(Math.max(...longtasksHere.map((t) => t.duration))) : 0;
             }
-            // Diagnostic (fix round 3): the deferred full ask's own displayJobInput cost, wherever it
-            // actually ran (not bucketed to a window: fix round 3 moves it out of any `frame()` call
-            // entirely, via `setTimeout`, so it never shows up in the windowed metrics above at all).
+            // Diagnostic (fix round 3): every displayJobInput call, windows aside (since fix round 4
+            // the deferred full-size ask's copy is also charged to the full window above).
             result["longest displayJobInput call anywhere (unwindowed), ms"] = displayJobInputCalls.length ? Math.max(...displayJobInputCalls) : 0;
             result["displayJobInput calls made (total count)"] = displayJobInputCalls.length;
             phase = "done";
@@ -337,12 +393,10 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
     // was installed once and never reset, so it was not "inside that window" at all -- at 100 MP the
     // one and only `displayJobInput` call (the reduced ask) runs inside the exempt opening frame,
     // before this window's own tracking even starts, and this metric now correctly shows 0 for it.
-    // At 24 MP it also shows 0 in this test, in six of six runs: the level-0 (full-size) ask that
-    // fires the moment the reduced image lands is an `Arc` clone plus a memcpy (no halving at level
-    // 0), not the costly halving copy fix round 1 mistakenly credited with the gap (that number,
-    // "89-135 ms", was the *reduced* ask's own cost, mismeasured into this window by the same
-    // never-reset-array bug). The budget is looser than these six runs alone would need: the
-    // "effects job preemption" test below asks for the identical copy after heavier prior wasm heap
+    // At 24 MP it shows 0 too: the reduced ask also runs in the opening frame, and the full-size ask
+    // (a level-0 copy, 66-98 ms in fix round 4's seven runs) runs after the reduced image is drawn,
+    // so it belongs to the full window (charged there since fix round 4). The budget is looser than
+    // this window alone would need: the "effects job preemption" test below asks for the identical copy after heavier prior wasm heap
     // growth (a reduced copy, an interrupted full copy and a histogram job's own whole-layer copy)
     // and measured 91-118 ms there, `WebAssembly.Memory.grow` costing more as the heap is already
     // larger -- the same call, a wider range of measured cost depending on memory pressure.
@@ -352,7 +406,9 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
   // Fix round 1, issue 6: this budget used to pass only because the exempt opening frame's cost was
   // silently discarded (the old two-rAF wait) rather than because the worker held the page up, and a
   // second bug (the tick loop's `last` left stale across that discarded frame) would have broken it
-  // again the moment the first bug was fixed alone. Measured now, with both fixed: 68-95 ms.
+  // again the moment the first bug was fixed alone. Measured now, with both fixed: 68-95 ms. Fix
+  // round 4 (the full-size ask that follows the draw charged to the full window): 31, 101, 75, 41,
+  // 34, 29, 28 ms over seven runs (101 in a run slowed throughout: 30 s to the full image, not 12-14).
   expect(out["24 MP: longest frame gap until then"]).toBeLessThan(100);
   // At 100 MP: 100-134 ms measured over six runs, well under budget. Fix round 1 guessed this was
   // `display_job_input`'s own halving of the layer down to the reduced size; fix round 2 checked that
@@ -367,35 +423,27 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
   // tick blocks on the GPU), which is inherent to how a test polls this way rather than a cost the
   // engine or renderer could avoid. Left unfixed (nothing identified to fix), comfortably in budget.
   expect(out["100 MP: longest frame gap until then"]).toBeLessThan(200);
-  // Fix round 2, issue C found this budget newly failing (138-183 ms, four of seven runs over 150)
-  // once the windows were made contiguous: the frame that draws the reduced image also fires the
-  // full-size ask (a synchronous `displayJobInput` copy, 89-135 ms at 24 MP), stacking both costs
-  // into one frame. Fix round 3 (controller ruling) split them: `EffectsImages.choose` now defers
-  // the full-size ask to a fresh task (`setTimeout(fn, 0)`, effects-images.ts) instead of asking
-  // inline, so the frame that draws the reduced image no longer also does the copy -- confirmed by
-  // "longest single render frame inside the full window, ms" below, now 13-19 ms in every run (was
-  // up to 447 ms before the split).
-  //
-  // The split narrowed the range (146-152 ms over seven runs, down from 138-183) and eliminated the
-  // large outlier, but did not reliably bring it under 150: the deferred ask's own copy (87-103 ms in
-  // these seven runs, "longest displayJobInput call anywhere (unwindowed)" below -- not attributed to
-  // either window's `frame()`-scoped metric, since fix round 3 moves it out of `frame()` entirely) now
-  // runs during a `setTimeout` callback instead, but that callback still executes *within* the "full"
-  // window's own time span and still blocks the main thread for that whole duration; `gap` measures
-  // wall-clock time between animation-frame ticks, so the copy's cost still counts toward whichever
-  // window is open when it happens, wherever it happens. Three of seven runs still exceeded 150 (152,
-  // 152, 150); the other four were 149, 148, 146, 149 -- see the per-run table in the fix report for
-  // what each run's longest single frame and longest `displayJobInput` call were (the browser's own
-  // `PerformanceObserver` longtask API caught the copy directly in two of seven runs, 62 and 70 ms;
-  // in the other five it reported none, the same inconsistency issue B found for the 100 MP window).
-  // Per instruction, not widened: reported for the controller to rule on.
-  expect(out["24 MP: longest frame gap while the worker made it"]).toBeLessThan(150);
+  // The full window necessarily holds one synchronous full-size copy: asking the worker for the
+  // full image copies the whole layer out on the UI thread (`displayJobInput` at level 0, the same
+  // copy the "jobs:" test budgets at 150 ms at 24 MP as "jobInput ms"). Fix round 3 moved that ask
+  // out of the frame that draws the reduced image into a task of its own, so the longest interval
+  // between two frames is that copy plus at most one frame boundary. Budget (controller ruling, fix
+  // round 4): the copy's own budget plus one 60 Hz frame, 150 + 17 = 167, rounded to 170 -- derived,
+  // not widened for noise. Measured 146-152 ms over seven runs in fix round 3. Fix round 4 recorded
+  // what the longest interval holds, and it is not that copy (a separate interval, 66-98 ms): it is
+  // the engine taking the finished image back (`keepEffectsImage`, 78-127 ms) followed, before the
+  // next frame, by the app's own render that draws it (60-109 ms), stacked. Seven runs: 189, 248,
+  // 149, 192, 155, 161, 147 ms -- three over this budget; reported to the controller, not widened.
+  expect(out["24 MP: longest frame gap while the worker made it"]).toBeLessThan(170);
   // Fix round 1, issue 6: measured but not asserted before. The frame that uploads the full image
   // (24 MP only; past that no full image is ever made) measured 13-24 ms in fix round 2's own runs,
   // and once 447 ms there (the actual GPU upload cost that time, coinciding with a gap-budget
   // failure). Fix round 3's ask/draw split (see the sibling budget's comment just above) removed that
   // outlier entirely: 13-19 ms in every one of seven runs this round, since the frame that uploads the
-  // full image once it lands never also has to synchronously ask for anything.
+  // full image once it lands never also has to synchronously ask for anything. Fix round 4: those
+  // 13-19 ms were this test's own `frame()` finding the texture already up to date; the render that
+  // actually draws the full image is the app's own, as soon as it is kept: 99, 109, 60, 74, 67, 64,
+  // 60 ms over seven runs, now the number measured here.
   expect(out["24 MP: frame that draws it (halving and upload), ms"]).toBeLessThan(150);
 });
 
@@ -524,10 +572,12 @@ test("effects job preemption: a Levels histogram requested while a 24 MP layer's
     expect(out[`run ${run}: the worker was actually respawned for it (1 = yes)`]).toBe(1);
     expect(out[`run ${run}: (c) the effects image was asked for again afterward (1 = yes)`]).toBe(1);
     // (a) the respawn (terminate + new Worker + module re-post + init) plus dispatch: measured
-    // 221-324 ms over nine runs, three invocations (release wasm, Edge, real GPU).
+    // 221-324 ms over nine runs, three invocations (release wasm, Edge, real GPU); fix round 3,
+    // three runs: 200-208 ms; fix round 4, nine runs: 242, 223, 257, 247, 234, 258, 239, 249, 208 ms.
     expect(out[`run ${run}: (a) edit job posted to the new worker after, ms`]).toBeLessThan(400);
     // (b) the longest main-thread frame gap while the preemption (termination, respawn, dispatch)
-    // happens: measured 178-230 ms over nine runs, three invocations.
+    // happens: measured 178-230 ms over nine runs, three invocations; fix round 3, three runs:
+    // 92-105 ms; fix round 4, nine runs: 123, 100, 100, 124, 107, 108, 111, 108, 100 ms.
     expect(out[`run ${run}: (b) longest frame gap during the preemption, ms`]).toBeLessThan(300);
     // (c) named exemption, not a separate budget: this is the same `displayJobInput` call the
     // "effects images" test above asserts a budget for ("longest displayJobInput call inside that
