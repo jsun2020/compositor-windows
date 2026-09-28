@@ -20,7 +20,11 @@ impl std::fmt::Debug for RasterInner {
 pub struct Raster { pub width: u32, pub height: u32, inner: Arc<RasterInner> }
 
 impl PartialEq for Raster {
-    fn eq(&self, other: &Self) -> bool { self.width == other.width && self.height == other.height && self.inner.data == other.inner.data }
+    /// The same buffer is equal without reading it: `Document::same_content` compares every layer on
+    /// every edit, and a 100 MP layer's bytes took a full scan to compare with themselves.
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width && self.height == other.height && (Arc::ptr_eq(&self.inner, &other.inner) || self.inner.data == other.inner.data)
+    }
 }
 
 impl Raster {
@@ -70,6 +74,11 @@ impl Raster {
         out
     }
     pub fn same_pixels(&self, other: &Raster) -> bool { Arc::ptr_eq(&self.inner, &other.inner) }
+    /// The pixel buffer's identity: equal for every clone sharing it (history counts buffers by it).
+    pub fn buffer_id(&self) -> usize { Arc::as_ptr(&self.inner) as *const u8 as usize }
+    /// Drops the memoized halving of this buffer, for every clone that shares it (history lets go of
+    /// the halvings of buffers only it holds: they are not counted against its limit).
+    pub fn forget_halvings(&self) { *self.inner.half.lock().unwrap() = None; }
     /// Whether another clone of this raster holds the same pixel buffer.
     pub fn shared(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
     /// How many handles hold these pixels, this one included.
@@ -142,6 +151,8 @@ impl GrayRaster {
     pub fn bytes(&self) -> &[u8] { &self.data }
     /// The very same pixel buffer (a clone of this raster), not merely equal pixels.
     pub fn same_pixels(&self, other: &GrayRaster) -> bool { Arc::ptr_eq(&self.data, &other.data) }
+    /// The pixel buffer's identity: equal for every clone sharing it.
+    pub fn buffer_id(&self) -> usize { Arc::as_ptr(&self.data) as *const u8 as usize }
     /// Whether another clone of this raster holds the same pixel buffer.
     pub fn shared(&self) -> bool { Arc::strong_count(&self.data) > 1 }
     /// How many handles hold these pixels, this one included.

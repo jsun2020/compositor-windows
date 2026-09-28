@@ -14,7 +14,7 @@ function layer(): LayerState {
   };
 }
 function document(): DocumentState {
-  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: "A", canUndo: false, canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection: null, layers: [layer()] };
+  return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: "A", canUndo: false, canRedo: false, isModified: false, undoDepth: 0, undoEntryId: null, path: null, guides: [], undrawn: [], selection: null, layers: [layer()] };
 }
 
 /** A stub EngineClient recording every `execute` command, with no wasm involved. */
@@ -36,7 +36,7 @@ describe("commitTransform unchanged check", () => {
     const { engine, calls } = stubEngine(doc);
     useEditor.setState({
       engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A"], maskSelected: false,
-      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: original, corners: cornersToTuples(cornersOf(original)), persistent: true, duplicated: false, undoDepthBefore: null },
+      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: original, corners: cornersToTuples(cornersOf(original)), persistent: true, duplicated: false, duplicateEntry: null },
     });
     useEditor.getState().commitTransform();
     expect(calls).toEqual([]);
@@ -50,7 +50,7 @@ describe("commitTransform unchanged check", () => {
     const moved: typeof corners = [[corners[0][0] + 5, corners[0][1]], corners[1], corners[2], corners[3]];
     useEditor.setState({
       engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A"], maskSelected: false,
-      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: original, corners: moved, persistent: true, duplicated: false, undoDepthBefore: null },
+      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: original, corners: moved, persistent: true, duplicated: false, duplicateEntry: null },
     });
     useEditor.getState().commitTransform();
     expect(calls).toEqual([{ type: "DistortLayer", id: "A", transform: original, corners: moved }]);
@@ -62,7 +62,7 @@ describe("commitTransform unchanged check", () => {
     const { engine, calls } = stubEngine(doc);
     useEditor.setState({
       engine, activeId: "D", documents: { D: doc }, selectedLayerIds: ["A"], maskSelected: false,
-      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: { ...original, origin: [0.2, -0.1] }, corners: null, persistent: true, duplicated: false, undoDepthBefore: null },
+      transformEdit: { kind: "layer", id: "A", ids: ["A"], box: original, original, draft: { ...original, origin: [0.2, -0.1] }, corners: null, persistent: true, duplicated: false, duplicateEntry: null },
     });
     useEditor.getState().commitTransform();
     expect(calls).toEqual([]);

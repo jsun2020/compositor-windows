@@ -50,9 +50,12 @@ pub struct DocumentState {
     #[serde(with = "ids::upper_opt")] pub active_layer_id: Option<Uuid>,
     pub can_undo: bool,
     pub can_redo: bool,
-    /// Entries on the undo stack. A gesture that records one command can compare this against the
-    /// depth it saw beforehand to tell whether its own entry is still the one on top.
+    /// Entries on the undo stack (at most 100, fewer when their pixels pass 256 MiB).
     pub undo_depth: usize,
+    /// The id of the entry an undo would take back (`History::undo_entry_id`), None with nothing to
+    /// undo. A gesture that recorded one command reads it straight after and compares it later to
+    /// tell whether its own entry is still on top: the depth cannot, once the cap trims the oldest.
+    pub undo_entry_id: Option<u64>,
     pub is_modified: bool,
     pub path: Option<String>,
     pub layers: Vec<LayerState>,
@@ -95,7 +98,11 @@ fn renew_revisions(before: &Document, next: &mut Document, counter: &mut u64) {
 }
 
 #[derive(Default)]
-pub struct Engine { sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache, clips: SelectionClips }
+pub struct Engine {
+    sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache, clips: SelectionClips,
+    /// Entries and bytes each document's history keeps; None for the Mac's 100 and 256 MiB.
+    history_limits: Option<(usize, usize)>,
+}
 
 fn check_dimensions(width: u32, height: u32) -> Result<(), CommandError> {
     if !(1..=MAX_SIDE as u32).contains(&width) || !(1..=MAX_SIDE as u32).contains(&height) {
@@ -108,6 +115,9 @@ impl Engine {
     pub fn new() -> Engine { Engine::default() }
     /// An engine keeping its effects images in `effects` (tests give it small limits).
     pub fn with_effects_cache(effects: EffectsCache) -> Engine { Engine { effects, ..Engine::default() } }
+    /// An engine whose documents keep at most `entries` history entries and `bytes` of pixels only
+    /// history holds (tests give it small limits; `History::default` has the Mac's).
+    pub fn with_history_limits(entries: usize, bytes: usize) -> Engine { Engine { history_limits: Some((entries, bytes)), ..Engine::default() } }
     /// The effects images this engine keeps (`EffectsCache`).
     pub fn effects_cache(&self) -> &EffectsCache { &self.effects }
     /// The selection clips this engine keeps (`SelectionClips`), one per document.
@@ -119,7 +129,8 @@ impl Engine {
     /// collisions with a live session never happen.
     fn insert(&mut self, document: Document, path: Option<String>) -> Uuid {
         let handle = Uuid::new_v4();
-        self.sessions.insert(handle, Session { document, history: History::default(), path, preview: None });
+        let history = self.history_limits.map_or_else(History::default, |(entries, bytes)| History::with_limits(entries, bytes));
+        self.sessions.insert(handle, Session { document, history, path, preview: None });
         self.order.push(handle);
         handle
     }
@@ -166,7 +177,8 @@ impl Engine {
         let d = &*doc;
         Ok(DocumentState {
             id, document_id: d.id, width: d.width, height: d.height, resolution: d.resolution, active_layer_id: d.active_layer_id,
-            can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), undo_depth: s.history.depth(), is_modified: s.history.is_modified(),
+            can_undo: s.history.can_undo(), can_redo: s.history.can_redo(), undo_depth: s.history.depth(),
+            undo_entry_id: s.history.undo_entry_id(), is_modified: s.history.is_modified(),
             path: s.path.clone(),
             layers: d.layers.iter().map(|l| LayerState {
                 id: l.id, name: l.name.clone(), visible: l.visible, is_group: l.is_group, parent_id: l.parent_id,
@@ -282,7 +294,7 @@ impl Engine {
         let content_changed = !next.same_content(&s.document);
         renew_revisions(&s.document, &mut next, &mut self.revision);
         let before = std::mem::replace(&mut s.document, next);
-        if content_changed { s.history.push(before); }
+        if content_changed { s.history.push(before); s.history.trim(&s.document); }
         self.clips.retain_current(&s.document);
         Ok(dirty)
     }
@@ -402,14 +414,14 @@ impl Engine {
     pub fn undo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
-        if let Some(before) = s.history.undo(&s.document) { s.document = before; }
+        if let Some(before) = s.history.undo(&s.document) { s.document = before; s.history.trim(&s.document); }
         self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
-        if let Some(after) = s.history.redo(&s.document) { s.document = after; }
+        if let Some(after) = s.history.redo(&s.document) { s.document = after; s.history.trim(&s.document); }
         self.clips.retain_current(&s.document);
         Ok(Dirty::everything())
     }

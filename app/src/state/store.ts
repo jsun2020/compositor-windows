@@ -43,11 +43,12 @@ export interface TransformEdit {
   corners: Corners | null;
   persistent: boolean;
   duplicated: boolean;
-  /** For a duplicated edit, the engine's undo depth immediately before the DuplicateLayer that
-   * created the copy. `cancelTransform` reverts only when the depth is still exactly one past
-   * this, i.e. the entry on top of the stack is the duplicate's and nothing slipped in behind
-   * it. Null when the edit duplicated nothing. */
-  undoDepthBefore: number | null;
+  /** For a duplicated edit, the id of the history entry the DuplicateLayer that created the copy
+   * pushed (`undoEntryId` read straight after it). `cancelTransform` reverts only while that entry
+   * is still the one on top: nothing slipped in behind it. An id, not a depth: at the history cap
+   * the duplicate's push trims the oldest entry and the depth does not move. Null when the edit
+   * duplicated nothing. */
+  duplicateEntry: number | null;
 }
 
 export interface EditorStore {
@@ -355,7 +356,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
     if (transformsAsGroup(state, selectedLayerIds)) {
       const box = groupBox(state, selectedLayerIds)!;
-      set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false, undoDepthBefore: null } });
+      set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false, duplicateEntry: null } });
       return true;
     }
     let layer = activeLayer(state);
@@ -364,24 +365,23 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // (computed before any duplication, from the layer this transform is actually about).
     const maskAlone = maskSelected && layer.hasMask && !layer.maskLinked;
     const willDuplicate = !!duplicate && !maskAlone;
-    let undoDepthBefore: number | null = null;
+    let duplicateEntry: number | null = null;
     if (willDuplicate) {
-      // The depth before the copy exists, so a later cancel can prove the entry it is about to
-      // drop is the one this command pushed.
-      undoDepthBefore = state.undoDepth;
       // Not `run`: the duplicate has to be observed here to seed the edit. Its failures
       // ("too many layers", "folders are not duplicated this way") still belong in the error
       // banner rather than thrown out of a pointerdown handler.
       try { engine.execute(activeId, { type: "DuplicateLayer", id: layer.id }); }
       catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
       get().refresh(activeId);
+      // The entry the copy pushed, so a later cancel can prove the entry it is about to drop is this one.
+      duplicateEntry = get().documents[activeId].undoEntryId;
       const copy = activeLayer(get().documents[activeId]);
       if (!copy) return false;
       layer = copy;
       set({ selectedLayerIds: [layer.id] });
     }
     const t = maskAlone ? layer.maskPlacement ?? layer.transform : layer.transform;
-    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate, undoDepthBefore } });
+    set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate, duplicateEntry } });
     return true;
   },
   previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; set({ transformEdit: { ...e, draft, corners: corners === undefined ? e.corners : corners } }); get().invalidate(); },
@@ -406,13 +406,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // outright. A plain `undo` here would leave it on the redo stack, and Ctrl+Shift+Z would
     // bring the cancelled copy back. macOS closes the transaction with nothing recorded.
     //
-    // Only when the entry on top is provably still the duplicate's: the depth must be exactly
-    // one past what it was before the copy was made. `run` commits any pending edit before it
-    // records, so nothing should be able to interleave, but reverting the wrong entry would
-    // silently discard a real edit and strand the copy, so this refuses rather than guesses.
+    // Only when the entry on top is provably still the duplicate's: its id must be the one the
+    // copy pushed. `run` commits any pending edit before it records, so nothing should be able to
+    // interleave, but reverting the wrong entry would silently discard a real edit and strand the
+    // copy, so this refuses rather than guesses.
     if (e.duplicated && engine && activeId) {
-      const depth = engine.state(activeId).undoDepth;
-      if (e.undoDepthBefore !== null && depth === e.undoDepthBefore + 1) { engine.revert(activeId); get().refresh(activeId); }
+      const top = engine.state(activeId).undoEntryId;
+      if (e.duplicateEntry !== null && top === e.duplicateEntry) { engine.revert(activeId); get().refresh(activeId); }
     }
     get().invalidate();
   },

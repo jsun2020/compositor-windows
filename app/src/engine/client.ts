@@ -10,6 +10,8 @@ export class EngineClient {
   }
 
   version(): string { return this.wasm.version(); }
+  /** The engine's wasm memory in bytes. It only grows; the perf harness reads its high-water mark. */
+  wasmBytes(): number { return this.memory.buffer.byteLength; }
   newDocument(width: number, height: number, emptyLayer: boolean): string { return this.wasm.new_document(width, height, emptyLayer); }
   openPackage(files: PackageFiles, path: string | null): string {
     return this.wasm.open_package(files.manifest, files.images.map((i) => i.name), files.images.map((i) => i.bytes), path ?? undefined);

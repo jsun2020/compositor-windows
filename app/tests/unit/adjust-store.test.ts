@@ -16,7 +16,7 @@ function layer(id: string, o: Partial<LayerState> = {}): LayerState {
 }
 function document(layers: LayerState[], active: string): DocumentState {
   return { id: "D", documentId: "D", width: 10, height: 10, resolution: 72, activeLayerId: active, canUndo: false,
-    canRedo: false, isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection: null, layers };
+    canRedo: false, isModified: false, undoDepth: 0, undoEntryId: null, path: null, guides: [], undrawn: [], selection: null, layers };
 }
 
 function install(layers: LayerState[], active: string) {

@@ -18,7 +18,7 @@ function layer(id: string, over: Partial<LayerState> = {}): LayerState {
 const selected = (empty = false): SelectionState => ({ revision: 7, empty, bounds: empty ? null : { x: 2, y: 2, width: 5, height: 5 }, antialiased: true, feather: 0, points: 4 });
 function document(layers: LayerState[], selection: SelectionState | null): DocumentState {
   return { id: "D", documentId: "D", width: 100, height: 100, resolution: 72, activeLayerId: layers[0]?.id ?? null, canUndo: false, canRedo: false,
-    isModified: false, undoDepth: 0, path: null, guides: [], undrawn: [], selection, layers };
+    isModified: false, undoDepth: 0, undoEntryId: null, path: null, guides: [], undrawn: [], selection, layers };
 }
 function stub(doc: DocumentState) {
   const commands: Command[] = [];

@@ -116,9 +116,12 @@ export type PreviewEdit =
 export interface DocumentState {
   id: string; documentId: string; width: number; height: number; resolution: number; activeLayerId: string | null;
   canUndo: boolean; canRedo: boolean; isModified: boolean; path: string | null; layers: LayerState[];
-  /** Entries on the undo stack. A gesture that recorded one command compares this against the
-   * depth it saw beforehand to tell whether its own entry is still the one on top. */
+  /** Entries on the undo stack: at most 100, fewer when their pixels pass 256 MiB (engine `History`). */
   undoDepth: number;
+  /** The id of the entry an undo would take back, null with nothing to undo. A gesture that
+   * recorded one command reads it straight after and compares it later to tell whether its own
+   * entry is still on top; the depth cannot tell, once the cap trims the oldest entry. */
+  undoEntryId: number | null;
   guides: Guide[];
   /** What this project contains that this build does not draw yet (`Document::undrawn`). */
   undrawn: string[];
