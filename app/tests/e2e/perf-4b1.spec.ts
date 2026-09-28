@@ -122,10 +122,18 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
       api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
       api.store.getState().openDocument(doc);
       await settle(); frame();
-      // The longest gap between animation frames while `until` is false.
+      // The longest gap between animation frames while `until` is false. Measured with
+      // performance.now() taken INSIDE the callback, not the rAF timestamp argument: that
+      // timestamp can predate when the callback actually runs (it is the frame's nominal time, not
+      // "now"), which under-reports a gap that a long synchronous task -- such as `installJob`
+      // running inside the worker's message handler -- partly hides behind it (fix round 1, issue 4).
       const longestGap = (until: () => boolean) => new Promise<number>((done) => {
         let last = performance.now(), gap = 0;
-        const tick = (t: number) => { gap = Math.max(gap, t - last); last = t; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+        const tick = () => {
+          const now = performance.now();
+          gap = Math.max(gap, now - last); last = now;
+          if (until()) done(Math.round(gap)); else requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
       });
       let t0 = performance.now();
@@ -150,8 +158,10 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
   }
   console.log(`jobs (release wasm, Edge): ${JSON.stringify(out)}`);
   for (const label of ["24 MP", "100 MP"]) {
-    // The worker's own time never holds the page up past 100 ms; the copies are budgeted per size.
+    // The worker's own time never holds the page up past 100 ms; the copies are budgeted per size
+    // (OQ5's "500" at 100 MP means 450 here, per ruling I7).
     expect(out[`${label}: histogram: longest frame gap while the worker reads it`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    expect(out[`${label}: jobInput ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
   }
 });

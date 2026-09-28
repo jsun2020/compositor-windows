@@ -65,6 +65,44 @@ test("Levels on a large layer: the panel opens at once, its histogram comes from
   expect(await jobKinds(page), "the histogram and the commit both ran in the job worker").toEqual(["histogram", "edit"]);
 });
 
+test("Levels under a selection on a large layer: the worker's histogram and commit clip to it, exactly as in place", async ({ page }) => {
+  // Fix round 1, issue 3: exercises the points path end to end -- a job's selection travels as a
+  // separate byte buffer (engine jobs.rs's JobSelection), never JSON, and only a real selection
+  // makes it non-null (EngineClient.jobInput). Both prior jobs.spec.ts tests have no selection at
+  // all, so a swapped mask/points argument order in job-worker.ts (jobs.ts and job-worker.ts pass
+  // pixels, mask, points, in that order to run_edit_job/run_histogram_job) would pass every other
+  // test here undetected.
+  const ids = await setup(page);
+  const box = { type: "SelectShape", kind: "Rectangle", points: [[10, 10], [60, 10], [60, 50], [10, 50]], mode: "Replace", antialiased: false };
+  await page.evaluate(([ids, box]) => {
+    const api = (window as any).__compositor;
+    api.engine.execute(ids.there, box);
+    api.store.getState().refresh(ids.there);
+    api.engine.execute(ids.here, box);
+  }, [ids, box] as const);
+  // Taken after the selection: the SelectShape command above records its own undo entry.
+  const depth = (await state(page)).undoDepth;
+  await page.evaluate(() => (window as any).__compositor.store.getState().beginAdjust({ kind: "Levels" }));
+  await page.waitForFunction(() => (window as any).__compositor.store.getState().adjustEdit?.histogram !== null);
+  const [fromWorker, inPlace] = await page.evaluate((ids) => {
+    const api = (window as any).__compositor;
+    return [api.store.getState().adjustEdit.histogram, api.engine.histogram(ids.there, ids.layer)];
+  }, ids);
+  // The worker's histogram, read inside the selection, matches the engine's own -- proves the
+  // selection's points actually reached the worker and were applied, not silently dropped or
+  // swapped with something else.
+  expect(fromWorker).toEqual(inPlace);
+  await page.getByLabel("Output white").fill("190");
+  await page.getByLabel("Gamma").fill("1.3");
+  const adjustment = await page.evaluate(() => (window as any).__compositor.store.getState().adjustEdit.adjustment);
+  await page.getByRole("button", { name: "OK" }).click();
+  await idle(page);
+  expect((await state(page)).undoDepth).toBe(depth + 1);
+  await page.evaluate(([ids, adjustment]) => (window as any).__compositor.engine.execute(ids.here, { type: "ApplyAdjustment", id: ids.other, adjustment }), [ids, adjustment] as const);
+  expect(await worst(page, ids.there, ids.here)).toBe(0);
+  expect(await jobKinds(page), "the histogram and the commit both ran in the job worker, under the selection").toEqual(["histogram", "edit"]);
+});
+
 test("a blur on a large layer grows it through the worker exactly as it does in place", async ({ page }) => {
   const ids = await setup(page);
   await page.evaluate(() => (window as any).__compositor.store.getState().beginAdjust({ kind: "GaussianBlur" }));

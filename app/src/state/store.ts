@@ -408,6 +408,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // takes only `DocumentState` plus the selection, shared with UI hit-testing that has no
     // reason to know about panels -- so this stays here rather than widening that signature.
     if (get().panelOwnsDocument()) return false;
+    // A job's result is still to come: an Alt-drag duplicate would push a DuplicateLayer straight
+    // through the engine (below), bypassing `run`'s own `working` gate, and a plain drag's commit
+    // would be refused by `runEditJob`/`run` anyway once released.
+    if (get().working) return false;
     const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;
     const state = get().documents[activeId];
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
@@ -495,6 +499,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   canAdjust: () => {
     const { activeId, documents, selectedLayerIds, maskSelected } = get();
+    // A job's result is still to come: no panel may open onto a layer that may change underneath it.
+    if (get().working) return false;
     if (!activeId || get().panelOwnsDocument()) return false;
     const state = documents[activeId];
     const layer = activeLayer(state);
@@ -504,6 +510,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   beginAdjust: ({ kind, layerId, target }) => {
     const { engine, activeId } = get(); if (!engine || !activeId) return false;
+    // Shortcuts (Ctrl+L / Ctrl+M / Ctrl+U) call this directly, without going through `canAdjust`
+    // first: a job's result still to come must refuse here too, or its histogram queues behind the
+    // edit and its `clear_preview` (install_job) wipes the new panel's own preview.
+    if (get().working) return false;
     get().commitTransform();
     const state = get().documents[activeId];
     const id = layerId ?? state.activeLayerId;
@@ -603,6 +613,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
   previewSettling: () => settleTimer !== null,
   commitAdjust: () => {
     const edit = get().adjustEdit; const { engine, activeId } = get(); if (!edit || !engine || !activeId) return;
+    // A previous job's result is still to come (only possible for an adjustment-layer edit or a
+    // small layer's OK, since a large layer's own OK is what sets `working`): checked before the
+    // panel closes, so the user's settings and preview stay up rather than being lost to a banner.
+    if (get().working) { set({ error: BUSY_MESSAGE }); return; }
     const identity = isAdjustIdentity(edit, (a) => engine.adjustmentIsIdentity(a));
     const command: Command = edit.target === "adjustmentLayer" ? { type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }
       : edit.params ? { type: "ApplyFilter", id: edit.layerId, params: edit.params }

@@ -69,12 +69,32 @@ describe("JobClient", () => {
     jobs.cancel("y");
     expect(await two).toBeNull();
     await settle(); workers[0].reply({ type: "ready" }); await settle();
-    workers[0].reply({ type: "failed", id: 1, error: "boom", memory: 1 });
+    workers[0].reply({ type: "failed", id: 1, error: "boom", memory: 1, fatal: false });
     await expect(one).rejects.toThrow("boom");
+    expect(workers[0].terminated, "an ordinary refusal keeps the worker").toBe(false);
     const three = jobs.run("x", histogram("3"));
     await settle();
+    expect(jobs.spawned, "the same worker, not a new one").toBe(1);
     workers[0].reply(done(3, "ok"));
     expect((await three)?.header).toBe("ok");
+  });
+
+  it("replaces a worker after a fatal wasm trap, unlike an ordinary refusal", async () => {
+    // A panic (`unreachable`) or an allocation abort throws WebAssembly.RuntimeError in the worker,
+    // which leaves wasm-bindgen's re-entrancy guard set: every later call on that instance would
+    // throw "recursive use of an object..." if it were reused. Fix round 1, issue 2.
+    const { jobs, workers } = client();
+    const one = jobs.run("x", histogram("1"));
+    await settle(); workers[0].reply({ type: "ready" }); await settle();
+    workers[0].reply({ type: "failed", id: 1, error: "unreachable executed", memory: 1, fatal: true });
+    await expect(one).rejects.toThrow(/ran out of memory/);
+    expect(workers[0].terminated, "a poisoned worker cannot be reused").toBe(true);
+    const two = jobs.run("x", histogram("2"));
+    await settle();
+    expect(jobs.spawned, "replaced with a fresh worker").toBe(2);
+    workers[1].reply({ type: "ready" }); await settle();
+    workers[1].reply(done(2, "ok"));
+    expect((await two)?.header, "the next job runs normally on the new worker").toBe("ok");
   });
 
   it("replaces a worker whose memory grew past the limit, and one that died", async () => {

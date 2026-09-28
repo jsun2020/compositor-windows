@@ -123,4 +123,32 @@ describe("destructive commits on large layers go to the job worker", () => {
     await flush();
     expect(useEditor.getState().adjustEdit).toBeNull();
   });
+
+  // Fix round 1: `working` must gate every panel/transform entry point, not just `run`/`undo`/`redo`
+  // -- a shortcut (Ctrl+L etc.) calls `beginAdjust` directly, without going through `canAdjust`
+  // first, and `commitAdjust` used to close the panel (`adjustEdit: null`) before `runEditJob`'s own
+  // `working` refusal ran, losing the user's settings behind a banner.
+  it("beginAdjust refused while working: no panel opens, and canAdjust says no too", () => {
+    const { log, requests } = install(2001, 2000);
+    useEditor.setState({ working: true });
+    expect(useEditor.getState().canAdjust()).toBe(false);
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(false);
+    expect(useEditor.getState().adjustEdit).toBeNull();
+    expect(log).not.toContain("histogram here");
+    expect(requests).toEqual([]);
+  });
+
+  it("OK while working keeps the panel open and shows BUSY_MESSAGE, rather than losing the edit", async () => {
+    // A layer at the threshold, so its own OK would run on the UI thread -- `working` here stands
+    // in for some other job (an adjustment layer's, or another document's) still in flight.
+    const { log, requests } = install(2000, 2000);
+    levelsChanged();
+    const edit = useEditor.getState().adjustEdit;
+    useEditor.setState({ working: true });
+    useEditor.getState().commitAdjust();
+    expect(useEditor.getState().adjustEdit, "the panel stays open").toEqual(edit);
+    expect(useEditor.getState().error).toBe(BUSY_MESSAGE);
+    expect(log.filter((l) => l.startsWith("execute"))).toEqual([]);
+    expect(requests.filter((r) => r.kind === "edit")).toEqual([]);
+  });
 });

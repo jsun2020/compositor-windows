@@ -47,6 +47,10 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     const result = run(message.request);
     post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength }, [result.pixels, result.mask].filter((b): b is ArrayBuffer => b !== null));
   } catch (err) {
-    post({ type: "failed", id: message.id, error: String(err instanceof Error ? err.message : err), memory: memory!.buffer.byteLength });
+    // A wasm trap (an `unreachable` panic, an allocation abort) throws a `WebAssembly.RuntimeError`,
+    // not the ordinary `JsError` a refused command throws: it leaves this instance unusable (jobs.ts's
+    // `FromWorker` doc), so the client is told to replace the worker rather than just fail this job.
+    const fatal = err instanceof WebAssembly.RuntimeError;
+    post({ type: "failed", id: message.id, error: String(err instanceof Error ? err.message : err), memory: memory!.buffer.byteLength, fatal });
   }
 };

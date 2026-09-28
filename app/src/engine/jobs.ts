@@ -18,9 +18,13 @@ export type JobRequest =
  * image's size and inset; null when an effects image found nothing to draw) and any buffers. */
 export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; }
 
-/** Messages to the worker and back. */
+/** Messages to the worker and back. `fatal` on a failure marks a wasm trap (an `unreachable` panic,
+ * an allocation abort): `RuntimeError.prototype instanceof WebAssembly.RuntimeError`, as the worker's
+ * catch tells apart from an ordinary `JsError` a command refused with. A trap leaves wasm-bindgen's
+ * re-entrancy guard set on that instance, so every later call throws "recursive use of an object..."
+ * -- the worker itself is unusable from here on, not just the one job, unlike a clean refusal. */
 export type ToWorker = { type: "init"; module: WebAssembly.Module } | { type: "job"; id: number; request: JobRequest };
-export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number } | { type: "failed"; id: number; error: string; memory: number };
+export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number } | { type: "failed"; id: number; error: string; memory: number; fatal: boolean };
 
 /** A worker that has grown its wasm memory past this is replaced after its job: wasm memory never
  * shrinks, and a second heap of gigabytes would crowd the app's own. */
@@ -110,8 +114,12 @@ export class JobClient {
     const job = this.running;
     if (!job || job.id !== message.id) return;
     this.running = null;
-    if (message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
-    if (message.type === "failed") job.reject(new Error(message.error));
+    // A wasm trap poisons the whole instance (see `FromWorker`'s doc on `fatal`), so the worker is
+    // replaced outright, the same as one that grew past the memory limit; a clean JsError refusal
+    // keeps the worker, as before.
+    const fatal = message.type === "failed" && message.fatal;
+    if (fatal || message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
+    if (message.type === "failed") job.reject(new Error(fatal ? "The edit ran out of memory and could not finish. Try again, or on a smaller selection." : message.error));
     else job.resolve(this.newest.get(job.channel) === job.id ? message.result : null);
     void this.pump();
   }
