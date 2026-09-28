@@ -194,6 +194,49 @@ fn a_histogram_job_equals_the_histogram_in_place() {
     assert_eq!(run_histogram_job(&input, pixels, mask, points.as_deref()).unwrap(), e.histogram(id, layer).unwrap());
 }
 
+/// The 90 x 60 `pattern` layer at (23, 17) on 160 x 110 with a stroke and a drop shadow, made in the
+/// engine it is edited in (a document moved from another engine would bring that engine's revisions).
+fn styled() -> (Engine, Uuid, Uuid) {
+    let mut doc = Document::new(160, 110);
+    let mut layer = Layer::with_pixels("Styled", pattern(90, 60), p(23.0, 17.0));
+    layer.extra.effects = Some(serde_json::from_value(serde_json::json!({
+        "stroke": { "blue": 0.1, "green": 0.55, "inside": false, "opacity": 0.8, "red": 0.95, "size": 6 },
+        "shadow": { "angle": 120, "blue": 0.5, "blur": 9, "distance": 14, "green": 0.1, "opacity": 0.7, "red": 0.2 } })).unwrap());
+    let id = layer.id;
+    doc.active_layer_id = Some(id);
+    doc.layers = vec![layer];
+    let mut e = Engine::new();
+    let handle = e.insert_document(doc);
+    (e, handle, id)
+}
+
+#[test]
+fn a_full_size_effects_image_a_job_made_is_found_as_if_the_engine_had_made_it() {
+    let (e, id, layer) = styled();
+    assert!(!e.has_effects_image(id, layer, None).unwrap());
+    let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let (_, image) = run_effects_job(&input, pixels.unwrap(), mask, 1.0, None).unwrap().unwrap();
+    let bytes = image.bytes().to_vec();
+    assert!(e.keep_effects_image(id, layer, input.stamp, None, image).unwrap());
+    assert!(e.has_effects_image(id, layer, None).unwrap());
+    let made = e.effects_cache().made();
+    let drawn = e.draw_raster(id, layer, 0, None).unwrap().unwrap();
+    assert_eq!(e.effects_cache().made(), made, "found, not made again");
+    assert_eq!(drawn.bytes(), bytes.as_slice());
+}
+
+#[test]
+fn an_effects_image_is_not_kept_for_a_layer_that_changed_or_at_another_size() {
+    let (mut e, id, layer) = styled();
+    let (input, pixels, mask, _points) = crossed(&e, id, layer);
+    let (_, image) = run_effects_job(&input, pixels.clone().unwrap(), mask.clone(), 1.0, None).unwrap().unwrap();
+    let (_, small) = run_effects_job(&input, pixels.unwrap().halved(), mask, 0.5, None).unwrap().unwrap();
+    assert!(!e.keep_effects_image(id, layer, input.stamp, None, small).unwrap(), "a reduced image is not the full one");
+    run(&mut e, id, Command::InvertPixels { id: layer, mask: false });
+    assert!(!e.keep_effects_image(id, layer, input.stamp, None, image).unwrap(), "the pixels changed");
+    assert!(!e.has_effects_image(id, layer, None).unwrap());
+}
+
 #[test]
 fn an_effects_job_at_full_size_equals_the_engines_own_image_and_a_reduced_one_scales_its_effects() {
     let (mut e, id, layer) = document();

@@ -142,6 +142,17 @@ export class EngineClient {
     const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
     return JSON.parse(this.wasm.install_job(doc, layer, stamp, output, pixels ? new Uint8Array(pixels) : undefined, mask ? new Uint8Array(mask) : undefined)) as Dirty;
   }
+  /** Whether the canvas's effects image for `layer` is made already (engine `has_effects_image`):
+   * `drawPixels` then hands it over without making it. */
+  hasEffectsImage(doc: string, layer: string, edit: PreviewEdit | null): boolean {
+    return this.wasm.has_effects_image(doc, layer, edit ? JSON.stringify(edit) : undefined);
+  }
+  /** Keeps a full-size effects image the job worker made (engine `keep_effects_image`), when the layer
+   * is still what the job took (the stamp in `input`); false when it is not kept. */
+  keepEffectsImage(doc: string, layer: string, input: string, edit: PreviewEdit | null, width: number, height: number, bytes: ArrayBuffer): boolean {
+    const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
+    return this.wasm.keep_effects_image(doc, layer, stamp, edit ? JSON.stringify(edit) : undefined, width, height, new Uint8Array(bytes));
+  }
   /** What changed in the layer's pixels since revision `from` (engine `pixels_delta`): a rectangle of
    * its pixel grid, empty when nothing did, or null when the whole raster must be uploaded again. */
   pixelsDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.pixels_delta(doc, layer, from)); }

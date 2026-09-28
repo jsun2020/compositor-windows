@@ -210,6 +210,26 @@ impl EffectsCache {
         }
         Some(image)
     }
+    /// Whether an image for these very buffers and this draw is kept (nothing is made).
+    pub fn contains(&self, layer: &Layer, draw: &EffectsDraw) -> bool {
+        let Some(pixels) = layer.pixels.as_ref() else { return false };
+        let mask = draw.mask.as_ref().and(layer.mask.as_ref()).map(|m| &m.pixels);
+        self.kept().entries.iter().any(|e| e.pixels.same_pixels(pixels) && e.draw == *draw
+            && match (&e.mask, mask) { (None, None) => true, (Some(a), Some(b)) => a.same_pixels(b), _ => false })
+    }
+    /// Keeps `image`, made elsewhere (the job worker, from the same layer and draw), as `image` would
+    /// have kept it: found by the same buffers and draw from now on. Not kept when it is over the
+    /// byte limit, as a made image would not be.
+    pub fn insert(&self, layer: &Layer, draw: &EffectsDraw, image: Raster) {
+        let Some(pixels) = layer.pixels.as_ref() else { return };
+        if image.bytes().len() > self.max_bytes || self.contains(layer, draw) { return; }
+        let mask = draw.mask.as_ref().and(layer.mask.as_ref()).map(|m| m.pixels.clone());
+        let mut kept = self.kept();
+        kept.entries.push(Entry { pixels: pixels.clone(), mask, draw: draw.clone(), image });
+        while kept.entries.len() > self.max_entries || kept.entries.iter().map(|e| e.image.bytes().len()).sum::<usize>() > self.max_bytes {
+            kept.entries.remove(0);
+        }
+    }
     /// Drops the images no one can find again: those whose pixel or mask buffer only the cache
     /// holds (a closed document, an ended preview, a history entry let go). They would otherwise
     /// keep their images and buffers alive and push out images still in use. A buffer counts as

@@ -158,6 +158,27 @@ impl Engine {
         Ok((input, pixels, l.mask.as_ref().map(|m| m.pixels.clone())))
     }
 
+    /// Whether the canvas's effects image for `layer` (with the pending `edit`) is already made: the
+    /// renderer then draws it at once (`draw_raster` finds it); otherwise it asks the job worker.
+    pub fn has_effects_image(&self, id: Uuid, layer: Uuid, edit: Option<&PreviewEdit>) -> Result<bool, CommandError> {
+        let doc = self.render_document(id)?;
+        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(effects_draw(l, edit).is_some_and(|draw| self.effects_cache().contains(l, &draw)))
+    }
+    /// Keeps an effects image the job worker made at full size for `layer` as the canvas showed it
+    /// (with `edit`), in the engine's cache, where `draw_raster` finds it as if made here. Only while
+    /// the layer is still what the job took (`stamp`), draws effects, and needs an image of this size:
+    /// otherwise nothing is kept and false comes back.
+    pub fn keep_effects_image(&self, id: Uuid, layer: Uuid, stamp: LayerStamp, edit: Option<&PreviewEdit>, image: Raster) -> Result<bool, CommandError> {
+        let doc = self.render_document(id)?;
+        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        if LayerStamp::of(&doc, l) != stamp { return Ok(false); }
+        let (Some(draw), Some(pixels)) = (effects_draw(l, edit), l.pixels.as_ref()) else { return Ok(false) };
+        if (image.width, image.height) != (pixels.width + 2 * draw.inset, pixels.height + 2 * draw.inset) { return Ok(false); }
+        self.effects_cache().insert(l, &draw, image);
+        Ok(true)
+    }
+
     /// Puts an edit job's result back on `layer` as one undo step: the buffers it replaced, its
     /// transform and mask placement, recorded as changed within its regions. Refused, with the
     /// document untouched, unless the layer, the canvas and the selection are still exactly what the

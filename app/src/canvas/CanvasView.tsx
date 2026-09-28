@@ -3,6 +3,7 @@ import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay, type AntsState } from "./overlay";
 import { installTestApi } from "../test-api";
+import { EFFECTS_LIMITS } from "./effects-images";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
@@ -78,7 +79,7 @@ export function CanvasView() {
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
     if (!engine || !glRef.current) return;
-    const renderer = createRenderer(glRef.current);
+    const renderer = createRenderer(glRef.current, { jobs: () => useEditor.getState().jobs, landed: () => useEditor.getState().invalidate() });
     rendererRef.current = renderer;
     useEditor.getState().setRendererKind(renderer.kind);
     installTestApi({
@@ -102,6 +103,8 @@ export function CanvasView() {
         for (let y = 0; y < h; y++) out.set(all.subarray(((y0 + y) * W + x0) * 4, ((y0 + y) * W + x0 + w) * 4), y * w * 4);
         return out;
       },
+      // Where large styled layers' effects images are made (tests lower the sizes to reach the worker).
+      effectsLimits: EFFECTS_LIMITS,
       // The overlay painted now, synchronously: the perf harness times an ants tick with it.
       paintOverlay: () => paintOverlay(),
       // Exposed for e2e tests to compute where the on-screen transform handles (including the

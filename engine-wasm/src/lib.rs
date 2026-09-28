@@ -88,6 +88,19 @@ impl WasmEngine {
         let dirty = self.engine.install_job(parse_id(doc)?, parse_id(layer)?, stamp, output, pixels, mask).map_err(js_err)?;
         serde_json::to_string(&dirty).map_err(js_err)
     }
+    /// `Engine::has_effects_image`: whether the canvas's effects image for the layer is made already.
+    pub fn has_effects_image(&self, doc: &str, layer: &str, edit_json: Option<String>) -> Result<bool, JsError> {
+        let edit = Self::parse_edit(edit_json)?;
+        self.engine.has_effects_image(parse_id(doc)?, parse_id(layer)?, edit.as_ref()).map_err(js_err)
+    }
+    /// `Engine::keep_effects_image`: a full-size effects image from the worker, kept in the engine's
+    /// cache when the layer is still what the job took (`stamp_json`).
+    pub fn keep_effects_image(&self, doc: &str, layer: &str, stamp_json: &str, edit_json: Option<String>, width: u32, height: u32, bytes: Vec<u8>) -> Result<bool, JsError> {
+        let stamp: LayerStamp = serde_json::from_str(stamp_json).map_err(js_err)?;
+        let edit = Self::parse_edit(edit_json)?;
+        let image = raster_of(Some((width, height)), Some(bytes))?.unwrap();
+        self.engine.keep_effects_image(parse_id(doc)?, parse_id(layer)?, stamp, edit.as_ref(), image).map_err(js_err)
+    }
     /// `run_edit_job` (in the worker): the output as JSON; the buffers it replaced are kept. `points`
     /// as `job_points_ptr` hands them out, when `input.selection` is not None.
     pub fn run_edit_job(&mut self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>, command_json: &str) -> Result<String, JsError> {

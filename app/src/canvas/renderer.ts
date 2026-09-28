@@ -1,10 +1,14 @@
 import type { DocumentState, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
+import type { JobClient } from "../engine/jobs";
 import type { Viewport } from "./viewport";
 import { GlRenderer } from "./gl-renderer";
 import { CpuRenderer } from "./cpu-renderer";
 
 export interface RenderOptions { checkerboard: boolean; }
+/** What a renderer may use besides the engine: the job worker (for large styled layers' effects
+ * images, effects-images.ts) and a way to ask for another frame when one of its results lands. */
+export interface RenderHooks { jobs: () => JobClient | null; landed: () => void; }
 export interface Renderer {
   readonly kind: "gl" | "cpu";
   /** Uploads whatever it needs and draws. There is no separate sync step: the GL renderer's
@@ -15,9 +19,9 @@ export interface Renderer {
   dispose(): void;
 }
 
-export function createRenderer(canvas: HTMLCanvasElement): Renderer {
+export function createRenderer(canvas: HTMLCanvasElement, hooks?: RenderHooks): Renderer {
   const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false });
-  if (gl) return new GlRenderer(canvas, gl);
+  if (gl) return new GlRenderer(canvas, gl, hooks);
   return new CpuRenderer(canvas);
 }
 

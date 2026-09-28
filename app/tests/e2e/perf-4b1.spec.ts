@@ -113,9 +113,18 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
       const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
       const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const result: Record<string, number> = {};
-      // The main thread's two copies, timed where the store makes them.
-      const timed = (name: string) => { const f = api.engine[name].bind(api.engine); api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); } }; };
-      timed("jobInput"); timed("installJob");
+      // The main thread's two copies, timed where the store makes them; when the result is put back,
+      // the store's state is brought up to date and one frame drawn at once, timed too.
+      let installedAt = Infinity;
+      const timed = (name: string, after?: () => void) => {
+        const f = api.engine[name].bind(api.engine);
+        api.engine[name] = (...a: unknown[]) => {
+          const t0 = performance.now();
+          try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); }
+        };
+      };
+      timed("jobInput");
+      timed("installJob", () => { installedAt = performance.now(); api.store.getState().refresh(api.store.getState().activeId); result["frame after the result is put back"] = Math.round((window as any).__frame()); });
       const doc = api.engine.newDocument(10, 10, false);
       api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
       const layer = api.engine.state(doc).layers[0].id;
@@ -127,11 +136,13 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
       // timestamp can predate when the callback actually runs (it is the frame's nominal time, not
       // "now"), which under-reports a gap that a long synchronous task -- such as `installJob`
       // running inside the worker's message handler -- partly hides behind it (fix round 1, issue 4).
+      // Only frames that came before the result was put back (`installedAt`) count: the worker's own
+      // time, not whatever the page does with the result afterward.
       const longestGap = (until: () => boolean) => new Promise<number>((done) => {
         let last = performance.now(), gap = 0;
         const tick = () => {
           const now = performance.now();
-          gap = Math.max(gap, now - last); last = now;
+          if (now <= installedAt) gap = Math.max(gap, now - last); last = now;
           if (until()) done(Math.round(gap)); else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -144,13 +155,14 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
       const adjustment = JSON.parse(JSON.stringify(api.store.getState().adjustEdit.adjustment));
       adjustment.levels.ranges[0].outputWhite = 200;
       api.store.getState().updateAdjust({ adjustment });
-      await new Promise((r) => setTimeout(r, 400));
+      // The full-quality preview follows the quick one (store SETTLE_MS) and is drawn before OK.
+      await new Promise<void>((done) => { const poll = () => (api.store.getState().previewSettling() ? setTimeout(poll, 20) : done()); poll(); });
+      await new Promise((r) => setTimeout(r, 300)); await settle();
       t0 = performance.now();
       api.store.getState().commitAdjust();
       result["OK (UI thread) ms"] = Math.round(performance.now() - t0);
       result["commit: longest frame gap while the worker edits"] = await longestGap(() => !api.store.getState().working);
       result["commit done after ms"] = Math.round(performance.now() - t0);
-      result["frame after the result is put back"] = Math.round(frame());
       result["undo depth"] = api.engine.state(doc).undoDepth;
       return result;
     }, [w, h]);
@@ -158,12 +170,86 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
   }
   console.log(`jobs (release wasm, Edge): ${JSON.stringify(out)}`);
   for (const label of ["24 MP", "100 MP"]) {
-    // The worker's own time never holds the page up past 100 ms; the copies are budgeted per size
-    // (OQ5's "500" at 100 MP means 450 here, per ruling I7).
-    expect(out[`${label}: histogram: longest frame gap while the worker reads it`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    // The worker's own time never holds the page up past 100 ms while it edits. While it reads the
+    // histogram the gap also takes in the frame that first draws the panel's preview on the UI thread:
+    // budgeted 150 at both sizes. The copies are budgeted per size (OQ5's "500" at 100 MP means 450
+    // here, per ruling I7).
+    expect(out[`${label}: histogram: longest frame gap while the worker reads it`]).toBeLessThan(150);
+    expect(out[`${label}: commit: longest frame gap while the worker edits`]).toBeLessThan(100);
     expect(out[`${label}: jobInput ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
   }
+});
+
+test("effects images: a large styled layer opens drawn plainly, then reduced, then (to 24 MP) at full size, without holding the page up", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const result: Record<string, number> = {};
+      // A styled layer this size: the package of a filled canvas, re-opened with all six effects.
+      const plain = api.engine.newDocument(10, 10, false);
+      api.engine.execute(plain, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const files = api.engine.savePackage(plain);
+      api.engine.closeDocument(plain);
+      const manifest = JSON.parse(files.manifest);
+      manifest.layers[0].effects = {
+        stroke: { blue: 0.2, green: 0.8, inside: false, opacity: 0.9, red: 0.1, size: 12 },
+        shadow: { angle: 120, blue: 0.3, blur: 30, distance: 25, green: 0.2, opacity: 0.75, red: 0.2 },
+        colorOverlay: { blue: 0.4, green: 0.1, opacity: 0.3, red: 0.9 },
+        innerShadow: { angle: -35, blue: 0.05, blur: 20, distance: 15, green: 0.05, opacity: 0.6, red: 0.05 },
+        outerGlow: { blue: 0.2, green: 0.9, opacity: 0.6, red: 1, size: 25 },
+        innerGlow: { blue: 1, green: 1, opacity: 0.5, red: 1, size: 20 } };
+      manifest.version = 9;
+      const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: files.images }, null);
+      const layer = api.engine.state(doc).layers[0].id;
+      // Frames and their gaps from here until the work is done.
+      let last = performance.now(), gap = 0, running = true;
+      const tick = (t: number) => { gap = Math.max(gap, t - last); last = t; if (running) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      let t0 = performance.now();
+      api.store.getState().openDocument(doc);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      result["first frame (the layer plainly), ms"] = Math.round(frame());
+      // What the layer's texture holds: "px" its own pixels, "rd" a reduced image, "fx" the full one.
+      const shown = () => String(api.renderer.textureKey(doc, layer) ?? "").slice(0, 2);
+      const waitFor = (done: () => boolean, limit: number) => new Promise<boolean>((resolve) => {
+        const start = performance.now();
+        const poll = () => { if (done()) resolve(true); else if (performance.now() - start > limit) resolve(false); else setTimeout(poll, 20); };
+        poll();
+      });
+      result["the first frame draws the layer plainly (1 = yes)"] = shown() === "px" ? 1 : 0;
+      gap = 0;
+      const reduced = await waitFor(() => { frame(); return shown() === "rd"; }, 60_000);
+      result["reduced image drawn after, ms"] = reduced ? Math.round(performance.now() - t0) : -1;
+      result["longest frame gap until then"] = Math.round(gap);
+      if (w * h <= 24_000_000) { // the layer's own pixels (EFFECTS_LIMITS.full)
+        gap = 0; t0 = performance.now();
+        const full = await waitFor(() => api.engine.hasEffectsImage(doc, layer, null), 120_000);
+        result["full image kept after, ms"] = full ? Math.round(performance.now() - t0) : -1;
+        result["longest frame gap while the worker made it"] = Math.round(gap);
+        result["frame that draws it (halving and upload), ms"] = Math.round(frame());
+        result["then drawn at full size (1 = yes)"] = shown() === "fx" ? 1 : 0;
+      }
+      running = false;
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`effects images (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const label of ["24 MP", "100 MP"]) {
+    expect(out[`${label}: the first frame draws the layer plainly (1 = yes)`]).toBe(1);
+    expect(out[`${label}: reduced image drawn after, ms`]).toBeGreaterThan(0);
+  }
+  expect(out["24 MP: then drawn at full size (1 = yes)"]).toBe(1);
+  expect(out["24 MP: longest frame gap until then"]).toBeLessThan(100);
+  // At 100 MP the first frame halves the layer three times to draw it plainly (natively 100 ms;
+  // measured 133 to 167 ms in the release wasm over three runs).
+  expect(out["100 MP: longest frame gap until then"]).toBeLessThan(200);
+  expect(out["24 MP: longest frame gap while the worker made it"]).toBeLessThan(150);
 });
 
 test("history: whole-layer edits at 24 and 100 MP stay within memory, and a push or undo at the cap is cheap", async ({ page }) => {

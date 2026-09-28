@@ -1,9 +1,10 @@
-import type { Coverage, DocumentState, LayerDraw, PreviewEdit, RenderPlan } from "../engine/types";
+import type { Corners, Coverage, DocumentState, LayerDraw, LayerTransform, PreviewEdit, RenderPlan } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, isSpatialKind, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
 import { LayerTextures, levelRect, prefilterLevel, sizeAtLevel } from "./layer-textures";
-import type { RenderOptions, Renderer } from "./renderer";
+import type { RenderHooks, RenderOptions, Renderer } from "./renderer";
+import { EFFECTS_LIMITS, EffectsImages, placedLike } from "./effects-images";
 import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
 import { FboPool, type Target } from "./gl/framebuffers";
 import { MaskTextures, syncMask } from "./gl/mask-textures";
@@ -40,9 +41,17 @@ export class GlRenderer implements Renderer {
   private dpr = 1;
   /** gl.MAX_TEXTURE_SIZE, read once in the constructor: the frame must fit one texture (audit F-M2). */
   private readonly maxTexture: number;
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext) {
+  /** Large styled layers' effects images, made by the job worker (effects-images.ts). */
+  private effectsImages: EffectsImages;
+  /** Where a large styled layer's texture is drawn when it is not the plan's full-size image: a
+   * reduced image, the last image kept, or the layer's own pixels (by layer id, this document). */
+  private placements = new Map<string, { transform: LayerTransform; corners: Corners | null }>();
+  /** The effects image a large styled layer's texture holds: its layer pixels and inset, at full size. */
+  private shown = new Map<string, { width: number; height: number; inset: number }>();
+  constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext, hooks: RenderHooks = { jobs: () => null, landed: () => {} }) {
     this.textures = new LayerTextures(gl); this.masks = new MaskTextures(gl); this.fbos = new FboPool(gl); this.programs = createPrograms(gl);
     this.adjustTextures = new AdjustTextures(gl);
+    this.effectsImages = new EffectsImages(hooks.jobs, hooks.landed);
     this.white = this.solid(gl.R8, gl.RED, [255]); this.transparent = this.solid(gl.RGBA8, gl.RGBA, [0, 0, 0, 0]);
     this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
   }
@@ -89,12 +98,12 @@ export class GlRenderer implements Renderer {
     const levels = new Map<string, number>();
     // A layer the plan draws with its effects: its texture is the engine's padded effects image,
     // the very bytes compositor::draw_raster samples, at the draw's padded size.
-    const padded = new Map<string, { width: number; height: number; inset: number; key: string }>();
+    const padded = new Map<string, { width: number; height: number; inset: number; key: string; draw: LayerDraw }>();
     const adjustKeys = new Set<string>();
     const note = (d: LayerDraw) => {
       if (d.adjustment) adjustKeys.add(AdjustTextures.key(d.adjustment));
       if (d.pixelsWidth === 0) return;
-      if (d.effects) padded.set(d.id, { width: d.pixelsWidth, height: d.pixelsHeight, inset: d.effects.inset, key: d.effects.key });
+      if (d.effects) padded.set(d.id, { width: d.pixelsWidth, height: d.pixelsHeight, inset: d.effects.inset, key: d.effects.key, draw: d });
       const layer = state.layers.find((l) => l.id === d.id);
       const nearest = layer?.transform.sampling === "Nearest";
       // Nearest never prefilters, and neither does a distortion: the homography resamples the
@@ -118,6 +127,8 @@ export class GlRenderer implements Renderer {
       // image by both revisions and the whole EffectsDraw: a pixel edit, a mask edit, an undo, a
       // redo or a panel preview each upload again, and a move that keeps the image does not.
       const bytesKey = fx ? `fx:${layer.pixelsRevision}:${layer.maskRevision}:${fx.inset}:${fx.key}` : `px:${layer.pixelsRevision}`;
+      if (!fx || fx.width * fx.height <= EFFECTS_LIMITS.sync || this.largeEffects(engine, state, layer.id, bytesKey, fx.draw, nearest, outPerDoc, edit)) this.placements.delete(layer.id);
+      else continue;
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
       const size = sizeAtLevel(width, height, level);
@@ -136,8 +147,41 @@ export class GlRenderer implements Renderer {
       // An effects image is dropped by the engine as soon as the upload has copied it.
       if (fx) engine.drawPixels(state.id, layer.id, level, edit, upload);
       else upload(width === 0 ? null : engine.layerPixels(state.id, layer.id, level));
+      if (fx) this.shown.set(layer.id, { width: layer.pixelsWidth, height: layer.pixelsHeight, inset: fx.inset });
     }
     this.textures.retainOnly(state.id, keep);
+    this.effectsImages.retainOnly(state.id, keep);
+    for (const id of [...this.placements.keys()]) if (!keep.has(id)) this.placements.delete(id);
+    for (const id of [...this.shown.keys()]) if (!keep.has(id)) this.shown.delete(id);
+  }
+
+  /** A styled layer too large to make its effects image on the UI thread (EFFECTS_LIMITS.sync). True
+   * when the engine has the full-size image, which the usual path then draws; otherwise this draws
+   * the worker's reduced image, or keeps the image already on the texture, or draws the layer's own
+   * pixels, and says where (`placements`), while the worker makes what is missing. */
+  private largeEffects(engine: EngineClient, state: DocumentState, id: string, bytesKey: string, draw: LayerDraw, nearest: boolean, outPerDoc: number, edit: PreviewEdit | null): boolean {
+    const layer = state.layers.find((l) => l.id === id)!;
+    const choice = this.effectsImages.choose(engine, state.id, id, bytesKey, draw, layer.pixelsWidth, layer.pixelsHeight, edit);
+    if (choice === "full") return true;
+    if (choice) {
+      const key = `rd:${choice.key}:${choice.width}`;
+      this.placements.set(id, placedLike(draw, choice.width - 2 * choice.inset, choice.height - 2 * choice.inset, choice.inset));
+      this.shown.set(id, { width: choice.width - 2 * choice.inset, height: choice.height - 2 * choice.inset, inset: choice.inset });
+      if (this.textures.needsUpload(state.id, id, key, 0, nearest)) this.textures.sync(state.id, id, key, nearest, choice.bytes, 0, { width: choice.width, height: choice.height });
+      return false;
+    }
+    // Nothing for these pixels yet: the image on the texture stays, where the layer is now.
+    const shown = this.shown.get(id);
+    if (shown && this.textures.get(state.id, id)) { this.placements.set(id, placedLike(draw, shown.width, shown.height, shown.inset)); return false; }
+    // No image at all yet: the layer's own pixels, plainly.
+    const plain = placedLike(draw, layer.pixelsWidth, layer.pixelsHeight, 0);
+    this.placements.set(id, plain);
+    const plainLevel = nearest || plain.corners ? 0 : prefilterLevel(layer.pixelsWidth, layer.pixelsHeight, layer.pixelsWidth / Math.max(1e-9, plain.transform.size[0] * outPerDoc));
+    const key = `px:${layer.pixelsRevision}`;
+    if (this.textures.needsUpload(state.id, id, key, plainLevel, nearest)) {
+      this.textures.sync(state.id, id, key, nearest, engine.layerPixels(state.id, id, plainLevel), plainLevel, sizeAtLevel(layer.pixelsWidth, layer.pixelsHeight, plainLevel), layer.pixelsRevision);
+    }
+    return false;
   }
 
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void {
@@ -427,8 +471,11 @@ export class GlRenderer implements Renderer {
 
   /** Draws every chunk of a layer texture into `target` reading `backdrop`, or onto a cleared
    * target when `backdrop` is null. */
-  private drawLayer(ctx: Ctx, target: string, backdrop: WebGLTexture | null, draw: LayerDraw, mode: number, coverageLevel: number | null): void {
-    const t = this.textures.get(ctx.state.id, draw.id); if (!t) return;
+  private drawLayer(ctx: Ctx, target: string, backdrop: WebGLTexture | null, planned: LayerDraw, mode: number, coverageLevel: number | null): void {
+    const t = this.textures.get(ctx.state.id, planned.id); if (!t) return;
+    // A large styled layer's texture may not be the plan's full-size image (largeEffects).
+    const placed = this.placements.get(planned.id);
+    const draw = placed ? { ...planned, transform: placed.transform, corners: placed.corners } : planned;
     const d2v = this.docToView(ctx.viewport, ctx.state);
     const cornersDoc = draw.corners ? draw.corners.map(fromTuple) : cornersOf(draw.transform);
     const cornersView = cornersDoc.map((p) => ({ x: d2v[0] * p.x + d2v[1] * p.y + d2v[2], y: d2v[3] * p.x + d2v[4] * p.y + d2v[5] }));
@@ -485,6 +532,10 @@ export class GlRenderer implements Renderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST);
   }
+
+  /** What a layer's texture holds, by its key ("px:" its pixels, "fx:" the effects image, "rd:" a
+   * reduced one): the perf harness and e2e tests watch a large styled layer's images arrive. */
+  textureKey(docId: string, id: string): string | null { return this.textures.get(docId, id)?.key ?? null; }
 
   readPixels(): Uint8Array {
     const gl = this.gl; const W = this.canvas.width, H = this.canvas.height;
