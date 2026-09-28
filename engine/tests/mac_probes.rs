@@ -470,6 +470,30 @@ New in this set (the blend curve at many sub-pixel positions):
 - sampling-steps-high-1600.comp   -> sampling-steps-high-1600.png
 - sampling-steps-smooth-1600.comp -> sampling-steps-smooth-1600.png
 - sampling-steps-high-700.comp    -> sampling-steps-high-700.png
+
+New in this set (shapes and gradients). These four need a few steps each before the export, and
+the saved project comes back too: after the steps, File > Save (Cmd-S), then export the PNG as
+above, and send the .comp folder with it.
+
+- shapes.comp -> shapes.png
+  Each shape arrives as a flat coloured block. In the Layers panel click Ellipse 1, press Cmd-T,
+  then Return; do the same for Rectangle 1, Rectangle 2, Line 1, Line 2 and Line 3. Each block
+  turns into its shape. Then save and export.
+
+- gradient-linear.comp -> gradient-linear.png
+  Press G. In the Gradient bar choose Linear and Foreground to Background, Reverse off, Opacity
+  100. Press D. Press Cmd-1 for 100%. Hold Shift and drag from the canvas's left edge to its right
+  edge, then press Return. Save and export.
+
+- gradient-radial.comp -> gradient-radial.png
+  Press G. Choose Radial and Foreground to Background, Reverse off, Opacity 100. Press D. Press
+  Cmd-1. Hold Shift and drag from where the guides cross (the centre) to the right-hand guide,
+  then press Return. Save and export.
+
+- gradient-over-colour.comp -> gradient-over-colour.png
+  Click the foreground colour swatch, type 0000FF in the # field, click OK. Press G. Choose Linear
+  and Foreground to Transparent, Reverse off, and type 37 in Opacity. Press Cmd-1. Hold Shift and
+  drag from the canvas's left edge to its right edge, then press Return. Save and export.
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -619,6 +643,73 @@ fn step_probes() -> Vec<(&'static str, Document)> {
     ]
 }
 
+/// A Shape tool layer for `shapes.comp` (Phase 4b-1): one pixel of `rgb` stretched over `rect`
+/// (x, y, width, height in document pixels), carrying `record` as its `shape` (the Mac's
+/// `LayerShapeStyle`, ShapeTool.swift:19-32, as Swift's Codable writes it: whole numbers without
+/// `.0`, a CGPoint as `[x, y]`). The Mac draws a live shape afresh at its layer's size whenever a
+/// transform is applied to it (`redrawShape`, EditorSession.swift:451-462), so pressing Cmd-T and
+/// Return on each layer makes the Mac rasterise every shape at exactly this size.
+fn shape_layer(name: &str, rect: [f64; 4], rgb: [u8; 3], record: serde_json::Value) -> Layer {
+    let mut layer = Layer::with_pixels(name, Raster::from_premultiplied(1, 1, vec![rgb[0], rgb[1], rgb[2], 255]), Point { x: rect[0], y: rect[1] });
+    layer.transform.size = Size { width: rect[2], height: rect[3] };
+    layer.extra.shape = Some(record);
+    layer
+}
+
+/// A Line layer: the box of `from` and `to` grown by half of `width` on every side, with the ends
+/// stored as fractions of that box (`finishShape`, ShapeTool.swift:120-140).
+fn line_layer(name: &str, from: [f64; 2], to: [f64; 2], width: f64, rgb: [u8; 3]) -> Layer {
+    let (x, y) = (from[0].min(to[0]) - width / 2.0, from[1].min(to[1]) - width / 2.0);
+    let (w, h) = ((to[0] - from[0]).abs() + width, (to[1] - from[1]).abs() + width);
+    // Swift writes a whole CGFloat without a fraction (`15`, not `15.0`).
+    let swift = |v: f64| if v.fract() == 0.0 { serde_json::json!(v as i64) } else { serde_json::json!(v) };
+    let unit = |p: [f64; 2]| serde_json::json!([swift((p[0] - x) / w), swift((p[1] - y) / h)]);
+    let channel = |v: u8| swift(v as f64 / 255.0);
+    shape_layer(name, [x, y, w, h], rgb, serde_json::json!({
+        "kind": "Line", "red": channel(rgb[0]), "green": channel(rgb[1]), "blue": channel(rgb[2]), "cornerRadius": 0,
+        "lineWidth": swift(width), "start": unit(from), "end": unit(to) }))
+}
+
+/// `shapes.comp`: the Shape tool's curves and strokes, for the Mac to rasterise (ruling OQ13): a
+/// 101 x 61 ellipse, a 120 x 80 rectangle rounded by 20, a 150 x 40 pill (radius 5000, clamped to
+/// 20), and lines 1, 4 and 15 px wide, flat, at 45 degrees and at about 30 degrees, over white.
+fn shapes_doc() -> Document {
+    let mut doc = Document::new(440, 280);
+    let white = solid_rect("Background", [255, 255, 255, 255], 440, 280, 0.0, 0.0);
+    doc.layers = vec![
+        white,
+        shape_layer("Ellipse 1", [10.0, 10.0, 101.0, 61.0], [255, 0, 0], serde_json::json!({ "kind": "Ellipse", "red": 1, "green": 0, "blue": 0, "cornerRadius": 0 })),
+        shape_layer("Rectangle 1", [130.0, 10.0, 120.0, 80.0], [0, 0, 255], serde_json::json!({ "kind": "Rectangle", "red": 0, "green": 0, "blue": 1, "cornerRadius": 20 })),
+        shape_layer("Rectangle 2", [270.0, 10.0, 150.0, 40.0], [0, 0, 0], serde_json::json!({ "kind": "Rectangle", "red": 0, "green": 0, "blue": 0, "cornerRadius": 5000 })),
+        line_layer("Line 1", [20.5, 120.5], [140.5, 120.5], 1.0, [255, 0, 0]),
+        line_layer("Line 2", [160.0, 110.0], [230.0, 180.0], 4.0, [0, 0, 255]),
+        line_layer("Line 3", [262.5, 127.5], [402.5, 207.5], 15.0, [0, 0, 0]),
+    ];
+    doc
+}
+
+/// A blank layer on a `width` x `height` canvas, for a gradient the user draws by hand on the Mac
+/// (ruling OQ13), with `guides` to aim at.
+fn gradient_doc(width: u32, height: u32, guides: &[(GuideAxis, f64)]) -> Document {
+    let mut doc = Document::new(width, height);
+    doc.layers = vec![Layer::blank("Layer 1", doc.size())];
+    doc.guides = guides.iter().map(|(axis, position)| Guide { id: uuid::Uuid::new_v4(), axis: *axis, position: *position }).collect();
+    doc
+}
+
+/// The four Phase 4b-1 probes: `shapes.comp` is drawn by the Mac from its records, the three
+/// gradients by hand (the README says how).
+fn phase_4b1_probes() -> Vec<(&'static str, Document)> {
+    let mut over_colour = Document::new(256, 32);
+    over_colour.layers = vec![solid_rect("Layer 1", [204, 77, 51, 255], 256, 32, 0.0, 0.0)];
+    vec![
+        ("shapes.comp", shapes_doc()),
+        ("gradient-linear.comp", gradient_doc(512, 32, &[])),
+        ("gradient-radial.comp", gradient_doc(256, 256, &[(GuideAxis::Vertical, 128.0), (GuideAxis::Horizontal, 128.0), (GuideAxis::Vertical, 228.0)])),
+        ("gradient-over-colour.comp", over_colour),
+    ]
+}
+
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
 /// it is ever sent to a Mac.
@@ -672,6 +763,7 @@ fn write_mac_probes() {
     for (name, doc) in effects_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in sampling_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in step_probes() { write_probe(&dir, name, &doc); }
+    for (name, doc) in phase_4b1_probes() { write_probe(&dir, name, &doc); }
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -730,6 +822,41 @@ fn every_step_probe_is_listed_and_enlarged_as_named() {
         assert_eq!(t.sampling == Sampling::Smooth, name.contains("smooth"), "{name}: sampling");
         assert!(t.origin.x + t.size.width <= doc.width as f64 && t.origin.y + t.size.height <= doc.height as f64, "{name}: on the canvas");
     }
+}
+
+#[test]
+fn every_4b1_probe_is_listed_and_every_shape_is_one_the_mac_will_redraw() {
+    let probes = phase_4b1_probes();
+    assert_eq!(probes.len(), 4);
+    for (name, _) in &probes { assert!(README_TXT.contains(&format!("- {name}")), "{name} is in the README"); }
+    let shapes = &probes[0].1;
+    // The Mac redraws a live shape only when the layer's size differs from its image's
+    // (ShapeTool.swift:166): each placeholder is one pixel, drawn at the shape's size.
+    let drawn: Vec<&Layer> = shapes.layers.iter().filter(|l| l.extra.shape.is_some()).collect();
+    assert_eq!(drawn.len(), 6);
+    for layer in &drawn {
+        let pixels = layer.pixels.as_ref().unwrap();
+        assert_eq!((pixels.width, pixels.height), (1, 1), "{}", layer.name);
+        assert!(layer.transform.size.width > 1.0 && layer.transform.size.height >= 1.0, "{}", layer.name);
+        let record = layer.extra.shape.as_ref().unwrap();
+        assert!(layer.name.starts_with(record["kind"].as_str().unwrap()), "{}: kind", layer.name);
+    }
+    // A Line's ends, back from fractions of its box, land where they were aimed.
+    let t = &drawn[3].transform;
+    let record = drawn[3].extra.shape.as_ref().unwrap();
+    let at = |key: &str| (t.origin.x + record[key][0].as_f64().unwrap() * t.size.width, t.origin.y + record[key][1].as_f64().unwrap() * t.size.height);
+    assert_eq!((at("start"), at("end")), ((20.5, 120.5), (140.5, 120.5)));
+    assert_eq!((t.origin.x, t.origin.y, t.size.width, t.size.height), (20.0, 120.0, 121.0, 1.0));
+    let t = &drawn[5].transform;
+    let record = drawn[5].extra.shape.as_ref().unwrap();
+    let at = |key: &str| (t.origin.x + record[key][0].as_f64().unwrap() * t.size.width, t.origin.y + record[key][1].as_f64().unwrap() * t.size.height);
+    assert!((at("end").0 - 402.5).abs() < 1e-9 && (at("end").1 - 207.5).abs() < 1e-9, "{:?}", at("end"));
+    // Whole numbers are written as Swift writes them, without a fraction.
+    assert!(serde_json::to_string(record).unwrap().contains("\"lineWidth\":15,"), "{record}");
+    assert!(serde_json::to_string(drawn[2].extra.shape.as_ref().unwrap()).unwrap().contains("\"cornerRadius\":5000"));
+    // The hand-drawn gradients start from a blank layer (the gradient decides its pixels).
+    for (_, doc) in &probes[1..3] { assert!(doc.layers[0].pixels.is_none()); }
+    assert_eq!(probes[3].1.layers[0].pixels.as_ref().unwrap().pixel(0, 0), [204, 77, 51, 255]);
 }
 
 #[test]
