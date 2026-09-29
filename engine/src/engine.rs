@@ -465,6 +465,16 @@ impl Engine {
                 Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
             }
             Command::AddMaskFromSelection { id, revealing } => { ops::selection::add_mask_from_selection(doc, clips, id, revealing)?; Ok(Dirty::structure()) }
+            Command::Fill { id, mask, color } => {
+                ops::raster_edit::paint_layer(doc, clips, id, mask, &ops::raster_edit::Paint::Fill(color))?;
+                let plane = if mask { Plane::Mask } else { Plane::Pixels };
+                Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
+            }
+            Command::Gradient { id, mask, gradient } => {
+                ops::raster_edit::paint_layer(doc, clips, id, mask, &ops::raster_edit::Paint::Gradient(gradient))?;
+                let plane = if mask { Plane::Mask } else { Plane::Pixels };
+                Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
+            }
         })
     }
 

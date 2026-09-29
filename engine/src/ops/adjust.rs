@@ -94,7 +94,7 @@ pub fn grown(raster: &Raster, transform: &LayerTransform, margin: f64) -> Option
 
 /// The transform for a `new_w` x `new_h` grid whose old grid sits at (`offset_x`, `offset_y`),
 /// keeping every old pixel over the same document point.
-fn placed_like(transform: &LayerTransform, old_w: u32, old_h: u32, new_w: u32, new_h: u32, offset_x: f64, offset_y: f64) -> LayerTransform {
+pub(crate) fn placed_like(transform: &LayerTransform, old_w: u32, old_h: u32, new_w: u32, new_h: u32, offset_x: f64, offset_y: f64) -> LayerTransform {
     let sx = transform.size.width / old_w as f64;
     let sy = transform.size.height / old_h as f64;
     let mut result = *transform;

@@ -60,9 +60,13 @@ fn prefiltered(raster: &Raster, pixels_per_output: f64) -> (Raster, f64) {
 /// (x0, y0, x1, y1) of the pixels with alpha > 0, x1/y1 exclusive; None when fully transparent.
 pub fn alpha_bounds(r: &Raster) -> Option<(u32, u32, u32, u32)> {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
-    for y in 0..r.height { for x in 0..r.width {
-        if r.pixel(x, y)[3] > 0 { x0 = x0.min(x); y0 = y0.min(y); x1 = x1.max(x + 1); y1 = y1.max(y + 1); }
-    }}
+    // A row at a time over its alpha bytes: the first and last pixel with any alpha.
+    for (y, row) in r.bytes().chunks_exact(r.width as usize * 4).enumerate() {
+        let Some(first) = row.chunks_exact(4).position(|p| p[3] > 0) else { continue };
+        let last = row.chunks_exact(4).rposition(|p| p[3] > 0).unwrap();
+        x0 = x0.min(first as u32); x1 = x1.max(last as u32 + 1);
+        y0 = y0.min(y as u32); y1 = y1.max(y as u32 + 1);
+    }
     if x1 == 0 { None } else { Some((x0, y0, x1, y1)) }
 }
 

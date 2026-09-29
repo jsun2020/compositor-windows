@@ -1,4 +1,4 @@
-use crate::{ids, AdjustmentKind, BlendMode, FilterParams, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape, WandSettings};
+use crate::{ids, AdjustmentKind, BlendMode, FilterParams, GradientSpec, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape, WandSettings};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -67,6 +67,11 @@ pub enum Command {
     ClearSelectedPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     /// Add Mask with a selection: `revealing` white with the selection black, or the reverse.
     AddMaskFromSelection { #[serde(with = "ids::upper")] id: Uuid, revealing: bool },
+    // Colour and fills (Phase 4b-1).
+    /// Fill the selection (or the whole layer) with `color`; on the mask, its first channel is grey.
+    Fill { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, color: [f64; 3] },
+    /// Paint a gradient over the layer's pixels or its mask, inside the selection.
+    Gradient { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, gradient: GradientSpec },
 }
 
 impl Command {
@@ -134,6 +139,11 @@ impl Command {
             Command::ClearSelectedPixels { mask: false, .. } => "Clear",
             Command::ClearSelectedPixels { mask: true, .. } => "Fill Mask",
             Command::AddMaskFromSelection { .. } => "Add Mask from Selection",
+            // SelectionEdits.swift:34, Gradient.swift:98.
+            Command::Fill { mask: false, .. } => "Fill",
+            Command::Fill { mask: true, .. } => "Fill Mask",
+            Command::Gradient { mask: false, .. } => "Gradient",
+            Command::Gradient { mask: true, .. } => "Gradient Mask",
         }
     }
 }

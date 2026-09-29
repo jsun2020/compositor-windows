@@ -51,6 +51,25 @@ fn halving_and_a_clear_in_a_selection_at_24_and_100_mp() {
 
 #[test]
 #[ignore]
+fn a_gradient_and_a_fill_at_24_and_100_mp() {
+    for (label, w, h) in [("24 MP", 6000u32, 4000u32), ("100 MP", 10000, 10000)] {
+        let (mut e, id, layer) = filled(w, h);
+        let gradient = GradientSpec { shape: GradientShape::Linear, start: Point { x: 0.0, y: 0.0 }, end: Point { x: w as f64, y: h as f64 },
+            from: [0.0, 0.0, 0.0, 1.0], to: [1.0, 1.0, 1.0, 0.0], opacity: 0.8 };
+        let t = Instant::now();
+        run(&mut e, id, Command::Gradient { id: layer, mask: false, gradient });
+        let whole = ms(t);
+        run(&mut e, id, Command::SelectShape { kind: SelectionShape::Ellipse, points: vec![Point { x: 500.0, y: 500.0 }, Point { x: 2500.0, y: 500.0 }, Point { x: 2500.0, y: 2000.0 }, Point { x: 500.0, y: 2000.0 }], mode: SelectionMode::Replace, antialiased: true });
+        let t = Instant::now();
+        run(&mut e, id, Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] });
+        let fill = ms(t);
+        println!("{label}: gradient over the whole layer {whole:.0} ms; fill in a 2000 x 1500 ellipse {fill:.0} ms");
+        assert_eq!(e.state(id).unwrap().layers[0].pixels_width, w);
+    }
+}
+
+#[test]
+#[ignore]
 fn a_rename_at_the_history_cap_with_a_thousand_layers() {
     let mut e = Engine::new();
     let id = e.new_document(200, 200, false).unwrap();

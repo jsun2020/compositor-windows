@@ -10,3 +10,4 @@ pub mod distort;
 pub mod masks;
 pub mod merge;
 pub mod selection;
+pub mod raster_edit;
