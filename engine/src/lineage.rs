@@ -34,6 +34,10 @@ fn planes(doc: &Document) -> HashMap<(Uuid, Plane), (u64, (u32, u32), LayerTrans
 }
 
 impl Lineage {
+    /// Records one change of a layer's buffer from revision `from` to `to`, within `rect` (None: whole).
+    pub fn record(&mut self, layer: Uuid, plane: Plane, from: u64, to: u64, rect: Option<PixelRect>) {
+        self.push(Change { layer, plane, from, to, rect });
+    }
     fn push(&mut self, change: Change) {
         if self.changes.len() == LINEAGE_LIMIT { self.changes.pop_front(); }
         self.changes.push_back(change);

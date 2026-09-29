@@ -73,11 +73,21 @@ export type FilterParams =
   | { filter: "LensCorrection"; distortion: number };
 export type FilterKind = FilterParams["filter"];
 
+/** A gradient (engine `GradientSpec`): its shape, its line in document pixels, its two stops as
+ * straight RGBA 0..1 (a mask reads the first channel as grey), and its opacity, 0.01 to 1. */
+export interface GradientSpec {
+  shape: "Linear" | "Radial"; start: PointTuple; end: PointTuple;
+  from: [number, number, number, number]; to: [number, number, number, number]; opacity: number;
+}
+
 export type PreviewRequest =
   | { preview: "Adjustment"; layer: string; adjustment: LayerAdjustment }
   /** The same while a slider moves: previewed from a smaller copy until input settles. */
   | { preview: "DragAdjustment"; layer: string; adjustment: LayerAdjustment }
-  | { preview: "Filter"; layer: string; params: FilterParams };
+  | { preview: "Filter"; layer: string; params: FilterParams }
+  /** A gradient not yet applied: from a smaller copy while `dragging` (engine `GRADIENT_DRAG_LIMIT`),
+   * or a full-size patch inside a small selection on a layer over the canvas. */
+  | { preview: "Gradient"; layer: string; mask: boolean; gradient: GradientSpec; dragging: boolean };
 
 export interface LayerState {
   id: string; name: string; visible: boolean; isGroup: boolean; parentId: string | null; opacity: number;
@@ -201,7 +211,9 @@ export type Command =
   | { type: "LoadLayerSelection"; id: string; mode: SelectionMode; antialiased: boolean }
   | { type: "LoadMaskSelection"; id: string; mode: SelectionMode; antialiased: boolean }
   | { type: "ClearSelectedPixels"; id: string; mask: boolean }
-  | { type: "AddMaskFromSelection"; id: string; revealing: boolean };
+  | { type: "AddMaskFromSelection"; id: string; revealing: boolean }
+  | { type: "Fill"; id: string; mask: boolean; color: [number, number, number] }
+  | { type: "Gradient"; id: string; mask: boolean; gradient: GradientSpec };
 
 export interface Dirty { structure: boolean; canvas: boolean; layers: string[]; }
 /** A rectangle of a layer's pixel grid (or its mask's), in whole pixels (engine `PixelRect`). */

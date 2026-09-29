@@ -106,3 +106,35 @@ fn a_rename_at_the_history_cap_with_a_thousand_layers() {
     println!("undo at the cap, 1000 layers: {:?} ms", undo_times.iter().map(|t| (t * 10.0).round() / 10.0).collect::<Vec<_>>());
     assert_eq!(e.state(id).unwrap().undo_depth, HISTORY_ENTRY_LIMIT - 10);
 }
+
+#[test]
+#[ignore]
+fn gradient_previews_dragged_settled_and_patched_at_24_and_100_mp() {
+    for (label, w, h) in [("24 MP", 6000u32, 4000u32), ("100 MP", 10000, 10000)] {
+        let (mut e, id, layer) = filled(w, h);
+        let gradient = |i: f64| GradientSpec { shape: GradientShape::Linear, start: Point { x: w as f64 * 0.2 + i, y: h as f64 * 0.3 }, end: Point { x: w as f64 * 0.8, y: h as f64 * 0.7 - i },
+            from: [1.0, 0.2, 0.0, 1.0], to: [0.0, 0.0, 1.0, 0.3], opacity: 0.9 };
+        // The worst of five ticks after a first one (which halves the layer once for all).
+        let worst = |e: &mut Engine, dragging: bool, mask: bool| {
+            e.set_preview(id, Some(PreviewRequest::Gradient { layer, mask, gradient: gradient(0.0), dragging })).unwrap();
+            (1..6).map(|i| {
+                let t = Instant::now();
+                e.set_preview(id, Some(PreviewRequest::Gradient { layer, mask, gradient: gradient(i as f64 * 7.0), dragging })).unwrap();
+                ms(t)
+            }).fold(0.0, f64::max)
+        };
+        let drag = worst(&mut e, true, false);
+        let settled = worst(&mut e, false, false);
+        e.set_preview(id, None).unwrap();
+        // Ruling I2: the same ticks on the layer's mask.
+        run(&mut e, id, Command::AddMask { id: layer, revealing: true });
+        let mask_drag = worst(&mut e, true, true);
+        let mask_settled = worst(&mut e, false, true);
+        e.set_preview(id, None).unwrap();
+        let (x, y) = (w as f64 / 2.0 - 350.0, h as f64 / 2.0 - 350.0);
+        run(&mut e, id, Command::SelectShape { kind: SelectionShape::Rectangle, points: vec![Point { x, y }, Point { x: x + 700.0, y }, Point { x: x + 700.0, y: y + 700.0 }, Point { x, y: y + 700.0 }], mode: SelectionMode::Replace, antialiased: false });
+        let patch = worst(&mut e, true, false);
+        println!("{label}: gradient preview tick dragging {drag:.0} ms, settled {settled:.0} ms, mask dragging {mask_drag:.0} ms, mask settled {mask_settled:.0} ms, patch in a 700 px selection {patch:.0} ms");
+        assert!(e.preview(id).is_some());
+    }
+}

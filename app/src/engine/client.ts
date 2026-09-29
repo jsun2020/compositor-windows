@@ -158,6 +158,11 @@ export class EngineClient {
   /** What changed in the layer's pixels since revision `from` (engine `pixels_delta`): a rectangle of
    * its pixel grid, empty when nothing did, or null when the whole raster must be uploaded again. */
   pixelsDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.pixels_delta(doc, layer, from)); }
+  /** The bytes of `rect` of the layer's pixels after `level` halvings, as the canvas shows them
+   * (engine `layer_region`): a copy, for a partial upload. */
+  layerRegion(doc: string, layer: string, level: number, rect: PixelRect): Uint8Array {
+    return this.wasm.layer_region(doc, layer, level, rect.x, rect.y, rect.width, rect.height);
+  }
   /** `pixelsDelta` for the layer's mask, in the mask's own grid (engine `mask_delta`). */
   maskDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.mask_delta(doc, layer, from)); }
   clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }

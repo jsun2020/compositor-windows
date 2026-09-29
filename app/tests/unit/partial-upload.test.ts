@@ -54,7 +54,7 @@ describe("levelRect", () => {
 });
 
 describe("LayerTextures.update", () => {
-  it("uploads only the changed rectangle into each chunk it meets, straight from the raster", () => {
+  it("uploads the changed rectangle's bytes into each chunk it meets", () => {
     const { gl, calls } = stubGl();
     const textures = new LayerTextures(gl);
     // 5000 x 3000: chunks start at x 0, 2048, 4096 and y 0, 2048.
@@ -62,12 +62,13 @@ describe("LayerTextures.update", () => {
     expect(calls.filter((c) => c.kind === "image").length).toBe(6);
     calls.length = 0;
     textures.update("D", "A", "px:2", 2, { x: 2000, y: 1000, width: 100, height: 1100 }, new Uint8Array(4));
-    // Across the x = 2048 edge and the y = 2048 edge: four pieces, each placed in its own chunk.
+    // Across the x = 2048 edge and the y = 2048 edge: four pieces, each placed in its own chunk and
+    // read from its own part of the 100 x 1100 region.
     expect(calls).toEqual([
-      { kind: "sub", x: 2000, y: 1000, width: 48, height: 1048, skipX: 2000, skipY: 1000, rowLength: 5000 },
-      { kind: "sub", x: 0, y: 1000, width: 52, height: 1048, skipX: 2048, skipY: 1000, rowLength: 5000 },
-      { kind: "sub", x: 2000, y: 0, width: 48, height: 52, skipX: 2000, skipY: 2048, rowLength: 5000 },
-      { kind: "sub", x: 0, y: 0, width: 52, height: 52, skipX: 2048, skipY: 2048, rowLength: 5000 },
+      { kind: "sub", x: 2000, y: 1000, width: 48, height: 1048, skipX: 0, skipY: 0, rowLength: 100 },
+      { kind: "sub", x: 0, y: 1000, width: 52, height: 1048, skipX: 48, skipY: 0, rowLength: 100 },
+      { kind: "sub", x: 2000, y: 0, width: 48, height: 52, skipX: 0, skipY: 1048, rowLength: 100 },
+      { kind: "sub", x: 0, y: 0, width: 52, height: 52, skipX: 48, skipY: 1048, rowLength: 100 },
     ]);
     const t = textures.get("D", "A")!;
     expect([t.key, t.revision]).toEqual(["px:2", 2]);

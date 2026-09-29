@@ -118,6 +118,21 @@ fn selection_regions(doc: &Document, clips: &SelectionClips, layer: Uuid, plane:
     clip.rect_on_grid(&grid.pixel_to_document(w, h), w, h).map(|rect| vec![Region { layer, plane, rect }]).unwrap_or_default()
 }
 
+/// Records in the lineage how a patch preview changed what the canvas shows of a layer's pixels: from
+/// the stored pixels to a patch, from one patch to the next (both rectangles), and back. The GPU then
+/// uploads only those rectangles (`pixels_delta`, `layer_region`); any other preview goes whole.
+fn record_preview(lineage: &mut Lineage, doc: &Document, old: Option<&PixelPreview>, new: Option<&PixelPreview>) {
+    let patch = |p: Option<&PixelPreview>| p.and_then(|p| match p.target { PreviewTarget::Patch(r) => Some((p.layer, p.revision, r)), _ => None });
+    let stored = |layer: Uuid| doc.layer(layer).map(|l| l.pixels_revision);
+    match (patch(old), patch(new)) {
+        (Some((a, from, r1)), Some((b, to, r2))) if a == b => lineage.record(a, Plane::Pixels, from, to, Some(r1.union(&r2))),
+        (old_patch, new_patch) => {
+            if let Some((layer, from, r)) = old_patch { if let Some(to) = stored(layer) { lineage.record(layer, Plane::Pixels, from, to, Some(r)); } }
+            if let Some((layer, to, r)) = new_patch { if let Some(from) = stored(layer) { lineage.record(layer, Plane::Pixels, from, to, Some(r)); } }
+        }
+    }
+}
+
 /// Gives each layer's new pixels, changed only within a reported region, the halvings its old pixels
 /// had, redone only there (`Raster::seed_halvings`): the GPU at a reduced zoom then uploads the region
 /// without halving the whole layer again. Skips a layer whose transform moved between `before` and
@@ -271,11 +286,48 @@ impl Engine {
         let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         Ok(self.session(id)?.lineage.delta(layer, Plane::Pixels, from, l.pixels_revision))
     }
-    /// `pixels_delta` for the layer's mask, in the mask's own grid.
+    /// `pixels_delta` for the layer's mask as the canvas shows it, in the mask's own grid.
     pub fn mask_delta(&self, id: Uuid, layer: Uuid, from: u64) -> Result<Option<PixelRect>, CommandError> {
+        let doc = self.render_document(id)?;
+        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(self.session(id)?.lineage.delta(layer, Plane::Mask, from, l.mask_revision))
+    }
+    /// The preview showing on the canvas, if any.
+    pub fn preview(&self, id: Uuid) -> Option<&PixelPreview> { self.sessions.get(&id).and_then(|s| s.preview.as_ref()) }
+    /// The layer's mask as the canvas shows it (a gradient's mask preview in its place).
+    pub fn mask_pixels(&self, id: Uuid, layer: Uuid) -> Result<Option<GrayRaster>, CommandError> {
+        let doc = self.render_document(id)?;
+        Ok(doc.layer(layer).ok_or(CommandError::NoLayer)?.mask.as_ref().map(|m| m.pixels.clone()))
+    }
+    /// The bytes of `rect` (in the raster's grid after `level` halvings) of the layer's pixels as the
+    /// canvas shows them: what the GPU's partial upload sends. Through a patch preview, the rectangle
+    /// is made from the stored pixels and the patch at full size and halved on its own, which equals
+    /// the same part of the whole patched raster halved (every block lies inside the rectangle).
+    pub fn layer_region(&self, id: Uuid, layer: Uuid, level: u32, rect: PixelRect) -> Result<Vec<u8>, CommandError> {
         let s = self.session(id)?;
-        let l = s.document.layer(layer).ok_or(CommandError::NoLayer)?;
-        Ok(s.lineage.delta(layer, Plane::Mask, from, l.mask_revision))
+        let patch = s.preview.as_ref().filter(|p| p.layer == layer).and_then(|p| match p.target { PreviewTarget::Patch(r) => Some((r, &p.raster)), _ => None });
+        let stored = s.document.layer(layer).ok_or(CommandError::NoLayer)?.pixels.clone().ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
+        let f = 1u32 << level;
+        // Every level of the halving keeps whole 2 x 2 blocks while both sides stay above 1.
+        let whole_blocks = (stored.width >> level.saturating_sub(1)) > 1 && (stored.height >> level.saturating_sub(1)) > 1;
+        let raster = match patch {
+            Some((prect, praster)) if whole_blocks => {
+                let (x0, y0, w, h) = (rect.x * f, rect.y * f, rect.width * f, rect.height * f);
+                let mut data = stored.cropped(x0, y0, w, h).into_bytes();
+                for y in prect.y.max(y0)..(prect.y + prect.height).min(y0 + h) {
+                    let (from, to) = (prect.x.max(x0), (prect.x + prect.width).min(x0 + w));
+                    if from >= to { continue; }
+                    let src = (((y - prect.y) * prect.width + (from - prect.x)) * 4) as usize;
+                    let dst = (((y - y0) * w + (from - x0)) * 4) as usize;
+                    data[dst..dst + ((to - from) * 4) as usize].copy_from_slice(&praster.bytes()[src..src + ((to - from) * 4) as usize]);
+                }
+                let mut region = Raster::from_premultiplied(w, h, data);
+                for _ in 0..level { region = region.halved(); }
+                return Ok(region.into_bytes());
+            }
+            _ => self.layer_raster(id, layer, level)?.ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?,
+        };
+        Ok(raster.cropped(rect.x, rect.y, rect.width, rect.height).into_bytes())
     }
 
     /// Whether a press at `at` lands inside a selection with something in it, by the winding rule:
@@ -288,11 +340,29 @@ impl Engine {
 
     /// The document as the canvas should show it: the stored one, or a copy with the open
     /// panel's preview substituted for one layer. Every render path reads this; `export_*` and
-    /// the ops do not, because a preview is not committed.
-    pub(crate) fn render_document(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> {
+    /// the ops do not, because a preview is not committed. A patch preview keeps the stored pixels
+    /// here, under the preview's revision: what reads the bytes asks `render_bytes`.
+    pub(crate) fn render_document(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> { self.displayed(id, false) }
+    /// `render_document` with a patch preview drawn into the layer's pixels (made once per preview).
+    pub(crate) fn render_bytes(&self, id: Uuid) -> Result<std::borrow::Cow<'_, Document>, CommandError> { self.displayed(id, true) }
+    fn displayed(&self, id: Uuid, bytes: bool) -> Result<std::borrow::Cow<'_, Document>, CommandError> {
         let s = self.session(id)?;
         let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
         let mut doc = s.document.clone();
+        match &preview.target {
+            PreviewTarget::Mask(mask) => {
+                if let Some(m) = doc.layer_mut(preview.layer).and_then(|l| { l.mask_revision = preview.revision; l.mask.as_mut() }) { m.pixels = mask.clone(); }
+                return Ok(std::borrow::Cow::Owned(doc));
+            }
+            PreviewTarget::Patch(_) => {
+                if let Some(layer) = doc.layer_mut(preview.layer) {
+                    layer.pixels_revision = preview.revision;
+                    if bytes { layer.pixels = layer.pixels.as_ref().map(|stored| preview.patched(stored)); }
+                }
+                return Ok(std::borrow::Cow::Owned(doc));
+            }
+            PreviewTarget::Pixels => {}
+        }
         if let Some(layer) = doc.layer_mut(preview.layer) {
             // A preview may come from a reduced copy (preview.rs): effects, measured in the layer's
             // pixels, shrink with it, so they show at the size the committed layer will draw them.
@@ -325,10 +395,17 @@ impl Engine {
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
         let clips = &self.clips;
-        s.preview = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
+        let next = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
+        record_preview(&mut s.lineage, &s.document, s.preview.as_ref(), next.as_ref());
+        s.preview = next;
         Ok(Dirty::pixels(layers))
     }
-    pub(crate) fn clear_preview(&mut self, id: Uuid) { if let Ok(s) = self.session_mut(id) { s.preview = None; } }
+    pub(crate) fn clear_preview(&mut self, id: Uuid) {
+        if let Ok(s) = self.session_mut(id) {
+            record_preview(&mut s.lineage, &s.document, s.preview.as_ref(), None);
+            s.preview = None;
+        }
+    }
 
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
     /// `f` reads the selection's clip through the engine's cache (`SelectionClips`).
@@ -551,11 +628,11 @@ impl Engine {
         Ok(compositor::export_jpeg_preview_with(&self.session(id)?.document, quality, matte, max_side, &self.effects)?)
     }
     pub fn composite(&self, id: Uuid, region: Rect, width: u32, height: u32) -> Result<Raster, CommandError> {
-        Ok(compositor::composite_edit_with(&*self.render_document(id)?, None, region, width, height, &self.effects))
+        Ok(compositor::composite_edit_with(&*self.render_bytes(id)?, None, region, width, height, &self.effects))
     }
 
     pub fn render_plan(&self, id: Uuid, edit: Option<&PreviewEdit>) -> Result<RenderPlan, CommandError> { Ok(plan::render_plan(&*self.render_document(id)?, edit)) }
-    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit_with(&*self.render_document(id)?, edit, region, w, h, &self.effects)) }
+    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit_with(&*self.render_bytes(id)?, edit, region, w, h, &self.effects)) }
     pub fn clip_dependents(&self, id: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, CommandError> { Ok(ops::hierarchy::clip_dependents(&self.session(id)?.document, ids)) }
     pub fn merge_action(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<&'static str>, CommandError> { Ok(ops::merge::merge_plan(&self.session(id)?.document, ids).map(|p| p.action)) }
     pub fn group_box(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<LayerTransform>, CommandError> { Ok(ops::transform::group_box(&self.session(id)?.document, ids)) }
@@ -564,7 +641,7 @@ impl Engine {
 
     /// The layer's raster after `level` sharp halvings, through any open preview.
     pub fn layer_raster(&self, id: Uuid, layer: Uuid, level: u32) -> Result<Option<Raster>, CommandError> {
-        let doc = self.render_document(id)?;
+        let doc = self.render_bytes(id)?;
         let Some(mut raster) = doc.layer(layer).ok_or(CommandError::NoLayer)?.pixels.clone() else { return Ok(None); };
         for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
             if raster.width <= 1 || raster.height <= 1 { break; }
@@ -579,7 +656,7 @@ impl Engine {
     /// call, so a caller that hands out a pointer into it keeps the raster itself (the wasm bridge's
     /// `prepare_draw_pixels`).
     pub fn draw_raster(&self, id: Uuid, layer: Uuid, level: u32, edit: Option<&PreviewEdit>) -> Result<Option<Raster>, CommandError> {
-        let doc = self.render_document(id)?;
+        let doc = self.render_bytes(id)?;
         let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         let raster = match effects_draw(l, edit) { Some(fx) => self.effects.image(l, &fx), None => l.pixels.clone() };
         let Some(mut raster) = raster else { return Ok(None); };

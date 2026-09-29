@@ -143,14 +143,16 @@ export class GlRenderer implements Renderer {
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
       const size = sizeAtLevel(width, height, level);
       // Plain pixels at the same level and size: ask what changed since the uploaded revision and
-      // upload only that (Engine::pixels_delta); a change the engine cannot bound goes whole.
+      // upload only that (Engine::pixels_delta, Engine::layer_region, which reads a gradient's patch
+      // preview without making the whole patched raster); a change the engine cannot bound goes whole.
       const kept = fx ? undefined : this.textures.get(state.id, layer.id);
       if (kept && kept.revision !== null && kept.level === level && kept.nearest === nearest && kept.width === size.width && kept.height === size.height) {
         const delta = engine.pixelsDelta(state.id, layer.id, kept.revision);
         if (delta) {
           const rect = levelRect(delta, level, width, height);
-          const pixels = rect.width > 0 && rect.height > 0 ? engine.layerPixels(state.id, layer.id, level) : null;
-          if (rect.width === 0 || rect.height === 0 || pixels) { this.textures.update(state.id, layer.id, bytesKey, layer.pixelsRevision, rect, pixels ?? new Uint8Array(0)); continue; }
+          const region = rect.width > 0 && rect.height > 0 ? engine.layerRegion(state.id, layer.id, level, rect) : new Uint8Array(0);
+          this.textures.update(state.id, layer.id, bytesKey, layer.pixelsRevision, rect, region);
+          continue;
         }
       }
       const upload = (pixels: Uint8Array | null) => this.textures.sync(state.id, layer.id, bytesKey, nearest, pixels, level, size, fx ? null : layer.pixelsRevision);

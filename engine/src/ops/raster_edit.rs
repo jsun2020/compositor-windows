@@ -59,13 +59,6 @@ impl Paint {
             Paint::Gradient(g) => g.check(),
         }
     }
-    /// The straight RGBA painted at document point `p`, and the opacity it is painted at.
-    fn at(&self, p: Point) -> ([f64; 4], f64) {
-        match self {
-            Paint::Fill(c) => ([c[0], c[1], c[2], 1.0], 1.0),
-            Paint::Gradient(g) => (g.color_at(g.position(p)), g.opacity),
-        }
-    }
 }
 
 /// The grid a layer's edit is painted on: `width` x `height` pixels that `transform` places, with the
@@ -135,7 +128,8 @@ impl Ramp {
 
 /// Paints `paint` over `data` (premultiplied RGBA, or grey when `grey`) on a `width` x `height` grid
 /// that `transform` places: each pixel at its centre, inside the canvas, through `coverage` (the
-/// selection's, None for all), source-over at the paint's alpha times its opacity times the coverage,
+/// selection's, None for all), source-over at the paint's alpha times its opacity times the coverage
+/// (as a fraction of 255),
 /// each channel rounded half up.
 pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, grey: bool) {
     let m = transform.pixel_to_document(width, height);
@@ -147,20 +141,21 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
         Paint::Gradient(g) => (g.from, g.to, g.opacity),
     };
     let delta: [f64; 4] = std::array::from_fn(|c| to[c] - from[c]);
+    // The selection's coverage as a fraction, once for each of its 256 values.
+    let fraction: [f64; 256] = std::array::from_fn(|k| k as f64 / 255.0);
     for y in 0..height as usize {
         // The row's first pixel centre in the document, and the step one pixel to the right.
         let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
         let cover = coverage.map(|c| &c.bytes()[y * w..(y + 1) * w]);
         let line = &mut data[y * w * channels..(y + 1) * w * channels];
-        for x in 0..w {
+        for (x, px) in line.chunks_exact_mut(channels).enumerate() {
             let k = cover.map_or(255, |c| c[x]);
             if k == 0 { continue; }
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
             if dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch { continue; }
             let t = ramp.at(dx, dy);
-            let s = (from[3] + delta[3] * t) * opacity * k as f64 / 255.0;
+            let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
-            let px = &mut line[x * channels..(x + 1) * channels];
             let keep = 1.0 - s;
             if grey {
                 px[0] = ((from[0] + delta[0] * t) * 255.0 * s + px[0] as f64 * keep + 0.5) as u8;
@@ -225,11 +220,17 @@ fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> 
     Ok(())
 }
 
+/// Whether `paint_layer` would paint: the paint's values and the target (a preview asks first, and
+/// shows nothing the commit would refuse).
+pub fn paint_layer_check(doc: &Document, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
+    paint.check()?;
+    check_target(doc, id, mask)
+}
+
 /// Paints `paint` into layer `id`'s pixels (`mask` false) or its mask, as one edit: Fill and the
 /// Gradient's commit.
 pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
-    paint.check()?;
-    check_target(doc, id, mask)?;
+    paint_layer_check(doc, id, mask, paint)?;
     if mask {
         mask_on_layer_grid(doc, id)?;
         let layer = doc.layer(id).unwrap();

@@ -326,15 +326,18 @@ impl WasmEngine {
         let rect = self.engine.mask_delta(parse_id(doc)?, parse_id(layer)?, from as u64).map_err(js_err)?;
         Ok(rect.map_or_else(Vec::new, |r| vec![r.x as f64, r.y as f64, r.width as f64, r.height as f64]))
     }
+    /// The mask as the canvas shows it (`Engine::mask_pixels`): its buffer is the document's, or an
+    /// open mask preview's, which lives until the next engine call either way.
     pub fn mask_pixels_ptr(&self, doc: &str, layer: &str) -> Result<*const u8, JsError> {
-        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
-        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
-        Ok(l.mask.as_ref().map_or(std::ptr::null(), |m| m.pixels.bytes().as_ptr()))
+        Ok(self.engine.mask_pixels(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?.map_or(std::ptr::null(), |m| m.bytes().as_ptr()))
     }
     pub fn mask_pixels_len(&self, doc: &str, layer: &str) -> Result<usize, JsError> {
-        let d = self.engine.document(parse_id(doc)?).ok_or_else(|| JsError::new("no document"))?;
-        let l = d.layer(parse_id(layer)?).ok_or_else(|| JsError::new("no layer"))?;
-        Ok(l.mask.as_ref().map_or(0, |m| m.pixels.bytes().len()))
+        Ok(self.engine.mask_pixels(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?.map_or(0, |m| m.bytes().len()))
+    }
+    /// `Engine::layer_region`: the bytes of a rectangle of the layer's pixels at `level`, as shown.
+    pub fn layer_region(&self, doc: &str, layer: &str, level: u32, x: u32, y: u32, width: u32, height: u32) -> Result<Uint8Array, JsError> {
+        let bytes = self.engine.layer_region(parse_id(doc)?, parse_id(layer)?, level, PixelRect { x, y, width, height }).map_err(js_err)?;
+        Ok(Uint8Array::from(bytes.as_slice()))
     }
     pub fn clip_dependents(&self, doc: &str, ids_json: &str) -> Result<String, JsError> {
         let ids = self.engine.clip_dependents(parse_id(doc)?, &Self::parse_ids(ids_json)?).map_err(js_err)?;

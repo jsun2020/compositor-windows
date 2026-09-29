@@ -103,24 +103,24 @@ export class LayerTextures {
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     this.layers.set(k, { key: bytesKey, revision, level, width: size.width, height: size.height, nearest, chunks });
   }
-  /** Uploads only `rect` (in the texture's own pixels, at its level) of `pixels`, the whole raster at
-   * that level, into every chunk it meets, straight from the view: `texSubImage2D` with the row length
-   * and skips set, no copy. The texture then names `bytesKey` and `revision`. */
-  update(docId: string, id: string, bytesKey: string, revision: number, rect: PixelRect, pixels: Uint8Array): void {
+  /** Uploads `region`, the bytes of `rect` (in the texture's own pixels, at its level; the engine's
+   * `layer_region`), into every chunk the rectangle meets: `texSubImage2D` with the region's row length
+   * and each chunk's skips. The texture then names `bytesKey` and `revision`. */
+  update(docId: string, id: string, bytesKey: string, revision: number, rect: PixelRect, region: Uint8Array): void {
     const t = this.layers.get(key(docId, id));
     if (!t) return;
     const gl = this.gl;
     if (rect.width > 0 && rect.height > 0) {
-      gl.pixelStorei(gl.UNPACK_ROW_LENGTH, t.width);
+      gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rect.width);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       for (const c of t.chunks) {
         const x0 = Math.max(rect.x, c.x), y0 = Math.max(rect.y, c.y);
         const x1 = Math.min(rect.x + rect.width, c.x + c.width), y1 = Math.min(rect.y + rect.height, c.y + c.height);
         if (x1 <= x0 || y1 <= y0) continue;
         gl.bindTexture(gl.TEXTURE_2D, c.texture);
-        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
-        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, x0 - c.x, y0 - c.y, x1 - x0, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0 - rect.x);
+        gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0 - rect.y);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x0 - c.x, y0 - c.y, x1 - x0, y1 - y0, gl.RGBA, gl.UNSIGNED_BYTE, region);
       }
       gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
       gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
