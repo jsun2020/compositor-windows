@@ -1,4 +1,4 @@
-import { useEditor } from "../state/store";
+import { BUSY_MESSAGE, useEditor } from "../state/store";
 
 function ctx() {
   const s = useEditor.getState();
@@ -8,8 +8,11 @@ function ctx() {
 
 async function guarded(work: () => Promise<void>): Promise<void> {
   const s = useEditor.getState();
-  // Nothing is opened or saved while an edit job's result is still to come (the Mac's isProjectBusy).
-  if (s.busy || s.working) return;
+  if (s.busy) return;
+  // Nothing is opened or saved while an edit job's result is still to come (the Mac's isProjectBusy),
+  // and the user is told why: a Ctrl+S, or the OK of a close prompt, that did nothing without a word
+  // would read as saved (final review minor 4).
+  if (s.working) { s.setError(BUSY_MESSAGE); return; }
   s.setBusy(true);
   try { await work(); }
   catch (e) { useEditor.getState().setError(e instanceof Error ? e.message : String(e)); }
@@ -87,6 +90,9 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     // Likewise a pending gradient (fix round 1, I-1): an import must not land under it, or on a
     // document with none open.
     useEditor.getState().commitGradient();
+    // On a large layer that sends the gradient to the job worker: the import waits, as a command
+    // does, rather than land before the gradient's result (final review I-1).
+    if (useEditor.getState().working) { useEditor.getState().setError(BUSY_MESSAGE); return; }
     const { s, engine, bridge } = ctx();
     const files = paths ?? (await bridge.pickImportImages());
     const failures: string[] = [];

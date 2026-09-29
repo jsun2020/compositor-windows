@@ -88,7 +88,8 @@ describe("JobClient", () => {
     const one = jobs.run("x", histogram("1"));
     await settle(); workers[0].reply({ type: "ready" }); await settle();
     workers[0].reply({ type: "failed", id: 1, error: "unreachable executed", memory: 1, fatal: true });
-    await expect(one).rejects.toThrow(/ran out of memory/);
+    // A panic's trap is not called a memory failure (final review minor 6).
+    await expect(one).rejects.toThrow("The edit failed and was stopped.");
     expect(workers[0].terminated, "a poisoned worker cannot be reused").toBe(true);
     const two = jobs.run("x", histogram("2"));
     await settle();
@@ -96,6 +97,14 @@ describe("JobClient", () => {
     workers[1].reply({ type: "ready" }); await settle();
     workers[1].reply(done(2, "ok"));
     expect((await two)?.header, "the next job runs normally on the new worker").toBe("ok");
+  });
+
+  it("says a trap ran out of memory only when the trap says so (final review minor 6)", async () => {
+    const { jobs, workers } = client();
+    const one = jobs.run("x", histogram("1"));
+    await settle(); workers[0].reply({ type: "ready" }); await settle();
+    workers[0].reply({ type: "failed", id: 1, error: "WebAssembly.Memory.grow(): Maximum memory size exceeded", memory: 1, fatal: true });
+    await expect(one).rejects.toThrow(/ran out of memory/);
   });
 
   it("replaces a worker whose memory grew past the limit, and one that died", async () => {

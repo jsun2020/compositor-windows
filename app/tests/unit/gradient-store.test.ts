@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PALETTE, JOB_PIXELS, useEditor } from "../../src/state/store";
+import { BUSY_MESSAGE, DEFAULT_PALETTE, JOB_PIXELS, useEditor } from "../../src/state/store";
 import { DEFAULT_GRADIENT, gradientStops, snapped45 } from "../../src/state/gradient-edit";
 import { runAction, typeOpacityDigit } from "../../src/shortcuts/useShortcuts";
 import { fillActive } from "../../src/actions/layers";
+import { importImages } from "../../src/actions/files";
 import type { Command, DocumentState, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
-import type { JobClient } from "../../src/engine/jobs";
+import type { JobClient, JobResult } from "../../src/engine/jobs";
+import type { ShellBridge } from "../../src/shell/bridge";
 
 // The Gradient tool's pending edit (Gradient.swift; EditorSession.swift:573-590; GradientTests' rules).
 const RED = { red: 1, green: 0, blue: 0 }, BLUE = { red: 0, green: 0, blue: 1 };
@@ -66,6 +68,18 @@ const draw = (from: [number, number], to: [number, number]) => {
   s().endGradientDrag();
 };
 const last = () => previews.at(-1) as Extract<PreviewRequest, { preview: "Gradient" }>;
+
+describe("a layer click while a job's result is to come (final review minor 1)", () => {
+  beforeEach(() => install());
+  it("waits, as a command does: nothing executed (the engine would clear the preview the canvas keeps), the selection kept", () => {
+    useEditor.setState({ working: true });
+    s().selectLayers(["B"], "B");
+    expect([log, s().selectedLayerIds, s().error]).toEqual([[], ["A"], BUSY_MESSAGE]);
+    useEditor.setState({ working: false, error: null });
+    s().selectLayers(["B"], "B");
+    expect(log).toEqual([`execute ${JSON.stringify({ type: "SetActiveLayer", id: "B" })}`]);
+  });
+});
 
 describe("a pending gradient", () => {
   beforeEach(() => install());
@@ -180,6 +194,34 @@ describe("a pending gradient", () => {
     fillActive(false);
     expect(jobsSent).toEqual(["Gradient"]);
     expect(s().gradientEdit).toBeNull();
+  });
+  it("applies a pending gradient through the worker, then refuses the command while that job runs (final review I-1)", async () => {
+    draw([5, 6], [30, 6]);
+    const sent: string[] = []; const installed: string[] = [];
+    let finish: (r: JobResult | null) => void = () => {};
+    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise<JobResult | null>((r) => { finish = r; }); } } as unknown as JobClient;
+    const engine = { ...s().engine!, installJob: (_d: string, layerId: string) => { installed.push(layerId); return { structure: true, canvas: false, layers: [] }; } } as unknown as EngineClient;
+    useEditor.setState({ jobPixels: 1, jobs, engine });
+    expect(s().run({ type: "Deselect" })).toBe(false);
+    expect(s().error).toBe(BUSY_MESSAGE);
+    expect(log, "the gradient's job input, and no Deselect").toEqual(["job input"]);
+    expect(sent).toEqual(["Gradient"]);
+    finish({ header: "OUT", pixels: null, mask: null });
+    await new Promise((r) => setTimeout(r, 0));
+    expect([installed, s().working]).toEqual([["A"], false]);
+    expect(s().run({ type: "Deselect" })).toBe(true);
+    expect(log.at(-1)).toBe(`execute ${JSON.stringify({ type: "Deselect" })}`);
+  });
+  it("applies a pending gradient through the worker, then refuses an import while that job runs (final review I-1)", async () => {
+    draw([5, 6], [30, 6]);
+    const imported: string[] = [];
+    const jobs = { run: () => new Promise(() => {}) } as unknown as JobClient;
+    const engine = { ...s().engine!, importImage: (doc: string | null) => { imported.push(String(doc)); return "D"; } } as unknown as EngineClient;
+    const bridge = { readFile: async () => new Uint8Array([1]), baseName: (p: string) => p, pickImportImages: async () => ["C:/b.png"] } as unknown as ShellBridge;
+    useEditor.setState({ jobPixels: 1, jobs, engine, bridge, busy: false });
+    await importImages(["C:/b.png"]);
+    expect([imported, s().error, s().working]).toEqual([[], BUSY_MESSAGE, true]);
+    expect(log).toEqual(["job input"]);
   });
   it("applies a pending gradient before opening an adjustment panel (fix round 1, I-1)", () => {
     draw([5, 6], [30, 6]); // small: commits at once, on the UI thread, not through the worker

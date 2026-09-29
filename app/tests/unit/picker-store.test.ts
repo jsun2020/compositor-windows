@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_PALETTE, pickerTitle, useEditor } from "../../src/state/store";
+import { BUSY_MESSAGE, DEFAULT_PALETTE, pickerTitle, useEditor } from "../../src/state/store";
+import { samplingInto } from "../../src/canvas/sampling";
 import { BLACK, WHITE, hexOf, hsbOf, parseHex, type PaletteColor } from "../../src/tools/color";
 import { defaultAdjustment } from "../../src/state/adjust-edit";
 import type { DocumentState, LayerAdjustment, LayerState, PreviewRequest } from "../../src/engine/types";
@@ -82,6 +83,26 @@ describe("the colour picker", () => {
   it("does not open while a job's result is to come", () => {
     useEditor.setState({ working: true });
     expect(s().openColorPicker({ kind: "palette", background: false })).toBe(false);
+  });
+  it("stays open with its colour on OK while a job's result is to come, and says why (final review minor 2)", () => {
+    s().openColorPicker({ kind: "palette", background: false });
+    s().setPickerHsb(hsbOf(RED));
+    useEditor.setState({ working: true });
+    s().closeColorPicker(true);
+    expect([s().colorPicker?.target, s().pickerColor(), s().palette.foreground, s().error]).toEqual([{ kind: "palette", background: false }, RED, BLACK, BUSY_MESSAGE]);
+    useEditor.setState({ working: false });
+    s().closeColorPicker(true);
+    expect([s().colorPicker, s().palette.foreground]).toEqual([null, RED]);
+  });
+  it("does not sample the canvas while a job's result is to come, into the picker or with the Eyedropper (final review minor 3)", () => {
+    s().openColorPicker({ kind: "palette", background: false });
+    expect(samplingInto()).toBe("picker");
+    useEditor.setState({ working: true });
+    expect(samplingInto()).toBeNull();
+    useEditor.setState({ working: false, colorPicker: null, tool: "eyedropper" });
+    expect(samplingInto()).toBe("foreground");
+    useEditor.setState({ working: true });
+    expect(samplingInto()).toBeNull();
   });
 });
 

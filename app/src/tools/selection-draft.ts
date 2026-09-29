@@ -15,10 +15,13 @@ export function selectionMode(choice: SelectionMode, shift: boolean, alt: boolea
   return alt ? "Subtract" : shift ? "Add" : choice;
 }
 
+/** Swift's `rounded()`: halves away from zero (JavaScript's `Math.round` takes -2.5 to -2). */
+const rounded = (v: number) => Math.sign(v) * Math.round(Math.abs(v));
+
 /** The box a drag from `anchor` to `point` spans, in whole pixels (`DragBox.rect`, Selection.swift:93-105):
  * `square` evens the sides, `fromCenter` grows it around the anchor. The anchor is already whole. */
 export function dragBox(anchor: P, point: P, square: boolean, fromCenter: boolean): Box {
-  let dx = Math.round(point.x) - anchor.x, dy = Math.round(point.y) - anchor.y;
+  let dx = rounded(point.x) - anchor.x, dy = rounded(point.y) - anchor.y;
   if (square) {
     const side = Math.max(Math.abs(dx), Math.abs(dy));
     dx = dx < 0 ? -side : side;

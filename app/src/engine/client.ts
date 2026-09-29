@@ -17,6 +17,12 @@ export class EngineClient {
    * worker, which instantiates a second engine from it (`JobClient`). */
   static async load(): Promise<EngineClient> {
     const response = await fetch(new URL("./pkg/compositor_engine_bg.wasm", import.meta.url));
+    // A missing or refused file is said as such, not as the compile error its error page would raise
+    // (final review minor 7).
+    if (!response.ok) {
+      const status = response.statusText ? `${response.status} ${response.statusText}` : String(response.status);
+      throw new Error(`The engine could not be loaded (${status}).`);
+    }
     const module = await WebAssembly.compile(await response.arrayBuffer());
     const exports = await init({ module_or_path: module });
     return new EngineClient(new WasmEngine(), exports.memory, module);

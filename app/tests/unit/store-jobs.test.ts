@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BUSY_MESSAGE, JOB_PIXELS, useEditor } from "../../src/state/store";
 import { defaultAdjustment } from "../../src/state/adjust-edit";
+import { closeProject, saveProject } from "../../src/actions/files";
 import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient, JobRequest, JobResult } from "../../src/engine/jobs";
+import type { ShellBridge } from "../../src/shell/bridge";
 
 function layer(id: string, width: number, height: number): LayerState {
   return { id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal",
@@ -137,6 +139,45 @@ describe("destructive commits on large layers go to the job worker", () => {
     expect(useEditor.getState().adjustEdit).toBeNull();
     expect(log).not.toContain("histogram here");
     expect(requests).toEqual([]);
+  });
+
+  it("re-editing an adjustment layer is refused while working, though it bypasses canAdjust (Task 6 deferred minor)", () => {
+    const { log, requests } = install(2001, 2000);
+    const levels = defaultAdjustment("Levels");
+    const adjusted: LayerState = { ...layer("A", 2001, 2000), hasPixels: false, adjustment: levels };
+    useEditor.setState({ documents: { D: document(adjusted) }, working: true });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels", layerId: "A", target: "adjustmentLayer" })).toBe(false);
+    expect(useEditor.getState().adjustEdit).toBeNull();
+    expect([log, requests]).toEqual([[], []]);
+    // The same call opens the panel once the result is in.
+    useEditor.setState({ working: false });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels", layerId: "A", target: "adjustmentLayer" })).toBe(true);
+  });
+
+  it("a histogram whose copy out fails closes the panel and says why, rather than reading forever (final review minor 5)", () => {
+    const { previews, requests } = install(2001, 2000);
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInput: () => { throw new RangeError("Array buffer allocation failed"); } } as never });
+    let opened: boolean | undefined;
+    expect(() => { opened = useEditor.getState().beginAdjust({ kind: "Levels" }); }, "nothing thrown out of the key handler").not.toThrow();
+    expect(opened).toBe(false);
+    expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
+    expect(previews.at(-1), "its preview taken away").toBeNull();
+  });
+
+  it("Save and the close prompt's OK say why they wait while working, and the document stays open (final review minor 4)", async () => {
+    install(2001, 2000);
+    const writes: string[] = [];
+    const bridge = { baseName: (p: string) => p, writePackage: async (p: string) => { writes.push(p); }, addRecentPackage: async () => {}, pickSavePackage: async () => "C:/x.comp" } as unknown as ShellBridge;
+    const modified = { ...document(layer("A", 2001, 2000)), isModified: true, path: "C:/a.comp" };
+    useEditor.setState({ bridge, busy: false, documents: { D: modified }, working: true });
+    vi.stubGlobal("window", { confirm: () => true });
+    try {
+      await saveProject();
+      expect([writes, useEditor.getState().error]).toEqual([[], BUSY_MESSAGE]);
+      useEditor.setState({ error: null });
+      expect(await closeProject("D")).toBe(false);
+      expect([writes, useEditor.getState().error, Object.keys(useEditor.getState().documents)]).toEqual([[], BUSY_MESSAGE, ["D"]]);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it("OK while working keeps the panel open and shows BUSY_MESSAGE, rather than losing the edit", async () => {

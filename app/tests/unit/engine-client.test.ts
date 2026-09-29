@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EngineClient } from "../../src/engine/client";
 import type { PreviewEdit } from "../../src/engine/types";
 
@@ -23,14 +23,27 @@ function growingClient(): EngineClient {
   return client as unknown as EngineClient;
 }
 
+describe("loading the engine", () => {
+  it("says the engine could not be loaded when its file is missing, rather than failing to compile an error page (final review minor 7)", async () => {
+    let compiled = 0;
+    vi.stubGlobal("fetch", async () => ({ ok: false, status: 404, statusText: "Not Found", arrayBuffer: async () => new ArrayBuffer(8) }));
+    const compile = WebAssembly.compile;
+    WebAssembly.compile = (async () => { compiled++; throw new Error("CompileError: not wasm"); }) as typeof WebAssembly.compile;
+    try {
+      await expect(EngineClient.load()).rejects.toThrow("The engine could not be loaded (404 Not Found).");
+      expect(compiled, "nothing compiled").toBe(0);
+    } finally { WebAssembly.compile = compile; vi.unstubAllGlobals(); }
+  });
+});
+
 describe("pixel views survive a wasm memory growth", () => {
   it("maskPixels reads the buffer after the pointer call, not before", () => {
     const client = growingClient();
     const view = client.maskPixels("D", "A");
     expect(view).not.toBeNull();
+    // A view on a detached buffer reports length 0 and reads undefined (indexing never throws, so
+    // only these two can fail: final review minor 21).
     expect(view!.length).toBe(4);
-    // A view on a detached buffer reports length 0 and cannot be read.
-    expect(() => view![0]).not.toThrow();
     expect(view![0]).toBe(0);
   });
 
@@ -54,7 +67,7 @@ describe("pixel views survive a wasm memory growth", () => {
     const edit: PreviewEdit = { kind: "mask", id: "A", draft: { origin: [1, 2], size: [3, 4], rotation: 0, flipX: false, flipY: true, sampling: "Smooth" } };
     const length = (client as unknown as EngineClient).drawPixels("D", "A", 2, edit, (view) => {
       calls.push(["upload"]);
-      expect(() => view![0]).not.toThrow();
+      // Read in the upload, where a detached view would already report length 0.
       return view!.length;
     });
     expect(length).toBe(4);

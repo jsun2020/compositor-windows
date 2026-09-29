@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_PALETTE, JOB_PIXELS, useEditor } from "../../src/state/store";
-import { canPaint, deleteKeyPressed, fillActive } from "../../src/actions/layers";
+import { canClearSelected, canPaint, deleteKeyPressed, fillActive } from "../../src/actions/layers";
 import type { Command, DocumentState, LayerState, SelectionState } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient } from "../../src/engine/jobs";
@@ -97,6 +97,14 @@ describe("Fill", () => {
     useEditor.setState({ engine: { ...s().engine!, editPixels: () => 6000 * 4000 } as never });
     fillActive(false);
     expect(log).toEqual(["job input"]);
+  });
+  it("does not clear through the selection while a job's result is to come (final review minor 10)", () => {
+    install(layer(), SELECTION);
+    expect(canClearSelected()).toBe(true);
+    useEditor.setState({ working: true });
+    expect(canClearSelected()).toBe(false);
+    deleteKeyPressed();
+    expect(log).toEqual([]);
   });
   it("refuses a fill too large to paint before anything is sent", () => {
     useEditor.setState({ engine: { ...s().engine!, editPixels: () => { throw new Error("too large"); } } as never });

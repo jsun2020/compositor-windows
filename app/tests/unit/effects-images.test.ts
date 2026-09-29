@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { EFFECTS_LIMITS, EffectsImages, placedLike, reducedLevel } from "../../src/canvas/effects-images";
+import { EFFECTS_LIMITS, EffectsImages, closedMeanwhile, placedLike, reducedLevel } from "../../src/canvas/effects-images";
 import type { Corners, LayerDraw, LayerTransform } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient, JobRequest, JobResult } from "../../src/engine/jobs";
@@ -15,6 +15,13 @@ function drawOf(extra: Partial<LayerDraw> = {}): LayerDraw {
   return { id: "A", transform, corners: null, pixelsWidth: 60, pixelsHeight: 44, pixelsRevision: 3, opacity: 1, blend: "Normal", coverages: [], clip: null,
     keepsAlpha: false, effects: { inset: 10, key: "k" }, ...extra };
 }
+
+describe("closedMeanwhile (final review minor 13)", () => {
+  it("excuses only a deferred ask whose document or layer went, never any other failure", () => {
+    for (const gone of ["No document with that id.", "No layer with that id.", "Invalid argument: the layer has no pixels"]) expect(closedMeanwhile(new Error(gone)), gone).toBe(true);
+    for (const real of ["unreachable executed", "RangeError: Array buffer allocation failed", ""]) expect(closedMeanwhile(new Error(real)), real).toBe(false);
+  });
+});
 
 describe("reducedLevel", () => {
   it("halves until the longer side is at most 1536", () => {
@@ -56,7 +63,7 @@ describe("EffectsImages.choose", () => {
     const engine = {
       hasEffectsImage: () => state.full,
       displayJobInput: (_d: string, _l: string, level: number) => {
-        if (state.closed) throw new Error("no such document"); // the engine's NoDocument
+        if (state.closed) throw new Error("No document with that id."); // the engine's NoDocument, word for word
         return { input: JSON.stringify({ pixels: [40 >> level, 24 >> level], stamp: {} }), pixels: new ArrayBuffer(4), mask: null };
       },
       keepEffectsImage: () => { state.kept++; return true; },

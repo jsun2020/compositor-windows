@@ -1,3 +1,5 @@
+import type { PixelRect } from "../engine/types";
+
 export const CHUNK = 2048;
 /** A 30000-pixel side reaches 1 pixel in 15 halvings; mirrors MAX_PREFILTER_LEVEL in the engine. */
 export const MAX_PREFILTER_LEVEL = 16;
@@ -21,8 +23,6 @@ export function sizeAtLevel(width: number, height: number, level: number): { wid
   for (let i = 0; i < level; i++) { if (w <= 1 || h <= 1) break; w = Math.max(1, Math.floor(w / 2)); h = Math.max(1, Math.floor(h / 2)); }
   return { width: w, height: h };
 }
-
-import type { PixelRect } from "../engine/types";
 
 /** The part of the raster after `level` halvings that a changed rectangle of the full raster
  * (`width` x `height`) reaches: each halving takes every pixel whose 2 x 2 block meets it, cut to the

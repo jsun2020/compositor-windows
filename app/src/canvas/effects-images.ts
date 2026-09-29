@@ -47,6 +47,14 @@ export function placedLike(draw: LayerDraw, width: number, height: number, inset
   return { transform: { ...t, origin: [cx - size[0] / 2, cy - size[1] / 2], size }, corners: null };
 }
 
+/** Whether `e` is the engine saying the document or the layer an ask named is gone (`CommandError::
+ * NoDocument`, `NoLayer`), or that the layer holds no pixels any more: an ask deferred a task can find
+ * either after a close or an edit, and then there is simply nothing to ask for. */
+export function closedMeanwhile(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e);
+  return message === "No document with that id." || message === "No layer with that id." || message.endsWith("the layer has no pixels");
+}
+
 /** The effects images of one renderer's large styled layers, and the jobs that make them. */
 export class EffectsImages {
   /** The newest reduced image landed for each `doc:layer`, whatever pixels it was made from. */
@@ -100,7 +108,12 @@ export class EffectsImages {
           // nothing else has happened, the same check `ask`'s own settling already relies on.
           if (this.asked.get(k) !== asked) return;
           try { this.ask(engine, doc, layer, key, engineKey, 0, pixelsWidth, edit); }
-          catch { this.asked.delete(k); } // the document or layer closed meanwhile: nothing to ask for.
+          catch (e) {
+            this.asked.delete(k);
+            // The document or layer closed meanwhile: nothing to ask for. Anything else is a real
+            // failure and is not swallowed (final review minor 13).
+            if (!closedMeanwhile(e)) throw e;
+          }
         }, 0);
       } else {
         this.ask(engine, doc, layer, key, engineKey, level, pixelsWidth, edit);

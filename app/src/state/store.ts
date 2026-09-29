@@ -439,6 +439,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   closeColorPicker: (commit) => {
     const picker = get().colorPicker; if (!picker) return;
+    // OK on a swatch while a job's result is to come: the palette does not change then
+    // (`canEditPalette`), so the picker stays open with the colour chosen, and says why, rather than
+    // close and lose it (final review minor 2).
+    if (commit && picker.target.kind === "palette" && get().working) { set({ error: BUSY_MESSAGE }); return; }
     const color = get().pickerColor()!;
     set({ colorPicker: null });
     if (picker.target.kind === "palette") { if (commit && !get().maskTargeted()) get().setPaletteColor(color, picker.target.background); }
@@ -619,6 +623,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // Likewise a pending gradient is applied before anything else records history (the Mac refuses
     // them while it is pending: `canEditLayers`). `commitGradient` clears it before its own run.
     if (get().gradientEdit) get().commitGradient();
+    // On a large target that sends the gradient to the job worker: this command waits like any other,
+    // or it would change the stamp the gradient's result must find (a Deselect, a nudge, a Canvas
+    // Size) and lose the gradient, or land before it in the history (final review I-1).
+    if (get().working) { set({ error: BUSY_MESSAGE }); return false; }
     const { engine, activeId } = get();
     if (!engine || !activeId) return false;
     try {
@@ -675,6 +683,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // `SetActiveLayer` records no history, but every `execute` clears the engine's preview, so a
     // row click under an open destructive panel would wipe what the panel is showing.
     if (get().panelOwnsDocument(true)) return;
+    // Nor while a job's result is to come (final review minor 1): `runEditJob` keeps the canvas as it
+    // was until the result lands, and the execute would clear the preview it keeps showing; the pending
+    // gradient `commitGradient` would apply is dropped while working. The click waits, as a command does.
+    if (get().working) { set({ error: BUSY_MESSAGE }); return; }
     const state = get().documents[activeId];
     const valid = ids.filter((id) => state.layers.some((l) => l.id === id));
     const active = primary && valid.includes(primary) ? primary : valid[0] ?? null;
@@ -862,7 +874,17 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().applyAdjustPreview();
     if ((kind === "Levels" || kind === "Curves") && !edit.histogram) {
       const doc = activeId, jobs = get().jobs!;
-      const copy = engine.jobInput(doc, layer.id);
+      let copy: JobInputCopy;
+      // The copy out can fail (a RangeError allocating a 400 MB slice): the panel then closes and says
+      // why, rather than wait on "Reading the histogram..." forever and throw out of the key handler
+      // (final review minor 5).
+      try { copy = engine.jobInput(doc, layer.id); }
+      catch (e) {
+        dropOpenPanel();
+        set({ error: String(e instanceof Error ? e.message : e) });
+        get().refresh(doc);
+        return false;
+      }
       void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
         const open = get().adjustEdit;
         // Only into the panel it was read for.

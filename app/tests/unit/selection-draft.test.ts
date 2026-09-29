@@ -35,6 +35,12 @@ describe("the Marquee", () => {
     expect(dragBox({ x: 50, y: 50 }, { x: 45, y: 58 }, true, true)).toEqual({ x: 42, y: 42, width: 16, height: 16 });
   });
 
+  it("rounds a point at a negative half away from zero, as Swift's rounded() does (Task 16 deferred minor)", () => {
+    // A drag past the canvas's top-left edge to (-2.5, -0.5): Swift rounds to (-3, -1); Math.round
+    // would give (-2, -0), a box a pixel short on both sides.
+    expect(dragBox({ x: 4, y: 3 }, { x: -2.5, y: -0.5 }, false, false)).toEqual({ x: -3, y: -1, width: 7, height: 4 });
+  });
+
   it("an Alt drag subtracts and never grows from the centre (optionDraggingTheMarqueeSubtractsWithoutDrawingFromTheCenter)", () => {
     const d = SelectionDraft.begin("Rectangle", selectionMode("Replace", false, true), { x: 40, y: 40 });
     d.dragMarquee({ x: 60, y: 60 }, false);

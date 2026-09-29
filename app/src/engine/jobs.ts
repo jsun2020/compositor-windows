@@ -36,6 +36,15 @@ export const WORKER_MEMORY_LIMIT = 1024 * 1024 * 1024;
  * redraw for" without guessing from a bare null. */
 export const EFFECTS_JOB_DISPLACED = "An edit or histogram job took the worker; this effects job will be asked for again.";
 
+/** What the user reads when a job's wasm trapped (`fatal`): memory only when the trap says so (a
+ * failed `Memory.grow`, an "out of memory"); any other trap - an `unreachable` from a panic, which an
+ * engine bug raises too - is not blamed on memory (final review minor 6). */
+export function trapMessage(error: string): string {
+  return /out of memory|allocation|memory\.grow|maximum memory/i.test(error)
+    ? "The edit ran out of memory and could not finish. Try again, or on a smaller selection."
+    : "The edit failed and was stopped.";
+}
+
 /** The buffers a request hands over, for `postMessage`'s transfer list. */
 export function transferables(request: JobRequest): ArrayBuffer[] {
   const points = "points" in request ? request.points : null;
@@ -156,7 +165,7 @@ export class JobClient {
     // keeps the worker, as before.
     const fatal = message.type === "failed" && message.fatal;
     if (fatal || message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
-    if (message.type === "failed") job.reject(new Error(fatal ? "The edit ran out of memory and could not finish. Try again, or on a smaller selection." : message.error));
+    if (message.type === "failed") job.reject(new Error(fatal ? trapMessage(message.error) : message.error));
     else job.resolve(this.newest.get(job.channel) === job.id ? message.result : null);
     void this.pump();
   }

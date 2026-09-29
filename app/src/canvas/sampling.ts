@@ -6,6 +6,10 @@ import type { PaletteColor } from "../tools/color";
  * own eyedropper is armed (it answers the press itself); else null. */
 export function samplingInto(alt = false): "picker" | "foreground" | null {
   const s = useEditor.getState();
+  // Nothing is sampled while a job's result is to come: the Mac's canvas ignores the press
+  // (`!isProjectBusy`, EditorCanvas.swift:1386), where a ring here would show a sample the palette
+  // then refuses (final review minor 3).
+  if (s.working) return null;
   if (s.colorPicker) return "picker";
   if (s.adjustEdit?.sampleMode || !s.activeId) return null;
   // Alt with the Gradient tool stands in for the Eyedropper (`palettePicking`, EditorCanvas.swift:71).

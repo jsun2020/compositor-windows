@@ -36,7 +36,6 @@ describe("the palette", () => {
     expect([s().paletteColor(false), s().paletteColor(true)]).toEqual([BLACK, WHITE]);
   });
   it("on a targeted mask shows black and white, which swap and reset without touching the image's colours", () => {
-    s().setPaletteColor(RED, false);
     install(true, true);
     useEditor.setState({ palette: { foreground: RED, background: TEAL, maskPaintWhite: false } });
     expect([s().paletteColor(false), s().paletteColor(true)]).toEqual([BLACK, WHITE]);
@@ -55,7 +54,6 @@ describe("the palette", () => {
     expect([s().palette.foreground, s().palette.background]).toEqual([RED, TEAL]);
   });
   it("is the image's while the mask chip is chosen on a layer without a mask, or a layer with one is chosen", () => {
-    useEditor.setState({ palette: { foreground: RED, background: TEAL, maskPaintWhite: true } });
     install(false, true);
     useEditor.setState({ palette: { foreground: RED, background: TEAL, maskPaintWhite: true } });
     expect(s().paletteColor(false)).toEqual(RED);
