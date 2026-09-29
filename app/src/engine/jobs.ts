@@ -73,6 +73,10 @@ export class JobClient {
   /** Whether a job is running or waiting. */
   get busy(): boolean { return this.running !== null || this.queue.length > 0; }
 
+  /** Starts the worker now, so its spawn and the module's instantiation are paid at startup rather
+   * than by the first job (final review F2). Nothing when one is already started. */
+  warm(): void { if (!this.worker) void this.start(); }
+
   run(channel: string, request: JobRequest): Promise<JobResult | null> {
     const id = this.nextId++;
     this.newest.set(channel, id);

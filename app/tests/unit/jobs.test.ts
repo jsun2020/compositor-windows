@@ -99,6 +99,20 @@ describe("JobClient", () => {
     expect((await two)?.header, "the next job runs normally on the new worker").toBe("ok");
   });
 
+  it("warm() starts the worker before any job, once, and the first job then runs on it (final review F2)", async () => {
+    const { jobs, workers } = client();
+    jobs.warm();
+    jobs.warm();
+    expect(workers.length, "one worker, started at once").toBe(1);
+    expect(workers[0].sent[0].message).toEqual({ type: "init", module });
+    workers[0].reply({ type: "ready" });
+    const one = jobs.run("x", histogram("1"));
+    await settle();
+    expect([jobs.spawned, workers[0].jobs()]).toEqual([1, [1]]);
+    workers[0].reply(done(1, "ok"));
+    expect((await one)?.header).toBe("ok");
+  });
+
   it("says a trap ran out of memory only when the trap says so (final review minor 6)", async () => {
     const { jobs, workers } = client();
     const one = jobs.run("x", histogram("1"));
