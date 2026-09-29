@@ -1286,6 +1286,20 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
           s().beginGradient({ x: w * 0.2, y: h * 0.5 });
           s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
           s().endGradientDrag(); frame(); await settle();
+        } else {
+          // Fix round 2: the Gradient case above already warms up the spatial-margin framebuffer with
+          // its own preview frame before its timed dispatch; Fill's scenario had none, so that one-time
+          // allocation landed inside the timed frame below instead (fix round 1's finding). Warm it up
+          // here the same way -- a preview frame with real pixels -- and log its own cost separately, so
+          // the timed frame measures only the re-upload. Follow-up: allocate the margin framebuffer eagerly.
+          s().setTool("gradient");
+          s().beginGradient({ x: w * 0.2, y: h * 0.5 });
+          s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
+          const cold0 = performance.now();
+          frame();
+          result["cold frame that allocates the margin framebuffer ms"] = Math.round(performance.now() - cold0);
+          s().cancelGradient(); frame(); await settle();
+          s().setTool("move");
         }
         const t0 = performance.now();
         if (edit === "fill") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
