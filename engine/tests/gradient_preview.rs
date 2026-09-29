@@ -64,7 +64,7 @@ fn a_dragged_gradient_previews_from_a_reduced_copy_of_the_layer_grown_to_the_can
     preview(&mut e, id, layer, false, &g, false);
     let state = e.state(id).unwrap().layers[0].clone();
     assert_eq!((state.pixels_width, state.pixels_height), (1500, 1000));
-    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels));
+    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels { .. }));
     assert_eq!(e.state(id).unwrap().undo_depth, 0, "a preview records nothing");
 }
 
@@ -115,12 +115,12 @@ fn a_large_selection_or_a_layer_that_must_grow_previews_whole() {
     assert!(matches!(target, Some(PreviewTarget::Patch(PixelRect { width: 724, height: 724, .. }))), "{}", match &target { Some(PreviewTarget::Patch(r)) => format!("{r:?}"), Some(_) => "reduced".into(), None => "none".into() });
     select(&mut e, id, 10.0, 10.0, 730.0, 720.0);
     preview(&mut e, id, layer, false, &g, true);
-    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels));
+    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels { .. }));
     // A small selection, but the layer does not cover the canvas and grows.
     let (mut e, id, layer) = document((1200, 1100), (400, 300), p(100.0, 100.0));
     select(&mut e, id, 150.0, 150.0, 50.0, 40.0);
     preview(&mut e, id, layer, false, &g, true);
-    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels));
+    assert!(matches!(e.preview(id).unwrap().target, PreviewTarget::Pixels { .. }));
 }
 
 #[test]
@@ -214,4 +214,42 @@ fn a_mask_gradient_preview_refuses_what_growing_the_covering_mask_would_refuse()
     let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(100.0, 0.0), from: [0.0, 0.0, 0.0, 1.0], to: [1.0, 1.0, 1.0, 1.0], opacity: 1.0 };
     preview(&mut e, doc_id, lid, true, &g, true);
     assert!(e.preview(doc_id).is_none(), "growing the mask past the budget: nothing shows");
+}
+
+#[test]
+fn t9_6_a_pixel_gradient_preview_carries_a_covering_mask_onto_the_grown_grid_instead_of_stretching_it() {
+    // Task 15 fix round 1, T9-6: a PIXEL gradient (mask targeted false) on a layer smaller than the
+    // canvas, under a covering (un-placed), non-uniform mask, must not stretch that small mask over
+    // the whole grown preview box -- the mask stays where the layer's own pixels land in the grown
+    // grid, exactly as the commit's `paint_layer`/`followed` leave it (mask.rs, PreviewTarget::Pixels).
+    // A 100 x 100 canvas; a 20 x 20 opaque layer at (40, 40): well inside it, so its grid grows to the
+    // whole canvas for the preview. A covering 20 x 20 mask, left half black (hides), right half white
+    // (reveals).
+    let mut doc = Document::new(100, 100);
+    let data: Vec<u8> = [255u8, 0, 0, 255].repeat(400);
+    let mut layer = Layer::with_pixels("L", Raster::from_premultiplied(20, 20, data), p(40.0, 40.0));
+    let id = layer.id;
+    let mask_data: Vec<u8> = (0..400u32).map(|i| if i % 20 < 10 { 0u8 } else { 255u8 }).collect();
+    layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(20, 20, mask_data), enabled: true, placement: None, linked: None });
+    doc.active_layer_id = Some(id);
+    doc.layers = vec![layer];
+    let mut e = Engine::new();
+    let doc_id = e.insert_document(doc);
+    // An opaque, constant red: alpha alone tells whether the mask hid or revealed a point.
+    let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(1.0, 0.0), from: [1.0, 0.0, 0.0, 1.0], to: [1.0, 0.0, 0.0, 1.0], opacity: 1.0 };
+    for dragging in [true, false] {
+        preview(&mut e, doc_id, id, false, &g, dragging);
+        // (12, 50) is well outside the mask's own 40..60 footprint: the stretched-over bug (a
+        // document point mapped through the GROWN transform onto the mask's small, un-grown pixel
+        // count) would land it in the mask's black half and hide it; carried correctly, the mask's
+        // background (white, reveal) applies there instead.
+        assert_eq!(shown(&e, doc_id, 12, 50)[3], 255, "dragging={dragging}: outside the mask's footprint, its background reveals");
+        assert_eq!(shown(&e, doc_id, 45, 50)[3], 0, "dragging={dragging}: inside the mask's own black half");
+        assert_eq!(shown(&e, doc_id, 55, 50)[3], 255, "dragging={dragging}: inside the mask's own white half");
+    }
+    e.set_preview(doc_id, None).unwrap();
+    run(&mut e, doc_id, Command::Gradient { id, mask: false, gradient: g });
+    assert_eq!(shown(&e, doc_id, 12, 50)[3], 255, "the preview showed exactly what Return then applies");
+    assert_eq!(shown(&e, doc_id, 45, 50)[3], 0, "the preview showed exactly what Return then applies");
+    assert_eq!(shown(&e, doc_id, 55, 50)[3], 255, "the preview showed exactly what Return then applies");
 }

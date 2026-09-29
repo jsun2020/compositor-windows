@@ -179,7 +179,7 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
 /// A covering mask carried onto the layer's new, trimmed grid (`crop` of `grid`): the old mask
 /// stretched over where the layer's own pixels were, white where it grew (`expandMask`,
 /// BrushStroke.swift:858-866). A uniform white mask stays one pixel: it shows everything either way.
-fn followed(mask: &GrayRaster, old: (u32, u32), grid: &EditGrid, crop: (u32, u32, u32, u32)) -> GrayRaster {
+pub(crate) fn followed(mask: &GrayRaster, old: (u32, u32), grid: &EditGrid, crop: (u32, u32, u32, u32)) -> GrayRaster {
     if mask.is_uniform() == Some(255) { return mask.clone(); }
     let (w, h) = (crop.2 - crop.0, crop.3 - crop.1);
     let mut out = vec![255u8; w as usize * h as usize];
@@ -210,7 +210,7 @@ fn check_target(doc: &Document, id: Uuid, mask: bool) -> Result<(), CommandError
 }
 
 /// The layer's own pixel grid: its pixels, or its box rounded when it has none.
-fn layer_grid(layer: &Layer) -> (u32, u32) {
+pub(crate) fn layer_grid(layer: &Layer) -> (u32, u32) {
     layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height))
 }
 

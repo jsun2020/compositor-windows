@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_PALETTE, JOB_PIXELS, useEditor } from "../../src/state/store";
 import { DEFAULT_GRADIENT, gradientStops, snapped45 } from "../../src/state/gradient-edit";
 import { runAction, typeOpacityDigit } from "../../src/shortcuts/useShortcuts";
+import { fillActive } from "../../src/actions/layers";
 import type { Command, DocumentState, LayerState, PreviewRequest } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient } from "../../src/engine/jobs";
@@ -100,6 +101,12 @@ describe("a pending gradient", () => {
     s().undo();
     expect(log).toEqual(["undo"]);
   });
+  it("a new line on the same target replaces the pending one, recording nothing (fix round 1, M-4)", () => {
+    draw([5, 6], [30, 6]);
+    draw([1, 1], [20, 20]);
+    expect(log).toEqual([]);
+    expect(last().gradient.start).toEqual([1, 1]);
+  });
   it("is applied before a change of tool, of layer, of target, or any other command", () => {
     const paint = () => log.filter((l) => l.includes('"Gradient"')).length;
     draw([5, 6], [30, 6]); s().setTool("move"); expect(paint()).toBe(1);
@@ -157,6 +164,24 @@ describe("a pending gradient", () => {
     draw([5, 6], [30, 6]);
     s().commitGradient();
     expect([log, s().gradientEdit, s().error, previews.at(-1)]).toEqual([[], null, "too large", null]);
+  });
+  it("applies a pending gradient before a fill, refusing the fill while the gradient's own job runs (fix round 1, I-1)", () => {
+    draw([5, 6], [30, 6]);
+    const jobsSent: string[] = [];
+    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) jobsSent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
+    useEditor.setState({ jobPixels: 1, jobs });
+    fillActive(false);
+    expect(jobsSent).toEqual(["Gradient"]);
+    expect(s().gradientEdit).toBeNull();
+  });
+  it("applies a pending gradient before opening an adjustment panel (fix round 1, I-1)", () => {
+    draw([5, 6], [30, 6]); // small: commits at once, on the UI thread, not through the worker
+    const engine = { ...s().engine!, histogram: () => [[0, 0], [0, 0], [0, 0], [0, 0]], adjustmentIsIdentity: () => false } as unknown as EngineClient;
+    useEditor.setState({ engine });
+    expect(s().beginAdjust({ kind: "Levels" })).toBe(true);
+    expect(log.some((l) => l.includes('"Gradient"'))).toBe(true);
+    expect(s().gradientEdit).toBeNull();
+    expect(s().adjustEdit).not.toBeNull();
   });
   it("takes the digit keys as its opacity, at least 1 %, and Tab as its shape", () => {
     typeOpacityDigit(4, 1000, (v) => s().setGradientOptions({ opacity: Math.max(0.01, v) }));

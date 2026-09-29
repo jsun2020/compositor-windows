@@ -363,7 +363,7 @@ impl Engine {
         let s = self.session(id)?;
         let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
         let mut doc = s.document.clone();
-        match &preview.target {
+        let followed = match &preview.target {
             PreviewTarget::Mask { pixels, placement } => {
                 if let Some(m) = doc.layer_mut(preview.layer).and_then(|l| { l.mask_revision = preview.revision; l.mask.as_mut() }) {
                     m.pixels = pixels.clone();
@@ -379,8 +379,8 @@ impl Engine {
                 }
                 return Ok(std::borrow::Cow::Owned(doc));
             }
-            PreviewTarget::Pixels => {}
-        }
+            PreviewTarget::Pixels { followed } => followed.clone(),
+        };
         if let Some(layer) = doc.layer_mut(preview.layer) {
             // A preview may come from a reduced copy (preview.rs): effects, measured in the layer's
             // pixels, shrink with it, so they show at the size the committed layer will draw them.
@@ -396,6 +396,13 @@ impl Engine {
             layer.pixels = Some(preview.raster.clone());
             layer.pixels_revision = preview.revision;
             layer.transform = preview.transform;
+            // A pixel gradient's covering mask, carried onto the grown grid this preview shows
+            // (T9-6, fix round 1): the same substitution the Mask target does above, so a covering
+            // mask is never sampled against the wrong (un-grown) pixel count.
+            if let Some(m) = followed {
+                if let Some(mask) = layer.mask.as_mut() { mask.pixels = m; }
+                layer.mask_revision = preview.revision;
+            }
         }
         Ok(std::borrow::Cow::Owned(doc))
     }

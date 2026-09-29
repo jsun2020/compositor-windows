@@ -34,6 +34,9 @@ export function installGradientTool(el: HTMLElement, spaceHeld: () => boolean): 
   const down = (e: PointerEvent) => {
     const s = useEditor.getState();
     if (s.tool !== "gradient" || e.button !== 0 || spaceHeld() || !s.activeId) return;
+    // No press starts or grabs a line while a panel owns the document or a job's result is still to
+    // come (fix round 1, I-1): the Mac's `canPaint` requires neither (EditorSession.swift:608).
+    if (s.panelOwnsDocument() || s.working) return;
     const at = view(e);
     const line = gradientLine();
     if (line && Math.hypot(at.x - line.end.x, at.y - line.end.y) <= GRADIENT_HANDLE_PX) handle = "end";

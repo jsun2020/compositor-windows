@@ -85,6 +85,12 @@ test("the ends drag as handles, Shift holds 45 degrees; Escape drops it and the 
   const moved = (await store(page)).edit;
   expect(moved.start).toEqual(first.start);
   expect(Math.abs(moved.end.x - 50) < 0.3 && Math.abs(moved.end.y - 10) < 0.3).toBe(true);
+  // Grab the start (within 10 view px of it) and move it; the end stays (fix round 1, M-4).
+  await drag(page, [10.5, 24.5], [5, 15]);
+  const movedStart = (await store(page)).edit;
+  expect(movedStart.end).toEqual(moved.end);
+  expect(Math.abs(movedStart.start.x - 5) < 0.3 && Math.abs(movedStart.start.y - 15) < 0.3).toBe(true);
+  await drag(page, [5, 15], [10, 24]); // put the start back for the Shift step below
   // Shift: the end goes onto the nearest eighth of a turn about the start, at the same distance.
   await drag(page, [50, 10], [30, 5], true);
   const snapped = (await store(page)).edit;
@@ -135,8 +141,11 @@ test("with a mask targeted the gradient paints the mask in black and white, as G
   await drag(page, [0, 24], [64, 24]);
   await page.keyboard.press("Enter");
   expect((await store(page)).depth).toBe(depth + 1);
-  // Black (hide) at the left fading to nothing: the layer shows more to the right.
+  // Black (hide) at the left fading to nothing: the layer shows more to the right. The mask starts
+  // white (255, `AddMask revealing: true`); source-over black (grey 0) at alpha 1 - t leaves
+  // floor(255 * t + 0.5) (fix round 1, M-5: the exact formula, not a loose bound). A fully opaque
+  // grey layer's composited alpha equals the mask's value directly.
   const left = await pixel(page, 2, 24), right = await pixel(page, 60, 24);
-  expect(left[3]).toBeLessThan(20);
-  expect(right[3]).toBeGreaterThan(230);
+  expect(left[3]).toBe(10);
+  expect(right[3]).toBe(241);
 });

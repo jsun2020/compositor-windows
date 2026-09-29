@@ -73,6 +73,10 @@ export function canPaint(): boolean {
  * it, decided by the pixels it paints (`editPixels`, ruling C1), not the size the layer stores; one the
  * engine refuses for its size shows why and sends nothing (the worker, seeing one layer, could not). */
 export function fillActive(background: boolean): void {
+  // A pending gradient is applied first (fix round 1, I-1): without this a large layer's Fill could
+  // paint over it while its own job still ran, and a later Return would silently drop the gradient.
+  // `canPaint`, read fresh below, refuses while that job's result is still to come.
+  useEditor.getState().commitGradient();
   if (!canPaint()) return;
   const c = ctx()!;
   const mask = c.s.maskTargeted();

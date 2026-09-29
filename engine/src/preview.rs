@@ -48,12 +48,14 @@ impl PreviewSource {
     }
 }
 
-/// What a preview stands in for: the layer's pixels (`raster`, placed by `transform`), a patch of them
-/// (`raster` is that rectangle of the stored pixels' grid, drawn over them), or the layer's mask: its
-/// `pixels` as the gradient leaves them (reduced) and where they sit (`placement`, None while it covers
-/// its layer; a mask gradient grows the mask past its layer, Task 14a).
+/// What a preview stands in for: the layer's pixels (`raster`, placed by `transform`; a pixel gradient
+/// on a growing layer carries its covering mask stretched onto the grown box in `followed`, as the
+/// commit leaves it, fix round 1 / T9-6), a patch of them (`raster` is that rectangle of the stored
+/// pixels' grid, drawn over them), or the layer's mask: its `pixels` as the gradient leaves them
+/// (reduced) and where they sit (`placement`, None while it covers its layer; a mask gradient grows
+/// the mask past its layer, Task 14a).
 #[derive(Clone, Debug)]
-pub enum PreviewTarget { Pixels, Patch(PixelRect), Mask { pixels: GrayRaster, placement: Option<LayerTransform> } }
+pub enum PreviewTarget { Pixels { followed: Option<GrayRaster> }, Patch(PixelRect), Mask { pixels: GrayRaster, placement: Option<LayerTransform> } }
 
 /// The substituted pixels for one layer while a panel is open, the request that made them and
 /// what they were made from.
@@ -163,7 +165,7 @@ pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &Pr
             // Grain and the tonal kernels read document space, which the reduced grid still covers.
             let units = layer.transform.size.width / source.width.max(1) as f64;
             let result = adjust::apply::apply_adjustment(&source, adjustment, layer.transform.origin, units, coverage.as_ref());
-            Some(PixelPreview::new(layer.id, result, layer.transform, revision, request, made_from, PreviewTarget::Pixels))
+            Some(PixelPreview::new(layer.id, result, layer.transform, revision, request, made_from, PreviewTarget::Pixels { followed: None }))
         }
         PreviewRequest::Filter { params, .. } => {
             let params = params.normalized();
@@ -177,7 +179,7 @@ pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &Pr
             let coverage = ops::adjust::edit_coverage(doc, clips, &placed, grid.width, grid.height).ok()?;
             let filtered = adjust::filters::apply_filter(&grid, &scaled);
             let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &grid, &c), None => filtered };
-            Some(PixelPreview::new(layer.id, result, placed, revision, request, made_from, PreviewTarget::Pixels))
+            Some(PixelPreview::new(layer.id, result, placed, revision, request, made_from, PreviewTarget::Pixels { followed: None }))
         }
         PreviewRequest::Gradient { .. } => None,
     }
@@ -198,7 +200,7 @@ fn level_for(width: u32, height: u32, limit: u32) -> u32 {
 /// reduced to the limit with its origin on the reduced pixels, the layer's own halvings placed in it,
 /// painted; never trimmed.
 fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, id: Uuid, mask: bool, gradient: &GradientSpec, revision: u64) -> Option<PixelPreview> {
-    use ops::raster_edit::{image_grid, mask_grid, paint_grid, Paint};
+    use ops::raster_edit::{followed, image_grid, layer_grid, mask_grid, paint_grid, EditGrid, Paint};
     let layer = doc.layer(id)?;
     let paint = Paint::Gradient(gradient.clone());
     // What the commit would refuse, the preview does not show.
@@ -274,6 +276,7 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
     let (rw, rh) = (left + (grid.width - grid.x).div_ceil(f), top + (grid.height - grid.y).div_ceil(f));
     let placed = ops::adjust::placed_like(&layer.transform, w, h, rw * f, rh * f, (left * f) as f64, (top * f) as f64);
     let mut data = vec![0u8; rw as usize * rh as usize * 4];
+    let mut halved_dims: Option<(u32, u32)> = None;
     if let Some(p) = stored {
         let mut halved = p.clone();
         for _ in 0..level { halved = halved.halved(); }
@@ -282,8 +285,25 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
             let at = ((y + top as usize) * rw as usize + left as usize) * 4;
             data[at..at + row].copy_from_slice(&halved.bytes()[y * halved.width as usize * 4..y * halved.width as usize * 4 + row]);
         }
+        halved_dims = Some((halved.width, halved.height));
     }
     let coverage = ops::adjust::edit_coverage(doc, clips, &placed, rw, rh).ok()?;
     paint_grid(doc, &mut data, rw, rh, &placed, coverage.as_ref(), &paint, false);
-    Some(PixelPreview::new(id, Raster::from_premultiplied(rw, rh, data), placed, revision, request, made_from, PreviewTarget::Pixels))
+    // T9-6 (fix round 1): a covering (un-placed), non-uniform-white mask on a layer whose grid grew
+    // to reach this preview must be carried onto the grown, reduced grid too, exactly as the commit's
+    // own `followed` leaves it -- otherwise the coverage math later stretches the mask's small,
+    // un-grown pixels over the whole grown box (`plan.rs`'s `own_coverage` combines the layer's new,
+    // grown transform with the mask's old, small pixel count).
+    let grew = (grid.x, grid.y, grid.width, grid.height) != (0, 0, w, h);
+    let carried_mask = layer.mask.as_ref().filter(|m| m.placement.is_none() && grew && m.pixels.is_uniform() != Some(255)).map(|m| {
+        // The same halving the layer's own pixels went through above (`halved`), or, with no pixels,
+        // the box-rounded grid halved the same number of times (`Raster::half_size`'s `(n / 2).max(1)`).
+        let (hw, hh) = halved_dims.unwrap_or_else(|| {
+            let mut d = layer_grid(layer);
+            for _ in 0..level { d = ((d.0 / 2).max(1), (d.1 / 2).max(1)); }
+            d
+        });
+        followed(&m.pixels, (hw, hh), &EditGrid { width: rw, height: rh, x: left, y: top, transform: placed }, (0, 0, rw, rh))
+    });
+    Some(PixelPreview::new(id, Raster::from_premultiplied(rw, rh, data), placed, revision, request, made_from, PreviewTarget::Pixels { followed: carried_mask }))
 }

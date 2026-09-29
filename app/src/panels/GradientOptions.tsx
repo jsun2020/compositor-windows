@@ -11,7 +11,9 @@ export function GradientOptions() {
   const doc = s.activeId ? s.documents[s.activeId] : null;
   if (s.tool !== "gradient" || !doc || s.sheet !== null) return null;
   const o = s.gradientOptions;
-  const [from, to] = gradientStops(o, s.palette.foreground, s.palette.background);
+  // The palette's black or white while a mask is the target, as the swatch on the Mac shows
+  // (GradientControls.swift:43, ColorPalette.swift:26-28; fix round 1, I-2).
+  const [from, to] = gradientStops(o, s.paletteColor(false), s.paletteColor(true));
   const css = (c: number[]) => `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`;
   const disabled = s.working;
   return (
@@ -31,8 +33,11 @@ export function GradientOptions() {
       <label><input type="checkbox" data-testid="gradient-reverse" checked={o.reversed} disabled={disabled}
         onChange={(e) => { s.setGradientOptions({ reversed: e.target.checked }); e.currentTarget.blur(); }} /> Reverse</label>
       <label title="Press 1-9 for 10-90%, 0 for 100%">Opacity{" "}
+        {/* A reduced preview on every tick, settled once the pointer lets go (fix round 1, M-1: the
+          * settled 2048 px preview cost 80-95 ms on every input event). */}
         <input type="range" aria-hidden tabIndex={-1} min={1} max={100} step={1} value={Math.round(o.opacity * 100)} disabled={disabled}
-          onChange={(e) => s.setGradientOptions({ opacity: Number(e.target.value) / 100 })} onPointerUp={(e) => e.currentTarget.blur()} />
+          onChange={(e) => s.setGradientOptions({ opacity: Number(e.target.value) / 100 }, true)}
+          onPointerUp={(e) => { s.refreshGradient(); e.currentTarget.blur(); }} />
         <NumberInput label="Opacity" testId="gradient-opacity" value={Math.round(o.opacity * 100)} min={1} max={100} step={1} blurOnEnter disabled={disabled}
           onChange={(v) => s.setGradientOptions({ opacity: Math.round(v) / 100 })} />%
       </label>

@@ -73,7 +73,9 @@ export function CanvasView() {
     }
     const d = s.selectionDraft;
     const line = gradientLine();
-    const [from, to] = gradientStops(s.gradientOptions, s.palette.foreground, s.palette.background);
+    // The palette's black or white while a mask is the target (fix round 1, I-2), as the discs on the
+    // Mac's overlay show (TransformOverlay.swift:421, ColorPalette.swift:26-28).
+    const [from, to] = gradientStops(s.gradientOptions, s.paletteColor(false), s.paletteColor(true));
     drawOverlay(overlay.getContext("2d")!, vp, dpr, {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
       transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,

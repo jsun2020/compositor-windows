@@ -183,7 +183,11 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
     // runs (measured 24 MP: 59-242 ms, 100 MP: 225-266 ms over four runs -- 24 MP's low runs land
     // near 60 ms, its high ones near 230-240 ms, seemingly whichever the browser process's own
     // warm-up state that run happened to land in, not a code path this fix round changes).
-    expect(out[`${label}: frame after the result is put back`]).toBeLessThan(label === "24 MP" ? 350 : 400);
+    // Task 15 fix round 1, controller ruling: the shared "jobs" 100 MP budget for this frame becomes
+    // 500 (was 400) -- on the HD 520 the frame halves a fresh 100 MP result and uploads it, which
+    // this run's hardware needs more room for than the plan's own numbers assumed. Follow-up ("mask
+    // levels / display-level uploads") is left to the final review.
+    expect(out[`${label}: frame after the result is put back`]).toBeLessThan(label === "24 MP" ? 350 : 500);
   }
 });
 
@@ -1103,12 +1107,17 @@ test("gradient tool: drag ticks through the store and the commit through the wor
     expect(out[`${label}: drag tick (store, engine and frame), worst ms`]).toBeLessThan(50);
     expect(out[`${label}: release (settled preview and frame) ms`]).toBeLessThan(150);
     expect(out[`${label}: commit: longest frame gap while the worker paints`]).toBeLessThan(100);
+    // Fix round 1, M-6: measured but not asserted until now.
+    expect(out[`${label}: Return (UI thread) ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     // OQ5's "500" at 100 MP is 450 (ruling I7; audit M-5).
     expect(out[`${label}: jobInput ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     expect(out[`${label}: frame after it, whole uploads`], "the frame timed is the one that uploads the result").toBeGreaterThanOrEqual(1);
     // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
-    expect(out[`${label}: frame after it ms`]).toBeLessThan(label === "24 MP" ? 350 : 400);
+    // Fix round 1, controller ruling: 500 at 100 MP (was 400) -- on the HD 520 that frame halves a
+    // fresh 100 MP result and uploads it; the follow-up is "mask levels / display-level uploads" in
+    // the final review.
+    expect(out[`${label}: frame after it ms`]).toBeLessThan(label === "24 MP" ? 350 : 500);
   }
   // Canvas Size and the Gradient at 24 MP; at 100 MP each entry holds 400 MB, past the history's
   // 256 MiB, so none is kept (HISTORY_BYTE_LIMIT, as the Mac's DocumentHistory).
@@ -1178,7 +1187,62 @@ test("gradient tool on a small layer's mask: the mask grows to the canvas and th
     // OQ5's "500" at 100 MP is 450 (ruling I7; audit M-5).
     expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
     expect(out[`${label}: frame after it, whole uploads`], "the frame timed is the one that uploads the grown mask").toBeGreaterThanOrEqual(1);
-    expect(out[`${label}: frame after it ms`]).toBeLessThan(150);
+    // Fix round 1, controller ruling: 400 at 100 MP, the same ruling as 14a -- a canvas-sized mask is
+    // reallocated and uploaded whole, which costs more at 100 MP than the flat 150 first measured.
+    expect(out[`${label}: frame after it ms`]).toBeLessThan(label === "24 MP" ? 150 : 400);
+  }
+});
+
+test("T9-6: dragging a pixel gradient on a small layer under a non-uniform covering mask stays in budget while the preview carries the mask onto the grown grid, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      // A 1500 x 1000 layer in the middle of the canvas, under a non-uniform covering mask (an
+      // ellipse selection's, as "mask gradients that grow the mask" makes one) painted while the
+      // canvas is still 1500 x 1000, so the mask stays un-placed and un-grown at its own size; only
+      // then does the canvas grow past it (Task 14a's own setup, mirrored here for the PIXELS side,
+      // fix round 1, T9-6): the Gradient tool targets the layer's pixels, not the mask, so every drag
+      // tick's preview carries that covering mask onto the grown, reduced grid (`followed`).
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: 1500, height: 1000, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      const x0 = 100, y0 = 100;
+      api.engine.execute(doc, { type: "SelectShape", kind: "Ellipse", points: [[x0, y0], [1400, y0], [1400, 900], [x0, 900]], mode: "Replace", antialiased: true });
+      api.engine.execute(doc, { type: "AddMaskFromSelection", id: layer, revealing: true });
+      api.engine.execute(doc, { type: "Deselect" });
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: null });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      const s = () => api.store.getState();
+      s().openDocument(doc);
+      s().setTool("gradient"); // Pixels, not the mask: `maskSelected` defaults false.
+      await settle(); frame();
+      s().beginGradient({ x: w * 0.2, y: h * 0.5 });
+      const ticks: number[] = [];
+      for (let i = 0; i < 8; i++) {
+        const t0 = performance.now();
+        s().moveGradient({ end: { x: w * (0.5 + i * 0.04), y: h * 0.6 } }, true);
+        frame();
+        ticks.push(performance.now() - t0);
+      }
+      ticks.shift();
+      result["drag tick (store, engine and frame), worst ms"] = Math.round(Math.max(...ticks));
+      s().endGradientDrag(); frame();
+      s().closeDocument(doc);
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`T9-6 pixel gradient drag on a small layer's covering mask (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const label of ["24 MP", "100 MP"]) {
+    // The pixel gradient's own drag budget (ruling OQ9's 50 ms): carrying the covering mask onto the
+    // grown grid must not push a tick over it.
+    expect(out[`${label}: drag tick (store, engine and frame), worst ms`]).toBeLessThan(50);
   }
 });
 
@@ -1246,9 +1310,17 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
       expect(k("longest frame gap while the worker paints")).toBeLessThan(100);
       expect(k("jobInput ms")).toBeLessThan(150);
       expect(k("installJob ms")).toBeLessThan(label === "24 MP" ? 150 : 450);
+      // Fix round 1: Fill's frame counts 2 whole uploads here, not 1 (checked, not a fix -- a
+      // one-time `FboPool.get` allocation for the spatial-margin framebuffer, the first frame with
+      // any real pixels on the canvas at all, landing inside this window because this scenario, unlike
+      // Gradient's, never renders a preview first to warm it up; the layer's own texture is still the
+      // one whole `LayerTextures.sync` upload either way). `toBeGreaterThanOrEqual` already allows it.
       expect(k("that frame's whole uploads"), "the frame timed is the one that uploads the result").toBeGreaterThanOrEqual(1);
       // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
-      expect(k("frame after the result is put back ms")).toBeLessThan(label === "24 MP" ? 350 : 400);
+      // Fix round 1, controller ruling: 500 at 100 MP (was 400) -- on the HD 520 that frame halves a
+      // fresh 100 MP result and uploads it; the follow-up is "mask levels / display-level uploads" in
+      // the final review.
+      expect(k("frame after the result is put back ms")).toBeLessThan(label === "24 MP" ? 350 : 500);
     }
   }
 });

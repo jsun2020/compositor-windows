@@ -84,6 +84,9 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     // commit that every other recording path gets has to happen here. Otherwise an import
     // during a pending distortion leaves the edit open across a structural change.
     useEditor.getState().commitTransform();
+    // Likewise a pending gradient (fix round 1, I-1): an import must not land under it, or on a
+    // document with none open.
+    useEditor.getState().commitGradient();
     const { s, engine, bridge } = ctx();
     const files = paths ?? (await bridge.pickImportImages());
     const failures: string[] = [];

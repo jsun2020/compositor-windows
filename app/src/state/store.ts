@@ -162,8 +162,10 @@ export interface EditorStore {
    * pending any other command applies it first (as a pending transform is committed), the first Undo
    * discards it, and a change of tool, layer or target applies it (`resolveGradient`). */
   gradientEdit: GradientEdit | null;
-  /** New settings; a pending gradient is drawn again with them (`gradientSettings` didSet). */
-  setGradientOptions(patch: Partial<GradientOptions>): void;
+  /** New settings; a pending gradient is drawn again with them (`gradientSettings` didSet). `dragging`
+   * previews from a reduced copy, for the opacity slider's continuous input events (fix round 1, M-1);
+   * every other setting settles at once. */
+  setGradientOptions(patch: Partial<GradientOptions>, dragging?: boolean): void;
   /** A press with the Gradient tool: a new line from `at` on the active layer or its mask (a pending
    * one on the same target starts again there). False when nothing can be painted (`beginGradient`). */
   beginGradient(at: { x: number; y: number }): boolean;
@@ -171,8 +173,8 @@ export interface EditorStore {
   moveGradient(ends: { start?: { x: number; y: number }; end?: { x: number; y: number } }, dragging: boolean): void;
   /** The drag is over: a click without a line leaves nothing pending, else the full preview (`endGradientDrag`). */
   endGradientDrag(): void;
-  /** Re-previews the pending gradient at full quality (settings or palette changed). */
-  refreshGradient(): void;
+  /** Re-previews the pending gradient, from a reduced copy while `dragging` (settings or palette changed). */
+  refreshGradient(dragging?: boolean): void;
   cancelGradient(): void;
   /** Return or Apply: paints the pending gradient as one undo step ("Gradient" or "Gradient Mask"),
    * through the job worker on a large layer (`commitGradient`). */
@@ -332,7 +334,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
   palette: DEFAULT_PALETTE, colorPicker: null, pickerAt: null, sampleRing: null,
   gradientOptions: DEFAULT_GRADIENT, gradientEdit: null,
-  setGradientOptions: (patch) => { set((s) => ({ gradientOptions: { ...s.gradientOptions, ...patch } })); get().refreshGradient(); },
+  setGradientOptions: (patch, dragging = false) => { set((s) => ({ gradientOptions: { ...s.gradientOptions, ...patch } })); get().refreshGradient(dragging); },
   beginGradient: (at) => {
     const { activeId, documents, gradientEdit } = get(); if (!activeId) return false;
     const doc = documents[activeId];
@@ -359,7 +361,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!hasLine(e)) { get().cancelGradient(); return; }
     previewGradient(false);
   },
-  refreshGradient: () => { if (get().gradientEdit) previewGradient(false); else get().repaintOverlay(); },
+  refreshGradient: (dragging = false) => { if (get().gradientEdit) previewGradient(dragging); else get().repaintOverlay(); },
   cancelGradient: () => {
     const { gradientEdit, engine, activeId } = get(); if (!gradientEdit) return;
     set({ gradientEdit: null });
@@ -473,7 +475,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (get().working) { set({ error: BUSY_MESSAGE }); return false; }
     const doc = activeId;
     let copy: JobInputCopy;
-    try { copy = engine.jobInput(doc, layerId); } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
+    try { copy = engine.jobInput(doc, layerId); }
+    catch (e) {
+      set({ error: String(e instanceof Error ? e.message : e) });
+      // A refused job leaves nothing running (`working` never becomes true, so the `finally` below
+      // never runs): the preview it was about to replace must be cleared here instead (fix round 1, M-3).
+      engine.setPreview(doc, null); get().refresh(doc);
+      return false;
+    }
     set({ working: true });
     let installed = false;
     try {
@@ -603,8 +612,12 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   redo: () => {
     if (get().panelOwnsDocument() || get().working) return;
+    const { activeId, documents } = get();
+    const doc = activeId ? documents[activeId] : null;
+    // Redo with nothing to redo must not silently drop a pending gradient (fix round 1, M-2).
+    if (!doc?.canRedo) return;
     get().cancelGradient();
-    const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); }
+    const { engine } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); }
   },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
@@ -788,6 +801,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // edit and its `clear_preview` (install_job) wipes the new panel's own preview.
     if (get().working) return false;
     get().commitTransform();
+    // A pending gradient is applied first, as the Mac's canPaint requires `gradientEdit == nil`
+    // (EditorSession.swift:608); on a large layer that sends it to the job worker, so `working` is
+    // re-checked here too (fix round 1, I-1).
+    get().commitGradient();
+    if (get().working) return false;
     const state = get().documents[activeId];
     const id = layerId ?? state.activeLayerId;
     const layer = id ? state.layers.find((l) => l.id === id) : null;
