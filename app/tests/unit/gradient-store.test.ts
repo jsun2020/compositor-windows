@@ -165,6 +165,13 @@ describe("a pending gradient", () => {
     s().commitGradient();
     expect([log, s().gradientEdit, s().error, previews.at(-1)]).toEqual([[], null, "too large", null]);
   });
+  it("clears the pending preview when the job's own input throws (fix round 3, M-3)", () => {
+    useEditor.setState({ jobPixels: 1, engine: { ...s().engine!, jobInput: () => { throw new Error("boom"); } } as never });
+    draw([5, 6], [30, 6]);
+    expect(last()).not.toBeNull(); // the pending gradient's preview shows before the commit is attempted
+    s().commitGradient();
+    expect(previews.at(-1)).toBeNull();
+  });
   it("applies a pending gradient before a fill, refusing the fill while the gradient's own job runs (fix round 1, I-1)", () => {
     draw([5, 6], [30, 6]);
     const jobsSent: string[] = [];

@@ -1264,6 +1264,16 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
           api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
         };
         timed("jobInput");
+        // Fix round 3, item 4: the reviewer showed the spatial-margin FBOs (`RenderPlan.spatial_margin`,
+        // `GlRenderer.frameFor`) are never reached here (no blur layer) -- round 1's diagnosis was wrong.
+        // Instrumented with stack traces and per-call timings on this exact scenario (throwaway, not
+        // committed): the real, dominant cost inside the timed frame below is `engine.layerPixels`, the
+        // WASM call `LayerTextures.sync`'s `upload` makes to prefilter the freshly committed layer down
+        // to display resolution for its first GPU upload -- measured 691 ms alone for a 100 MP layer in
+        // that one run. It is data-dependent (the just-installed pixels), not a fixed GPU/framebuffer
+        // resource, so there is nothing to allocate eagerly; timed here directly, on both edits, so the
+        // real one-time cost the user pays on the first paint is what is actually logged.
+        timed("layerPixels");
         // The frame that draws the result, timed where it lands (as the "jobs" case does), so no interval is outside a window.
         timed("installJob", () => { installedAt = performance.now(); s().refresh(s().activeId); result["frame after the result is put back ms"] = Math.round(frame()); result["that frame's whole uploads"] = (window as any).__uploads.image; });
         const client = s().jobs; const send = client.run.bind(client);
@@ -1287,17 +1297,18 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
           s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
           s().endGradientDrag(); frame(); await settle();
         } else {
-          // Fix round 2: the Gradient case above already warms up the spatial-margin framebuffer with
-          // its own preview frame before its timed dispatch; Fill's scenario had none, so that one-time
-          // allocation landed inside the timed frame below instead (fix round 1's finding). Warm it up
-          // here the same way -- a preview frame with real pixels -- and log its own cost separately, so
-          // the timed frame measures only the re-upload. Follow-up: allocate the margin framebuffer eagerly.
+          // Fix round 2 kept a warm-up frame here (a preview with real pixels) on the theory it primed a
+          // one-time GPU resource; fix round 3's proper instrumentation (see above) found that theory
+          // wrong -- there is no such resource, so this does not, and cannot, avoid the real cost, which
+          // is entirely inside the timed frame below (`engine.layerPixels`, data-dependent on the just-
+          // committed pixels). Kept anyway, as the Gradient case above does the same warm-up naturally,
+          // so the two stay comparable; its own frame is logged only as a diagnostic, not a claimed fix.
           s().setTool("gradient");
           s().beginGradient({ x: w * 0.2, y: h * 0.5 });
           s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
-          const cold0 = performance.now();
+          const warm0 = performance.now();
           frame();
-          result["cold frame that allocates the margin framebuffer ms"] = Math.round(performance.now() - cold0);
+          result["warm-up preview frame (diagnostic only) ms"] = Math.round(performance.now() - warm0);
           s().cancelGradient(); frame(); await settle();
           s().setTool("move");
         }
@@ -1324,11 +1335,13 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
       expect(k("longest frame gap while the worker paints")).toBeLessThan(100);
       expect(k("jobInput ms")).toBeLessThan(150);
       expect(k("installJob ms")).toBeLessThan(label === "24 MP" ? 150 : 450);
-      // Fix round 1: Fill's frame counts 2 whole uploads here, not 1 (checked, not a fix -- a
-      // one-time `FboPool.get` allocation for the spatial-margin framebuffer, the first frame with
-      // any real pixels on the canvas at all, landing inside this window because this scenario, unlike
-      // Gradient's, never renders a preview first to warm it up; the layer's own texture is still the
-      // one whole `LayerTextures.sync` upload either way). `toBeGreaterThanOrEqual` already allows it.
+      // Fix round 1 (corrected in fix round 3): Fill's frame counts 2 whole uploads here, not 1.
+      // Round 1 guessed a one-time spatial-margin framebuffer allocation; the reviewer showed that
+      // path is never reached without a blur layer, and round 3's own instrumentation confirmed the
+      // guess was wrong. The extra `texImage2D` traces to `FboPool`'s own main/stack compositing
+      // buffers (used unconditionally, not just for blur) instead, costing a few ms at most -- not
+      // the real driver of this frame's time, which is `layerPixels` (timed separately above).
+      // `toBeGreaterThanOrEqual` already allows either count.
       expect(k("that frame's whole uploads"), "the frame timed is the one that uploads the result").toBeGreaterThanOrEqual(1);
       // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
       // Fix round 1, controller ruling: 500 at 100 MP (was 400) -- on the HD 520 that frame halves a

@@ -253,3 +253,89 @@ fn t9_6_a_pixel_gradient_preview_carries_a_covering_mask_onto_the_grown_grid_ins
     assert_eq!(shown(&e, doc_id, 45, 50)[3], 0, "the preview showed exactly what Return then applies");
     assert_eq!(shown(&e, doc_id, 55, 50)[3], 255, "the preview showed exactly what Return then applies");
 }
+
+#[test]
+fn t9_6_a_reduced_pixel_gradient_preview_matches_the_committed_mask_sampled_at_its_own_grid() {
+    // Task 15 fix round 3, item 2: the test above only covers level 0 (the preview at full resolution).
+    // A 3000 x 2000 canvas forces `level_for` to reduce a small layer's grown grid: 2 halvings while
+    // dragging (limit 1024: 3000 -> 1500 -> 750) and 1 once settled (limit 2048: 3000 -> 1500). A 100 x
+    // 100 opaque layer well inside it, with a covering 100 x 100 mask, left half black (hides), right
+    // half white (reveals).
+    let (cw, ch) = (3000u32, 2000u32);
+    let (lw, lh) = (100u32, 100u32);
+    let origin = p(1400.0, 950.0);
+    let data: Vec<u8> = [255u8, 0, 0, 255].repeat((lw * lh) as usize);
+    let mut layer = Layer::with_pixels("L", Raster::from_premultiplied(lw, lh, data), origin);
+    let id = layer.id;
+    let original_transform = layer.transform;
+    let mask_data: Vec<u8> = (0..lw * lh).map(|i| if i % lw < lw / 2 { 0u8 } else { 255u8 }).collect();
+    layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(lw, lh, mask_data), enabled: true, placement: None, linked: None });
+    let mut doc = Document::new(cw, ch);
+    doc.active_layer_id = Some(id);
+    doc.layers = vec![layer];
+    let mut e = Engine::new();
+    let doc_id = e.insert_document(doc);
+    // An opaque, constant red: alpha alone tells whether the mask hid or revealed a point.
+    let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(1.0, 0.0), from: [1.0, 0.0, 0.0, 1.0], to: [1.0, 0.0, 0.0, 1.0], opacity: 1.0 };
+
+    // Three named points in the ORIGINAL layer's own local pixel space (before any growth): well
+    // outside its own box (to its left), and well either side of the black/white edge at local column
+    // lw / 2 (a quarter of the layer's width in from each edge, so the two stay in different reduced
+    // pixels even at the coarsest level this test reaches, level 2 -- one pixel adjacent to the edge
+    // itself would collapse into the same reduced pixel as its neighbour there), mapped once through
+    // the original (unreduced) transform to document space.
+    let to_document = original_transform.pixel_to_document(lw, lh);
+    let outside_doc = to_document.apply(p(-20.0, lh as f64 / 2.0 + 0.5));
+    let black_side_doc = to_document.apply(p(lw as f64 / 4.0, lh as f64 / 2.0 + 0.5));
+    let white_side_doc = to_document.apply(p(lw as f64 * 3.0 / 4.0, lh as f64 / 2.0 + 0.5));
+
+    for dragging in [true, false] {
+        preview(&mut e, doc_id, id, false, &g, dragging);
+        let state = e.state(doc_id).unwrap().layers[0].clone();
+        assert!(state.pixels_width < cw, "dragging={dragging}: expected a genuinely reduced preview, got {}", state.pixels_width);
+        let preview_mask = e.mask_pixels(doc_id, id).unwrap().unwrap();
+        let (rw, rh) = (preview_mask.width, preview_mask.height);
+        let preview_to_doc = state.transform.pixel_to_document(rw, rh);
+        let doc_to_preview = preview_to_doc.invert().unwrap();
+        let preview_at = |doc_pt: Point| -> u8 {
+            let pp = doc_to_preview.apply(doc_pt);
+            let (px, py) = (pp.x.floor().clamp(0.0, (rw - 1) as f64) as u32, pp.y.floor().clamp(0.0, (rh - 1) as f64) as u32);
+            preview_mask.bytes()[(py * rw + px) as usize]
+        };
+        assert_eq!(preview_at(outside_doc), 255, "dragging={dragging}: outside the old layer's bounds, the background reveals");
+        assert_eq!(preview_at(black_side_doc), 0, "dragging={dragging}: just left of the edge, the mask's black half");
+        assert_eq!(preview_at(white_side_doc), 255, "dragging={dragging}: just right of the edge, the mask's white half");
+
+        // The whole reduced grid must match the committed mask sampled at each of its own pixel
+        // centres, derived from a real commit (never a pasted run): commit the very same gradient, then
+        // invert through the committed layer's own transform to find what each reduced pixel's centre
+        // lands on there.
+        e.set_preview(doc_id, None).unwrap();
+        run(&mut e, doc_id, Command::Gradient { id, mask: false, gradient: g.clone() });
+        let committed = e.state(doc_id).unwrap().layers[0].clone();
+        let committed_mask = e.mask_pixels(doc_id, id).unwrap().unwrap();
+        let (cmw, cmh) = (committed_mask.width, committed_mask.height);
+        let doc_to_committed = committed.transform.pixel_to_document(cmw, cmh).invert().unwrap();
+        let mut mismatches: Vec<(u32, u32, u8, u8)> = Vec::new();
+        for y in 0..rh {
+            for x in 0..rw {
+                let doc_pt = preview_to_doc.apply(Point { x: x as f64 + 0.5, y: y as f64 + 0.5 });
+                let cp = doc_to_committed.apply(doc_pt);
+                let (mx, my) = (cp.x.floor().clamp(0.0, (cmw - 1) as f64) as u32, cp.y.floor().clamp(0.0, (cmh - 1) as f64) as u32);
+                let expected = committed_mask.bytes()[(my * cmw + mx) as usize];
+                let actual = preview_mask.bytes()[(y * rw + x) as usize];
+                if actual != expected { mismatches.push((x, y, actual, expected)); }
+            }
+        }
+        // `followed` maps a reduced pixel's INDEX to the mask nearest by integer scaling; this test
+        // maps its CONTINUOUS centre through two affine round trips instead (document space, then the
+        // committed layer's own transform) -- an independent path, not the same formula, but the two
+        // conventions can disagree by one reduced pixel exactly astride the mask's hard edge under a
+        // coarse reduction (level 2 here: measured 25 of 375,750 pixels, one whole column the height of
+        // the layer's own reduced footprint, and only at level 2 -- level 1 below matches exactly, 0 of
+        // 1,500,000). A real bug (the wrong grid offset or the wrong "old" dimensions) would show as a
+        // much larger, structural mismatch, not a hairline seam at the transition alone.
+        assert!(mismatches.len() <= 30, "dragging={dragging}: {} mismatches of {} pixels, more than the hairline seam this reduction level can explain: {:?}", mismatches.len(), rw * rh, &mismatches[..mismatches.len().min(20)]);
+        e.undo(doc_id).unwrap();
+    }
+}

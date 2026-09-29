@@ -183,13 +183,24 @@ pub(crate) fn followed(mask: &GrayRaster, old: (u32, u32), grid: &EditGrid, crop
     if mask.is_uniform() == Some(255) { return mask.clone(); }
     let (w, h) = (crop.2 - crop.0, crop.3 - crop.1);
     let mut out = vec![255u8; w as usize * h as usize];
-    for y in 0..h { for x in 0..w {
-        let (lx, ly) = ((x + crop.0) as i64 - grid.x as i64, (y + crop.1) as i64 - grid.y as i64);
-        if lx < 0 || ly < 0 || lx >= old.0 as i64 || ly >= old.1 as i64 { continue; }
-        let mx = ((lx as u64 * mask.width as u64) / old.0 as u64) as u32;
-        let my = ((ly as u64 * mask.height as u64) / old.1 as u64) as u32;
-        out[(y * w + x) as usize] = mask.bytes()[(my * mask.width + mx) as usize];
-    }}
+    // Each output column's source column in the mask is looked up once into `xs` (`usize::MAX` outside
+    // the layer's own old footprint, where the background, 255, stays); each row then reuses it with one
+    // division for its own source row, instead of a division and a range check for every pixel -- the
+    // mask preview path already avoids this the same way (preview.rs's own `source` closure; fix round
+    // 3, item 3: called on every drag tick of a reduced pixel-gradient preview over a covering mask).
+    let source = |at: i64, offset: u32, own: u32, stored: u32| -> usize {
+        let g = at - offset as i64;
+        if g < 0 || g >= own as i64 { usize::MAX } else { (g as u64 * stored as u64 / own as u64) as usize }
+    };
+    let xs: Vec<usize> = (0..w).map(|x| source((x + crop.0) as i64, grid.x, old.0, mask.width)).collect();
+    let src = mask.bytes();
+    for y in 0..h {
+        let sy = source((y + crop.1) as i64, grid.y, old.1, mask.height);
+        if sy == usize::MAX { continue; }
+        let row_src = &src[sy * mask.width as usize..(sy + 1) * mask.width as usize];
+        let row_dst = &mut out[y as usize * w as usize..(y as usize + 1) * w as usize];
+        for (dst, &sx) in row_dst.iter_mut().zip(xs.iter()) { if sx != usize::MAX { *dst = row_src[sx]; } }
+    }
     GrayRaster::from_bytes(w, h, out)
 }
 
