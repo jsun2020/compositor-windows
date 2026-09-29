@@ -257,6 +257,19 @@ pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: b
     // The layer's own grid before the edit (its box, rounded, when it had no pixels).
     let own = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
     let same_grid = crop == (grid.x, grid.y, grid.x + own.0, grid.y + own.1);
+    // A covering mask that must grow onto the new grid needs the room: every other path that
+    // grows a mask checks it (masks.rs:13, :80; selection.rs:215; `mask_on_layer_grid` above), the
+    // Mac shrinks its own paint limit by the other masks already held
+    // (EditorSession+Brush.swift:22-25), and a project whose masks add up past MAX_PIXELS refuses
+    // to reopen (package.rs:33-40). A uniform white mask stays 1 x 1 (`followed`'s own early
+    // return), so it never needs the room.
+    if let Some(m) = layer.mask.as_ref().filter(|m| m.placement.is_none() && !same_grid && m.pixels.is_uniform() != Some(255)) {
+        let own_mask_pixels = m.pixels.width as u64 * m.pixels.height as u64;
+        let others = doc.used_mask_pixels().saturating_sub(own_mask_pixels);
+        if (cw as u64) * (ch as u64) > MAX_PIXELS.saturating_sub(others) {
+            return Err(CommandError::Project(ProjectError::TooLarge));
+        }
+    }
     let target = doc.layer_mut(id).unwrap();
     target.set_pixels(Some(result));
     target.transform = if same_grid { layer.transform } else { transform };

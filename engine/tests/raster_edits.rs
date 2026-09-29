@@ -203,6 +203,48 @@ fn a_layer_smaller_than_the_canvas_grows_to_it_is_trimmed_and_its_mask_follows_w
 }
 
 #[test]
+fn a_fill_that_would_grow_the_covering_mask_past_the_mask_budget_is_refused() {
+    // Task 8 fix round 1: `image_grid` (raster_edit.rs:88-89) already checks the pixel budget
+    // against other layers' own PIXELS; this proves the covering mask `followed` grows onto the
+    // trimmed grid is checked against other layers' MASK pixels too, the same way `add_mask`
+    // (masks.rs:13), `expand_uniform` (masks.rs:80) and `add_mask_from_selection` (selection.rs:215)
+    // already do -- otherwise an accepted edit could save a project (over the 100 MP mask budget)
+    // that `open_package` then refuses to reopen (package.rs:33-40).
+    let mut e = Engine::new();
+    let id = e.new_document(100, 40, false).unwrap();
+    let mut doc = e.document(id).unwrap().clone();
+    let mut layer = Layer::with_pixels("Small", Raster::from_premultiplied(20, 10, [0, 0, 200, 255].repeat(200)), p(30.0, 15.0));
+    let mask: Vec<u8> = (0..10).flat_map(|_| (0..20).map(|x| if x < 10 { 0 } else { 255 })).collect();
+    layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(20, 10, mask), enabled: true, placement: None, linked: None });
+    let lid = layer.id;
+    // The same selection and layer as the sibling test above grows this layer's covering mask to
+    // 80 x 20 (the union of the old pixels and the filled area): 1,600 pixels of room needed.
+    let needed: u64 = 80 * 20;
+    // Another layer's mask (a folder's, holding no pixels of its own, so it never touches the
+    // separate PIXEL budget `image_grid` already checks) holds 99,999,000 of the 100,000,000-pixel
+    // mask budget, leaving MAX_PIXELS - 99,999,000 = 1,000 pixels of room -- less than the 1,600
+    // needed above.
+    let (big_w, big_h) = (99_999u32, 1_000u32);
+    let big_mask_pixels = big_w as u64 * big_h as u64;
+    let remaining = MAX_PIXELS - big_mask_pixels;
+    assert!(needed > remaining, "the fixture must actually starve the budget");
+    let mut big = Layer::blank("Big Folder", doc.size());
+    big.is_group = true;
+    big.mask = Some(Mask { pixels: GrayRaster::from_bytes(big_w, big_h, vec![255u8; big_mask_pixels as usize]), enabled: true, placement: None, linked: None });
+    doc.active_layer_id = Some(lid);
+    doc.layers = vec![big, layer];
+    let mut e = Engine::new();
+    let id = e.insert_document(doc);
+    // A selection reaching past the layer on every side but the bottom, as the sibling test above.
+    select(&mut e, id, 10.0, 5.0, 80.0, 20.0);
+    let before = e.document(id).unwrap().clone();
+    let count = depth(&e, id);
+    assert_eq!(e.execute(id, Command::Fill { id: lid, mask: false, color: [1.0, 0.0, 0.0] }), Err(CommandError::Project(ProjectError::TooLarge)));
+    assert!(e.document(id).unwrap().same_content(&before));
+    assert_eq!(depth(&e, id), count);
+}
+
+#[test]
 fn a_fill_inside_a_selection_on_a_layer_over_the_canvas_is_recorded_as_that_rectangle() {
     let (mut e, id, layer) = blank(100, 40);
     run(&mut e, id, Command::Fill { id: layer, mask: false, color: [0.2, 0.4, 0.6] });
