@@ -49,9 +49,11 @@ impl PreviewSource {
 }
 
 /// What a preview stands in for: the layer's pixels (`raster`, placed by `transform`), a patch of them
-/// (`raster` is that rectangle of the stored pixels' grid, drawn over them), or the layer's mask.
+/// (`raster` is that rectangle of the stored pixels' grid, drawn over them), or the layer's mask: its
+/// `pixels` as the gradient leaves them (reduced) and where they sit (`placement`, None while it covers
+/// its layer; a mask gradient grows the mask past its layer, Task 14a).
 #[derive(Clone, Debug)]
-pub enum PreviewTarget { Pixels, Patch(PixelRect), Mask(GrayRaster) }
+pub enum PreviewTarget { Pixels, Patch(PixelRect), Mask { pixels: GrayRaster, placement: Option<LayerTransform> } }
 
 /// The substituted pixels for one layer while a panel is open, the request that made them and
 /// what they were made from.
@@ -188,13 +190,15 @@ fn level_for(width: u32, height: u32, limit: u32) -> u32 {
     level
 }
 
-/// A gradient's preview (Phase 4b-1). On a mask: the mask reduced to the request's limit, painted.
-/// On pixels inside a selection whose rectangle is small (`PATCH_LIMIT`), when the layer already
-/// covers the canvas and draws no effects: that rectangle at full size, as a patch. Otherwise the
-/// layer's grid grown to the canvas (`raster_edit::image_grid`), reduced to the limit with its
-/// origin on the reduced pixels, the layer's own halvings placed in it, painted; never trimmed.
+/// A gradient's preview (Phase 4b-1). On a mask: the grid the commit paints and leaves (`mask_grid`:
+/// the mask's own grid grown to the canvas, Task 14a), reduced to the request's limit, painted, and
+/// shown where the commit places it. On pixels inside a selection whose rectangle is small
+/// (`PATCH_LIMIT`), when the layer already covers the canvas and draws no effects: that rectangle at
+/// full size, as a patch. Otherwise the layer's grid grown to the canvas (`raster_edit::image_grid`),
+/// reduced to the limit with its origin on the reduced pixels, the layer's own halvings placed in it,
+/// painted; never trimmed.
 fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, id: Uuid, mask: bool, gradient: &GradientSpec, revision: u64) -> Option<PixelPreview> {
-    use ops::raster_edit::{image_grid, paint_grid, Paint};
+    use ops::raster_edit::{image_grid, mask_grid, paint_grid, Paint};
     let layer = doc.layer(id)?;
     let paint = Paint::Gradient(gradient.clone());
     // What the commit would refuse, the preview does not show.
@@ -202,16 +206,15 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
     let made_from = PreviewSource::of(doc, id);
     let limit = preview_limit(request);
     if mask {
-        // The grid the commit paints: a placed mask's own, else the layer's pixels (a covering mask
-        // of another size is stretched onto it), reduced; the mask sampled onto it, nearest.
+        // The grid the commit paints and leaves: a placed mask's own, else the layer's pixels (a
+        // covering mask of another size is stretched onto it), grown to the canvas (1.3.7), reduced;
+        // the mask sampled onto it nearest, its background where it grew.
         let m = layer.mask.as_ref()?;
-        let placement = m.placement.unwrap_or(layer.transform);
-        let (gw, gh) = if m.placement.is_some() { (m.pixels.width, m.pixels.height) } else {
-            layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height))
-        };
-        let level = level_for(gw, gh, limit);
-        let (rw, rh) = ((gw >> level).max(1), (gh >> level).max(1));
+        let grid = mask_grid(doc, id, true).ok()?;
+        let level = level_for(grid.width, grid.height, limit);
+        let (rw, rh) = ((grid.width >> level).max(1), (grid.height >> level).max(1));
         let (mw, mh) = (m.pixels.width as u64, m.pixels.height as u64);
+        let grew = (grid.x, grid.y, grid.width, grid.height) != (0, 0, grid.w, grid.h);
         // A freshly added mask is 1 x 1 by its size alone (`Mask::is_uniform`, no scan of its
         // content) and needs no resample at all. Any other size is sampled nearest without a single
         // per-pixel division: each output column's source column is looked up once into `xs`, and
@@ -220,24 +223,32 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
         // memoized halving; scanning the mask's own content to find a uniform one (`GrayRaster::is_uniform`)
         // would cost just as much as the gather it was meant to save (fix round 1: measured 12.8 ms at
         // 24 MP and 53 ms at 100 MP for that scan alone, on a full-size uniform mask after a mask Fill).
-        let mut data = vec![0u8; rw as usize * rh as usize];
-        if m.is_uniform() {
+        let mut data = vec![m.background(); rw as usize * rh as usize];
+        if m.is_uniform() && !grew {
             data.fill(m.pixels.bytes()[0]);
         } else {
-            let xs: Vec<usize> = (0..rw as u64).map(|x| (x * mw / rw as u64) as usize).collect();
+            // A reduced column x lands on the grown grid's column x * width / rw; inside the old grid
+            // (less `grid.x`) that is the stored mask's column times mw / w, and past it `usize::MAX`,
+            // where the background stays. Rows alike.
+            let source = |r: u64, reduced: u32, full: u32, at: u32, own: u32, stored: u64| -> usize {
+                let g = (r * full as u64 / reduced as u64) as i64 - at as i64;
+                if g < 0 || g >= own as i64 { usize::MAX } else { (g as u64 * stored / own as u64) as usize }
+            };
+            let xs: Vec<usize> = (0..rw as u64).map(|x| source(x, rw, grid.width, grid.x, grid.w, mw)).collect();
             let src = m.pixels.bytes();
             for y in 0..rh as u64 {
-                let sy = (y * mh / rh as u64) as usize;
+                let sy = source(y, rh, grid.height, grid.y, grid.h, mh);
+                if sy == usize::MAX { continue; }
                 let row_src = &src[sy * mw as usize..(sy + 1) * mw as usize];
                 let row_dst = &mut data[y as usize * rw as usize..(y as usize + 1) * rw as usize];
-                for (dst, &sx) in row_dst.iter_mut().zip(xs.iter()) { *dst = row_src[sx]; }
+                for (dst, &sx) in row_dst.iter_mut().zip(xs.iter()) { if sx != usize::MAX { *dst = row_src[sx]; } }
             }
         }
-        let coverage = ops::adjust::edit_coverage(doc, clips, &placement, rw, rh).ok()?;
-        paint_grid(doc, &mut data, rw, rh, &placement, coverage.as_ref(), &paint, true);
+        let coverage = ops::adjust::edit_coverage(doc, clips, &grid.transform, rw, rh).ok()?;
+        paint_grid(doc, &mut data, rw, rh, &grid.transform, coverage.as_ref(), &paint, true);
         let shown = GrayRaster::from_bytes(rw, rh, data);
         let pixels = layer.pixels.clone().unwrap_or_else(|| Raster::new_transparent(1, 1));
-        return Some(PixelPreview::new(id, pixels, layer.transform, revision, request, made_from, PreviewTarget::Mask(shown)));
+        return Some(PixelPreview::new(id, pixels, layer.transform, revision, request, made_from, PreviewTarget::Mask { pixels: shown, placement: grid.placement }));
     }
     let grid = image_grid(doc, layer).ok()?;
     let stored = layer.pixels.as_ref();

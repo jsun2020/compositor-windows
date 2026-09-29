@@ -175,3 +175,56 @@ fn a_shape_over_the_whole_canvas_at_24_and_100_mp() {
         assert_eq!(e.state(id).unwrap().undo_depth, 0);
     }
 }
+
+#[test]
+#[ignore]
+fn a_mask_gradient_and_a_mask_fill_grown_to_the_canvas_at_24_and_100_mp() {
+    // Task 14a: a 1500 x 1000 layer in the middle of the canvas under a checkered mask of its own grid;
+    // a gradient, or a fill, grows the mask to the whole canvas. Budgets: the gradient no slower than the
+    // pixel gradient's own commit over the whole canvas, measured natively on this machine in Task 8 (647
+    // ms at 24 MP, 2706 ms at 100 MP, `a_gradient_and_a_fill_at_24_and_100_mp`): the mask paints one grey
+    // byte where that paints four. The fill twice Task 8's native fill there (133 / 343 ms): that one
+    // copied its 24 / 100 MP layer but painted a 3 MP ellipse; this one computes every pixel of the
+    // canvas. Above JOB_PIXELS both run in the job worker (ruling C1: `edit_pixels` counts the grown mask).
+    // The fill's are ceilings: under two thirds of one, the assert is tightened to 1.5x the measurement.
+    for (label, w, h, budget, fill_budget) in [("24 MP", 6000u32, 4000u32, 650.0, 266.0), ("100 MP", 10000, 10000, 2710.0, 686.0)] {
+        let mut doc = Document::new(w, h);
+        let mut layer = Layer::with_pixels("Small", Raster::from_premultiplied(1500, 1000, [60, 90, 120, 255].repeat(1500 * 1000)), Point { x: ((w - 1500) / 2) as f64, y: ((h - 1000) / 2) as f64 });
+        let checks: Vec<u8> = (0..1000u32).flat_map(|y| (0..1500u32).map(move |x| if (x / 50 + y / 50) % 2 == 0 { 0 } else { 255 })).collect();
+        layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(1500, 1000, checks), enabled: true, placement: None, linked: None });
+        let lid = layer.id;
+        doc.active_layer_id = Some(lid);
+        doc.layers = vec![layer];
+        let mut e = Engine::new();
+        let id = e.insert_document(doc);
+        let gradient = |i: f64| GradientSpec { shape: GradientShape::Linear, start: Point { x: w as f64 * 0.2 + i, y: h as f64 * 0.3 }, end: Point { x: w as f64 * 0.8, y: h as f64 * 0.7 - i },
+            from: [0.0, 0.0, 0.0, 1.0], to: [0.0, 0.0, 0.0, 0.0], opacity: 0.9 };
+        // The preview ticks, to locate their cost (the release wasm's budgets are in perf-4b1.spec.ts):
+        // the worst of five after a first.
+        let worst = |e: &mut Engine, dragging: bool| {
+            e.set_preview(id, Some(PreviewRequest::Gradient { layer: lid, mask: true, gradient: gradient(0.0), dragging })).unwrap();
+            (1..6).map(|i| {
+                let t = Instant::now();
+                e.set_preview(id, Some(PreviewRequest::Gradient { layer: lid, mask: true, gradient: gradient(i as f64 * 7.0), dragging })).unwrap();
+                ms(t)
+            }).fold(0.0, f64::max)
+        };
+        let drag = worst(&mut e, true);
+        let settled = worst(&mut e, false);
+        e.set_preview(id, None).unwrap();
+        let t = Instant::now();
+        run(&mut e, id, Command::Gradient { id: lid, mask: true, gradient: gradient(0.0) });
+        let commit = ms(t);
+        let state = e.state(id).unwrap().layers[0].clone();
+        assert_eq!((state.mask_width, state.mask_height), (w, h), "the gradient grew the mask to the canvas");
+        e.undo(id).unwrap();
+        let t = Instant::now();
+        run(&mut e, id, Command::Fill { id: lid, mask: true, color: [0.0, 0.0, 0.0] });
+        let fill = ms(t);
+        let state = e.state(id).unwrap().layers[0].clone();
+        assert_eq!((state.mask_width, state.mask_height), (w, h), "the fill grew the mask to the canvas");
+        println!("{label}: mask grown to the canvas: gradient preview tick dragging {drag:.0} ms, settled {settled:.0} ms; gradient applied {commit:.0} ms; fill {fill:.0} ms");
+        assert!(commit <= budget, "{label}: the grown mask gradient took {commit:.0} ms, budget {budget} ms");
+        assert!(fill <= fill_budget, "{label}: the grown mask fill took {fill:.0} ms, budget {fill_budget} ms");
+    }
+}

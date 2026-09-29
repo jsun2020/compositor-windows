@@ -2,9 +2,11 @@
 //! (`BrushStroke.paintCanvas`, BrushStroke.swift:645-675): over the layer's original pixels, clipped
 //! to the canvas and the selection, at the edit's opacity (source-over, the colour's alpha times the
 //! opacity times the selection's coverage). A layer's pixel grid first grows to cover the canvas
-//! (`BrushStroke.init`, :153-160); a mask keeps its own grid. The layer's result is trimmed to the
-//! pixels left, and a mask covering it follows it, white where the layer grew (`commitRasterEdit`,
-//! EditorSession+Brush.swift:154-188; `expandMask`, BrushStroke.swift:858-866).
+//! (`BrushStroke.init`, :153-160). A mask is painted in its own grid (`mask_grid`), grown past its
+//! layer to the canvas by a Fill or a Gradient as Compositor 1.3.7 grows it (Task 14a, the user's
+//! decision of 2026-09-29). The layer's result is trimmed to the pixels left, and a mask covering it
+//! follows it, white where the layer grew (`commitRasterEdit`, EditorSession+Brush.swift:154-188;
+//! `expandMask`, BrushStroke.swift:858-866).
 use crate::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -200,44 +202,134 @@ fn check_target(doc: &Document, id: Uuid, mask: bool) -> Result<(), CommandError
     Ok(())
 }
 
-/// Whether the layer's covering mask, once brought onto its own pixel grid (`mask_on_layer_grid`),
-/// still fits the mask budget: the commit's own check before it grows the mask, shared so a preview
-/// refuses to show a mask gradient the commit would refuse for the same reason (fix round 1, item 3a;
-/// `paint_layer_check`).
-fn mask_grow_check(doc: &Document, id: Uuid) -> Result<(), CommandError> {
-    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
-    let m = layer.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
-    if m.placement.is_some() { return Ok(()); }
-    let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
-    if (m.pixels.width, m.pixels.height) == (w, h) { return Ok(()); }
-    let others = doc.used_mask_pixels().saturating_sub(m.pixels.width as u64 * m.pixels.height as u64);
-    if (w as u64) * (h as u64) > MAX_PIXELS.saturating_sub(others) { return Err(CommandError::Project(ProjectError::TooLarge)); }
-    Ok(())
+/// The layer's own pixel grid: its pixels, or its box rounded when it has none.
+fn layer_grid(layer: &Layer) -> (u32, u32) {
+    layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height))
 }
 
-/// A covering mask brought onto the layer's own pixel grid (a mask on its own placement keeps its
-/// grid): the Mac paints a mask in the grid it covers (BrushStroke.swift:148-152), so a 1 x 1 or
-/// otherwise sized covering mask is stretched onto the layer's pixels first, nearest.
-fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> {
-    mask_grow_check(doc, id)?;
-    let layer = doc.layer(id).unwrap();
-    let m = layer.mask.as_ref().unwrap();
-    if m.placement.is_some() { return Ok(()); }
-    let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
-    if (m.pixels.width, m.pixels.height) == (w, h) { return Ok(()); }
-    let src = m.pixels.clone();
-    let data = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| {
-        let (mx, my) = ((x as u64 * src.width as u64 / w as u64) as u32, (y as u64 * src.height as u64 / h as u64) as u32);
-        src.bytes()[(my * src.width + mx) as usize]
-    }).collect();
-    doc.layer_mut(id).unwrap().mask_mut().unwrap().pixels = GrayRaster::from_bytes(w, h, data);
-    Ok(())
+/// The document rectangle (`x0`, `y0`) to (`x1`, `y1`) on the grid `inverse` maps the document onto:
+/// the box of its corners there, rounded out to whole pixels (`CGRect.applying(_:).integral`).
+fn rect_on(inverse: &Affine, x0: f64, y0: f64, x1: f64, y1: f64) -> (i64, i64, i64, i64) {
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].map(|(x, y)| inverse.apply(Point { x, y }));
+    let (lx, hx) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.x), h.max(p.x)));
+    let (ly, hy) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.y), h.max(p.y)));
+    (lx.floor() as i64, ly.floor() as i64, hx.ceil() as i64, hy.ceil() as i64)
+}
+
+/// The Mac's raster-edit tile, in grid pixels (`BrushStroke.tileSize`, BrushStroke.swift:144 at v1.3.7).
+const TILE: i64 = 256;
+
+/// Where a mask edit paints, and the mask it leaves (Task 14a): the mask's grid before the edit, `w` x
+/// `h` pixels that `base` places, and the grid the edit leaves, `width` x `height` pixels that
+/// `transform` places, with the old grid at (`x`, `y`) in it. `placement` is the mask's placement
+/// afterwards: None while it still covers its layer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaskGrid {
+    pub w: u32, pub h: u32, pub base: LayerTransform,
+    pub width: u32, pub height: u32, pub x: u32, pub y: u32,
+    pub transform: LayerTransform, pub placement: Option<LayerTransform>,
+}
+
+impl MaskGrid {
+    /// The pixels the edit paints and leaves.
+    pub fn pixels(&self) -> u64 { self.width as u64 * self.height as u64 }
+}
+
+/// The grid a mask edit paints and the mask it leaves, as Compositor 1.3.7 makes them (BrushStroke.swift
+/// and EditorSession+Brush.swift at v1.3.7). The mask's own grid: a mask on its own placement is painted
+/// in its own pixels, a solid one (at most 2 x 2) at one pixel per document pixel over its place, a
+/// covering mask in its layer's grid, stretched onto it (`init`, :157-167). A growing edit (`grows`:
+/// the Mac's Fill and Gradient both are, `applyPixelEdit`, SelectionEdits.swift:204, and `beginGradient`,
+/// Gradient.swift:48; its other raster edits, not in this port, are not) widens that grid to the canvas
+/// as the grid maps it, rounded out (:168),
+/// and keeps every 256-pixel tile it paints, counted from the widened grid's corner: the old grid joined
+/// with the tiles over the canvas, or over the selection's clip (`paintCanvas`, :658-670; `allocateTile`,
+/// :576-583; `committedBounds`, :764). The mask then takes its own place on the document when it had one
+/// or grew (`commitRasterEdit`, EditorSession+Brush.swift:180-187; `transform(for:)`, :766-773); a place
+/// that did not change is kept exactly. Refused, as the Mac refuses, when a side passes MAX_SIDE (:182,
+/// :581), the mask passes what the other layers' masks leave of the budget (EditorSession+Brush.swift:
+/// 16-20 with the mask targeted; BrushStroke.swift:582), or its placement is not a valid one
+/// (EditorSession+Brush.swift:163, :168).
+pub fn mask_grid(doc: &Document, id: Uuid, grows: bool) -> Result<MaskGrid, CommandError> {
+    let too_large = || CommandError::Project(ProjectError::TooLarge);
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    let m = layer.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
+    let base = m.placement.unwrap_or(layer.transform);
+    let (w, h) = match m.placement {
+        Some(p) if m.pixels.width <= 2 && m.pixels.height <= 2 => (p.size.width.round().max(1.0), p.size.height.round().max(1.0)),
+        Some(_) => (m.pixels.width as f64, m.pixels.height as f64),
+        None => { let (w, h) = layer_grid(layer); (w as f64, h as f64) }
+    };
+    if w > MAX_SIDE as f64 || h > MAX_SIDE as f64 { return Err(too_large()); }
+    let (w, h) = (w as u32, h as u32);
+    let (mut x0, mut y0, mut x1, mut y1) = (0i64, 0i64, w as i64, h as i64);
+    if grows {
+        let inverse = base.pixel_to_document(w, h).invert().ok_or_else(|| CommandError::Argument("the mask cannot be painted".into()))?;
+        let canvas = rect_on(&inverse, 0.0, 0.0, doc.width as f64, doc.height as f64);
+        let (ex0, ey0, ex1, ey1) = (canvas.0.min(0), canvas.1.min(0), canvas.2.max(w as i64), canvas.3.max(h as i64));
+        // What the edit paints: the canvas, or the selection's clip rectangle (cut to the canvas), read
+        // from the selection's bounds without filling the clip (`SelectionClip::region`): the app asks
+        // this on the UI thread before a job (audit I-5).
+        let area = match &doc.selection {
+            None => Some((0.0, 0.0, doc.width as f64, doc.height as f64)),
+            Some(s) => SelectionClip::region(s, doc.width, doc.height).map(|(x0, y0, x1, y1)| (x0 as f64, y0 as f64, x1 as f64, y1 as f64)),
+        };
+        if let Some((ax0, ay0, ax1, ay1)) = area {
+            let r = rect_on(&inverse, ax0, ay0, ax1, ay1);
+            let (rx0, ry0, rx1, ry1) = (r.0.max(ex0), r.1.max(ey0), r.2.min(ex1), r.3.min(ey1));
+            if rx0 < rx1 && ry0 < ry1 {
+                let (tx0, ty0) = (ex0 + (rx0 - ex0) / TILE * TILE, ey0 + (ry0 - ey0) / TILE * TILE);
+                let (tx1, ty1) = ((ex0 + ((rx1 - 1 - ex0) / TILE + 1) * TILE).min(ex1), (ey0 + ((ry1 - 1 - ey0) / TILE + 1) * TILE).min(ey1));
+                (x0, y0, x1, y1) = (tx0.min(0), ty0.min(0), tx1.max(w as i64), ty1.max(h as i64));
+            }
+        }
+    }
+    let (width, height) = (x1 - x0, y1 - y0);
+    let others = doc.used_mask_pixels().saturating_sub(m.pixels.width as u64 * m.pixels.height as u64);
+    if width > MAX_SIDE || height > MAX_SIDE || (width as u64) * (height as u64) > MAX_PIXELS.saturating_sub(others) { return Err(too_large()); }
+    let (width, height, x, y) = (width as u32, height as u32, (-x0) as u32, (-y0) as u32);
+    let grew = (x, y, width, height) != (0, 0, w, h);
+    let transform = if grew { ops::adjust::placed_like(&base, w, h, width, height, x as f64, y as f64) } else { base };
+    if !transform.is_valid() { return Err(too_large()); }
+    let placement = if m.placement.is_some() || grew { Some(transform) } else { None };
+    Ok(MaskGrid { w, h, base, width, height, x, y, transform, placement })
+}
+
+/// The mask as a mask edit starts from it on `grid`: its background everywhere (white reveals, black
+/// hides: `Mask::background`, the Mac's `maskBackground`, BrushStroke.swift:169-170), then its own
+/// pixels over the old grid, stretched onto it nearest where they are sized otherwise (a 1 x 1 mask, a
+/// solid placed one). Each new tile starts so (`allocateTile`, :585-613), as the commit's canvas does
+/// (`BrushCommit.render`, :888-896).
+fn mask_on_grid(m: &Mask, grid: &MaskGrid) -> Vec<u8> {
+    let mut out = vec![m.background(); grid.width as usize * grid.height as usize];
+    let (mw, mh) = (m.pixels.width as u64, m.pixels.height as u64);
+    let src = m.pixels.bytes();
+    let xs: Vec<usize> = (0..grid.w as u64).map(|x| (x * mw / grid.w as u64) as usize).collect();
+    for y in 0..grid.h as u64 {
+        let sy = (y * mh / grid.h as u64) as usize;
+        let row = &src[sy * mw as usize..(sy + 1) * mw as usize];
+        let at = ((y + grid.y as u64) * grid.width as u64 + grid.x as u64) as usize;
+        let dst = &mut out[at..at + grid.w as usize];
+        if mw == grid.w as u64 { dst.copy_from_slice(row); } else { for (d, &sx) in dst.iter_mut().zip(&xs) { *d = row[sx]; } }
+    }
+    out
+}
+
+/// The pixels a Fill or a Gradient on layer `id` paints and leaves (`paint_layer`): the layer's grid
+/// grown to the canvas (`image_grid`), or with `mask` the mask's grid grown to the canvas (`mask_grid`).
+/// What decides whether the edit goes to the job worker (ruling C1, `Engine::edit_pixels`: a small
+/// layer's mask on a large canvas counts at its grown size); an error where the edit is refused for its
+/// size, which the worker, seeing one layer, could not tell (ruling OQ20).
+pub fn painted_pixels(doc: &Document, id: Uuid, mask: bool) -> Result<u64, CommandError> {
+    if mask { return Ok(mask_grid(doc, id, true)?.pixels()); }
+    let grid = image_grid(doc, doc.layer(id).ok_or(CommandError::NoLayer)?)?;
+    Ok(grid.width as u64 * grid.height as u64)
 }
 
 /// Whether `paint_layer` would paint: the paint's values and the target (a preview asks first, and
-/// shows nothing the commit would refuse). On the mask, this also refuses what growing a covering
-/// mask onto the layer's grid would refuse (`mask_grow_check`, the same check `mask_on_layer_grid`
-/// itself makes before it grows one).
+/// shows nothing the commit would refuse). On the mask, this also refuses what the mask edit would
+/// refuse for its size (`mask_grid`, the grid the commit and the preview both paint: grown to the
+/// canvas for a Gradient, so the refusal is at the grown size).
 ///
 /// Known gap (fix round 1, item 3b, a controller ruling): on the PIXELS side, a growing layer's own
 /// covering mask may also need to grow once the paint is trimmed back (`paint_layer`'s own check
@@ -249,7 +341,7 @@ fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> 
 pub fn paint_layer_check(doc: &Document, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
     paint.check()?;
     check_target(doc, id, mask)?;
-    if mask { mask_grow_check(doc, id)?; }
+    if mask { mask_grid(doc, id, true)?; }
     Ok(())
 }
 
@@ -258,15 +350,15 @@ pub fn paint_layer_check(doc: &Document, id: Uuid, mask: bool, paint: &Paint) ->
 pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
     paint_layer_check(doc, id, mask, paint)?;
     if mask {
-        mask_on_layer_grid(doc, id)?;
-        let layer = doc.layer(id).unwrap();
-        let m = layer.mask.as_ref().unwrap();
-        let grid = m.placement.unwrap_or(layer.transform);
-        let (w, h) = (m.pixels.width, m.pixels.height);
-        let coverage = ops::adjust::edit_coverage(doc, clips, &grid, w, h)?;
-        let mut data = m.pixels.bytes().to_vec();
-        paint_grid(doc, &mut data, w, h, &grid, coverage.as_ref(), paint, true);
-        doc.layer_mut(id).unwrap().mask_mut().unwrap().pixels = GrayRaster::from_bytes(w, h, data);
+        // The mask on the grid the edit leaves (grown to the canvas for a Gradient), painted there, and
+        // placed where that grid sits (EditorSession+Brush.swift:180-187 at v1.3.7).
+        let grid = mask_grid(doc, id, true)?;
+        let mut data = mask_on_grid(doc.layer(id).unwrap().mask.as_ref().unwrap(), &grid);
+        let coverage = ops::adjust::edit_coverage(doc, clips, &grid.transform, grid.width, grid.height)?;
+        paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, true);
+        let target = doc.layer_mut(id).unwrap().mask_mut().unwrap();
+        target.pixels = GrayRaster::from_bytes(grid.width, grid.height, data);
+        target.placement = grid.placement;
         return Ok(());
     }
     let layer = doc.layer(id).unwrap().clone();
@@ -285,7 +377,7 @@ pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: b
     let own = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
     let same_grid = crop == (grid.x, grid.y, grid.x + own.0, grid.y + own.1);
     // A covering mask that must grow onto the new grid needs the room: every other path that
-    // grows a mask checks it (masks.rs:13, :80; selection.rs:215; `mask_on_layer_grid` above), the
+    // grows a mask checks it (masks.rs:13, :80; selection.rs:215; `mask_grid` above), the
     // Mac shrinks its own paint limit by the other masks already held
     // (EditorSession+Brush.swift:22-25), and a project whose masks add up past MAX_PIXELS refuses
     // to reopen (package.rs:33-40). A uniform white mask stays 1 x 1 (`followed`'s own early

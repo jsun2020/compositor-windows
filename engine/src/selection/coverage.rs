@@ -163,6 +163,20 @@ impl SelectionClip {
         SelectionClip { origin: (x0 as i64, y0 as i64), coverage: Some(coverage) }
     }
 
+    /// The rectangle `new` fills, from the selection's bounds alone, without filling it: (x0, y0, x1,
+    /// y1) in document pixels, None where `new`'s coverage is None. What a mask edit reads to find the
+    /// tiles it paints (`raster_edit::mask_grid`, Task 14a), so the app's `editPixels` question never
+    /// rasterizes or feathers the outline on the UI thread (pre-flight audit I-5). The rounding is
+    /// `new`'s; mask_grow.rs pins the two equal.
+    pub fn region(selection: &Selection, canvas_width: u32, canvas_height: u32) -> Option<(i64, i64, i64, i64)> {
+        if selection.is_empty() { return None; }
+        let b = selection.coverage_bounds()?;
+        let (x0, y0) = (((b.x - 1.0).floor()).max(0.0), ((b.y - 1.0).floor()).max(0.0));
+        let (x1, y1) = (((b.max_x() + 1.0).ceil()).min(canvas_width as f64), ((b.max_y() + 1.0).ceil()).min(canvas_height as f64));
+        if !(x1 - x0 >= 1.0) || !(y1 - y0 >= 1.0) { return None; }
+        Some((x0 as i64, y0 as i64, x1 as i64, y1 as i64))
+    }
+
     /// The coverage at a document point: 0 outside the region, else sampled bilinearly between the
     /// region's pixel centres, its edge pixels repeated.
     pub fn at(&self, p: Point) -> f32 {

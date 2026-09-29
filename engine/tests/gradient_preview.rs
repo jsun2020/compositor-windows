@@ -173,7 +173,7 @@ fn a_non_uniform_covering_mask_of_a_different_size_gathers_as_the_commit_does() 
 
     let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(200.0, 0.0), from: [0.0, 0.0, 0.0, 1.0], to: [1.0, 1.0, 1.0, 1.0], opacity: 1.0 };
     preview(&mut e, doc_id, id, true, &g, true);
-    assert!(matches!(e.preview(doc_id).unwrap().target, PreviewTarget::Mask(_)));
+    assert!(matches!(e.preview(doc_id).unwrap().target, PreviewTarget::Mask { .. }));
     let state = e.state(doc_id).unwrap().layers[0].clone();
     assert_eq!((state.mask_width, state.mask_height), (200, 150), "the canvas is small: not reduced");
     let previewed = e.mask_pixels(doc_id, id).unwrap().unwrap().bytes().to_vec();

@@ -775,6 +775,202 @@ test("gradient previews: a drag tick, the settled preview and a patch in a 700 p
   }
 });
 
+test("mask gradients that grow the mask to the canvas: drag and settled ticks, and the frame after applying one, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      // A 1500 x 1000 layer in the middle of the canvas (Canvas Size with a fill, then without one)
+      // under a non-uniform mask of its own grid (an ellipse selection's): its gradient grows the mask
+      // to the whole canvas (Task 14a), 24 or 100 MP of mask from 1.5 MP.
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: 1500, height: 1000, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: null });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      const x0 = (w - 1500) / 2, y0 = (h - 1000) / 2;
+      api.engine.execute(doc, { type: "SelectShape", kind: "Ellipse", points: [[x0 + 100, y0 + 100], [x0 + 1400, y0 + 100], [x0 + 1400, y0 + 900], [x0 + 100, y0 + 900]], mode: "Replace", antialiased: true });
+      api.engine.execute(doc, { type: "AddMaskFromSelection", id: layer, revealing: true });
+      api.engine.execute(doc, { type: "Deselect" });
+      api.store.getState().openDocument(doc);
+      const fit = api.store.getState(); fit.viewports[doc].fit({ width: w, height: h }); fit.invalidate();
+      await settle(); frame();
+      const gradient = (i: number) => ({ shape: "Linear", start: [w * 0.2 + i, h * 0.3], end: [w * 0.8, h * 0.7 - i], from: [0, 0, 0, 1], to: [0, 0, 0, 0], opacity: 0.9 });
+      // One tick as "gradient previews" times it: the engine's preview, the refresh and the frame that
+      // draws it, one contiguous window.
+      const tick = (i: number, dragging: boolean) => {
+        const t0 = performance.now();
+        api.engine.setPreview(doc, { preview: "Gradient", layer, mask: true, gradient: gradient(i), dragging });
+        const engine = performance.now() - t0;
+        api.store.getState().refresh(doc);
+        const f = frame();
+        return [engine, f, performance.now() - t0];
+      };
+      const worst = (dragging: boolean) => {
+        const ticks: number[][] = [];
+        for (let i = 0; i < 6; i++) ticks.push(tick(i * 7, dragging));
+        ticks.shift(); // the first builds the selection clip and the textures
+        return [0, 1, 2].map((k) => Math.round(Math.max(...ticks.map((t) => t[k]))));
+      };
+      for (const zoom of ["fit", "1:1"]) {
+        if (zoom === "1:1") { await api.setZoom(1); await settle(); frame(); }
+        let [e, f, t] = worst(true);
+        result[`drag engine ${zoom}`] = e; result[`drag frame ${zoom}`] = f; result[`drag total ${zoom}`] = t;
+        const dragged = api.engine.state(doc).layers[0];
+        result[`dragged mask pixels ${zoom}`] = dragged.maskWidth * dragged.maskHeight;
+        [e, f, t] = worst(false);
+        result[`settled engine ${zoom}`] = e; result[`settled frame ${zoom}`] = f; result[`settled total ${zoom}`] = t;
+        const settled = api.engine.state(doc).layers[0];
+        result[`settled mask pixels ${zoom}`] = settled.maskWidth * settled.maskHeight;
+        api.engine.setPreview(doc, null); api.store.getState().refresh(doc); frame(); await settle();
+      }
+      // Applied, on the UI thread here: a diagnostic only (over JOB_PIXELS the Gradient tool sends it to
+      // the job worker, Task 15, whose perf case budgets that path). Then the refresh and the frame that
+      // draw the canvas-sized mask, uploaded whole: budgeted below.
+      let t0 = performance.now();
+      api.engine.execute(doc, { type: "Gradient", id: layer, mask: true, gradient: gradient(0) });
+      result["apply on the UI thread (diagnostic) ms"] = Math.round(performance.now() - t0);
+      t0 = performance.now();
+      api.store.getState().refresh(doc);
+      frame();
+      result["frame after applying (refresh and whole mask upload) ms"] = Math.round(performance.now() - t0);
+      result["frame after applying: whole uploads"] = (window as any).__uploads.image;
+      const applied = api.engine.state(doc).layers[0];
+      result["applied mask pixels"] = applied.maskWidth * applied.maskHeight;
+      api.store.getState().closeDocument(doc);
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`mask gradients that grow the mask (release wasm, Edge): ${JSON.stringify(out)}`);
+  // The preview's grid: the canvas halved until it fits the limit (`level_for`, preview.rs).
+  const reduced = (w: number, h: number, limit: number) => { let l = 0; while (Math.max(w >> l, h >> l) > limit && (w >> l) > 1 && (h >> l) > 1) l++; return (w >> l) * (h >> l); };
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    for (const zoom of ["fit", "1:1"]) {
+      // It timed the grown mask, not the layer's own grid.
+      expect(out[`${label}: dragged mask pixels ${zoom}`]).toBe(reduced(w, h, 1024));
+      expect(out[`${label}: settled mask pixels ${zoom}`]).toBe(reduced(w, h, 2048));
+      // Ruling I2: the mask gradient's ticks keep the pixel gradient's budgets.
+      expect(out[`${label}: drag total ${zoom}`]).toBeLessThan(50);
+      expect(out[`${label}: settled total ${zoom}`]).toBeLessThan(150);
+    }
+    expect(out[`${label}: applied mask pixels`]).toBe(w * h);
+    expect(out[`${label}: frame after applying: whole uploads`]).toBeGreaterThanOrEqual(1);
+    // Task 7's budget for the frame that draws a whole full-size image (a 100 MP grown mask is 100 MB).
+    expect(out[`${label}: frame after applying (refresh and whole mask upload) ms`]).toBeLessThan(150);
+  }
+});
+
+test("a fill on a small layer's mask: the mask grows to the canvas through the worker, then a second fill, a nudge, Undo and Redo, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    for (const selected of [false, true]) {
+      await ready(page);
+      await installFrameTimer(page);
+      const r = await page.evaluate(async ([w, h, selected]) => {
+        const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+        const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const s = () => api.store.getState();
+        const result: Record<string, number> = {};
+        let installedAt = Infinity, jobs = 0, pass = "first fill";
+        const timed = (name: string, after?: () => void) => {
+          const f = api.engine[name].bind(api.engine);
+          api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${pass}: ${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+        };
+        timed("jobInput");
+        // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
+        // outside a window (audit I-7).
+        timed("installJob", () => { installedAt = performance.now(); s().refresh(s().activeId); result[`${pass}: frame after it ms`] = Math.round(frame()); result[`${pass}: frame after it, whole uploads`] = (window as any).__uploads.image; });
+        const client = s().jobs; const send = client.run.bind(client);
+        client.run = (...a: unknown[]) => { jobs++; return send(...a); };
+        // A 1500 x 1000 layer in the middle of the canvas under a white mask, targeted: 1.5 MP stored, the
+        // canvas painted (Task 14a).
+        const doc = api.engine.newDocument(10, 10, false);
+        api.engine.execute(doc, { type: "CanvasSize", width: 1500, height: 1000, anchor: 4, fill: [0.5, 0.4, 0.3] });
+        const layer = api.engine.state(doc).layers[0].id;
+        api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: null });
+        api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+        api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true });
+        s().openDocument(doc);
+        s().setMaskSelected(true);
+        // Audit I-5: under a feathered Select All the key must not fill the selection's clip on the UI
+        // thread (`SelectionClip::region`); the worker builds its own.
+        if (selected) { api.engine.execute(doc, { type: "SelectAll" }); api.engine.execute(doc, { type: "FeatherSelection", amount: 20 }); s().refresh(doc); }
+        await settle(); frame();
+        result["mask pixels the fill paints"] = api.engine.editPixels(doc, layer, true);
+        // performance.now() inside the callback, not the rAF timestamp (Task 6 fix round 1, issue 4;
+        // audit I-7). Only frames before the result is put back count.
+        const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+          let last = performance.now(), gap = 0;
+          const tick = () => { const now = performance.now(); if (now <= installedAt) gap = Math.max(gap, now - last); last = now; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        });
+        const fill = async () => {
+          installedAt = Infinity;
+          const t0 = performance.now();
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
+          result[`${pass}: Alt+Backspace (UI thread) ms`] = Math.round(performance.now() - t0);
+          result[`${pass}: longest frame gap while the worker fills`] = await longestGap(() => !s().working);
+        };
+        await fill();
+        const l = api.engine.state(doc).layers[0];
+        result["mask pixels"] = l.maskWidth * l.maskHeight;
+        // Audit I-6 (b): a second fill on the mask already grown to the canvas: its copies out and back
+        // are the grown mask's (24 / 100 MB).
+        pass = "second fill";
+        await settle(); frame();
+        await fill();
+        result["jobs run"] = jobs;
+        // Audit I-6 (a): a nudge of the layer whose mask grew, then Undo and Redo. Each moves the placed
+        // mask with its layer, which today bumps its revision and re-uploads it whole (keeping the
+        // revision on a placement-only move is a follow-up); the frame after each is budgeted.
+        s().setTool("move");
+        await settle(); frame();
+        for (const [step, act] of [["nudge", () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }))], ["undo", () => s().undo()], ["redo", () => s().redo()]] as [string, () => void][]) {
+          const t0 = performance.now();
+          act();
+          result[`${step} (UI thread) ms`] = Math.round(performance.now() - t0);
+          result[`frame after the ${step} ms`] = Math.round(frame());
+          result[`frame after the ${step}, whole uploads`] = (window as any).__uploads.image;
+          await settle();
+        }
+        result["layer moved by the nudge, then back, then again"] = api.engine.state(doc).layers[0].transform.origin[0] - (w - 1500) / 2;
+        s().closeDocument(doc);
+        return result;
+      }, [w, h, selected] as [number, number, boolean]);
+      for (const [k, v] of Object.entries(r)) out[`${label}${selected ? ", Select All feathered" : ""}: ${k}`] = v;
+    }
+  }
+  console.log(`a fill on a growing mask (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    for (const run of [label, `${label}, Select All feathered`]) {
+      const k = (name: string) => out[`${run}: ${name}`];
+      // The worker rule (OQ5, ruling C1): counted grown, so sent to the worker, both times.
+      expect(k("mask pixels the fill paints")).toBe(w * h);
+      expect(k("jobs run"), "both fills went to the worker").toBe(2);
+      expect(k("mask pixels")).toBe(w * h);
+      expect(k("layer moved by the nudge, then back, then again"), "the nudge, Undo and Redo ran").toBe(1);
+      for (const pass of ["first fill", "second fill"]) {
+        expect(k(`${pass}: Alt+Backspace (UI thread) ms`)).toBeLessThan(150);
+        expect(k(`${pass}: longest frame gap while the worker fills`)).toBeLessThan(100);
+        expect(k(`${pass}: jobInput ms`)).toBeLessThan(150);
+        // OQ5's "500" at 100 MP is 450 (ruling I7).
+        expect(k(`${pass}: installJob ms`)).toBeLessThan(label === "24 MP" ? 150 : 450);
+        expect(k(`${pass}: frame after it, whole uploads`), "the frame timed is the one that uploads the grown mask").toBeGreaterThanOrEqual(1);
+        expect(k(`${pass}: frame after it ms`)).toBeLessThan(150);
+      }
+      // Task 7's budget for the frame that draws a whole full-size image.
+      for (const step of ["nudge", "undo", "redo"]) expect(k(`frame after the ${step} ms`)).toBeLessThan(150);
+    }
+  }
+});
+
 test("eyedropper: a sample and the overlay that shows its ring, at 24 and 100 MP", async ({ page }) => {
   test.setTimeout(900_000);
   const out: Record<string, number> = {};

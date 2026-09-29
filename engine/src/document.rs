@@ -171,15 +171,24 @@ impl Document {
 impl Mask {
     pub fn is_linked(&self) -> bool { self.linked != Some(false) }
     pub fn is_uniform(&self) -> bool { self.pixels.width == 1 && self.pixels.height == 1 }
-    /// What the mask shows beyond its pixels: white or black, whichever most of its edge is.
+    /// What the mask shows beyond its pixels: white or black, whichever most of its edge is, each edge
+    /// pixel counted once, at full size (`LayerMask.background`, LayerMask.swift:61-76, reads the edge
+    /// of the mask's thumbnail, at most 96 px on its long side: the same up to 96 px, a disclosed
+    /// difference past it). Reads the edge alone: a grown mask (Task 14a) can hold 100 MP, and the plan
+    /// and `state()` ask for this on every frame.
     pub fn background(&self) -> u8 {
         let (w, h) = (self.pixels.width as usize, self.pixels.height as usize);
+        if w == 0 || h == 0 { return 255; }
         let d = self.pixels.bytes();
-        let (mut total, mut count) = (0u64, 0u64);
-        for y in 0..h { for x in 0..w {
-            if y == 0 || y == h - 1 || x == 0 || x == w - 1 { total += d[y * w + x] as u64; count += 1; }
-        }}
-        if count == 0 || total * 2 >= count * 255 { 255 } else { 0 }
+        let row = |y: usize| d[y * w..(y + 1) * w].iter().map(|&v| v as u64).sum::<u64>();
+        let (mut total, mut count) = (row(0), w as u64);
+        if h > 1 { total += row(h - 1); count += w as u64; }
+        for y in 1..h.saturating_sub(1) {
+            total += d[y * w] as u64;
+            count += 1;
+            if w > 1 { total += d[y * w + w - 1] as u64; count += 1; }
+        }
+        if total * 2 >= count * 255 { 255 } else { 0 }
     }
     /// Where the mask sits once its layer moves from `old` to `new` (the macOS placement rule).
     pub fn follow(&self, old: &LayerTransform, new: &LayerTransform) -> Option<LayerTransform> {

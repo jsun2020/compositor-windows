@@ -293,21 +293,12 @@ impl Engine {
         Ok(self.session(id)?.lineage.delta(layer, Plane::Mask, from, l.mask_revision))
     }
     /// The pixels a Fill or a Gradient on `layer` (its mask when `mask`) paints, from the stored
-    /// document (ruling C1): what decides whether the edit goes to the job worker, never the size the
-    /// layer stores (a blank layer on a 100 MP canvas paints 100 MP). An error where the edit is refused
-    /// for its size.
+    /// document (ruling C1; `ops::raster_edit::painted_pixels`): what decides whether the edit goes to the
+    /// job worker, never the size the layer stores (a blank layer on a 100 MP canvas paints 100 MP, and so
+    /// does a small layer's mask, grown to that canvas: Task 14a). An error where the edit is refused for
+    /// its size, which the worker, seeing one layer, could not tell.
     pub fn edit_pixels(&self, id: Uuid, layer: Uuid, mask: bool) -> Result<u64, CommandError> {
-        let doc = &self.session(id)?.document;
-        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
-        if mask {
-            // A mask on its own placement is painted in its own grid, a covering one on its layer's
-            // (`raster_edit::paint_layer`).
-            let m = l.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
-            if m.placement.is_some() { return Ok(m.pixels.width as u64 * m.pixels.height as u64); }
-            return Ok(l.pixels.as_ref().map_or(l.transform.size.width.round().max(1.0) as u64 * l.transform.size.height.round().max(1.0) as u64, |p| p.width as u64 * p.height as u64));
-        }
-        let grid = ops::raster_edit::image_grid(doc, l)?;
-        Ok(grid.width as u64 * grid.height as u64)
+        ops::raster_edit::painted_pixels(&self.session(id)?.document, layer, mask)
     }
     /// The preview showing on the canvas, if any.
     pub fn preview(&self, id: Uuid) -> Option<&PixelPreview> { self.sessions.get(&id).and_then(|s| s.preview.as_ref()) }
@@ -367,8 +358,12 @@ impl Engine {
         let Some(preview) = &s.preview else { return Ok(std::borrow::Cow::Borrowed(&s.document)); };
         let mut doc = s.document.clone();
         match &preview.target {
-            PreviewTarget::Mask(mask) => {
-                if let Some(m) = doc.layer_mut(preview.layer).and_then(|l| { l.mask_revision = preview.revision; l.mask.as_mut() }) { m.pixels = mask.clone(); }
+            PreviewTarget::Mask { pixels, placement } => {
+                if let Some(m) = doc.layer_mut(preview.layer).and_then(|l| { l.mask_revision = preview.revision; l.mask.as_mut() }) {
+                    m.pixels = pixels.clone();
+                    // Where the commit will leave it: a mask gradient grows the mask past its layer (Task 14a).
+                    m.placement = *placement;
+                }
                 return Ok(std::borrow::Cow::Owned(doc));
             }
             PreviewTarget::Patch(_) => {
