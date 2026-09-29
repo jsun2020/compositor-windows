@@ -335,7 +335,10 @@ fn t9_6_a_reduced_pixel_gradient_preview_matches_the_committed_mask_sampled_at_i
         // the layer's own reduced footprint, and only at level 2 -- level 1 below matches exactly, 0 of
         // 1,500,000). A real bug (the wrong grid offset or the wrong "old" dimensions) would show as a
         // much larger, structural mismatch, not a hairline seam at the transition alone.
-        assert!(mismatches.len() <= 30, "dragging={dragging}: {} mismatches of {} pixels, more than the hairline seam this reduction level can explain: {:?}", mismatches.len(), rw * rh, &mismatches[..mismatches.len().min(20)]);
+        // Settled (level 1) the two conventions agree everywhere, so any mismatch there is a bug (final
+        // review minor 19); the hairline seam's allowance is for the dragged, level-2 preview alone.
+        let allowed = if dragging { 30 } else { 0 };
+        assert!(mismatches.len() <= allowed, "dragging={dragging}: {} mismatches of {} pixels, more than the {allowed} this reduction level can explain: {:?}", mismatches.len(), rw * rh, &mismatches[..mismatches.len().min(20)]);
         e.undo(doc_id).unwrap();
     }
 }

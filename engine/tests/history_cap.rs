@@ -188,3 +188,23 @@ fn history_lets_go_of_the_halvings_of_rasters_only_it_holds() {
     run(&mut e, id, Command::RenameLayer { id: layer, name: "x".into() });
     assert!(current.halved().same_pixels(&kept));
 }
+
+/// Task 2's deferred minor: the trim after a redo (`Engine::redo`, then `History::trim`). A redo brings
+/// back exactly the entries the push that made them already trimmed, so what the trim after it does is
+/// let go of the halvings of the raster the redo leaves to history alone, as after a push and an undo.
+#[test]
+fn a_redo_lets_go_of_the_halvings_of_the_raster_it_leaves_to_history() {
+    let mut e = Engine::new();
+    let id = filled(&mut e, 64, 48);
+    let layer = layer_id(&e, id);
+    let old = e.document(id).unwrap().layers[0].pixels.clone().unwrap();
+    run(&mut e, id, Command::InvertPixels { id: layer, mask: false });
+    e.undo(id).unwrap();
+    // Back on the old raster, drawn at a reduced zoom: its halving is made and kept.
+    assert!(e.document(id).unwrap().layers[0].pixels.as_ref().unwrap().same_pixels(&old));
+    let half = old.halved();
+    assert!(old.halved().same_pixels(&half), "kept while the document holds it");
+    e.redo(id).unwrap();
+    assert!(!e.document(id).unwrap().layers[0].pixels.as_ref().unwrap().same_pixels(&old), "redone: the inverted raster");
+    assert!(!old.halved().same_pixels(&half), "the old raster is history's alone now: its halving went");
+}

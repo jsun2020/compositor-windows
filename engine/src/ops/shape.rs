@@ -2,7 +2,7 @@
 //! rectangle (its corners rounded by at most half its shorter side), an ellipse, or a line stroked
 //! with round ends, filled with one colour on a new layer above the active one, in one undo step.
 //! The layer keeps a `shape` record the Mac reads (`LayerShapeStyle`), so the Mac redraws the shape
-//! when the layer is scaled there; this port does not redraw it (ruling OQ12). Any other change to
+//! when the layer is scaled there; this port does not redraw it (ruling OQ19). Any other change to
 //! the layer's pixels drops the record (`Layer::set_pixels`), as the Mac's `liveShape` does.
 use crate::selection::coverage::rasterize;
 use crate::selection::geometry::{cubic, ellipse, polygon, rectangle};
@@ -33,6 +33,11 @@ pub enum ShapeSpec {
 /// The words the Mac shows when a shape would hold too many pixels (ShapeTool.swift:131), with this
 /// port's limit.
 pub const SHAPE_TOO_LARGE: &str = "That shape is too large. A shape can cover up to 100 megapixels.";
+/// The words for a shape whose box is wider or taller than a layer may be, however few its pixels:
+/// the pixel count is not what stops it (final review minor 17). The Mac's own shape limit is its
+/// pixel count alone (ShapeTool.swift:130); its words for a side past the limit are the text box's
+/// (TypeTool.swift:165), said here for a shape.
+pub const SHAPE_SIDE_TOO_LARGE: &str = "That shape is too large. A shape can be up to 30,000 pixels on a side.";
 
 impl ShapeSpec {
     pub fn kind(&self) -> ShapeKind {
@@ -181,9 +186,8 @@ pub fn add_shape(doc: &mut Document, spec: &ShapeSpec, color: [f64; 3]) -> Resul
     let bounds = spec.bounds();
     if !(bounds.width >= 1.0 && bounds.height >= 1.0) { return Err(CommandError::Argument("a shape needs a box at least a pixel on each side".into())); }
     let (w, h) = (bounds.width as u64, bounds.height as u64);
-    if w as i64 > MAX_SIDE || h as i64 > MAX_SIDE || w * h > MAX_PIXELS.saturating_sub(doc.used_pixels()) {
-        return Err(CommandError::Refused(SHAPE_TOO_LARGE.into()));
-    }
+    if w as i64 > MAX_SIDE || h as i64 > MAX_SIDE { return Err(CommandError::Refused(SHAPE_SIDE_TOO_LARGE.into())); }
+    if w * h > MAX_PIXELS.saturating_sub(doc.used_pixels()) { return Err(CommandError::Refused(SHAPE_TOO_LARGE.into())); }
     let mut layer = Layer::with_pixels(&next_shape_name(doc, spec.kind()), shape_raster(spec, color), Point { x: bounds.x, y: bounds.y });
     layer.extra.shape = Some(shape_record(spec, color));
     ops::layers::insert_above_active(doc, layer)

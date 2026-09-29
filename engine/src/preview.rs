@@ -107,12 +107,12 @@ pub const COLOUR_DRAG_LIMIT: u32 = 512;
 pub const COLOUR_PREVIEW_LIMIT: u32 = 4096;
 /// The longest side a filter previews from, as the Mac's `FilterEdit.previewLimit`.
 pub const FILTER_PREVIEW_LIMIT: u32 = 2048;
-/// The longest side a gradient previews from while its line is being dragged (ruling OQ9).
+/// The longest side a gradient previews from while its line is being dragged (ruling OQ8).
 pub const GRADIENT_DRAG_LIMIT: u32 = 1024;
-/// The longest side a gradient previews from once its line rests (ruling OQ9): the filters' 2048,
+/// The longest side a gradient previews from once its line rests (ruling OQ8): the filters' 2048,
 /// so the settled preview stays near 100 ms at 24 and 100 MP; the applied gradient is full size.
 pub const GRADIENT_SETTLED_LIMIT: u32 = 2048;
-/// The most pixels a gradient's patch preview may hold (about 724 x 724; ruling OQ10): painting it
+/// The most pixels a gradient's patch preview may hold (about 724 x 724; ruling OQ8): painting it
 /// takes about 25 ms in the release wasm, inside a drag tick's 50. Larger selections preview from a
 /// reduced copy as a whole-layer gradient does.
 pub const PATCH_LIMIT: u64 = 1 << 19;

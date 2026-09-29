@@ -171,9 +171,11 @@ fn a_line_of_width_one_is_a_one_pixel_row_with_round_ends() {
     assert_eq!((layer.transform.origin.x, layer.transform.origin.y, layer.pixels.as_ref().unwrap().width, layer.pixels.as_ref().unwrap().height), (20.0, 120.0, 121, 1));
     let px = layer.pixels.unwrap();
     // Full along the line; each end pixel holds half of a half-pixel cap plus half a pixel of line:
-    // 0.5 + pi / 8 of it (0.8927 = 228), where a square cap would fill it and a butt cap halve it.
+    // 0.5 + pi / 8 of it, where a square cap would fill it and a butt cap halve it. Within the 4 levels
+    // of the rasteriser's flattening (ruling OQ11).
+    let end = ((0.5 + std::f64::consts::PI / 8.0) * 255.0).round() as u8;
     assert_eq!(px.pixel(60, 0)[3], 255);
-    for x in [0, 120] { assert!(px.pixel(x, 0)[3].abs_diff(228) <= 3, "end pixel {x}: {:?}", px.pixel(x, 0)); }
+    for x in [0, 120] { assert!(px.pixel(x, 0)[3].abs_diff(end) <= 3, "end pixel {x}: {:?} vs {end}", px.pixel(x, 0)); }
 }
 
 #[test]
@@ -202,6 +204,13 @@ fn a_click_or_a_shape_too_large_makes_nothing() {
     let big = ShapeSpec::Rectangle { rect: rect(0.0, 0.0, 20_000.0, 6_000.0), corner_radius: 0.0 };
     match e.execute(id, Command::AddShape { shape: big, color: RED }) {
         Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_TOO_LARGE),
+        other => panic!("{other:?}"),
+    }
+    // A side past 30,000 px under the pixel budget (a thin line 40,000 long holds 80,000 pixels): the
+    // side is what stops it, and the words say so (final review minor 17).
+    let long = ShapeSpec::Line { start: p(1.0, 10.0), end: p(40_001.0, 10.0), width: 2.0 };
+    match e.execute(id, Command::AddShape { shape: long, color: RED }) {
+        Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_SIDE_TOO_LARGE),
         other => panic!("{other:?}"),
     }
     assert_eq!(e.state(id).unwrap().undo_depth, depth);

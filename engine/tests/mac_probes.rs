@@ -670,7 +670,7 @@ fn line_layer(name: &str, from: [f64; 2], to: [f64; 2], width: f64, rgb: [u8; 3]
         "lineWidth": swift(width), "start": unit(from), "end": unit(to) }))
 }
 
-/// `shapes.comp`: the Shape tool's curves and strokes, for the Mac to rasterise (ruling OQ13): a
+/// `shapes.comp`: the Shape tool's curves and strokes, for the Mac to rasterise (ruling OQ17): a
 /// 101 x 61 ellipse, a 120 x 80 rectangle rounded by 20, a 150 x 40 pill (radius 5000, clamped to
 /// 20), and lines 1, 4 and 15 px wide, flat, at 45 degrees and at about 30 degrees, over white.
 fn shapes_doc() -> Document {
@@ -689,7 +689,7 @@ fn shapes_doc() -> Document {
 }
 
 /// A blank layer on a `width` x `height` canvas, for a gradient the user draws by hand on the Mac
-/// (ruling OQ13), with `guides` to aim at.
+/// (ruling OQ17), with `guides` to aim at.
 fn gradient_doc(width: u32, height: u32, guides: &[(GuideAxis, f64)]) -> Document {
     let mut doc = Document::new(width, height);
     doc.layers = vec![Layer::blank("Layer 1", doc.size())];
