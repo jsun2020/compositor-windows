@@ -12,6 +12,8 @@ import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, ou
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 import { installSampling } from "./sampling";
 import { gradientLine, installGradientTool } from "./gradient-tool";
+import { installShapeTool } from "./shape-tool";
+import { beginShape, dragShape } from "../tools/shape-draft";
 import { gradientStops } from "../state/gradient-edit";
 
 export const HIT_HANDLE_PX = 6;
@@ -81,6 +83,8 @@ export function CanvasView() {
       transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
       ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null, sampleRing: s.sampleRing,
       gradientLine: line ? { ...line, radial: s.gradientOptions.shape === "Radial", from, to } : null,
+      shapeDraft: s.shapeDraft ? { kind: s.shapeDraft.kind, rect: s.shapeDraft.rect, start: s.shapeDraft.anchor, end: s.shapeDraft.end,
+        cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
     });
   };
 
@@ -115,6 +119,9 @@ export function CanvasView() {
       effectsLimits: EFFECTS_LIMITS,
       // The overlay painted now, synchronously: the perf harness times an ants tick with it.
       paintOverlay: () => paintOverlay(),
+      // Exposed so the perf harness can time a Shape tool draft tick (`setShapeDraft(dragShape(...))`)
+      // exactly as the real pointer path (canvas/shape-tool.ts) computes it (ruling R16-3).
+      beginShape, dragShape,
       // Exposed for e2e tests to compute where the on-screen transform handles (including the
       // rotation handle, offset above the shape) currently sit, rather than hard-coding an
       // assumed screen offset that would break if the handle geometry ever changes.
@@ -205,6 +212,12 @@ export function CanvasView() {
     return installSampling(el, () => spaceRef.current);
   }, []);
 
+  // The Shape tool's drag (canvas/shape-tool.ts).
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    return installShapeTool(el, () => spaceRef.current);
+  }, []);
+
   // The Gradient tool's line (canvas/gradient-tool.ts).
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
@@ -237,7 +250,7 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode || picking || tool === "eyedropper" || tool === "gradient" || isSelectionTool(tool) ? "crosshair" : "";
+    el.style.cursor = sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
   }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.

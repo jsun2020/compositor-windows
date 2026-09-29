@@ -24,6 +24,9 @@ export interface OverlayState {
   draft?: DraftState | null;
   /** The pending gradient's line in view px, its shape and its two stops as straight RGBA. */
   gradientLine?: { start: { x: number; y: number }; end: { x: number; y: number }; radial: boolean; from: number[]; to: number[] } | null;
+  /** A shape being dragged out: its kind, its box and a line's ends in document px, its corner
+   * radius and a line's width in document px, and the colour it will be made in. */
+  shapeDraft?: { kind: "Rectangle" | "Ellipse" | "Line"; rect: { x: number; y: number; width: number; height: number }; start: { x: number; y: number }; end: { x: number; y: number } | null; cornerRadius: number; lineWidth: number; color: PaletteColor } | null;
   /** While the canvas is sampled: the ring about the pointer (view px). */
   sampleRing?: { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor } | null;
 }
@@ -50,6 +53,30 @@ function drawGradientLine(ctx: CanvasRenderingContext2D, line: NonNullable<Overl
     ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
     ctx.fillStyle = "rgb(191,191,191)"; ctx.fill();
     ctx.fillStyle = `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`; ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The shape being dragged out, in the colour it will be made in (`drawShapeDraft`,
+ * EditorCanvas.swift:983-1005): a line stroked with round ends at its width, at least 1 view px;
+ * otherwise its box filled as a rectangle (corners rounded, at most half its shorter side) or an
+ * ellipse. Nothing until it has a size. */
+function drawShapeDraft(ctx: CanvasRenderingContext2D, viewport: Viewport, size: { width: number; height: number }, d: NonNullable<OverlayState["shapeDraft"]>): void {
+  const scale = viewport.pointsPerPixel;
+  ctx.save();
+  ctx.fillStyle = ctx.strokeStyle = cssColor(d.color);
+  if (d.kind === "Line") {
+    if (!d.end || (d.rect.width <= 0 && d.rect.height <= 0)) { ctx.restore(); return; }
+    const a = viewport.viewPoint(d.start, size), b = viewport.viewPoint(d.end, size);
+    ctx.lineWidth = Math.max(1, d.lineWidth * scale); ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  } else if (d.rect.width > 0 && d.rect.height > 0) {
+    const tl = viewport.viewPoint({ x: d.rect.x, y: d.rect.y }, size);
+    const w = d.rect.width * scale, h = d.rect.height * scale;
+    ctx.beginPath();
+    if (d.kind === "Ellipse") ctx.ellipse(tl.x + w / 2, tl.y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+    else ctx.roundRect(tl.x, tl.y, w, h, Math.min(Math.max(0, d.cornerRadius * scale), w / 2, h / 2));
+    ctx.fill();
   }
   ctx.restore();
 }
@@ -192,6 +219,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
   }
   if (state.ants) drawAnts(ctx, state.ants);
   if (state.draft) drawDraft(ctx, viewport, size, state.draft);
+  if (state.shapeDraft) drawShapeDraft(ctx, viewport, size, state.shapeDraft);
   if (state.gradientLine) drawGradientLine(ctx, state.gradientLine);
   if (state.sampleRing) drawSampleRing(ctx, state.sampleRing);
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;

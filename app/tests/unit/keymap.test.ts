@@ -26,6 +26,8 @@ describe("keymap", () => {
     expect(matchShortcut(ev("d"))).toBe("default-colors");
     expect(matchShortcut(ev("i"))).toBe("tool-eyedropper");
     expect(matchShortcut(ev("g"))).toBe("tool-gradient");
+    expect(matchShortcut(ev("u"))).toBe("tool-shape");
+    expect(matchShortcut(ev("U", { shiftKey: true }))).toBe("shape-next");
     expect(matchShortcut(ev("Backspace", { altKey: true }))).toBe("fill-foreground");
     expect(matchShortcut(ev("Delete", { ctrlKey: true }))).toBe("fill-background");
     expect(matchShortcut(ev("Backspace"))).toBe("delete-layer");

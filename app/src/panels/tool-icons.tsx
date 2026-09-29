@@ -19,7 +19,7 @@ import type { LassoKind, MarqueeKind } from "../tools/selection-draft";
 /** Which icon a tool shows: the Marquee and the Lasso follow their mode, as on the Mac
  *  (ContentView.swift: circle.dashed in Ellipse mode, its own icon for the polygonal lasso). */
 export type ToolIconName = "move" | "marquee-rectangle" | "marquee-ellipse" | "lasso-freehand" | "lasso-polygonal"
-  | "wand" | "crop" | "gradient" | "eyedropper" | "hand" | "zoom";
+  | "wand" | "crop" | "gradient" | "shape" | "eyedropper" | "hand" | "zoom";
 
 export function toolIconName(tool: Tool, marquee: MarqueeKind, lasso: LassoKind): ToolIconName {
   switch (tool) {
@@ -59,6 +59,9 @@ const SHAPES: Record<ToolIconName, ReactNode> = {
   // Drawn for this port in Lucide's style after SF square.bottomhalf.filled (the Mac's symbol for the
   // tool): a rounded square with its lower half filled.
   "gradient": <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 12h18v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" /></>,
+  // Drawn for this port in Lucide's style after SF square.on.circle (the Mac's symbol for the tool): a
+  // rounded square over the lower right of a circle.
+  "shape": <><path d="M14 8.5A6.5 6.5 0 1 0 8.5 15" /><rect x="10" y="10" width="11" height="11" rx="2" /></>,
   // lucide pipette (SF eyedropper)
   "eyedropper": <>
     <path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12" />

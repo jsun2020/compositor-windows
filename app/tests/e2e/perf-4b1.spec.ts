@@ -1124,6 +1124,142 @@ test("gradient tool: drag ticks through the store and the commit through the wor
   expect([out["24 MP: undo depth"], out["100 MP: undo depth"]]).toEqual([2, 0]);
 });
 
+test("shapes and fills: a shape over the canvas on the UI thread, the Shape tool's draft ticks, and a fill of the whole layer through the worker, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let first = true, renderer = "";
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    // Ruling R16-2 (controller): the same warm-up as ruling C1's case, copied verbatim, before any
+    // timed scenario in this case -- run by itself, in a fresh browser process, the first render pays a
+    // one-time GPU cost of about 300-440 ms, probably a shader compile. Logged below, not asserted.
+    const warmUp = first; first = false;
+    if (warmUp) renderer = await page.evaluate(() => {
+      const gl = (document.querySelector('[data-testid="canvas-view"] canvas') as HTMLCanvasElement).getContext("webgl2")!;
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
+    });
+    const r = await page.evaluate(async ([w, h, warmUp]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      const s = () => api.store.getState();
+      if (warmUp) {
+        const warm = api.engine.newDocument(2560, 2560, true);
+        s().openDocument(warm);
+        await settle(); frame();
+        s().setTool("gradient");
+        s().beginGradient({ x: 500, y: 1280 });
+        s().moveGradient({ end: { x: 2000, y: 1500 } }, true);
+        frame();
+        s().cancelGradient(); frame(); await settle();
+        s().setTool("move");
+        const t0 = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
+        result["warm-up fill (UI thread) ms"] = Math.round(performance.now() - t0);
+        result["warm-up fill: went to the worker"] = s().working ? 1 : 0;
+        result["warm-up fill: longest frame gap"] = await new Promise<number>((done) => {
+          let last = performance.now(), gap = 0;
+          const tick = () => { const now = performance.now(); gap = Math.max(gap, now - last); last = now; if (!s().working) done(Math.round(gap)); else requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        });
+        result["warm-up fill: total ms"] = Math.round(performance.now() - t0);
+        s().closeDocument(warm);
+        await settle();
+      }
+      // An empty canvas: the shape's pixels are the project's only ones.
+      const blank = api.engine.newDocument(w, h, false);
+      s().openDocument(blank);
+      await settle(); frame();
+      for (const [name, draft] of [["rectangle", { kind: "Rectangle", anchor: { x: 0, y: 0 }, rect: { x: 0, y: 0, width: w, height: h }, end: null, cornerRadius: 400 }],
+        ["ellipse", { kind: "Ellipse", anchor: { x: 0, y: 0 }, rect: { x: 0, y: 0, width: w, height: h }, end: null, cornerRadius: 0 }]] as const) {
+        s().setShapeDraft(draft);
+        const t0 = performance.now();
+        s().finishShape();
+        result[`${name} over the canvas (release, UI thread) ms`] = Math.round(performance.now() - t0);
+        result[`frame after the ${name} ms`] = Math.round(frame());
+        s().undo(); await settle();
+      }
+      // Ruling I2 / R16-3 (controller): 20 draft ticks -- setShapeDraft(dragShape(...)) plus the overlay
+      // paint that draws it (api.paintOverlay(), as the eyedropper case above forces one), each in one
+      // contiguous performance.now() window with no await inside it, as the real pointer path
+      // (canvas/shape-tool.ts) runs them: a rectangle with a corner radius, an ellipse, and a 20 px line.
+      s().setTool("shape");
+      const cases: { name: string; options: { kind: "Rectangle" | "Ellipse" | "Line"; cornerRadius: number; lineWidth: number }; begin: { x: number; y: number }; to: { x: number; y: number } }[] = [
+        { name: "rectangle", options: { kind: "Rectangle", cornerRadius: 40, lineWidth: 4 }, begin: { x: 0, y: 0 }, to: { x: w, y: h } },
+        { name: "ellipse", options: { kind: "Ellipse", cornerRadius: 0, lineWidth: 4 }, begin: { x: w / 2, y: h / 2 }, to: { x: w, y: h } },
+        { name: "20 px line", options: { kind: "Line", cornerRadius: 0, lineWidth: 20 }, begin: { x: 0, y: h / 2 }, to: { x: w, y: h / 2 } },
+      ];
+      for (const c of cases) {
+        s().setShapeOptions(c.options);
+        let draft = api.beginShape(c.begin, s().shapeOptions);
+        const ticks: number[] = [];
+        for (let i = 1; i <= 20; i++) {
+          const p = { x: c.begin.x + (c.to.x - c.begin.x) * i / 20, y: c.begin.y + (c.to.y - c.begin.y) * i / 20 };
+          const t0 = performance.now();
+          draft = api.dragShape(draft, p, false, false);
+          s().setShapeDraft(draft);
+          api.paintOverlay();
+          ticks.push(performance.now() - t0);
+        }
+        s().setShapeDraft(null);
+        result[`${c.name} draft tick, worst ms`] = Math.round(10 * Math.max(...ticks)) / 10;
+      }
+      s().setTool("move");
+      s().closeDocument(blank);
+      // A fill of a whole layer, through the worker.
+      let installedAt = Infinity;
+      const f = api.engine.installJob.bind(api.engine);
+      // The frame that draws the result, timed where it lands, as the "jobs" case does (pre-flight audit I-7).
+      api.engine.installJob = (...a: unknown[]) => { try { return f(...a); } finally { installedAt = performance.now(); s().refresh(s().activeId); result["fill: frame after the result is put back ms"] = Math.round(frame()); result["fill: that frame's whole uploads"] = (window as any).__uploads.image; } };
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: api.engine.state(doc).layers[0].id });
+      s().openDocument(doc);
+      await settle(); frame();
+      const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+        let last = performance.now(), gap = 0;
+        // performance.now() inside the callback, not the rAF timestamp (Task 6 fix round 1, issue 4; audit I-7).
+        const tick = () => { const now = performance.now(); if (now <= installedAt) gap = Math.max(gap, now - last); last = now; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      const t0 = performance.now();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
+      result["Alt+Backspace (UI thread) ms"] = Math.round(performance.now() - t0);
+      result["fill: longest frame gap while the worker fills"] = await longestGap(() => !s().working);
+      result["fill done after ms"] = Math.round(performance.now() - t0);
+      return result;
+    }, [w, h, warmUp] as [number, number, boolean]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`shapes and fills (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`shapes and fills renderer: ${renderer}`);
+  // Shapes commit on the UI thread, as an import does (ruling OQ12); the first pays for the wasm
+  // memory growing to hold it.
+  expect(out["24 MP: rectangle over the canvas (release, UI thread) ms"]).toBeLessThan(1000);
+  expect(out["24 MP: ellipse over the canvas (release, UI thread) ms"]).toBeLessThan(1000);
+  expect(out["100 MP: rectangle over the canvas (release, UI thread) ms"]).toBeLessThan(2000);
+  expect(out["100 MP: ellipse over the canvas (release, UI thread) ms"]).toBeLessThan(2000);
+  // Ruling I2 / R16-3 (controller): the worst of 20 draft ticks stays under a frame.
+  for (const label of ["24 MP", "100 MP"]) {
+    for (const name of ["rectangle", "ellipse", "20 px line"]) {
+      expect(out[`${label}: ${name} draft tick, worst ms`]).toBeLessThan(16);
+    }
+  }
+  for (const label of ["24 MP", "100 MP"]) expect(out[`${label}: fill: longest frame gap while the worker fills`]).toBeLessThan(100);
+  // The frame that re-uploads the whole filled layer: the "jobs" case's budget (perf-4b1.spec.ts:186).
+  // Ruling R16-1 (controller): 350 ms at 24 MP and 600 ms at 100 MP -- this replaces the brief's 400.
+  // Task 15's ruling C1 found that at 100 MP `engine.layerPixels` prefilters the freshly committed layer
+  // to display resolution on the UI thread (314-533 ms of the frame), the same cost this fill's frame
+  // pays. The follow-up is to prefilter that display level in the worker and return it with the result,
+  // instead of computing it synchronously on the UI thread.
+  for (const label of ["24 MP", "100 MP"]) {
+    expect(out[`${label}: fill: that frame's whole uploads`]).toBeGreaterThanOrEqual(1);
+    expect(out[`${label}: fill: frame after the result is put back ms`]).toBeLessThan(label === "24 MP" ? 350 : 600);
+  }
+});
+
 test("gradient tool on a small layer's mask: the mask grows to the canvas and the commit goes through the worker, at 24 and 100 MP", async ({ page }) => {
   test.setTimeout(900_000);
   const out: Record<string, number> = {};

@@ -13,10 +13,11 @@ import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } fr
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
+import { DEFAULT_SHAPE, nextShapeKind, shapeSpec, type ShapeDraft, type ShapeOptions } from "../tools/shape-draft";
 import { DEFAULT_GRADIENT, gradientSpec, hasLine, type GradientEdit, type GradientOptions } from "./gradient-edit";
 import { BLACK, WHITE, hsbOf, hsbToRgb, quantized, sameColor, withRgb, type PaletteColor, type PickerHSB } from "../tools/color";
 
-export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient";
+export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient" | "shape";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
@@ -179,6 +180,15 @@ export interface EditorStore {
   /** Return or Apply: paints the pending gradient as one undo step ("Gradient" or "Gradient Mask"),
    * through the job worker on a large layer (`commitGradient`). */
   commitGradient(): void;
+  shapeOptions: ShapeOptions;
+  /** A shape being dragged out with the Shape tool; drawn on the overlay only, never in the document. */
+  shapeDraft: ShapeDraft | null;
+  /** New settings; a new kind drops a draft being drawn (ShapeControls.swift:9-12). */
+  setShapeOptions(patch: Partial<ShapeOptions>): void;
+  setShapeDraft(draft: ShapeDraft | null): void;
+  /** The release: the draft filled with the image's foreground colour on a new layer above the
+   * active one, one undo step named for its kind; a click makes nothing (`finishShape`). */
+  finishShape(): void;
   setSampleRing(ring: SampleRing | null): void;
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
@@ -259,7 +269,7 @@ export interface EditorStore {
 /** Commands that insert a layer or move one into a folder, and so make it active somewhere the
  * panel may not be showing. Each is followed by `revealActiveLayer`. */
 const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]>([
-  "AddBlankLayer", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
+  "AddBlankLayer", "AddShape", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
 ]);
 
 /** How long after the last slider tick a colour adjustment's quick drag preview is replaced by
@@ -334,6 +344,22 @@ export const useEditor = create<EditorStore>((set, get) => ({
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
   palette: DEFAULT_PALETTE, colorPicker: null, pickerAt: null, sampleRing: null,
   gradientOptions: DEFAULT_GRADIENT, gradientEdit: null,
+  shapeOptions: DEFAULT_SHAPE, shapeDraft: null,
+  setShapeOptions: (patch) => {
+    const kindChanged = patch.kind !== undefined && patch.kind !== get().shapeOptions.kind;
+    set((s) => ({ shapeOptions: { ...s.shapeOptions, ...patch }, ...(kindChanged ? { shapeDraft: null } : {}) }));
+    if (kindChanged) get().repaintOverlay();
+  },
+  setShapeDraft: (shapeDraft) => { set({ shapeDraft }); get().repaintOverlay(); },
+  finishShape: () => {
+    const draft = get().shapeDraft; if (!draft) return;
+    set({ shapeDraft: null });
+    get().repaintOverlay();
+    const spec = shapeSpec(draft, get().shapeOptions.lineWidth);
+    if (!spec) return;
+    const { red, green, blue } = get().palette.foreground;
+    get().run({ type: "AddShape", shape: spec, color: [red, green, blue] });
+  },
   setGradientOptions: (patch, dragging = false) => { set((s) => ({ gradientOptions: { ...s.gradientOptions, ...patch } })); get().refreshGradient(dragging); },
   beginGradient: (at) => {
     const { activeId, documents, gradientEdit } = get(); if (!activeId) return false;
@@ -631,7 +657,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const { activeId, documents, cropRect } = get();
     const doc = activeId ? documents[activeId] : null;
     const seeded = tool === "crop" ? (cropRect ?? (doc ? cropSeed(doc) : null)) : null;
-    set({ tool, cropRect: seeded, ...(tool !== get().tool ? { selectionDraft: null, outlineMove: null } : {}) });
+    set({ tool, cropRect: seeded, ...(tool !== get().tool ? { selectionDraft: null, outlineMove: null, shapeDraft: null } : {}) });
     get().invalidate();
   },
   setCropRect: (cropRect) => set({ cropRect }),
@@ -964,6 +990,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   cycleToolMode: () => {
     const { tool, selectionOptions: o } = get();
     if (tool === "gradient") get().setGradientOptions({ shape: get().gradientOptions.shape === "Linear" ? "Radial" : "Linear" });
+    if (tool === "shape") get().setShapeOptions({ kind: nextShapeKind(get().shapeOptions.kind) });
     if (tool === "marquee") get().setSelectionOptions({ marquee: o.marquee === "Rectangle" ? "Ellipse" : "Rectangle" });
     else if (tool === "lasso") get().setSelectionOptions({ lasso: o.lasso === "Freehand" ? "Polygonal" : "Freehand" });
   },

@@ -80,6 +80,8 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-wand": s.setTool("wand"); break;
     case "tool-eyedropper": s.setTool("eyedropper"); break;
     case "tool-gradient": s.setTool("gradient"); break;
+    case "tool-shape": s.setTool("shape"); break;
+    case "shape-next": if (s.tool === "shape") s.cycleToolMode(); else s.setTool("shape"); break;
     case "fill-foreground": if (doc && !s.sheet) fillActive(false); break;
     case "fill-background": if (doc && !s.sheet) fillActive(true); break;
     case "select-all": if (doc) s.run({ type: "SelectAll" }); break;
@@ -101,6 +103,7 @@ export function runAction(id: ActionId, shift = false): void {
       if (s.panelOwnsDocument()) break;
       if (s.selectionDraft) s.setSelectionDraft(null);
       else if (s.gradientEdit) s.cancelGradient();
+      else if (s.shapeDraft) s.setShapeDraft(null);
       else if (s.tool === "crop") s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
       break;

@@ -31,7 +31,7 @@ describe("ToolRail", () => {
   it("shows an icon, not a letter, on every tool, named for assistive technology", () => {
     mount();
     const expected: Record<string, string> = { move: "Move", marquee: "Marquee", lasso: "Lasso", wand: "Magic Wand",
-      crop: "Crop", gradient: "Gradient", eyedropper: "Eyedropper", hand: "Hand", zoom: "Zoom" };
+      crop: "Crop", gradient: "Gradient", shape: "Shape", eyedropper: "Eyedropper", hand: "Hand", zoom: "Zoom" };
     for (const [id, label] of Object.entries(expected)) {
       const b = button(id);
       expect(b.querySelectorAll("svg").length, id).toBe(1);

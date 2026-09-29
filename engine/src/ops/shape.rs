@@ -128,11 +128,14 @@ pub fn shape_raster(spec: &ShapeSpec, color: [f64; 3]) -> Raster {
         }
     };
     let coverage = rasterize(&[contour], 0.0, 0.0, w, h, true);
+    // Each of the 256 coverages' premultiplied pixel, once; then a table lookup per pixel.
     let c = color.map(|v| v.clamp(0.0, 1.0) * 255.0);
-    let data = coverage.bytes().iter().flat_map(|&k| {
+    let table: Vec<[u8; 4]> = (0..=255u8).map(|k| {
         let a = k as f64 / 255.0;
         [(c[0] * a + 0.5) as u8, (c[1] * a + 0.5) as u8, (c[2] * a + 0.5) as u8, k]
     }).collect();
+    let mut data = vec![0u8; w as usize * h as usize * 4];
+    for (px, &k) in data.chunks_exact_mut(4).zip(coverage.bytes()) { px.copy_from_slice(&table[k as usize]); }
     Raster::from_premultiplied(w, h, data)
 }
 

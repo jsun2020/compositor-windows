@@ -20,6 +20,7 @@ import { JpegExportSheet } from "./sheets/JpegExportSheet";
 import { CropOptions } from "./panels/CropOptions";
 import { SelectionOptions } from "./panels/SelectionOptions";
 import { GradientOptions } from "./panels/GradientOptions";
+import { ShapeOptions } from "./panels/ShapeOptions";
 import { SelectionAmountSheet } from "./sheets/SelectionAmountSheet";
 import { TransformInspector } from "./panels/TransformInspector";
 import { AdjustPanel } from "./panels/AdjustPanel";
@@ -95,6 +96,7 @@ export function App() {
       <CropOptions />
       <SelectionOptions />
       <GradientOptions />
+      <ShapeOptions />
       <TransformInspector />
       <div className="workspace">
         <ToolRail />
