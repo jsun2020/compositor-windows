@@ -245,6 +245,48 @@ fn a_mask_fill_on_a_mask_placed_apart_from_its_layer_reports_the_rectangle_on_th
     }}
 }
 
+/// Final review minor 9: a move that keeps the very mask buffer - the mask placed apart and moved on its
+/// own, its layer nudged (a placed mask follows it), and the undo and redo of each - changes the mask's
+/// revision (a job's stamp must see the move) but none of its bytes: nothing to upload. Before, the moved
+/// grid made each of them a whole re-upload (a 100 MP R8 texture per nudge of a grown mask). A new buffer
+/// on a moved grid is still taken whole.
+#[test]
+fn a_move_that_keeps_the_mask_buffer_changes_nothing_to_upload_and_its_undo_and_redo_neither() {
+    let (mut e, id, layer) = document();
+    run(&mut e, id, Command::AddMask { id: layer, revealing: false });
+    select(&mut e, id, 0.0, 0.0, 2.0, 2.0);
+    run(&mut e, id, Command::ClearSelectedPixels { id: layer, mask: true });
+    run(&mut e, id, Command::Deselect);
+    let mask = |e: &Engine| e.document(id).unwrap().layers[0].mask.clone().unwrap();
+    let rev = |e: &Engine| e.state(id).unwrap().layers[0].mask_revision;
+    let (m0, buffer) = (rev(&e), mask(&e).pixels);
+    let apart = LayerTransform::axis_aligned(p(15.0, 10.0), Size { width: 120.0, height: 80.0 });
+    run(&mut e, id, Command::SetMaskPlacement { id: layer, placement: apart });
+    let m1 = rev(&e);
+    run(&mut e, id, Command::NudgeLayers { ids: vec![layer], dx: 3.0, dy: -2.0 });
+    let m2 = rev(&e);
+    // The scenario: the placement moved with the layer, the buffer did not change, the revision did.
+    assert_eq!(mask(&e).placement.map(|t| t.origin), Some(p(18.0, 8.0)), "the placed mask followed its layer");
+    assert!(mask(&e).pixels.same_pixels(&buffer), "the very same buffer");
+    assert!(m0 != m1 && m1 != m2 && m0 != m2, "each move gives the mask a revision of its own");
+    let nothing = Some(PixelRect::default());
+    assert_eq!(e.mask_delta(id, layer, m0).unwrap(), nothing, "placing it apart, then the nudge");
+    assert_eq!(e.mask_delta(id, layer, m1).unwrap(), nothing, "the nudge");
+    e.undo(id).unwrap();
+    assert_eq!(rev(&e), m1);
+    assert_eq!(e.mask_delta(id, layer, m2).unwrap(), nothing, "the nudge's undo");
+    e.undo(id).unwrap();
+    assert_eq!(e.mask_delta(id, layer, m1).unwrap(), nothing, "the placement's undo");
+    e.redo(id).unwrap();
+    e.redo(id).unwrap();
+    assert_eq!(rev(&e), m2);
+    assert_eq!(e.mask_delta(id, layer, m0).unwrap(), nothing, "both redone");
+    // A new buffer on the moved grid (an edit with no rectangle: Invert, no selection) is whole.
+    run(&mut e, id, Command::InvertMask { id: layer });
+    assert_eq!(e.mask_delta(id, layer, m2).unwrap(), None);
+    assert_eq!(e.mask_delta(id, layer, m0).unwrap(), None);
+}
+
 /// Bug (Task 3 fix round 1, #1): `apply_filter_with` grows a layer's grid to give a spreading blur
 /// (Gaussian / Motion) room, blends it back through the selection on that grown grid, then trims it
 /// to the alpha bounds and moves the transform (`ops::adjust::grown` / `trimmed`) -- so the result
