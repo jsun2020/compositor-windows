@@ -66,9 +66,9 @@ native) in place of the plan's scratch-copy figures where they differ (final rev
    150, the frame that draws it 150, the full-size copy out 150; 100 MP gap until the reduced image (now
    including the interval that draws it) 200; preemption: the edit job posted within 400 ms, the longest gap
    during it 300, the re-ask's copy 150. Measured (Task 7 round 5, seven runs): 24 MP reduced 25-43, full
-   window 85-126, frame that draws it 60-87; 100 MP 106-152; preemption 186-297 / 92-162. Final fix wave run:
-   24 MP 26 / 89 / 62, full-size copy 60; 100 MP 102 (the draw's own interval 18); preemption (a) 234-372,
-   (b) 107-151, (c) 82-122 ms. At 100 MP no full-size image is asked for or kept (asserted).
+   window 85-126, frame that draws it 60-87; 100 MP 106-152; preemption 186-297 / 92-162. Final fix wave, whole
+   perf suite: 24 MP 46 / 110 / 67, full-size copy 97; 100 MP 124 (the draw's own interval 21, now charged);
+   preemption (3 runs) (a) 257-270, (b) 110-132, (c) 79-115 ms. At 100 MP no full-size image is asked for or kept (asserted).
 7. **OQ7 Fill and the Gradient paint as the Mac's raster edit does** (BrushStroke.swift:153-160,
    :645-675; EditorSession+Brush.swift:154-188): the layer's grid grows to cover the canvas as the layer maps
    it; each pixel painted at its centre, inside the canvas, source-over at the paint's alpha times the
@@ -217,6 +217,9 @@ The final review (a9937bd..5496f5c) found 1 Critical, 2 Important and 23 Minor. 
 - A shape wider or taller than 30,000 px is refused with words about its side (the Mac checks its pixel
   count only, ShapeTool.swift:130).
 - Transform Selection is Phase 4b-2.
+- A layer click while a job runs is refused with the busy message; the Mac allows it
+  (LayerGroups.swift:96-99 has no isProjectBusy check). Skipping only the execute would let the next
+  refresh snap the selection back and would drop a pending gradient.
 
 ## Open items and follow-ups
 
@@ -261,6 +264,18 @@ The final review (a9937bd..5496f5c) found 1 Critical, 2 Important and 23 Minor. 
   - `image_grid` stricter than the Mac's tiles (recorded above as a deviation).
   - `alpha_bounds` on a zero-width raster (unreachable width); no serde round trip for `Command::Fill` /
     `Gradient` (cheap if time allows).
+- Residuals of the fix wave's re-review (not blocking; first items of the next phase with F1):
+  - A layer's pixels or mask chip clicked while a job runs is half-applied: `selectLayers` refuses but
+    `setMaskSelected` (no `working` guard) still switches the active layer's target (LayersList.tsx:106-107,
+    store.ts:689, :702-706). The Mac refuses a target switch while busy (LayerMask.swift:224). Fix: guard
+    `setMaskSelected`, or stop the chip handlers when `selectLayers` refuses.
+  - `selectLayers` applies a pending gradient (which may start a job) and still runs `SetActiveLayer`,
+    clearing the preview the job keeps on screen until the result lands (store.ts:693-696): re-check
+    `working` after `commitGradient`, as `run` does.
+  - `jobs.warm()` runs before `installTestApi` and `onFileDrop` in App.tsx:64: a throwing `new Worker`
+    would skip the rest of startup. Move it last or wrap it.
+  - Non-"closed" effects-image failures are rethrown in a `setTimeout` (effects-images.ts:115) and reach the
+    console only; surface them.
   - `working` is global: a job in one document blocks another (per-document busy).
   - A failed histogram job leaves "Reading the histogram..." (rare: worker death).
   - Levels could defer its `jobInput` one frame so the panel paints first.
@@ -292,7 +307,7 @@ The final review (a9937bd..5496f5c) found 1 Critical, 2 Important and 23 Minor. 
 Task 14a was added during execution (the user's decision above) and is not in the plan. Its brief, as the
 planner wrote it from the v1.3.7 source and as the pre-flight audit amended it, follows verbatim.
 
-### Task 14a: A fill or a gradient on a mask grows the mask past its layer to the canvas (Compositor 1.3.7)
+#### Task 14a: A fill or a gradient on a mask grows the mask past its layer to the canvas (Compositor 1.3.7)
 
 > **Controller amendments (2026-09-29, pre-flight audit preflight-14-14a-15.md)**
 > - Audit I-1: the `perf-4b1.spec.ts` hunk gains two trailing context lines (the blank line and the "eyedropper" test's first line) so plain `git apply` places it before the eyedropper test Task 13 added; header recounted.
@@ -1581,7 +1596,7 @@ git add -- engine/tests/mask_grow.rs app/tests/e2e/mask-grow.spec.ts
 git commit -m "feat(engine): a fill or a gradient on a mask grows the mask past its layer to the canvas, as Compositor 1.3.7 does" -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>" -- engine/src/ops/raster_edit.rs engine/src/preview.rs engine/src/engine.rs engine/src/document.rs engine/src/selection/coverage.rs engine/tests/mask_grow.rs engine/tests/gradient_preview.rs engine/tests/perf_4b1.rs app/tests/e2e/mask-grow.spec.ts app/tests/e2e/perf-4b1.spec.ts
 ```
 
-## Consequences for later briefs
+### Consequences for later briefs
 
 (Record of what the planner applied. Where the pre-flight audit of 2026-09-29 later amended task-14, task-15 or task-16-brief.md, those briefs' own "Controller amendments" blocks and text win over the copies below.)
 
