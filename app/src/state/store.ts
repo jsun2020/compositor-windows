@@ -15,7 +15,7 @@ import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind,
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
 import { BLACK, WHITE, hsbOf, hsbToRgb, quantized, sameColor, withRgb, type PaletteColor, type PickerHSB } from "../tools/color";
 
-export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand";
+export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
@@ -152,6 +152,10 @@ export interface EditorStore {
   /** Loads the canvas colour under a document point into the open picker (`sampleIntoColorPicker`). */
   sampleIntoPicker(at: { x: number; y: number }): void;
   setPickerAt(at: { x: number; y: number }): void;
+  /** The Eyedropper: the canvas colour under a document point becomes the image's foreground, even
+   * while a mask is the target (`sampleColor`, EditorCanvas.swift:2045-2048). Nothing off the canvas,
+   * over a transparent pixel, or while a job's result is to come. */
+  sampleForeground(at: { x: number; y: number }): void;
   setSampleRing(ring: SampleRing | null): void;
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
@@ -316,6 +320,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (rgb) get().setPickerHsb(withRgbFrom(colorPicker.hsb, rgb));
   },
   setPickerAt: (pickerAt) => set({ pickerAt }),
+  sampleForeground: (at) => {
+    const { engine, activeId, working } = get(); if (!engine || !activeId || working) return;
+    const rgb = engine.sampleColor(activeId, at);
+    if (rgb) set({ palette: { ...get().palette, foreground: { red: rgb[0], green: rgb[1], blue: rgb[2] } } });
+  },
   setSampleRing: (sampleRing) => { set({ sampleRing }); get().repaintOverlay(); },
   maskTargeted: () => {
     const { activeId, documents, maskSelected } = get();

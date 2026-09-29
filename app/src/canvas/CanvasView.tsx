@@ -224,7 +224,7 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode || picking || isSelectionTool(tool) ? "crosshair" : "";
+    el.style.cursor = sampleMode || picking || tool === "eyedropper" || isSelectionTool(tool) ? "crosshair" : "";
   }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.

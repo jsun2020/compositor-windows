@@ -78,6 +78,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-marquee": s.setTool("marquee"); break;
     case "tool-lasso": s.setTool("lasso"); break;
     case "tool-wand": s.setTool("wand"); break;
+    case "tool-eyedropper": s.setTool("eyedropper"); break;
     case "select-all": if (doc) s.run({ type: "SelectAll" }); break;
     case "deselect": if (doc?.selection) s.run({ type: "Deselect" }); break;
     case "select-inverse": if (doc?.selection) s.run({ type: "InvertSelection" }); break;

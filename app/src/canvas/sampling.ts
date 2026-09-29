@@ -2,14 +2,19 @@ import { useEditor } from "../state/store";
 import type { PaletteColor } from "../tools/color";
 
 /** Where a press on the canvas samples colour (EditorCanvas.swift:1419-1424): into the open colour
- * picker, whatever the tool; else null. */
-export function samplingInto(): "picker" | null {
-  return useEditor.getState().colorPicker ? "picker" : null;
+ * picker, whatever the tool; else into the foreground with the Eyedropper, unless an adjustment's
+ * own eyedropper is armed (it answers the press itself); else null. */
+export function samplingInto(): "picker" | "foreground" | null {
+  const s = useEditor.getState();
+  if (s.colorPicker) return "picker";
+  if (s.tool === "eyedropper" && !s.adjustEdit?.sampleMode && s.activeId) return "foreground";
+  return null;
 }
 
-/** The colour the sample ring shows as sampled: the picker's working colour. */
+/** The colour the sample ring shows as sampled: the picker's working colour, or the foreground. */
 function current(): PaletteColor | null {
-  return useEditor.getState().pickerColor();
+  const s = useEditor.getState();
+  return s.pickerColor() ?? s.palette.foreground;
 }
 
 /** Samples the canvas under the pointer while it is pressed (`sampleColor`, EditorCanvas.swift:2040-2055):
@@ -18,6 +23,7 @@ function current(): PaletteColor | null {
  * so no tool gesture starts under it. Returns the cleanup. */
 export function installSampling(el: HTMLElement, spaceHeld: () => boolean): () => void {
   let original: PaletteColor | null = null;
+  let into: "picker" | "foreground" | null = null;
   let pending: PointerEvent | null = null;
   let frame = 0;
   const view = (e: PointerEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -25,12 +31,14 @@ export function installSampling(el: HTMLElement, spaceHeld: () => boolean): () =
     const s = useEditor.getState(); if (!s.activeId || !original) return;
     const vp = s.viewports[s.activeId], d = s.documents[s.activeId];
     const at = view(e);
-    s.sampleIntoPicker(vp.documentPoint(at, { width: d.width, height: d.height }));
+    const point = vp.documentPoint(at, { width: d.width, height: d.height });
+    if (into === "picker") s.sampleIntoPicker(point); else s.sampleForeground(point);
     const sampled = current();
     if (sampled) s.setSampleRing({ at, sampled, original });
   };
   const down = (e: PointerEvent) => {
-    if (e.button !== 0 || spaceHeld() || !samplingInto()) return;
+    into = e.button === 0 && !spaceHeld() ? samplingInto() : null;
+    if (!into) return;
     e.stopImmediatePropagation();
     original = current();
     el.setPointerCapture(e.pointerId);

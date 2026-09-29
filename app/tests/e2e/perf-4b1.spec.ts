@@ -774,3 +774,34 @@ test("gradient previews: a drag tick, the settled preview and a patch in a 700 p
     expect(out[`${label}: patch whole uploads`], "the patch reaches the GPU as its rectangle, never a whole texture").toBe(0);
   }
 });
+
+test("eyedropper: a sample and the overlay that shows its ring, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const s0 = api.store.getState();
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      // One layer: the project's 100 megapixels hold no second one at 100 MP.
+      s0.openDocument(doc);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const ticks: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        const t0 = performance.now();
+        const at = { x: (w * (i + 0.5)) / 20, y: h / 2 };
+        api.store.getState().sampleForeground(at);
+        api.store.getState().setSampleRing({ at: { x: 300, y: 300 }, sampled: api.store.getState().palette.foreground, original: { red: 0, green: 0, blue: 0 } });
+        api.paintOverlay();
+        ticks.push(performance.now() - t0);
+      }
+      api.store.getState().setSampleRing(null);
+      api.store.getState().closeDocument(doc);
+      return { worst: Math.round(10 * Math.max(...ticks)) / 10, mean: Math.round(10 * ticks.reduce((a, b) => a + b, 0) / ticks.length) / 10 };
+    }, [w, h]);
+    out[`${label}: sample and ring, worst ms`] = r.worst; out[`${label}: mean ms`] = r.mean;
+  }
+  console.log(`eyedropper (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const label of ["24 MP", "100 MP"]) expect(out[`${label}: sample and ring, worst ms`]).toBeLessThan(16);
+});

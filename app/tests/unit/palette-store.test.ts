@@ -63,6 +63,21 @@ describe("the palette", () => {
     useEditor.setState({ palette: { foreground: RED, background: TEAL, maskPaintWhite: true } });
     expect(s().paletteColor(false)).toEqual(RED);
   });
+  it("takes the Eyedropper's sample as the image's foreground, even with a mask targeted, and keeps it off the canvas", () => {
+    install(true, true);
+    const at: { x: number; y: number }[] = [];
+    useEditor.setState({ engine: { sampleColor: (_d: string, p: { x: number; y: number }) => { at.push(p); return p.x < 4 ? [1, 128 / 255, 0] as [number, number, number] : null; } } as never });
+    s().sampleForeground({ x: 1.5, y: 2.5 });
+    expect(at).toEqual([{ x: 1.5, y: 2.5 }]);
+    expect(s().palette.foreground).toEqual({ red: 1, green: 128 / 255, blue: 0 });
+    expect(s().paletteColor(false), "the mask's own palette still shows").toEqual(BLACK);
+    s().sampleForeground({ x: 9, y: 2 });
+    expect(s().palette.foreground).toEqual({ red: 1, green: 128 / 255, blue: 0 });
+    useEditor.setState({ working: true });
+    s().setPaletteColor(RED, false);
+    s().sampleForeground({ x: 0, y: 0 });
+    expect(at.length, "no sample while a job's result is to come").toBe(2);
+  });
   // Ruling I3: the brief's version of this test ends in resetPalette(), which restores black over
   // white, so `toEqual(DEFAULT_PALETTE)` would hold even with every `working` guard deleted. Instead
   // start from a non-default palette set while `working` is still false, then turn `working` on and

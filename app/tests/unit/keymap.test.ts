@@ -24,6 +24,7 @@ describe("keymap", () => {
     expect(matchShortcut(ev("Enter", { ctrlKey: true }))).toBeNull();
     expect(matchShortcut(ev("x"))).toBe("swap-colors");
     expect(matchShortcut(ev("d"))).toBe("default-colors");
+    expect(matchShortcut(ev("i"))).toBe("tool-eyedropper");
     expect(matchShortcut(ev("x", { ctrlKey: true }))).toBeNull();
     expect(matchShortcut(ev("ArrowLeft"))).toBe("nudge-left");
     expect(matchShortcut(ev("ArrowRight", { shiftKey: true }))).toBe("nudge-right");
