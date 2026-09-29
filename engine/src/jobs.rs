@@ -190,7 +190,12 @@ impl Engine {
     /// Puts an edit job's result back on `layer` as one undo step: the buffers it replaced, its
     /// transform and mask placement, recorded as changed within its regions. Refused, with the
     /// document untouched, unless the layer, the canvas and the selection are still exactly what the
-    /// job took (`stamp`).
+    /// job took (`stamp`), and unless the project still fits its budget with the result in it.
+    ///
+    /// The stamp covers the mask's placement through `mask_revision`: every change of a placement
+    /// goes through `Layer::mask_mut`, which moves the revision, so a mask moved while the job ran
+    /// (a nudge, a Transform of the mask alone, an undo of either) refuses the result as a pixel edit
+    /// would.
     pub fn install_job(&mut self, id: Uuid, layer: Uuid, stamp: LayerStamp, output: JobOutput, pixels: Option<Raster>, mask: Option<GrayRaster>) -> Result<Dirty, CommandError> {
         if pixels.as_ref().map(|p| (p.width, p.height)) != output.pixels || mask.as_ref().map(|m| (m.width, m.height)) != output.mask {
             return Err(CommandError::Argument("a job's buffers do not match its output".into()));
@@ -202,16 +207,23 @@ impl Engine {
             let l = doc.layer_mut(layer).ok_or(CommandError::NoLayer)?;
             if let Some(p) = pixels { l.set_pixels(Some(p)); }
             // Most commands leave the transform exactly as the job found it; a filter that spreads
-            // past the layer's edges (GaussianBlur) legitimately grows it. Writing `output.transform`
-            // back unconditionally, even when a job's stamp still matches (nothing moved it), used to
-            // risk a spurious ULP drift on every install through JSON's lossy float parsing without
-            // serde_json's `float_roundtrip` feature; comparing first keeps an untouched transform
-            // bit-identical regardless.
+            // past the layer's edges (GaussianBlur) legitimately grows it. Keeping the layer's own
+            // transform when the job reports the same one is defence in depth: serde_json's
+            // `float_roundtrip` already brings the output's transform back exactly.
             if output.transform != stamp.transform { l.transform = output.transform; }
             if let Some(m) = mask {
                 let target = l.mask_mut().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
                 target.pixels = m;
                 target.placement = output.mask_placement;
+            }
+            // The job's document held this one layer, so its own budget checks (`image_grid`, the
+            // covering mask's growth in `paint_layer`, a spreading filter's grown grid) counted none of
+            // the others: the project's budget is enforced here, with the result in place, as every
+            // edit made on the UI thread enforces it. A project over it would not open again
+            // (package.rs, OverBudget). `edit` works on a copy, so the refusal leaves the document as
+            // it was and records nothing.
+            if doc.used_pixels() > MAX_PIXELS || doc.used_mask_pixels() > MAX_PIXELS {
+                return Err(CommandError::Project(ProjectError::TooLarge));
             }
             let regions = output.regions.iter().map(|(plane, rect)| Region { layer, plane: *plane, rect: *rect }).collect();
             Ok(Dirty::pixels(vec![layer]).within(regions))

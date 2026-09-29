@@ -187,6 +187,93 @@ fn a_fractional_transform_survives_the_json_the_wasm_bridge_uses_for_install() {
     assert_eq!(e.document(id).unwrap().layers[0].transform.origin, origin, "install keeps the exact origin");
 }
 
+/// A 100 x 40 canvas; its last layer, active, a 20 x 10 opaque layer at (30, 15), under `mask`; below
+/// it `hogs` layers that together hold `hog` pixels of the project's budget - folders with masks when
+/// `masks`, pixel layers otherwise - every one sharing a single buffer, so the budget is spent without
+/// the memory (`used_pixels` and `used_mask_pixels` count each layer's buffer, shared or not).
+fn crowded(mask: Option<Mask>, masks: bool, hogs: u32, hog: (u32, u32)) -> (Engine, Uuid, Uuid) {
+    let mut doc = Document::new(100, 40);
+    let mut layers = Vec::new();
+    let (grey, rgba) = (GrayRaster::from_bytes(hog.0, hog.1, vec![255u8; (hog.0 * hog.1) as usize]), pattern(hog.0, hog.1));
+    for i in 0..hogs {
+        if masks {
+            let mut folder = Layer::blank(&format!("Folder {i}"), doc.size());
+            folder.is_group = true;
+            folder.mask = Some(Mask { pixels: grey.clone(), enabled: true, placement: None, linked: None });
+            layers.push(folder);
+        } else {
+            layers.push(Layer::with_pixels(&format!("Hog {i}"), rgba.clone(), p(0.0, 0.0)));
+        }
+    }
+    let mut layer = Layer::with_pixels("Small", Raster::from_premultiplied(20, 10, [0, 0, 200, 255].repeat(200)), p(30.0, 15.0));
+    layer.mask = mask;
+    let lid = layer.id;
+    layers.push(layer);
+    doc.active_layer_id = Some(lid);
+    doc.layers = layers;
+    let mut e = Engine::new();
+    let id = e.insert_document(doc);
+    (e, id, lid)
+}
+
+/// Final review C-1: a job's document holds one layer, so a Fill that grows its layer past what the
+/// other layers leave of the project's budget is made by the worker, where the same Fill made in place
+/// is refused. `install_job` enforces the budget with the result in place: refused, the document as it
+/// was, nothing recorded - else the project would be saved over a size `open_package` refuses. First
+/// the masks: the layer's covering mask, half black, follows the layer to its grown grid.
+#[test]
+fn a_job_whose_result_passes_the_mask_budget_is_not_put_back() {
+    let (hogs, hog) = (10u32, (99_999u32, 100u32));
+    let held = hogs as u64 * hog.0 as u64 * hog.1 as u64;
+    let room = MAX_PIXELS - held;
+    // The Fill paints the whole canvas: the 20 x 10 layer grows to 100 x 40, its mask with it.
+    let (own, grown) = (20u64 * 10, 100u64 * 40);
+    assert!(own <= room && grown > room, "the fixture must starve only the grown mask");
+    let half = Mask { pixels: GrayRaster::from_bytes(20, 10, (0..200).map(|i| if i % 20 < 10 { 0 } else { 255 }).collect()), enabled: true, placement: None, linked: None };
+    let (mut e, id, layer) = crowded(Some(half), true, hogs, hog);
+    let fill = Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] };
+    let (before, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
+    // Parity: in place, the same Fill is refused for the grown mask.
+    assert_eq!(e.execute(id, fill.clone()), Err(CommandError::Project(ProjectError::TooLarge)), "in place");
+    // Through a job: the worker sees one layer and makes the result...
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), fill).unwrap();
+    assert_eq!(output.mask.map(|(w, h)| w as u64 * h as u64), Some(grown), "the worker grew the mask with its layer");
+    // ...and the install refuses it.
+    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask), Err(CommandError::Project(ProjectError::TooLarge)));
+    assert!(e.document(id).unwrap().same_content(&before), "untouched");
+    assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
+    assert_eq!(e.document(id).unwrap().used_mask_pixels(), held + own, "the budget as it was");
+}
+
+/// Final review C-1, the pixels: the layer (no mask) grows to the canvas while the other layers hold
+/// all but a little of the pixel budget.
+#[test]
+fn a_job_whose_result_passes_the_pixel_budget_is_not_put_back() {
+    let (hogs, hog) = (100u32, (99_999u32, 10u32));
+    let held = hogs as u64 * hog.0 as u64 * hog.1 as u64;
+    let room = MAX_PIXELS - held;
+    let (own, grown) = (20u64 * 10, 100u64 * 40);
+    assert!(own <= room && grown > room, "the fixture must starve only the grown layer");
+    let (mut e, id, layer) = crowded(None, false, hogs, hog);
+    let fill = Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] };
+    let (before, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
+    assert_eq!(e.execute(id, fill.clone()), Err(CommandError::Project(ProjectError::TooLarge)), "in place");
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), fill).unwrap();
+    assert_eq!(output.pixels.map(|(w, h)| w as u64 * h as u64), Some(grown), "the worker grew the layer");
+    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask), Err(CommandError::Project(ProjectError::TooLarge)));
+    assert!(e.document(id).unwrap().same_content(&before), "untouched");
+    assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
+    assert_eq!(e.document(id).unwrap().used_pixels(), held + own, "the budget as it was");
+    // With room for it (one hog fewer), the same job's result goes back as one step.
+    let (mut e, id, layer) = crowded(None, false, hogs - 1, hog);
+    let (input, pixels, mask, points) = crossed(&e, id, layer);
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }).unwrap();
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    assert_eq!(e.document(id).unwrap().used_pixels(), held - hog.0 as u64 * hog.1 as u64 + grown);
+}
+
 #[test]
 fn a_histogram_job_equals_the_histogram_in_place() {
     let (e, id, layer) = document();

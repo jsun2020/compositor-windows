@@ -255,6 +255,92 @@ fn a_fill_inside_a_selection_on_a_layer_over_the_canvas_is_recorded_as_that_rect
     assert_eq!(e.pixels_delta(id, layer, before).unwrap(), Some(PixelRect { x: 18, y: 8, width: 34, height: 24 }));
 }
 
+/// A document holding one `layer`, active.
+fn holding(width: u32, height: u32, layer: Layer) -> (Engine, Uuid, Uuid) {
+    let mut doc = Document::new(width, height);
+    let lid = layer.id;
+    doc.active_layer_id = Some(lid);
+    doc.layers = vec![layer];
+    let mut e = Engine::new();
+    let id = e.insert_document(doc);
+    (e, id, lid)
+}
+
+/// Final review minor 8 (14a M-6): an edit that reaches no pixel - its selection moved wholly off the
+/// canvas - changes nothing and records no step, as the Mac returns when its edit made no patch
+/// (`guard !edit.patches.isEmpty`, SelectionEdits.swift:205). Before, the layer grew to the canvas and
+/// was trimmed back into a new buffer (one step), and a mask grew by the tiles.
+#[test]
+fn a_fill_or_gradient_whose_selection_is_off_the_canvas_changes_nothing_and_records_nothing() {
+    let mut small = Layer::with_pixels("Small", Raster::from_premultiplied(20, 10, [0, 0, 200, 255].repeat(200)), p(30.0, 15.0));
+    small.mask = Some(Mask { pixels: GrayRaster::from_bytes(20, 10, (0..200).map(|i| if i % 20 < 10 { 0 } else { 255 }).collect()), enabled: true, placement: None, linked: None });
+    let (mut e, id, layer) = holding(100, 40, small);
+    select(&mut e, id, 10.0, 10.0, 20.0, 10.0);
+    run(&mut e, id, Command::MoveSelection { dx: 500.0, dy: 0.0 });
+    assert!(!e.state(id).unwrap().selection.unwrap().empty, "a selection with something in it, off the canvas");
+    let (before, count) = (e.document(id).unwrap().clone(), depth(&e, id));
+    let g = linear(p(0.5, 20.0), p(99.5, 20.0), BLACK, WHITE, 1.0);
+    for (name, c) in [("fill", Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }),
+                      ("gradient", Command::Gradient { id: layer, mask: false, gradient: g.clone() }),
+                      ("mask fill", Command::Fill { id: layer, mask: true, color: [0.0, 0.0, 0.0] }),
+                      ("mask gradient", Command::Gradient { id: layer, mask: true, gradient: g.clone() })] {
+        assert!(e.execute(id, c).is_ok(), "{name}: accepted, as the Mac returns quietly");
+        assert!(e.document(id).unwrap().same_content(&before), "{name}: nothing changed");
+        assert_eq!(depth(&e, id), count, "{name}: nothing recorded");
+    }
+    // Through a job, likewise: nothing comes back, and the install records nothing.
+    let (input, pixels, mask, points) = e.job_input(id, layer).unwrap();
+    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }).unwrap();
+    assert_eq!((output.pixels, output.mask), (None, None));
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    assert_eq!(depth(&e, id), count, "job: nothing recorded");
+}
+
+/// Task 8's deferred minor: the selection's coverage `k` scales the paint by `k / 255`
+/// (raster_edit.rs `fraction`). A red fill through a feathered ellipse over an opaque blue layer that
+/// covers the canvas: every pixel is `(red * 255 * s + under * (1 - s) + 0.5) as u8` with `s = k / 255`,
+/// `k` read from the selection's own coverage on the layer's grid.
+#[test]
+fn a_fill_through_a_feathered_selection_scales_by_its_coverage_over_255() {
+    let (mut e, id, layer) = holding(100, 40, Layer::with_pixels("Blue", Raster::from_premultiplied(100, 40, [0, 0, 200, 255].repeat(4000)), p(0.0, 0.0)));
+    run(&mut e, id, Command::SelectShape { kind: SelectionShape::Ellipse, points: vec![p(20.0, 5.0), p(80.0, 5.0), p(80.0, 35.0), p(20.0, 35.0)], mode: SelectionMode::Replace, antialiased: true });
+    run(&mut e, id, Command::FeatherSelection { amount: 6 });
+    let doc = e.document(id).unwrap().clone();
+    let coverage = selection_coverage(&doc, &doc.layers[0].transform.pixel_to_document(100, 40), 100, 40).unwrap();
+    let partial = coverage.bytes().iter().filter(|&&k| k > 0 && k < 255).count();
+    assert!(partial > 500, "the fixture: a wide soft edge ({partial} partial pixels)");
+    run(&mut e, id, Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] });
+    let out = e.document(id).unwrap().layers[0].pixels.clone().unwrap();
+    assert_eq!((out.width, out.height), (100, 40));
+    for y in 0..40 { for x in 0..100 {
+        let k = coverage.bytes()[(y * 100 + x) as usize] as f64;
+        let s = k / 255.0;
+        let expected = [(255.0 * s + 0.5) as u8, 0, (200.0 * (1.0 - s) + 0.5) as u8, (255.0 * s + 255.0 * (1.0 - s) + 0.5) as u8];
+        assert_eq!(out.pixel(x, y), expected, "({x}, {y}) at coverage {k}");
+    }}
+}
+
+/// Task 8's deferred minor: paint stops at the canvas (`dx < 0 || dy < 0 || dx >= width || dy >=
+/// height`, the Mac's `context.clip(to: canvas)`, BrushStroke.swift:666). A 40 x 20 blue layer at
+/// (-10, -5) overhangs the canvas's top-left corner; a red fill without a selection paints only what
+/// lies on the canvas, and the overhang keeps its blue.
+#[test]
+fn a_fill_on_a_layer_overhanging_the_canvas_paints_only_inside_the_canvas() {
+    let (mut e, id, layer) = holding(100, 40, Layer::with_pixels("Over", Raster::from_premultiplied(40, 20, [0, 0, 200, 255].repeat(800)), p(-10.0, -5.0)));
+    run(&mut e, id, Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] });
+    let l = e.document(id).unwrap().layers[0].clone();
+    // The grid grows from the layer's own (-10, -5)-(30, 15) to cover the canvas: (-10, -5)-(100, 40).
+    assert_eq!((l.transform.origin, l.transform.size), (p(-10.0, -5.0), Size { width: 110.0, height: 45.0 }));
+    let out = l.pixels.unwrap();
+    let (ox, oy) = (10u32, 5u32); // the canvas's (0, 0) on the grid
+    for y in 0..45 { for x in 0..110 {
+        let on_canvas = x >= ox && y >= oy;
+        let under_layer = x < 40 && y < 20;
+        let expected = if on_canvas { [255, 0, 0, 255] } else if under_layer { [0, 0, 200, 255] } else { [0, 0, 0, 0] };
+        assert_eq!(out.pixel(x, y), expected, "grid ({x}, {y})");
+    }}
+}
+
 #[test]
 fn edit_pixels_counts_what_a_fill_paints_not_what_the_layer_stores() {
     // Ruling C1: the job worker is chosen by the grid `paint_layer` paints. A blank layer stores nothing

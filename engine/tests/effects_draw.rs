@@ -276,6 +276,27 @@ fn images_past_the_byte_limit_evict_and_an_image_larger_than_the_limit_is_never_
     assert_eq!(a, b);
 }
 
+/// Final review I-2: an image made elsewhere (the job worker's, `insert`) drops the images no one can
+/// find again first, as `image` does, so an edited layer's old raster is not kept alive by its old
+/// image. The layer is edited (new pixels) and its old pixels let go; inserting the new image leaves
+/// one entry, the new one.
+#[test]
+fn inserting_an_image_drops_the_images_whose_buffers_only_the_cache_holds() {
+    let mut bar = shadowed_bar();
+    let draw = effects_draw(&bar, None).unwrap();
+    let cache = EffectsCache::new(EFFECTS_CACHE_ENTRIES, usize::MAX);
+    let first = effects_image(&bar, bar.pixels.as_ref().unwrap(), &draw);
+    cache.insert(&bar, &draw, first);
+    assert_eq!(cache.len(), 1);
+    // The edit: new pixels; the old ones now live only in the cache's entry.
+    bar.set_pixels(Some(solid(30, 10, [0, 0, 255, 255])));
+    let second = effects_image(&bar, bar.pixels.as_ref().unwrap(), &draw);
+    cache.insert(&bar, &draw, second.clone());
+    assert_eq!(cache.len(), 1, "the dead entry went");
+    assert!(cache.contains(&bar, &draw), "the one left is the new layer's");
+    assert_eq!(cache.bytes(), second.bytes().len());
+}
+
 #[test]
 fn an_image_larger_than_the_limit_leaves_the_images_already_kept_in_place() {
     // Never stored, so it cannot push anything out (LayerEffects.swift:389): the small bar stays.

@@ -219,9 +219,13 @@ impl EffectsCache {
     }
     /// Keeps `image`, made elsewhere (the job worker, from the same layer and draw), as `image` would
     /// have kept it: found by the same buffers and draw from now on. Not kept when it is over the
-    /// byte limit, as a made image would not be.
+    /// byte limit, as a made image would not be. Dead entries go first, as `image` drops them before
+    /// making one (final review I-2): each keeps the layer raster it was made from alive, and the
+    /// worker's full-size images are the only path for large styled layers, so after every edit the
+    /// old raster (96 MB at 24 MP) would stay pinned, uncounted by the byte limit, until evicted.
     pub fn insert(&self, layer: &Layer, draw: &EffectsDraw, image: Raster) {
         let Some(pixels) = layer.pixels.as_ref() else { return };
+        self.prune();
         if image.bytes().len() > self.max_bytes || self.contains(layer, draw) { return; }
         let mask = draw.mask.as_ref().and(layer.mask.as_ref()).map(|m| m.pixels.clone());
         let mut kept = self.kept();

@@ -139,8 +139,11 @@ impl Ramp {
 /// that `transform` places: each pixel at its centre, inside the canvas, through `coverage` (the
 /// selection's, None for all), source-over at the paint's alpha times its opacity times the coverage
 /// (as a fraction of 255),
-/// each channel rounded half up.
-pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, grey: bool) {
+/// each channel rounded half up. True when the edit reached any pixel: one inside the canvas that the
+/// selection covers at all, whatever the paint's alpha there (the Mac's raster edit keeps a tile for
+/// every part of the canvas and the selection's clip it touches, and a transparent end of a gradient
+/// still touches it: `paintCanvas`, BrushStroke.swift:645-652).
+pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, grey: bool) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     let (w, channels) = (width as usize, if grey { 1 } else { 4 });
@@ -152,6 +155,7 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
     let delta: [f64; 4] = std::array::from_fn(|c| to[c] - from[c]);
     // The selection's coverage as a fraction, once for each of its 256 values.
     let fraction: [f64; 256] = std::array::from_fn(|k| k as f64 / 255.0);
+    let mut touched = false;
     for y in 0..height as usize {
         // The row's first pixel centre in the document, and the step one pixel to the right.
         let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
@@ -162,6 +166,7 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
             if k == 0 { continue; }
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
             if dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch { continue; }
+            touched = true;
             let t = ramp.at(dx, dy);
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
@@ -174,6 +179,7 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
             }
         }
     }
+    touched
 }
 
 /// A covering mask carried onto the layer's new, trimmed grid (`crop` of `grid`): the old mask
@@ -367,7 +373,10 @@ pub fn paint_layer_check(doc: &Document, id: Uuid, mask: bool, paint: &Paint) ->
 }
 
 /// Paints `paint` into layer `id`'s pixels (`mask` false) or its mask, as one edit: Fill and the
-/// Gradient's commit.
+/// Gradient's commit. An edit that reaches no pixel (a selection moved off the canvas) leaves the
+/// document exactly as it was, so nothing is recorded: the Mac returns before committing when its edit
+/// made no patch (`guard !edit.patches.isEmpty`, SelectionEdits.swift:205), where this port used to grow
+/// the layer, trim it and record a step (final review minor 8).
 pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
     paint_layer_check(doc, id, mask, paint)?;
     if mask {
@@ -376,7 +385,7 @@ pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: b
         let grid = mask_grid(doc, id, true)?;
         let mut data = mask_on_grid(doc.layer(id).unwrap().mask.as_ref().unwrap(), &grid);
         let coverage = ops::adjust::edit_coverage(doc, clips, &grid.transform, grid.width, grid.height)?;
-        paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, true);
+        if !paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, true) { return Ok(()); }
         let target = doc.layer_mut(id).unwrap().mask_mut().unwrap();
         target.pixels = GrayRaster::from_bytes(grid.width, grid.height, data);
         target.placement = grid.placement;
@@ -386,7 +395,7 @@ pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: b
     let grid = image_grid(doc, &layer)?;
     let mut data = pixels_on(&grid, layer.pixels.as_ref());
     let coverage = ops::adjust::edit_coverage(doc, clips, &grid.transform, grid.width, grid.height)?;
-    paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, false);
+    if !paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, false) { return Ok(()); }
     let painted = Raster::from_premultiplied(grid.width, grid.height, data);
     // Trimmed to what is left; nothing left keeps the whole grid, as the Mac's `render` does.
     let crop = compositor::alpha_bounds(&painted).unwrap_or((0, 0, grid.width, grid.height));
