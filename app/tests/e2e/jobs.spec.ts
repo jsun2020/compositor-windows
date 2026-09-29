@@ -105,11 +105,14 @@ test("Levels under a selection on a large layer: the worker's histogram and comm
 
 test("a blur on a large layer grows it through the worker exactly as it does in place", async ({ page }) => {
   const ids = await setup(page);
+  const depth = (await state(page)).undoDepth;
   await page.evaluate(() => (window as any).__compositor.store.getState().beginAdjust({ kind: "GaussianBlur" }));
   const params = { filter: "GaussianBlur", radius: 7 };
   await page.evaluate((params) => (window as any).__compositor.store.getState().updateAdjust({ params }), params);
   await page.getByRole("button", { name: "OK" }).click();
   await idle(page);
+  // The commit landed as one step (the Global Constraint's proof of a commit; Task 6 deferred minor).
+  expect((await state(page)).undoDepth).toBe(depth + 1);
   await page.evaluate(([ids, params]) => (window as any).__compositor.engine.execute(ids.here, { type: "ApplyFilter", id: ids.other, params }), [ids, params] as const);
   const [a, b] = await page.evaluate((ids) => {
     const api = (window as any).__compositor;

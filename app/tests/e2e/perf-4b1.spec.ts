@@ -219,9 +219,13 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
       // Every `displayJobInput` call (engine `display_job_input`), timestamped so a call can be told
       // apart from the tick that made it and attributed to the right window (fix round 2, issue B).
       const displayJobInputCalls: number[] = [];
+      // The level each call asked at (0: the full-size image), so the 100 MP run can show that no
+      // full image is ever asked for past EFFECTS_LIMITS.full (final fix wave, Task 7's deferred minor).
+      const displayJobInputLevels: number[] = [];
       const realDisplayJobInput = api.engine.displayJobInput.bind(api.engine);
       api.engine.displayJobInput = (...a: unknown[]) => {
         const s = performance.now();
+        displayJobInputLevels.push(a[2] as number);
         try { return realDisplayJobInput(...a); } finally { displayJobInputCalls.push(Math.round(performance.now() - s)); }
       };
       // Fix round 4: the other work that can run between two ticks, timed where it runs: the engine
@@ -285,7 +289,7 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
       // task between ticks (the deferred full-size ask, fix round 3) -- so a window's diagnostics
       // describe exactly the intervals its gap is taken over, and the longest interval's contents
       // are recorded. (A `displayJobInput` call inside `frame()` is counted in both.)
-      type Phase = "reduced" | "full" | "done";
+      type Phase = "reduced" | "tail" | "full" | "done";
       const wantsFull = w * h <= 24_000_000; // EFFECTS_LIMITS.full
       let phase: Phase = "reduced";
       let last = performance.now(), gap = 0;
@@ -304,9 +308,8 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
       const noHolds = { displayJobInput: 0, keepEffectsImage: 0, appRender: 0, frame: 0 };
       let longestHolds = noHolds;
 
-      // Ends the reduced window at `at` (read out and reset at once) and opens the next.
-      const endReduced = (at: number) => {
-        result["reduced image drawn after, ms"] = Math.round(at - t0);
+      // The reduced window's readout, up to `at`.
+      const readReduced = (at: number) => {
         result["longest frame gap until then"] = Math.round(gap);
         for (const [what, ms] of Object.entries(longestHolds)) result[`that longest gap holds: ${what} ms`] = ms;
         result["longest displayJobInput call inside that window, ms"] = callsThisWindow.length ? Math.max(...callsThisWindow) : 0;
@@ -314,9 +317,20 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
         const longtasksHere = longtasks.filter((t) => t.start >= reducedWindowStart && t.start < at);
         result["longtasks inside that window (count)"] = longtasksHere.length;
         result["longest longtask inside that window, ms"] = longtasksHere.length ? Math.round(Math.max(...longtasksHere.map((t) => t.duration))) : 0;
-        gap = 0; callsThisWindow = []; frameMsThisWindow = []; longestHolds = noHolds; fullWindowStart = at;
-        phase = wantsFull ? "full" : "done";
       };
+      // Ends the reduced window at `at` (read out and reset at once) and opens the full one (24 MP).
+      const endReduced = (at: number) => {
+        result["reduced image drawn after, ms"] = Math.round(at - t0);
+        readReduced(at);
+        gap = 0; callsThisWindow = []; frameMsThisWindow = []; longestHolds = noHolds; fullWindowStart = at;
+        phase = "full";
+      };
+      // At 100 MP no full window follows (Task 7 parked item, ruled for the final fix wave): the reduced
+      // window stays open for the interval that holds the reduced image's draw, and ends on the tick
+      // after it, so that draw is charged to the window's own 200 ms budget rather than to none.
+      // `drawnAt` is when the reduced image was drawn; the window closes at the next tick ("tail").
+      let reducedDrawnAt = -1;
+      const drawnWithoutFull = (at: number) => { reducedDrawnAt = at; phase = "tail"; };
 
       await new Promise<void>((resolve) => {
         const tick = () => {
@@ -325,8 +339,9 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
           // redraws as soon as an image lands): the interval that drew it belongs to the full window,
           // as the interval after this test's own `frame()` does when that frame draws it (below) --
           // "until the reduced image is drawn" holds nothing done after it, such as the full-size ask
-          // that follows the draw in a task of its own (fix round 3).
-          if (phase === "reduced" && shown() === "rd") endReduced(last);
+          // that follows the draw in a task of its own (fix round 3). At 100 MP (no full window) the
+          // interval stays in the reduced window instead, and the window ends once it is charged.
+          if (phase === "reduced" && shown() === "rd") { if (wantsFull) endReduced(last); else drawnWithoutFull(last); }
           const interval = now - last;
           const callsInInterval = displayJobInputCalls.slice(seen);
           seen = displayJobInputCalls.length;
@@ -341,6 +356,17 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
           }
           last = now;
           tickTimes.push(now);
+
+          // 100 MP: the interval just charged held the reduced image's draw (the app's own render
+          // between ticks, or this test's `frame()` at the previous tick); the window ends here.
+          if (phase === "tail") {
+            result["reduced image drawn after, ms"] = Math.round(reducedDrawnAt - t0);
+            result["the interval that drew the reduced image, ms"] = Math.round(interval);
+            readReduced(now);
+            phase = "done";
+            resolve();
+            return;
+          }
 
           // Fix round 5: the full window ends once the full image is drawn -- the interval just
           // charged held that render (the app's own, a frame after the image was kept, or this test's
@@ -378,7 +404,7 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
           previousFrameMs = frameMs;
 
           if (phase === "reduced" && shown() === "rd") {
-            endReduced(now);
+            if (wantsFull) endReduced(now); else drawnWithoutFull(now);
           } else if (phase === "reduced" && now - reducedWindowStart > 60_000) {
             result["reduced image drawn after, ms"] = -1;
             result["longest frame gap until then"] = Math.round(gap);
@@ -397,11 +423,25 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
         };
         requestAnimationFrame(tick);
       });
+      // Past EFFECTS_LIMITS.full no full-size image is asked for or made (Task 7's deferred minor): the
+      // full-size ask would follow the reduced draw a task later, so a second's frames are let pass
+      // first. At 24 MP the same count shows the full-size ask this test waited for.
+      if (!wantsFull) {
+        const until = performance.now() + 1000;
+        await new Promise<void>((done) => { const poll = () => { testFrame(); if (performance.now() > until) done(); else requestAnimationFrame(poll); }; requestAnimationFrame(poll); });
+      }
+      result["full-size asks made (level-0 displayJobInput calls)"] = displayJobInputLevels.filter((l) => l === 0).length;
+      result["the engine holds a full-size image (1 = yes)"] = api.engine.hasEffectsImage(doc, layer, null) ? 1 : 0;
       return result;
     }, [w, h]);
     for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
   }
   console.log(`effects images (release wasm, Edge): ${JSON.stringify(out)}`);
+  // 24 MP asks for and keeps the full image; 100 MP (over EFFECTS_LIMITS.full) neither asks nor keeps one.
+  expect(out["24 MP: full-size asks made (level-0 displayJobInput calls)"]).toBeGreaterThan(0);
+  expect(out["24 MP: the engine holds a full-size image (1 = yes)"]).toBe(1);
+  expect(out["100 MP: full-size asks made (level-0 displayJobInput calls)"]).toBe(0);
+  expect(out["100 MP: the engine holds a full-size image (1 = yes)"]).toBe(0);
   for (const label of ["24 MP", "100 MP"]) {
     expect(out[`${label}: the first frame draws the layer plainly (1 = yes)`]).toBe(1);
     // "first frame (the layer plainly), ms" is logged but has no budget of its own: OQ20 already
@@ -433,19 +473,15 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
   // round 4 (the full-size ask that follows the draw charged to the full window): 31, 101, 75, 41,
   // 34, 29, 28 ms over seven runs (101 in a run slowed throughout: 30 s to the full image, not 12-14).
   expect(out["24 MP: longest frame gap until then"]).toBeLessThan(100);
-  // At 100 MP: 100-134 ms measured over six runs, well under budget. Fix round 1 guessed this was
-  // `display_job_input`'s own halving of the layer down to the reduced size; fix round 2 checked that
-  // directly (this window's own `displayJobInput` calls, `frame()` calls and browser-reported long
-  // tasks are all timed above) and found none of them explain it: the longest `displayJobInput` call
-  // in the window is 0 ms (the halving runs earlier, inside the exempt opening frame, per issue B
-  // above), the longest single `frame()` call is 7-15 ms, and the PerformanceObserver longtask API
-  // reports zero long tasks in the window on every run that checked it. The gap itself (100-134 ms)
-  // is real and reproducible, but its cause is not attributable to any one instrumented piece of this
-  // test's or the app's own code; the likeliest remaining explanation is GC or OS/driver scheduling
-  // jitter around the repeated GPU-synced polling (`frame()` forces a `readPixels`, so every poll
-  // tick blocks on the GPU), which is inherent to how a test polls this way rather than a cost the
-  // engine or renderer could avoid. Left unfixed (nothing identified to fix), comfortably in budget.
+  // At 100 MP the window runs to the tick after the reduced image's draw, so the interval that draws
+  // it is charged here (the final fix wave: before, the window closed on the draw and that interval
+  // belonged to no window). Measured 100-152 ms over Task 7's runs before the draw was charged. The
+  // gap is not attributed to any instrumented piece (`displayJobInput` 0 ms inside the window - the
+  // reduced ask runs in the exempt opening frame - single `frame()` calls 7-15 ms, no longtasks): an
+  // open item in the rulings doc (it needs a profiler trace). "the interval that drew the reduced
+  // image" is logged beside it as a diagnostic.
   expect(out["100 MP: longest frame gap until then"]).toBeLessThan(200);
+  expect(out["100 MP: the interval that drew the reduced image, ms"], "the draw's interval was charged").toBeGreaterThanOrEqual(0);
   // The full window runs from the reduced image drawn to the full image drawn. It holds three large
   // UI-thread costs, each in a frame gap of its own: the full-size copy out to the worker
   // (`displayJobInput`, deferred a task by fix round 3; 66-98 ms in fix round 4), taking the finished
@@ -457,6 +493,10 @@ test("effects images: a large styled layer opens drawn plainly, then reduced, th
   // (111, 80), the keep (81, 78, 88, 83) or the draw (87), never two of them.
   expect(out["24 MP: frames between the keep and the draw"]).toBeGreaterThan(0);
   expect(out["24 MP: longest frame gap while the worker made it"]).toBeLessThan(150);
+  // The full-size copy out (`displayJobInput` at level 0, deferred a task after the reduced draw)
+  // is charged to the full window; logged unasserted until the final fix wave (Task 7 parked item):
+  // the same copy as a job's input, so the same 150 ms budget as `jobInput` at 24 MP.
+  expect(out["24 MP: longest displayJobInput call inside the full window, ms"]).toBeLessThan(150);
   // Fix round 1, issue 6: measured but not asserted before. The frame that uploads the full image
   // (24 MP only; past that no full image is ever made) measured 13-24 ms in fix round 2's own runs,
   // and once 447 ms there (the actual GPU upload cost that time, coinciding with a gap-budget
@@ -547,9 +587,17 @@ test("effects job preemption: a Levels histogram requested while a 24 MP layer's
       await waitFor(() => asked.some((e) => e.kind === "effects" && !e.settled), 15_000);
       result["an effects job is in flight before the edit (1 = yes)"] = asked.some((e) => e.kind === "effects" && !e.settled) ? 1 : 0;
 
-      // Frame gaps from here, rAF-driven (fix round 2, issue C's pattern: read only inside a tick).
-      let last = performance.now(), gap = 0, ticking = true;
-      const tickGap = () => { const now = performance.now(); gap = Math.max(gap, now - last); last = now; if (ticking) requestAnimationFrame(tickGap); };
+      // Frame gaps from here, rAF-driven (fix round 2, issue C's pattern: read only inside a tick). The
+      // gap is read on the tick that stops the loop (`stopAt`), so the last interval before the
+      // histogram landed is charged too (the final fix wave: it used to be read in the `waitFor`
+      // continuation, off the tick, leaving that interval out).
+      let last = performance.now(), gap = 0;
+      let stopAt: ((gap: number) => void) | null = null;
+      const tickGap = () => {
+        const now = performance.now(); gap = Math.max(gap, now - last); last = now;
+        if (stopAt) { stopAt(Math.round(gap)); return; }
+        requestAnimationFrame(tickGap);
+      };
       requestAnimationFrame(tickGap);
 
       // The preemption: opening Levels on this same layer reads its histogram through a job (its
@@ -557,6 +605,10 @@ test("effects job preemption: a Levels histogram requested while a 24 MP layer's
       // 3) and replaces the worker. Snapshotted here, before triggering it, so (c) below can tell the
       // effects image's re-ask apart from its original (already in `asked`) ask.
       const askedBeforePreemption = asked.length;
+      // Every `displayJobInput` call from here on is the re-ask's (the histogram's own copy is
+      // `jobInput`): (c) is windowed to these alone (Task 7 parked item; it used to take the maximum
+      // over every call, the original full-size ask's included).
+      const copiesBeforePreemption = displayJobInputMs.length;
       const spawnedBefore = jobs.spawned;
       const postedBefore = postedJobs.length;
       const t0 = performance.now();
@@ -565,18 +617,16 @@ test("effects job preemption: a Levels histogram requested while a 24 MP layer's
       result["(a) edit job posted to the new worker after, ms"] = posted ? Math.round(postedJobs[postedJobs.length - 1] - t0) : -1;
       result["the worker was actually respawned for it (1 = yes)"] = jobs.spawned > spawnedBefore ? 1 : 0;
       const histogrammed = await waitFor(() => api.store.getState().adjustEdit?.histogram !== null, 30_000);
-      result["histogram (with respawn) arrives after, ms"] = histogrammed ? Math.round(performance.now() - t0) : -1;
-      result["(b) longest frame gap during the preemption, ms"] = Math.round(gap);
+      result["diagnostic: histogram (with respawn) arrives after, ms"] = histogrammed ? Math.round(performance.now() - t0) : -1;
+      result["(b) longest frame gap during the preemption, ms"] = await new Promise<number>((done) => { stopAt = done; });
       api.store.getState().cancelAdjust();
-      ticking = false;
 
-      // (c) The effects image asked for again afterward, and that re-ask's own `displayJobInput`
-      // copy cost -- the same operation, same 24 MP six-effect layer, "effects images" (above) times
-      // under "longest displayJobInput call inside that window/the full window, ms" (asserted there,
-      // fix round 2 issue B): this is that same call, not a separate cost needing its own budget.
+      // (c) The effects image asked for again afterward, and that re-ask's own `displayJobInput` copy
+      // (a level-0, full-size copy of the 24 MP layer, as "effects images" times in its full window).
       const reAsked = await waitFor(() => asked.slice(askedBeforePreemption).some((e) => e.kind === "effects"), 15_000);
       result["(c) the effects image was asked for again afterward (1 = yes)"] = reAsked ? 1 : 0;
-      result["(c) that re-ask's own displayJobInput cost, ms"] = displayJobInputMs.length ? Math.max(...displayJobInputMs) : 0;
+      const reAskCopies = displayJobInputMs.slice(copiesBeforePreemption);
+      result["(c) that re-ask's own displayJobInput cost, ms"] = reAskCopies.length ? Math.max(...reAskCopies) : -1;
 
       // A note on what is *not* measured here: a "warm worker" comparison (a second histogram
       // request right after, expecting no respawn) was tried and dropped -- the effects image just
@@ -592,27 +642,29 @@ test("effects job preemption: a Levels histogram requested while a 24 MP layer's
   console.log(`effects job preemption (release wasm, Edge): ${JSON.stringify(out)}`);
   for (let run = 0; run < RUNS; run++) {
     expect(out[`run ${run}: an effects job is in flight before the edit (1 = yes)`]).toBe(1);
+    expect(out[`run ${run}: beginAdjust accepted it (1 = yes)`]).toBe(1);
     expect(out[`run ${run}: the worker was actually respawned for it (1 = yes)`]).toBe(1);
     expect(out[`run ${run}: (c) the effects image was asked for again afterward (1 = yes)`]).toBe(1);
     // (a) the respawn (terminate + new Worker + module re-post + init) plus dispatch: measured
     // 221-324 ms over nine runs, three invocations (release wasm, Edge, real GPU); fix round 3,
     // three runs: 200-208 ms; fix round 4, nine runs: 242, 223, 257, 247, 234, 258, 239, 249, 208 ms;
-    // fix round 5, nine runs: 235, 186, 225, 297, 252, 240, 228, 263, 259 ms.
+    // fix round 5, nine runs: 235, 186, 225, 297, 252, 240, 228, 263, 259 ms. -1 means the job was
+    // never posted (the 30 s wait ran out): refused too (the final fix wave).
+    expect(out[`run ${run}: (a) edit job posted to the new worker after, ms`]).toBeGreaterThanOrEqual(0);
     expect(out[`run ${run}: (a) edit job posted to the new worker after, ms`]).toBeLessThan(400);
     // (b) the longest main-thread frame gap while the preemption (termination, respawn, dispatch)
     // happens: measured 178-230 ms over nine runs, three invocations; fix round 3, three runs:
     // 92-105 ms; fix round 4, nine runs: 123, 100, 100, 124, 107, 108, 111, 108, 100 ms; fix
     // round 5, nine runs: 109, 92, 100, 162, 137, 105, 111, 143, 115 ms.
     expect(out[`run ${run}: (b) longest frame gap during the preemption, ms`]).toBeLessThan(300);
-    // (c) named exemption, not a separate budget: this is the same `displayJobInput` call the
-    // "effects images" test above asserts a budget for ("longest displayJobInput call inside that
-    // window/the full window, ms"), for the identical operation (a level-0, full-size ask) on an
-    // identical 24 MP six-effect layer. Measured higher here (72-126 ms over nine runs) than in that
-    // test's own, more isolated run (0 ms in six runs there): by the time this test re-asks, the wasm
-    // heap has already grown from the reduced copy, the interrupted full copy and the histogram
-    // job's own whole-layer copy, and `WebAssembly.Memory.grow` -- needed for the fresh `ArrayBuffer`
-    // this copy allocates -- gets more expensive as the heap gets larger to begin with. Both numbers
-    // (0 and up to 118 ms) fit under that test's budget (updated to account for this).
+    // (c) the re-ask's own full-size copy: the budget of the same copy in "effects images" (its full
+    // window, 150 at 24 MP, the jobInput budget). Task 7 measured 72-126 ms here over nine runs (over
+    // every call then, the original full-size ask's included); higher than the isolated test's
+    // 66-111 ms because the wasm heap has grown by then (the reduced copy, the interrupted full copy,
+    // the histogram's own copy) and `WebAssembly.Memory.grow` costs more on a larger heap. -1 (no
+    // re-ask copy seen) fails.
+    expect(out[`run ${run}: (c) that re-ask's own displayJobInput cost, ms`]).toBeGreaterThanOrEqual(0);
+    expect(out[`run ${run}: (c) that re-ask's own displayJobInput cost, ms`]).toBeLessThan(150);
   }
 });
 
@@ -962,8 +1014,9 @@ test("a fill on a small layer's mask: the mask grows to the canvas through the w
         await fill();
         result["jobs run"] = jobs;
         // Audit I-6 (a): a nudge of the layer whose mask grew, then Undo and Redo. Each moves the placed
-        // mask with its layer, which today bumps its revision and re-uploads it whole (keeping the
-        // revision on a placement-only move is a follow-up); the frame after each is budgeted.
+        // mask with its layer; the mask's revision moves but its buffer does not, so nothing is uploaded
+        // (final review minor 9, `Lineage`'s buffer identity: before it, each re-uploaded the grown
+        // mask whole). The frame after each is budgeted.
         s().setTool("move");
         await settle(); frame();
         for (const [step, act] of [["nudge", () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight" }))], ["undo", () => s().undo()], ["redo", () => s().redo()]] as [string, () => void][]) {
@@ -972,6 +1025,7 @@ test("a fill on a small layer's mask: the mask grows to the canvas through the w
           result[`${step} (UI thread) ms`] = Math.round(performance.now() - t0);
           result[`frame after the ${step} ms`] = Math.round(frame());
           result[`frame after the ${step}, whole uploads`] = (window as any).__uploads.image;
+          result[`frame after the ${step}, partial uploads`] = (window as any).__uploads.sub;
           await settle();
         }
         result["layer moved by the nudge, then back, then again"] = api.engine.state(doc).layers[0].transform.origin[0] - (w - 1500) / 2;
@@ -1009,9 +1063,17 @@ test("a fill on a small layer's mask: the mask grows to the canvas through the w
         // 400 there.
         expect(k(`${pass}: frame after it ms`)).toBeLessThan(label === "24 MP" ? 150 : 400);
       }
-      // Task 7's budget for the frame that draws a whole full-size image; each of the nudge, Undo and
-      // Redo re-uploads the grown mask whole too (fix round 1, 14a-perf-2: same 150 / 400 ms as above).
-      for (const step of ["nudge", "undo", "redo"]) expect(k(`frame after the ${step} ms`)).toBeLessThan(label === "24 MP" ? 150 : 400);
+      // The nudge, Undo and Redo move the grown mask without changing its bytes: no upload at all
+      // (final review minor 9). Before the fix each re-uploaded the mask whole, under the 150 / 400 ms
+      // budget of fix round 1 (14a-perf-2); the final fix wave measured 18-27 ms (24 MP) and 61-189 ms
+      // (100 MP) then, one whole upload each, and 4-9 ms (24 MP) and 6-12 ms (100 MP) after, with no
+      // upload, over two runs; the budget is now the partial-upload case's frame budget (33 ms,
+      // "partial uploads" above) at both sizes.
+      for (const step of ["nudge", "undo", "redo"]) {
+        expect(k(`frame after the ${step}, whole uploads`), `${step}: no whole upload`).toBe(0);
+        expect(k(`frame after the ${step}, partial uploads`), `${step}: no partial upload`).toBe(0);
+        expect(k(`frame after the ${step} ms`)).toBeLessThan(33);
+      }
     }
   }
 });
@@ -1235,7 +1297,7 @@ test("shapes and fills: a shape over the canvas on the UI thread, the Shape tool
   }
   console.log(`shapes and fills (release wasm, Edge): ${JSON.stringify(out)}`);
   console.log(`shapes and fills renderer: ${renderer}`);
-  // Shapes commit on the UI thread, as an import does (ruling OQ12); the first pays for the wasm
+  // Shapes commit on the UI thread, as an import does (ruling OQ11); the first pays for the wasm
   // memory growing to hold it.
   expect(out["24 MP: rectangle over the canvas (release, UI thread) ms"]).toBeLessThan(1000);
   expect(out["24 MP: ellipse over the canvas (release, UI thread) ms"]).toBeLessThan(1000);
@@ -1376,7 +1438,7 @@ test("T9-6: dragging a pixel gradient on a small layer under a non-uniform cover
   }
   console.log(`T9-6 pixel gradient drag on a small layer's covering mask (release wasm, Edge): ${JSON.stringify(out)}`);
   for (const label of ["24 MP", "100 MP"]) {
-    // The pixel gradient's own drag budget (ruling OQ9's 50 ms): carrying the covering mask onto the
+    // The pixel gradient's own drag budget (ruling OQ8's 50 ms): carrying the covering mask onto the
     // grown grid must not push a tick over it.
     expect(out[`${label}: drag tick (store, engine and frame), worst ms`]).toBeLessThan(50);
   }
@@ -1417,7 +1479,14 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
         // cases) on the path the Fill scenario takes after a cancelled gradient preview. So the
         // warm-up runs that same sequence on the small document: a gradient preview, cancel, Fill.
         // Follow-ups: "pre-warm the job worker (compile its wasm) at app startup", and the renderer's
-        // first-use cost (compile its GL programs at startup).
+        // first-use cost (compile its GL programs at startup). Final fix wave (F2, time-boxed): the
+        // worker is now started at startup (`JobClient.warm`), which does not remove this cost; timed
+        // without this block, the stall is one app render of 291-299 ms about 20 ms after the key
+        // (the render the tool switch asks for), inside which no WebGL call takes over 2 ms and no
+        // engine call or renderer stage over 5 ms, so it is neither a shader compile nor an upload;
+        // runs without the block also showed 219-483 ms main-thread pauses at 100 MP with no render
+        // or engine call in them. A browser trace did not reproduce it. Not identified: this warm-up
+        // stays (see the Phase 4b-1 rulings doc, F2).
         if (warmUp) {
           const warm = api.engine.newDocument(2560, 2560, true);
           s().openDocument(warm);
