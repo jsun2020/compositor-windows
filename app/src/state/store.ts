@@ -13,7 +13,7 @@ import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } fr
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
-import { BLACK, WHITE, sameColor, type PaletteColor } from "../tools/color";
+import { BLACK, WHITE, hsbOf, hsbToRgb, quantized, sameColor, withRgb, type PaletteColor, type PickerHSB } from "../tools/color";
 
 export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
@@ -58,6 +58,22 @@ export interface TransformEdit {
  * the app session, as the Mac keeps it per window. */
 export interface Palette { foreground: PaletteColor; background: PaletteColor; maskPaintWhite: boolean; }
 export const DEFAULT_PALETTE: Palette = { foreground: BLACK, background: WHITE, maskPaintWhite: false };
+
+/** What the open colour picker edits (`ColorPickerTarget`): a palette swatch, or one end of the
+ * Gradient Map being edited in its panel. */
+export type PickerTarget = { kind: "palette"; background: boolean } | { kind: "gradientMap"; highlights: boolean };
+/** The open picker (`ColorPickerState`): its target, the colour it opened on, and its working values.
+ * Nothing reaches a swatch until OK; a Gradient Map end previews the working colour and Cancel puts
+ * the original back. */
+export interface ColorPicker { target: PickerTarget; original: PaletteColor; hsb: PickerHSB; }
+/** The picker's title bar (`ColorPickerTarget.title`). */
+export function pickerTitle(target: PickerTarget): string {
+  if (target.kind === "palette") return target.background ? "Color Picker (Background Color)" : "Color Picker (Foreground Color)";
+  return target.highlights ? "Color Picker (Gradient Map Highlights)" : "Color Picker (Gradient Map Shadows)";
+}
+/** The ring shown while the canvas is being sampled (`SampleRingOverlay`): where, in view px, the
+ * colour sampled and the colour before sampling began. */
+export interface SampleRing { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor; }
 
 /** A layer with more pixels than this is edited, and its histogram read, by the job worker rather than
  * on the UI thread (ruling OQ5): at 4 MP a Levels commit took about 0.35 s here. Below it a job's two
@@ -119,6 +135,24 @@ export interface EditorStore {
   swapPalette(): void;
   /** D: black over white, or black as the mask's foreground (`resetPaletteColors`). */
   resetPalette(): void;
+  colorPicker: ColorPicker | null;
+  /** Where the picker's panel was last left (its top-left, in window px); null until it is first moved. */
+  pickerAt: { x: number; y: number } | null;
+  sampleRing: SampleRing | null;
+  /** The picker's working colour, snapped to 8 bits (`ColorPickerState.color`). */
+  pickerColor(): PaletteColor | null;
+  /** Opens the picker on a swatch (not while a mask is the target: the swatch asks black or white
+   * instead) or on a Gradient Map end while that panel is open. Opening on a swatch while it is open
+   * on the other one switches it (`openColorPicker`, `openGradientMapColorPicker`). */
+  openColorPicker(target: PickerTarget): boolean;
+  /** The picker's new values; a Gradient Map end previews them at once (`previewGradientMapColor`). */
+  setPickerHsb(hsb: PickerHSB): void;
+  /** OK (`commit`) or Cancel (`closeColorPicker`). */
+  closeColorPicker(commit: boolean): void;
+  /** Loads the canvas colour under a document point into the open picker (`sampleIntoColorPicker`). */
+  sampleIntoPicker(at: { x: number; y: number }): void;
+  setPickerAt(at: { x: number; y: number }): void;
+  setSampleRing(ring: SampleRing | null): void;
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
   /** Whether an edit of `layerId`'s pixels goes to the job worker: it has more than `jobPixels`. */
@@ -217,9 +251,23 @@ function dropOpenPanel(): void {
   cancelSettle();
   const { adjustEdit, engine, activeId } = useEditor.getState();
   if (!adjustEdit) return;
-  useEditor.setState({ adjustEdit: null });
+  // A picker open on one of the panel's Gradient Map ends goes with it.
+  useEditor.setState({ adjustEdit: null, ...(useEditor.getState().colorPicker?.target.kind === "gradientMap" ? { colorPicker: null } : {}) });
   if (activeId) engine!.setPreview(activeId, null);
 }
+
+/** Sets one end of the open Gradient Map panel to `color`, previewing it (`setGradientMapColor`). */
+function setGradientMapEnd(highlights: boolean, color: PaletteColor): void {
+  const edit = useEditor.getState().adjustEdit;
+  const settings = edit?.adjustment?.gradientMapSettings;
+  if (!edit?.adjustment || !settings || edit.adjustment.kind !== "Gradient Map") return;
+  const end = { red: color.red, green: color.green, blue: color.blue };
+  const current = highlights ? settings.highlights : settings.shadows;
+  if (current.red === end.red && current.green === end.green && current.blue === end.blue) return;
+  useEditor.getState().updateAdjust({ adjustment: { ...edit.adjustment, gradientMapSettings: { ...settings, [highlights ? "highlights" : "shadows"]: end } } });
+}
+/** `withRgb` from an engine sample. */
+const withRgbFrom = (hsb: PickerHSB, rgb: [number, number, number]): PickerHSB => withRgb(hsb, { red: rgb[0], green: rgb[1], blue: rgb[2] });
 
 const GUIDES_KEY = "compositor.showGuides";
 function loadShowGuides(): boolean {
@@ -233,7 +281,42 @@ export const useEditor = create<EditorStore>((set, get) => ({
   blendPreview: null,
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
-  palette: DEFAULT_PALETTE,
+  palette: DEFAULT_PALETTE, colorPicker: null, pickerAt: null, sampleRing: null,
+  pickerColor: () => { const p = get().colorPicker; return p ? quantized(hsbToRgb(p.hsb)) : null; },
+  openColorPicker: (target) => {
+    if (get().working) return false;
+    let original: PaletteColor;
+    if (target.kind === "palette") {
+      if (get().maskTargeted()) return false;
+      original = get().paletteColor(target.background);
+    } else {
+      const edit = get().adjustEdit;
+      const settings = edit?.adjustment?.kind === "Gradient Map" && !edit.params ? edit.adjustment.gradientMapSettings : undefined;
+      if (!settings || get().colorPicker) return false;
+      original = target.highlights ? settings.highlights : settings.shadows;
+    }
+    set({ colorPicker: { target, original, hsb: hsbOf(original) } });
+    return true;
+  },
+  setPickerHsb: (hsb) => {
+    const picker = get().colorPicker; if (!picker) return;
+    set({ colorPicker: { ...picker, hsb } });
+    if (picker.target.kind === "gradientMap") setGradientMapEnd(picker.target.highlights, get().pickerColor()!);
+  },
+  closeColorPicker: (commit) => {
+    const picker = get().colorPicker; if (!picker) return;
+    const color = get().pickerColor()!;
+    set({ colorPicker: null });
+    if (picker.target.kind === "palette") { if (commit && !get().maskTargeted()) get().setPaletteColor(color, picker.target.background); }
+    else setGradientMapEnd(picker.target.highlights, commit ? color : picker.original);
+  },
+  sampleIntoPicker: (at) => {
+    const { colorPicker, engine, activeId } = get(); if (!colorPicker || !engine || !activeId) return;
+    const rgb = engine.sampleColor(activeId, at);
+    if (rgb) get().setPickerHsb(withRgbFrom(colorPicker.hsb, rgb));
+  },
+  setPickerAt: (pickerAt) => set({ pickerAt }),
+  setSampleRing: (sampleRing) => { set({ sampleRing }); get().repaintOverlay(); },
   maskTargeted: () => {
     const { activeId, documents, maskSelected } = get();
     const doc = activeId ? documents[activeId] : null;
@@ -428,8 +511,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
     set({ selectedLayerIds: valid, maskSelected: false });
     get().refresh(activeId);
   },
-  // Quiet: the chip handlers that call this have just had `selectLayers` raise the banner.
-  setMaskSelected: (v) => { if (!get().panelOwnsDocument()) set({ maskSelected: v }); },
+  // Quiet: the chip handlers that call this have just had `selectLayers` raise the banner. Targeting a
+  // mask closes a picker open on a swatch: a mask's palette is black and white (ColorPaletteControls.swift:53-56).
+  setMaskSelected: (v) => {
+    if (get().panelOwnsDocument()) return;
+    set({ maskSelected: v });
+    if (get().colorPicker?.target.kind === "palette" && get().maskTargeted()) get().closeColorPicker(false);
+  },
   toggleCollapsed: (id) => {
     const { activeId, collapsed } = get(); if (!activeId) return;
     const list = collapsed[activeId] ?? [];
@@ -571,6 +659,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (editing ? !layer.adjustment : !get().canAdjust()) return false;
     const filter = isFilterKind(kind as string);
     const adjustment = filter ? null : (editing ? layer.adjustment! : defaultAdjustment(kind as AdjustmentKind));
+    // A destructive Gradient Map starts from the image's foreground and background (Filters.swift:490).
+    if (adjustment?.gradientMapSettings && !editing) {
+      const { foreground, background } = get().palette;
+      adjustment.gradientMapSettings = { ...adjustment.gradientMapSettings, shadows: { ...foreground }, highlights: { ...background } };
+    }
     // Each destructive Grain gets a pattern of its own, as the Mac's FilterEdit draws a random
     // seed and as Add Noise already does here; an adjustment layer keeps the seed it was made with.
     if (adjustment?.grainSettings && !editing) adjustment.grainSettings.seed = Math.floor(Math.random() * 0xffffffff);
@@ -673,7 +766,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // until the result is put back (runEditJob clears it then); the document is busy meanwhile.
     if (!identity && edit.target === "layer" && get().usesJob(edit.layerId)) {
       cancelSettle();
-      set({ adjustEdit: null });
+      set({ adjustEdit: null, ...(get().colorPicker?.target.kind === "gradientMap" ? { colorPicker: null } : {}) });
       void get().runEditJob(command, edit.layerId);
       return;
     }

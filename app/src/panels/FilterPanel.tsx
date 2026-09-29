@@ -20,7 +20,6 @@ function NumberField(props: { label: string; name?: string; value: number; min: 
   );
 }
 const hex = (c: AdjustmentColor) => "#" + [c.red, c.green, c.blue].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
-const fromHex = (text: string): AdjustmentColor => ({ red: parseInt(text.slice(1, 3), 16) / 255, green: parseInt(text.slice(3, 5), 16) / 255, blue: parseInt(text.slice(5, 7), 16) / 255 });
 
 export function FilterPanel() {
   const s = useEditor();
@@ -55,9 +54,14 @@ export function FilterPanel() {
   if (a.kind === "Gradient Map") {
     const g = a.gradientMapSettings ?? { shadows: { red: 0, green: 0, blue: 0 }, highlights: { red: 1, green: 1, blue: 1 }, reversed: false };
     const set = (patch: Partial<typeof g>) => setAdjustment({ gradientMapSettings: { ...g, ...patch } });
+    // Each end opens the app's colour picker, which previews as it changes (`openGradientMapColorPicker`).
+    const end = (label: "Shadows" | "Highlights", c: AdjustmentColor) => (
+      <label>{label} <button aria-label={label} data-testid={`gradient-map-${label.toLowerCase()}`} className="color-swatch-button" style={{ background: hex(c) }}
+        disabled={!!s.colorPicker} onClick={(e) => { e.currentTarget.blur(); s.openColorPicker({ kind: "gradientMap", highlights: label === "Highlights" }); }} /></label>
+    );
     return (<>
-      <label>Shadows <input aria-label="Shadows" type="color" value={hex(g.shadows)} onChange={(e) => set({ shadows: fromHex(e.target.value) })} /></label>
-      <label>Highlights <input aria-label="Highlights" type="color" value={hex(g.highlights)} onChange={(e) => set({ highlights: fromHex(e.target.value) })} /></label>
+      {end("Shadows", g.shadows)}
+      {end("Highlights", g.highlights)}
       <label><input type="checkbox" aria-label="Reverse" checked={g.reversed} onChange={(e) => set({ reversed: e.target.checked })} /> Reverse</label>
     </>);
   }

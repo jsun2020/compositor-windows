@@ -1,3 +1,4 @@
+import { colorTuple } from "../tools/color";
 import { useEditor } from "../state/store";
 import { activeLayer, visibleIds } from "../state/selection";
 import type { AdjustmentKind, BlendMode, SelectionMode } from "../engine/types";
@@ -116,11 +117,13 @@ export function canInvert(): boolean {
   return (c.s.maskSelected && c.active.hasMask) || c.active.hasPixels;
 }
 /** Layer > New <kind> Adjustment. Each Grain layer gets its own pattern, and a Gradient Map
- * starts from black to white (the Mac takes the palette, which Phase 4 adds). */
+ * starts from the image's foreground to its background (LayerAdjustment.swift:191). */
 export function addAdjustmentLayer(kind: AdjustmentKind): void {
   const c = ctx(); if (!c) return;
   const seed = Math.floor(Math.random() * 0xffffffff);
-  c.s.run({ type: "AddAdjustmentLayer", kind, seed, shadows: null, highlights: null });
+  const { foreground, background } = c.s.palette;
+  const ends = kind === "Gradient Map" ? { shadows: colorTuple(foreground), highlights: colorTuple(background) } : { shadows: null, highlights: null };
+  c.s.run({ type: "AddAdjustmentLayer", kind, seed, ...ends });
   // The new layer is active; open its panel straight away, as macOS does; Invert has nothing to
   // set, so it just applies (LayerAdjustment.swift:203-204).
   const created = activeLayer(useEditor.getState().documents[c.doc.id]);

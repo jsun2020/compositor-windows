@@ -3,6 +3,7 @@ import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
 import type { OverlayGeometry } from "../tools/transform-geometry";
 import type { Guide, SelectionShape } from "../engine/types";
+import { cssColor, type PaletteColor } from "../tools/color";
 
 /** The marching ants: the selection's outline as a path in view px about `at`, the document's
  * scaled origin (moved by the outline's offset while it is dragged), built once and kept by
@@ -21,6 +22,28 @@ export interface OverlayState {
   /** Null with no selection, or an empty one. */
   ants?: AntsState | null;
   draft?: DraftState | null;
+  /** While the canvas is sampled: the ring about the pointer (view px). */
+  sampleRing?: { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor } | null;
+}
+
+/** The side of the sample ring's box, in view px (`SampleRingOverlay`: a 116 pt frame). */
+export const SAMPLE_RING = 116;
+
+/** A grey ring 24 px wide, its top half then the colour sampled and its bottom half the colour
+ * before sampling, each 16 px wide, on a circle inset 15 px in its box (SampleRingOverlay). */
+function drawSampleRing(ctx: CanvasRenderingContext2D, ring: NonNullable<OverlayState["sampleRing"]>): void {
+  const radius = (SAMPLE_RING - 30) / 2;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(ring.at.x, ring.at.y, radius, 0, Math.PI * 2);
+  ctx.lineWidth = 24; ctx.strokeStyle = "rgb(115, 115, 115)"; ctx.stroke();
+  for (const [color, top] of [[ring.sampled, true], [ring.original, false]] as const) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ring.at.x - SAMPLE_RING / 2, top ? ring.at.y - SAMPLE_RING / 2 : ring.at.y, SAMPLE_RING, SAMPLE_RING / 2); ctx.clip();
+    ctx.beginPath(); ctx.arc(ring.at.x, ring.at.y, radius, 0, Math.PI * 2);
+    ctx.lineWidth = 16; ctx.strokeStyle = cssColor(color); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 /** The dash the ants march along, in view px (`drawSelection`, TransformOverlay.swift:283-298). */
@@ -141,6 +164,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
   }
   if (state.ants) drawAnts(ctx, state.ants);
   if (state.draft) drawDraft(ctx, viewport, size, state.draft);
+  if (state.sampleRing) drawSampleRing(ctx, state.sampleRing);
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
   for (const x of state.guides.xs) { const v = viewport.viewPoint({ x, y: 0 }, size).x; ctx.beginPath(); ctx.moveTo(v + 0.5, 0); ctx.lineTo(v + 0.5, viewport.viewSize.height); ctx.stroke(); }
   for (const y of state.guides.ys) { const v = viewport.viewPoint({ x: 0, y }, size).y; ctx.beginPath(); ctx.moveTo(0, v + 0.5); ctx.lineTo(viewport.viewSize.width, v + 0.5); ctx.stroke(); }

@@ -10,6 +10,7 @@ import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry,
 import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
 import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
+import { installSampling } from "./sampling";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -72,7 +73,7 @@ export function CanvasView() {
     drawOverlay(overlay.getContext("2d")!, vp, dpr, {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
       transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
-      ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null,
+      ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null, sampleRing: s.sampleRing,
     });
   };
 
@@ -191,6 +192,12 @@ export function CanvasView() {
     return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
   }, []);
 
+  // Sampling into the colour picker while it is open (canvas/sampling.ts): ahead of every tool gesture.
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    return installSampling(el, () => spaceRef.current);
+  }, []);
+
   // Adjustment eyedroppers: while a sample mode is armed (Levels' three, or Hue/Saturation's
   // replace/add/remove), a click reads the point under the cursor and feeds the open panel
   // instead of starting whatever gesture the active tool would otherwise begin. Registered with
@@ -214,10 +221,11 @@ export function CanvasView() {
 
   // The cursor shows an armed eyedropper regardless of which tool is otherwise selected, and a
   // crosshair for the selection tools.
+  const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode || isSelectionTool(tool) ? "crosshair" : "";
-  }, [sampleMode, tool]);
+    el.style.cursor = sampleMode || picking || isSelectionTool(tool) ? "crosshair" : "";
+  }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {

@@ -23,6 +23,7 @@ import { SelectionAmountSheet } from "./sheets/SelectionAmountSheet";
 import { TransformInspector } from "./panels/TransformInspector";
 import { AdjustPanel } from "./panels/AdjustPanel";
 import { UndrawnNotice } from "./panels/UndrawnNotice";
+import { ColorPickerPanel } from "./panels/ColorPickerPanel";
 import "./styles.css";
 
 export function App() {
@@ -102,6 +103,7 @@ export function App() {
         </div>
       </div>
       <AdjustPanel />
+      <ColorPickerPanel />
       <UndrawnNotice />
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){working && <span data-testid="working"> - Working...</span>}</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}

@@ -136,3 +136,36 @@ body { margin: 0; }
 /* The selection tools' header (Phase 4a). */
 .tool-options .segmented button[aria-pressed="true"] { border-color: #3a6ea5; background: #3a6ea5; color: #fff; }
 .tool-options .hint { color: #999; }
+
+/* The palette at the foot of the tool rail (ColorPaletteControls.swift): 24 px swatches, the background
+   one 12 px down and right of the foreground one, swap and default-colour buttons beside them. */
+.tool-rail .palette { position: relative; width: 36px; height: 36px; margin: auto 4px 12px; flex: 0 0 auto; }
+.tool-rail .palette button.palette-swatch { position: absolute; width: 24px; height: 24px; margin: 0; padding: 0; border-radius: 6px; border: 1px solid #000; box-shadow: inset 0 0 0 1.5px #fff; }
+.tool-rail .palette button.palette-swatch.foreground { left: 0; top: 0; z-index: 1; }
+.tool-rail .palette button.palette-swatch.background { left: 12px; top: 12px; }
+.tool-rail .palette button.palette-swap { position: absolute; left: 25px; top: -4px; width: 13px; height: 13px; margin: 0; border-radius: 3px; color: #bbb; }
+.tool-rail .palette button.palette-reset { position: absolute; left: -2px; top: 26px; width: 13px; height: 13px; margin: 0; border-radius: 3px; }
+.palette-mask-popover { position: absolute; left: 44px; bottom: 0; z-index: 60; display: flex; flex-direction: column; gap: 10px; padding: 12px; width: max-content; background: #2a2a2a; border: 1px solid #000; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.palette-mask-popover div { display: flex; gap: 8px; }
+.tool-rail .palette-mask-popover button { width: auto; height: auto; margin: 0; padding: 4px 10px; background: #3a3a3a; border: 1px solid #000; border-radius: 4px; color: #eee; }
+/* The colour picker (ColorPickerSheet.swift): it floats over the window, so the canvas stays clickable. */
+.color-picker { position: fixed; z-index: 70; background: #2a2a2a; border: 1px solid #000; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.color-picker-title { padding: 6px 10px; font-weight: 600; border-bottom: 1px solid #000; cursor: move; user-select: none; }
+.color-picker-body { display: flex; gap: 14px; padding: 20px; align-items: flex-start; }
+.picker-field { position: relative; outline: 1px solid rgba(0, 0, 0, 0.6); cursor: crosshair; overflow: hidden; touch-action: none; }
+.picker-marker { position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #fff; box-shadow: 0 0 0 0.75px #000; box-sizing: border-box; pointer-events: none; }
+.picker-hue { position: relative; width: 34px; cursor: ns-resize; touch-action: none; }
+.picker-hue-strip { position: absolute; left: 7px; width: 20px; top: 0; bottom: 0; outline: 1px solid rgba(0, 0, 0, 0.6); }
+.picker-hue-arrows { position: absolute; left: 0; width: 34px; height: 10px; pointer-events: none;
+  background: linear-gradient(to bottom right, #ddd 50%, transparent 50%) 0 0 / 7px 5px no-repeat, linear-gradient(to top right, #ddd 50%, transparent 50%) 0 5px / 7px 5px no-repeat,
+  linear-gradient(to bottom left, #ddd 50%, transparent 50%) 27px 0 / 7px 5px no-repeat, linear-gradient(to top left, #ddd 50%, transparent 50%) 27px 5px / 7px 5px no-repeat; }
+.picker-side { display: flex; flex-direction: column; width: 180px; height: 256px; }
+.picker-top { display: flex; gap: 16px; }
+.picker-new { width: 64px; height: 64px; border-radius: 5px; outline: 1px solid rgba(0, 0, 0, 0.6); }
+.picker-buttons { display: flex; flex-direction: column; gap: 8px; width: 90px; }
+.picker-fields { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
+.picker-channel { display: flex; align-items: center; gap: 8px; }
+.picker-channel input { width: 52px; }
+.picker-channel input[aria-label="Hex color"] { width: 84px; font-family: monospace; }
+.picker-hint { margin-top: 8px; font-size: 11px; color: #999; }
+.color-swatch-button { width: 36px; height: 18px; padding: 0; border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 3px; cursor: pointer; }

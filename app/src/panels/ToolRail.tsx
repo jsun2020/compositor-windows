@@ -1,5 +1,6 @@
 import { useEditor, type Tool } from "../state/store";
 import { ToolIcon, toolIconName } from "./tool-icons";
+import { PaletteSwatches } from "./PaletteSwatches";
 
 const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: "move", label: "Move", key: "V" }, { id: "marquee", label: "Marquee", key: "M" },
@@ -21,6 +22,7 @@ export function ToolRail() {
           <ToolIcon name={toolIconName(t.id, marquee, lasso)} />
         </button>
       ))}
+      <PaletteSwatches />
     </div>
   );
 }
