@@ -326,6 +326,12 @@ impl WasmEngine {
         let rect = self.engine.mask_delta(parse_id(doc)?, parse_id(layer)?, from as u64).map_err(js_err)?;
         Ok(rect.map_or_else(Vec::new, |r| vec![r.x as f64, r.y as f64, r.width as f64, r.height as f64]))
     }
+    /// `Engine::edit_pixels`: the pixels a Fill or a Gradient on the layer (its mask when `mask`) paints
+    /// (ruling C1). Throws where the edit is refused for its size. Counts stay below 2^53, so they travel
+    /// as numbers.
+    pub fn edit_pixels(&self, doc: &str, layer: &str, mask: bool) -> Result<f64, JsError> {
+        Ok(self.engine.edit_pixels(parse_id(doc)?, parse_id(layer)?, mask).map_err(js_err)? as f64)
+    }
     /// The mask as the canvas shows it (`Engine::mask_pixels`): its buffer is the document's, or an
     /// open mask preview's, which lives until the next engine call either way.
     pub fn mask_pixels_ptr(&self, doc: &str, layer: &str) -> Result<*const u8, JsError> {

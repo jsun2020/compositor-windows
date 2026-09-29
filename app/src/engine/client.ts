@@ -165,6 +165,9 @@ export class EngineClient {
   }
   /** `pixelsDelta` for the layer's mask, in the mask's own grid (engine `mask_delta`). */
   maskDelta(doc: string, layer: string, from: number): PixelRect | null { return rectOf(this.wasm.mask_delta(doc, layer, from)); }
+  /** The pixels a Fill or a Gradient on the layer, or its mask, paints (engine `edit_pixels`, ruling C1):
+   * what decides the job worker. Throws where the edit is refused for its size. */
+  editPixels(doc: string, layer: string, mask: boolean): number { return this.wasm.edit_pixels(doc, layer, mask); }
   clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }
   mergeAction(doc: string, ids: string[]): string | null { return this.wasm.merge_action(doc, JSON.stringify(ids)) ?? null; }
   groupBox(doc: string, ids: string[]): LayerTransform | null { const t = this.wasm.group_box(doc, JSON.stringify(ids)); return t ? (JSON.parse(t) as LayerTransform) : null; }

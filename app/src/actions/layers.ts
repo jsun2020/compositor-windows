@@ -54,7 +54,42 @@ export function deleteKeyPressed(): void {
   const c = ctx(); if (!c) return;
   if (!c.doc.selection) { deleteSelected(); return; }
   if (!canClearSelected()) return;
-  c.s.run({ type: "ClearSelectedPixels", id: c.active!.id, mask: c.s.maskSelected && c.active!.hasMask });
+  // On a mask the selection fills with the mask's background colour, as in Photoshop
+  // (`clearSelectedPixels`, SelectionEdits.swift:53-58); white unless the palette was swapped.
+  if (c.s.maskTargeted()) { fillActive(true); return; }
+  c.s.run({ type: "ClearSelectedPixels", id: c.active!.id, mask: false });
+}
+
+/** Whether the active layer's pixels, or its mask, can take a fill now (`canPaint`,
+ * EditorSession+Brush.swift:5-11): one layer selected and shown, not a folder unless its mask is the
+ * target, an enabled mask when it is, not an adjustment layer, no empty selection, no panel open, no
+ * job's result to come, no crop rectangle pending. */
+export function canPaint(): boolean {
+  const c = ctx(); if (!c?.active || c.selected.length !== 1 || c.s.panelOwnsDocument() || c.s.working) return false;
+  if (c.s.tool === "crop" && c.s.cropRect) return false;
+  if (c.doc.selection?.empty || !visibleIds(c.doc).has(c.active.id)) return false;
+  const mask = c.s.maskTargeted();
+  if (mask) return c.active.maskEnabled;
+  return !c.active.isGroup && !c.active.adjustment;
+}
+
+/** Alt+Backspace / Ctrl+Backspace: the selection (or the whole layer) filled with the foreground or
+ * background colour, one undo step; on a mask its black or white (`fillSelection`,
+ * SelectionEdits.swift:40-50). With the job worker, a fill that paints more than `jobPixels` goes to
+ * it, decided by the pixels it paints (`editPixels`, ruling C1), not the size the layer stores; one the
+ * engine refuses for its size shows why and sends nothing (the worker, seeing one layer, could not). */
+export function fillActive(background: boolean): void {
+  if (!canPaint()) return;
+  const c = ctx()!;
+  const mask = c.s.maskTargeted();
+  const command = { type: "Fill" as const, id: c.active!.id, mask, color: colorTuple(c.s.paletteColor(background)) };
+  if (c.s.jobs) {
+    let painted: number;
+    try { painted = c.s.engine!.editPixels(c.s.activeId!, c.active!.id, mask); }
+    catch (e) { useEditor.setState({ error: String(e instanceof Error ? e.message : e) }); return; }
+    if (painted > c.s.jobPixels) { void c.s.runEditJob(command, c.active!.id); return; }
+  }
+  c.s.run(command);
 }
 /** Ctrl-click on a thumbnail, or Select > Layer's Pixels / Mask's Black Areas (MaskTracing.swift:73-94). */
 export function loadSelection(id: string, mask: boolean, mode: SelectionMode = "Replace"): void {

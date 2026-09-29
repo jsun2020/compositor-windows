@@ -4,7 +4,7 @@ import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
-  addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy,
+  addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy, canPaint,
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
   loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink,
 } from "../actions/layers";
@@ -51,6 +51,9 @@ export function MenuBar() {
       // makes both inert as well (store.undo/redo), so they grey out for it too.
       { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: editable && !s.transformEdit && !!activeDoc?.canUndo },
       { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: editable && !s.transformEdit && !!activeDoc?.canRedo },
+      "separator",
+      { id: "fill-foreground", label: "Fill with Foreground Color", run: () => runAction("fill-foreground"), enabled: editable && canPaint() },
+      { id: "fill-background", label: "Fill with Background Color", run: () => runAction("fill-background"), enabled: editable && canPaint() },
     ] },
     { title: "Layer", items: [
       { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: editable },

@@ -254,3 +254,19 @@ fn a_fill_inside_a_selection_on_a_layer_over_the_canvas_is_recorded_as_that_rect
     // The selection's box, a pixel for its clip and one for sampling on every side.
     assert_eq!(e.pixels_delta(id, layer, before).unwrap(), Some(PixelRect { x: 18, y: 8, width: 34, height: 24 }));
 }
+
+#[test]
+fn edit_pixels_counts_what_a_fill_paints_not_what_the_layer_stores() {
+    // Ruling C1: the job worker is chosen by the grid `paint_layer` paints. A blank layer stores nothing
+    // but paints its 100 x 40 canvas; a 20 x 10 layer at (30, 15) grows to that canvas too.
+    let (e, id, layer) = blank(100, 40);
+    assert_eq!(e.edit_pixels(id, layer, false).unwrap(), 100 * 40);
+    let mut doc = Document::new(100, 40);
+    let small = Layer::with_pixels("Small", Raster::from_premultiplied(20, 10, [0, 0, 200, 255].repeat(200)), p(30.0, 15.0));
+    let lid = small.id;
+    doc.active_layer_id = Some(lid);
+    doc.layers = vec![small];
+    let mut e = Engine::new();
+    let id = e.insert_document(doc);
+    assert_eq!(e.edit_pixels(id, lid, false).unwrap(), 100 * 40);
+}

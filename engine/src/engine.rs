@@ -292,6 +292,23 @@ impl Engine {
         let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         Ok(self.session(id)?.lineage.delta(layer, Plane::Mask, from, l.mask_revision))
     }
+    /// The pixels a Fill or a Gradient on `layer` (its mask when `mask`) paints, from the stored
+    /// document (ruling C1): what decides whether the edit goes to the job worker, never the size the
+    /// layer stores (a blank layer on a 100 MP canvas paints 100 MP). An error where the edit is refused
+    /// for its size.
+    pub fn edit_pixels(&self, id: Uuid, layer: Uuid, mask: bool) -> Result<u64, CommandError> {
+        let doc = &self.session(id)?.document;
+        let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        if mask {
+            // A mask on its own placement is painted in its own grid, a covering one on its layer's
+            // (`raster_edit::paint_layer`).
+            let m = l.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
+            if m.placement.is_some() { return Ok(m.pixels.width as u64 * m.pixels.height as u64); }
+            return Ok(l.pixels.as_ref().map_or(l.transform.size.width.round().max(1.0) as u64 * l.transform.size.height.round().max(1.0) as u64, |p| p.width as u64 * p.height as u64));
+        }
+        let grid = ops::raster_edit::image_grid(doc, l)?;
+        Ok(grid.width as u64 * grid.height as u64)
+    }
     /// The preview showing on the canvas, if any.
     pub fn preview(&self, id: Uuid) -> Option<&PixelPreview> { self.sessions.get(&id).and_then(|s| s.preview.as_ref()) }
     /// The layer's mask as the canvas shows it (a gradient's mask preview in its place).

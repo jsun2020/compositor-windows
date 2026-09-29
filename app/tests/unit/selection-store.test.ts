@@ -47,7 +47,8 @@ describe("Delete", () => {
     let commands = stub(document([layer("A", { hasMask: true })], selected()));
     useEditor.setState({ maskSelected: true });
     deleteKeyPressed();
-    expect(commands).toEqual([{ type: "ClearSelectedPixels", id: "A", mask: true }]);
+    // With the mask palette at its default, white is the background it fills with (Phase 4b-1).
+    expect(commands).toEqual([{ type: "Fill", id: "A", mask: true, color: [1, 1, 1] }]);
     for (const doc of [document([layer("A")], selected(true)), document([layer("A", { visible: false })], selected()),
       document([layer("A", { hasMask: true, maskEnabled: false })], selected())]) {
       commands = stub(doc);

@@ -6,7 +6,7 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
 import { isSelectionTool } from "../tools/selection-draft";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
@@ -79,6 +79,8 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-lasso": s.setTool("lasso"); break;
     case "tool-wand": s.setTool("wand"); break;
     case "tool-eyedropper": s.setTool("eyedropper"); break;
+    case "fill-foreground": if (doc && !s.sheet) fillActive(false); break;
+    case "fill-background": if (doc && !s.sheet) fillActive(true); break;
     case "select-all": if (doc) s.run({ type: "SelectAll" }); break;
     case "deselect": if (doc?.selection) s.run({ type: "Deselect" }); break;
     case "select-inverse": if (doc?.selection) s.run({ type: "InvertSelection" }); break;
