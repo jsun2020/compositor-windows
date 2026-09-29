@@ -1249,15 +1249,62 @@ test("T9-6: dragging a pixel gradient on a small layer under a non-uniform cover
 test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so they go through the worker, at 24 and 100 MP", async ({ page }) => {
   test.setTimeout(900_000);
   const out: Record<string, number> = {};
+  let first = true, renderer = "";
   for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
     for (const edit of ["fill", "gradient"]) {
       await ready(page);
       await installFrameTimer(page);
-      const r = await page.evaluate(async ([w, h, edit]) => {
+      const warmUp = first; first = false;
+      if (warmUp) renderer = await page.evaluate(() => {
+        const gl = (document.querySelector('[data-testid="canvas-view"] canvas') as HTMLCanvasElement).getContext("webgl2")!;
+        const info = gl.getExtension("WEBGL_debug_renderer_info");
+        return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
+      });
+      const r = await page.evaluate(async ([w, h, edit, warmUp]) => {
         const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
         const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         const s = () => api.store.getState();
         const result: Record<string, number> = {};
+        // Fix round 4, controller ruling: a cold start. Run by itself, in a fresh browser process, the
+        // first timed scenario (24 MP fill) paid a one-time cost in its "longest frame gap" (279-394
+        // ms, against 17-28 ms when this test ran after the other Task 15 cases in the same browser;
+        // the round-2 spec fails the same way on the current build, so no app change caused it). As
+        // the mask-fill case above (14a-perf-2) does, one warm-up Fill on a small blank document
+        // (2560 x 2560, over JOB_PIXELS, so it takes the same worker path) pays that cost here, before
+        // any timed scenario and before the patching below, so it is not counted as a timed job; its
+        // gap and time are logged, not asserted, and the timed scenarios keep their 100 ms budget.
+        // Measured this round: a Fill alone does NOT move the cost (the timed gap stayed at 279-352
+        // ms, even with a 6000 x 4000 warm-up), so the worker's wasm start-up is not what it is. The
+        // stall is one ~310-330 ms app `renderer.render` call on the UI thread a few ms after the Fill
+        // key, with no engine call over 20 ms inside it -- a first-use GPU cost (most likely a shader
+        // program compiled on first use; it is cached per browser process, hence warm after other
+        // cases) on the path the Fill scenario takes after a cancelled gradient preview. So the
+        // warm-up runs that same sequence on the small document: a gradient preview, cancel, Fill.
+        // Follow-ups: "pre-warm the job worker (compile its wasm) at app startup", and the renderer's
+        // first-use cost (compile its GL programs at startup).
+        if (warmUp) {
+          const warm = api.engine.newDocument(2560, 2560, true);
+          s().openDocument(warm);
+          await settle(); frame();
+          s().setTool("gradient");
+          s().beginGradient({ x: 500, y: 1280 });
+          s().moveGradient({ end: { x: 2000, y: 1500 } }, true);
+          frame();
+          s().cancelGradient(); frame(); await settle();
+          s().setTool("move");
+          const t0 = performance.now();
+          window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
+          result["cold warm-up fill (UI thread) ms"] = Math.round(performance.now() - t0);
+          result["cold warm-up fill: went to the worker"] = s().working ? 1 : 0;
+          result["cold warm-up fill: longest frame gap"] = await new Promise<number>((done) => {
+            let last = performance.now(), gap = 0;
+            const tick = () => { const now = performance.now(); gap = Math.max(gap, now - last); last = now; if (!s().working) done(Math.round(gap)); else requestAnimationFrame(tick); };
+            requestAnimationFrame(tick);
+          });
+          result["cold warm-up fill: total ms"] = Math.round(performance.now() - t0);
+          s().closeDocument(warm);
+          await settle();
+        }
         let installedAt = Infinity, jobs = 0;
         const timed = (name: string, after?: () => void) => {
           const f = api.engine[name].bind(api.engine);
@@ -1320,11 +1367,12 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
         result["jobs run"] = jobs;
         s().closeDocument(doc);
         return result;
-      }, [w, h, edit] as [number, number, string]);
+      }, [w, h, edit, warmUp] as [number, number, string, boolean]);
       for (const [k, v] of Object.entries(r)) out[`${label} ${edit}: ${k}`] = v;
     }
   }
   console.log(`ruling C1, blank layers (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`ruling C1 renderer: ${renderer}`);
   for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
     for (const edit of ["fill", "gradient"]) {
       const k = (name: string) => out[`${label} ${edit}: ${name}`];
@@ -1346,8 +1394,12 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
       // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
       // Fix round 1, controller ruling: 500 at 100 MP (was 400) -- on the HD 520 that frame halves a
       // fresh 100 MP result and uploads it; the follow-up is "mask levels / display-level uploads" in
-      // the final review.
-      expect(k("frame after the result is put back ms")).toBeLessThan(label === "24 MP" ? 350 : 500);
+      // the final review. Fix round 4, controller ruling: 600 at 100 MP (24 MP unchanged), for both
+      // edits. Round 3 traced this frame's cost to `engine.layerPixels`, which prefilters the freshly
+      // installed layer down to the display level on the UI thread (314-533 ms of a 375-555 ms frame
+      // at 100 MP) -- inherent to the current design, not a one-time cost a warm-up can move. The
+      // follow-up is "prefilter the display level in the worker and return it with the result".
+      expect(k("frame after the result is put back ms")).toBeLessThan(label === "24 MP" ? 350 : 600);
     }
   }
 });
