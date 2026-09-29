@@ -152,3 +152,64 @@ fn a_gradient_the_commit_would_refuse_shows_nothing() {
     preview(&mut e, id, layer, false, &short, true);
     assert!(e.preview(id).is_none(), "a line under half a pixel: nothing");
 }
+
+#[test]
+fn a_non_uniform_covering_mask_of_a_different_size_gathers_as_the_commit_does() {
+    // Fix round 1, item 2: a covering mask genuinely stretched onto the layer's grid (50 x 40 onto
+    // 200 x 150, neither axis a multiple of the other -- a swapped width/height or the wrong row
+    // stride in the gather would show), on a canvas small enough that the preview is not reduced
+    // (level 0): the previewed mask must equal what a commit of the very same gradient leaves behind,
+    // so the expected bytes come from the commit, never a pasted run.
+    let mut doc = Document::new(200, 150);
+    let mut layer = Layer::with_pixels("Pattern", pattern(200, 150), p(0.0, 0.0));
+    let (mw, mh) = (50u32, 40u32);
+    let mask_data: Vec<u8> = (0..mw * mh).map(|i| (i * 7 % 256) as u8).collect();
+    layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(mw, mh, mask_data), enabled: true, placement: None, linked: None });
+    let id = layer.id;
+    doc.active_layer_id = Some(id);
+    doc.layers = vec![layer];
+    let mut e = Engine::new();
+    let doc_id = e.insert_document(doc);
+
+    let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(200.0, 0.0), from: [0.0, 0.0, 0.0, 1.0], to: [1.0, 1.0, 1.0, 1.0], opacity: 1.0 };
+    preview(&mut e, doc_id, id, true, &g, true);
+    assert!(matches!(e.preview(doc_id).unwrap().target, PreviewTarget::Mask(_)));
+    let state = e.state(doc_id).unwrap().layers[0].clone();
+    assert_eq!((state.mask_width, state.mask_height), (200, 150), "the canvas is small: not reduced");
+    let previewed = e.mask_pixels(doc_id, id).unwrap().unwrap().bytes().to_vec();
+    e.set_preview(doc_id, None).unwrap();
+    run(&mut e, doc_id, Command::Gradient { id, mask: true, gradient: g });
+    let committed = e.document(doc_id).unwrap().layers[0].mask.as_ref().unwrap().pixels.bytes().to_vec();
+    assert_eq!(previewed, committed);
+}
+
+#[test]
+fn a_mask_gradient_preview_refuses_what_growing_the_covering_mask_would_refuse() {
+    // Fix round 1, item 3a: the pixels-side sibling of this is
+    // `a_fill_that_would_grow_the_covering_mask_past_the_mask_budget_is_refused` (raster_edits.rs).
+    let mut e = Engine::new();
+    let id = e.new_document(100, 40, false).unwrap();
+    let mut doc = e.document(id).unwrap().clone();
+    let mut layer = Layer::with_pixels("Small", Raster::from_premultiplied(100, 40, [0, 0, 200, 255].repeat(4000)), p(0.0, 0.0));
+    let small_mask: Vec<u8> = vec![255u8; 200]; // A 20 x 10 covering mask.
+    layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(20, 10, small_mask), enabled: true, placement: None, linked: None });
+    let lid = layer.id;
+    // Growing this covering mask onto the layer's 100 x 40 grid needs 4,000 pixels of room.
+    let needed: u64 = 100 * 40;
+    // Another layer's mask holds 99,999,000 of the 100,000,000-pixel mask budget, leaving 1,000 --
+    // less than the 4,000 needed above.
+    let (big_w, big_h) = (99_999u32, 1_000u32);
+    let big_mask_pixels = big_w as u64 * big_h as u64;
+    let remaining = MAX_PIXELS - big_mask_pixels;
+    assert!(needed > remaining, "the fixture must actually starve the budget");
+    let mut big = Layer::blank("Big Folder", doc.size());
+    big.is_group = true;
+    big.mask = Some(Mask { pixels: GrayRaster::from_bytes(big_w, big_h, vec![255u8; big_mask_pixels as usize]), enabled: true, placement: None, linked: None });
+    doc.active_layer_id = Some(lid);
+    doc.layers = vec![big, layer];
+    let mut e = Engine::new();
+    let doc_id = e.insert_document(doc);
+    let g = GradientSpec { shape: GradientShape::Linear, start: p(0.0, 0.0), end: p(100.0, 0.0), from: [0.0, 0.0, 0.0, 1.0], to: [1.0, 1.0, 1.0, 1.0], opacity: 1.0 };
+    preview(&mut e, doc_id, lid, true, &g, true);
+    assert!(e.preview(doc_id).is_none(), "growing the mask past the budget: nothing shows");
+}

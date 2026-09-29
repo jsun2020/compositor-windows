@@ -200,17 +200,31 @@ fn check_target(doc: &Document, id: Uuid, mask: bool) -> Result<(), CommandError
     Ok(())
 }
 
-/// A covering mask brought onto the layer's own pixel grid (a mask on its own placement keeps its
-/// grid): the Mac paints a mask in the grid it covers (BrushStroke.swift:148-152), so a 1 x 1 or
-/// otherwise sized covering mask is stretched onto the layer's pixels first, nearest.
-fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> {
+/// Whether the layer's covering mask, once brought onto its own pixel grid (`mask_on_layer_grid`),
+/// still fits the mask budget: the commit's own check before it grows the mask, shared so a preview
+/// refuses to show a mask gradient the commit would refuse for the same reason (fix round 1, item 3a;
+/// `paint_layer_check`).
+fn mask_grow_check(doc: &Document, id: Uuid) -> Result<(), CommandError> {
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     let m = layer.mask.as_ref().ok_or_else(|| CommandError::Argument("the layer has no mask".into()))?;
     if m.placement.is_some() { return Ok(()); }
     let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
     if (m.pixels.width, m.pixels.height) == (w, h) { return Ok(()); }
-    let others = doc.used_mask_pixels() - m.pixels.width as u64 * m.pixels.height as u64;
+    let others = doc.used_mask_pixels().saturating_sub(m.pixels.width as u64 * m.pixels.height as u64);
     if (w as u64) * (h as u64) > MAX_PIXELS.saturating_sub(others) { return Err(CommandError::Project(ProjectError::TooLarge)); }
+    Ok(())
+}
+
+/// A covering mask brought onto the layer's own pixel grid (a mask on its own placement keeps its
+/// grid): the Mac paints a mask in the grid it covers (BrushStroke.swift:148-152), so a 1 x 1 or
+/// otherwise sized covering mask is stretched onto the layer's pixels first, nearest.
+fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> {
+    mask_grow_check(doc, id)?;
+    let layer = doc.layer(id).unwrap();
+    let m = layer.mask.as_ref().unwrap();
+    if m.placement.is_some() { return Ok(()); }
+    let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
+    if (m.pixels.width, m.pixels.height) == (w, h) { return Ok(()); }
     let src = m.pixels.clone();
     let data = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| {
         let (mx, my) = ((x as u64 * src.width as u64 / w as u64) as u32, (y as u64 * src.height as u64 / h as u64) as u32);
@@ -221,10 +235,22 @@ fn mask_on_layer_grid(doc: &mut Document, id: Uuid) -> Result<(), CommandError> 
 }
 
 /// Whether `paint_layer` would paint: the paint's values and the target (a preview asks first, and
-/// shows nothing the commit would refuse).
+/// shows nothing the commit would refuse). On the mask, this also refuses what growing a covering
+/// mask onto the layer's grid would refuse (`mask_grow_check`, the same check `mask_on_layer_grid`
+/// itself makes before it grows one).
+///
+/// Known gap (fix round 1, item 3b, a controller ruling): on the PIXELS side, a growing layer's own
+/// covering mask may also need to grow once the paint is trimmed back (`paint_layer`'s own check
+/// below, near its `followed` call) -- that check depends on the trimmed commit result, which this
+/// preview-time check never computes (a preview never actually paints and trims the grid), so it is
+/// NOT mirrored here. A rare preview on a growing layer with a non-white covering mask near the mask
+/// budget may therefore show a gradient that Return then refuses with "too large". Parked; not fixed
+/// this round.
 pub fn paint_layer_check(doc: &Document, id: Uuid, mask: bool, paint: &Paint) -> Result<(), CommandError> {
     paint.check()?;
-    check_target(doc, id, mask)
+    check_target(doc, id, mask)?;
+    if mask { mask_grow_check(doc, id)?; }
+    Ok(())
 }
 
 /// Paints `paint` into layer `id`'s pixels (`mask` false) or its mask, as one edit: Fill and the

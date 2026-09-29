@@ -126,15 +126,32 @@ fn gradient_previews_dragged_settled_and_patched_at_24_and_100_mp() {
         let drag = worst(&mut e, true, false);
         let settled = worst(&mut e, false, false);
         e.set_preview(id, None).unwrap();
-        // Ruling I2: the same ticks on the layer's mask.
+        // Ruling I2: the same ticks on a freshly added, 1 x 1 uniform mask.
         run(&mut e, id, Command::AddMask { id: layer, revealing: true });
         let mask_drag = worst(&mut e, true, true);
         let mask_settled = worst(&mut e, false, true);
         e.set_preview(id, None).unwrap();
+        run(&mut e, id, Command::DeleteMask { id: layer });
+        // Fix round 1, item 1: a non-uniform full-size mask (an ellipse selection's), which the
+        // gather must resample without a per-pixel division.
+        run(&mut e, id, Command::SelectShape { kind: SelectionShape::Ellipse, points: vec![Point { x: w as f64 * 0.1, y: h as f64 * 0.1 }, Point { x: w as f64 * 0.9, y: h as f64 * 0.1 }, Point { x: w as f64 * 0.9, y: h as f64 * 0.9 }, Point { x: w as f64 * 0.1, y: h as f64 * 0.9 }], mode: SelectionMode::Replace, antialiased: true });
+        run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: true });
+        let nonuniform_drag = worst(&mut e, true, true);
+        let nonuniform_settled = worst(&mut e, false, true);
+        e.set_preview(id, None).unwrap();
+        run(&mut e, id, Command::DeleteMask { id: layer });
+        // Fix round 1, item 1: a full-size UNIFORM mask (a Fill on the targeted mask, which grows the
+        // 1 x 1 mask onto the layer's grid first): the fast path must be an O(1) size check, never a
+        // scan of the mask's content.
+        run(&mut e, id, Command::AddMask { id: layer, revealing: true });
+        run(&mut e, id, Command::Fill { id: layer, mask: true, color: [0.5, 0.5, 0.5] });
+        let uniform_full_drag = worst(&mut e, true, true);
+        let uniform_full_settled = worst(&mut e, false, true);
+        e.set_preview(id, None).unwrap();
         let (x, y) = (w as f64 / 2.0 - 350.0, h as f64 / 2.0 - 350.0);
         run(&mut e, id, Command::SelectShape { kind: SelectionShape::Rectangle, points: vec![Point { x, y }, Point { x: x + 700.0, y }, Point { x: x + 700.0, y: y + 700.0 }, Point { x, y: y + 700.0 }], mode: SelectionMode::Replace, antialiased: false });
         let patch = worst(&mut e, true, false);
-        println!("{label}: gradient preview tick dragging {drag:.0} ms, settled {settled:.0} ms, mask dragging {mask_drag:.0} ms, mask settled {mask_settled:.0} ms, patch in a 700 px selection {patch:.0} ms");
+        println!("{label}: gradient preview tick dragging {drag:.0} ms, settled {settled:.0} ms, 1x1 mask dragging {mask_drag:.0} ms, settled {mask_settled:.0} ms, non-uniform full mask dragging {nonuniform_drag:.0} ms, settled {nonuniform_settled:.0} ms, uniform full mask dragging {uniform_full_drag:.0} ms, settled {uniform_full_settled:.0} ms, patch in a 700 px selection {patch:.0} ms");
         assert!(e.preview(id).is_some());
     }
 }

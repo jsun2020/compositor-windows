@@ -685,24 +685,28 @@ test("gradient previews: a drag tick, the settled preview and a patch in a 700 p
       api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
       const layer = api.engine.state(doc).layers[0].id;
       api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
-      // Ruling I2: a mask, so the same ticks below can preview a mask gradient too.
-      api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true });
       api.store.getState().openDocument(doc);
       await settle(); frame();
+      const toFit = async () => { const s = api.store.getState(); s.viewports[doc].fit({ width: w, height: h }); s.invalidate(); await settle(); frame(); };
       const gradient = (i: number) => ({ shape: "Linear", start: [w * 0.2 + i, h * 0.3], end: [w * 0.8, h * 0.7 - i], from: [1, 0.2, 0, 1], to: [0, 0, 1, 0.3], opacity: 0.9 });
-      // One tick: the engine's preview, then the frame that draws it (what a pointer move costs).
+      // One tick: the engine's preview, the refresh, and the frame that draws it, as one span (fix
+      // round 1, item 4: `refresh` used to run outside the timed window) -- what a pointer move
+      // actually costs. The frame's own whole-texture upload count (`__uploads.image`, reset by
+      // `__frame` itself) travels along too, for the patch case's assertion below (item 5).
       const tick = (i: number, dragging: boolean, mask: boolean) => {
         const t0 = performance.now();
         api.engine.setPreview(doc, { preview: "Gradient", layer, mask, gradient: gradient(i), dragging });
         const engine = performance.now() - t0;
         api.store.getState().refresh(doc);
-        return [engine, frame()];
+        const f = frame();
+        const total = performance.now() - t0;
+        return [engine, f, total, (window as any).__uploads.image];
       };
       const worst = (dragging: boolean, mask = false) => {
         const ticks: number[][] = [];
         for (let i = 0; i < 6; i++) ticks.push(tick(i * 7, dragging, mask));
         ticks.shift(); // the first builds the reduced copies
-        return [Math.max(...ticks.map((t) => t[0])), Math.max(...ticks.map((t) => t[1])), Math.max(...ticks.map((t) => t[0] + t[1]))].map((v) => Math.round(v));
+        return [Math.max(...ticks.map((t) => t[0])), Math.max(...ticks.map((t) => t[1])), Math.max(...ticks.map((t) => t[2])), Math.max(...ticks.map((t) => t[3]))].map((v) => Math.round(v));
       };
       for (const zoom of ["fit", "1:1"]) {
         if (zoom === "1:1") { await api.setZoom(1); await settle(); frame(); }
@@ -710,22 +714,44 @@ test("gradient previews: a drag tick, the settled preview and a patch in a 700 p
         result[`drag engine ${zoom}`] = e; result[`drag frame ${zoom}`] = f; result[`drag total ${zoom}`] = t;
         [e, f, t] = worst(false);
         result[`settled engine ${zoom}`] = e; result[`settled frame ${zoom}`] = f; result[`settled total ${zoom}`] = t;
-        api.engine.setPreview(doc, null); api.store.getState().refresh(doc); frame();
-        // Ruling I2: the same ticks on the layer's mask, at this same zoom, its own contiguous window.
-        [e, f, t] = worst(true, true);
-        result[`mask drag engine ${zoom}`] = e; result[`mask drag frame ${zoom}`] = f; result[`mask drag total ${zoom}`] = t;
-        [e, f, t] = worst(false, true);
-        result[`mask settled engine ${zoom}`] = e; result[`mask settled frame ${zoom}`] = f; result[`mask settled total ${zoom}`] = t;
         api.engine.setPreview(doc, null); api.store.getState().refresh(doc); frame(); await settle();
       }
+      // Fix round 1, item 1: three mask shapes, each timed dragging and settled at fit and 1:1, each
+      // its own contiguous per-tick window (engine call, refresh and the frame that draws it) -- a
+      // freshly added 1 x 1 uniform mask, a non-uniform full-size mask (an ellipse selection's, so
+      // the gather genuinely resamples) and a full-size uniform mask (a Fill on the targeted mask,
+      // which first grows the 1 x 1 mask onto the layer's grid).
+      const maskCase = async (prefix: string, build: () => void) => {
+        build();
+        await toFit();
+        for (const zoom of ["fit", "1:1"]) {
+          if (zoom === "1:1") { await api.setZoom(1); await settle(); frame(); }
+          let [e, f, t] = worst(true, true);
+          result[`${prefix} drag engine ${zoom}`] = e; result[`${prefix} drag frame ${zoom}`] = f; result[`${prefix} drag total ${zoom}`] = t;
+          [e, f, t] = worst(false, true);
+          result[`${prefix} settled engine ${zoom}`] = e; result[`${prefix} settled frame ${zoom}`] = f; result[`${prefix} settled total ${zoom}`] = t;
+          api.engine.setPreview(doc, null); api.store.getState().refresh(doc); frame(); await settle();
+        }
+        api.engine.execute(doc, { type: "DeleteMask", id: layer });
+      };
+      await maskCase("mask 1x1", () => api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true }));
+      await maskCase("mask non-uniform full", () => {
+        api.engine.execute(doc, { type: "SelectShape", kind: "Ellipse", points: [[w * 0.1, h * 0.1], [w * 0.9, h * 0.1], [w * 0.9, h * 0.9], [w * 0.1, h * 0.9]], mode: "Replace", antialiased: true });
+        api.engine.execute(doc, { type: "AddMaskFromSelection", id: layer, revealing: true });
+      });
+      await maskCase("mask uniform full", () => {
+        api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true });
+        api.engine.execute(doc, { type: "Fill", id: layer, mask: true, color: [0.5, 0.5, 0.5] });
+      });
       // A 700 x 700 selection in the middle (its clip, a pixel wider each side, within PATCH_LIMIT):
       // a full-size patch, at 1:1.
       const x = w / 2 - 350, y = h / 2 - 350;
       api.engine.execute(doc, { type: "SelectShape", kind: "Rectangle", points: [[x, y], [x + 700, y], [x + 700, y + 700], [x, y + 700]], mode: "Replace", antialiased: false });
       api.store.getState().refresh(doc); frame(); await settle();
-      const [e, f, t] = worst(true);
+      const [e, f, t, wholeUploads] = worst(true);
       result["patch engine"] = e; result["patch frame"] = f; result["patch total"] = t;
-      result[`patch uploads: ${(window as any).__lastUploads}`] = 0;
+      // Fix round 1, item 5: the patch reaches the GPU as its rectangle alone, never a whole texture.
+      result["patch whole uploads"] = wholeUploads;
       api.engine.setPreview(doc, null); api.store.getState().closeDocument(doc);
       return result;
     }, [w, h]);
@@ -736,10 +762,15 @@ test("gradient previews: a drag tick, the settled preview and a patch in a 700 p
     for (const zoom of ["fit", "1:1"]) {
       expect(out[`${label}: drag total ${zoom}`]).toBeLessThan(50);
       expect(out[`${label}: settled total ${zoom}`]).toBeLessThan(150);
-      // Ruling I2: the mask gradient's ticks get the same budgets as the pixel gradient's.
-      expect(out[`${label}: mask drag total ${zoom}`]).toBeLessThan(50);
-      expect(out[`${label}: mask settled total ${zoom}`]).toBeLessThan(150);
+      // Fix round 1, item 1: the mask gradient's ticks get the same budgets as the pixel gradient's,
+      // for all three mask shapes.
+      for (const prefix of ["mask 1x1", "mask non-uniform full", "mask uniform full"]) {
+        expect(out[`${label}: ${prefix} drag total ${zoom}`]).toBeLessThan(50);
+        expect(out[`${label}: ${prefix} settled total ${zoom}`]).toBeLessThan(150);
+      }
     }
     expect(out[`${label}: patch total`]).toBeLessThan(50);
+    // Fix round 1, item 5.
+    expect(out[`${label}: patch whole uploads`], "the patch reaches the GPU as its rectangle, never a whole texture").toBe(0);
   }
 });
