@@ -1,4 +1,4 @@
-use crate::{ids, AdjustmentKind, BlendMode, FilterParams, GradientSpec, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape, WandSettings};
+use crate::{ids, AdjustmentKind, BlendMode, FilterParams, GradientSpec, LayerAdjustment, LayerTransform, Point, Sampling, SelectionMode, SelectionShape, ShapeSpec, WandSettings};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -72,6 +72,8 @@ pub enum Command {
     Fill { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, color: [f64; 3] },
     /// Paint a gradient over the layer's pixels or its mask, inside the selection.
     Gradient { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, gradient: GradientSpec },
+    /// A shape filled with `color` on a new layer above the active one (the Shape tool).
+    AddShape { shape: ShapeSpec, color: [f64; 3] },
 }
 
 impl Command {
@@ -144,6 +146,8 @@ impl Command {
             Command::Fill { mask: true, .. } => "Fill Mask",
             Command::Gradient { mask: false, .. } => "Gradient",
             Command::Gradient { mask: true, .. } => "Gradient Mask",
+            // ShapeTool.swift:146: the kind's own name.
+            Command::AddShape { shape, .. } => shape.kind().name(),
         }
     }
 }

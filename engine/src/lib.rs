@@ -51,6 +51,7 @@ pub use lineage::*;
 pub use jobs::*;
 pub use ops::masks::blur_gray;
 pub use ops::raster_edit::{GradientShape, GradientSpec, Paint, MIN_GRADIENT_LINE};
+pub use ops::shape::{ShapeKind, ShapeSpec, SHAPE_TOO_LARGE};
 pub use selection::{Contour, Selection, SelectionMode, SelectionShape, SelectionState, MAX_FEATHER, MAX_RESIZE, SELECTION_COORDINATE_LIMIT, SUBPIXEL};
 pub use selection::coverage::{rasterize, selection_coverage, selection_coverage_with, SelectionClip, SelectionClips};
 pub use selection::feather::{feather_blur, DIRECT_SIGMA_LIMIT};

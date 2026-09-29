@@ -552,6 +552,7 @@ impl Engine {
                 let plane = if mask { Plane::Mask } else { Plane::Pixels };
                 Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
             }
+            Command::AddShape { shape, color } => { ops::shape::add_shape(doc, &shape, color)?; Ok(Dirty::structure()) }
         })
     }
 

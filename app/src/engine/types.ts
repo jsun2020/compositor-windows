@@ -80,6 +80,13 @@ export interface GradientSpec {
   from: [number, number, number, number]; to: [number, number, number, number]; opacity: number;
 }
 
+/** What the Shape tool made (engine `ShapeSpec`): a whole-pixel box for a rectangle or an ellipse;
+ * a line's two ends and its width. */
+export type ShapeSpec =
+  | { kind: "Rectangle"; rect: PixelRect; cornerRadius: number }
+  | { kind: "Ellipse"; rect: PixelRect }
+  | { kind: "Line"; start: PointTuple; end: PointTuple; width: number };
+
 export type PreviewRequest =
   | { preview: "Adjustment"; layer: string; adjustment: LayerAdjustment }
   /** The same while a slider moves: previewed from a smaller copy until input settles. */
@@ -213,7 +220,8 @@ export type Command =
   | { type: "ClearSelectedPixels"; id: string; mask: boolean }
   | { type: "AddMaskFromSelection"; id: string; revealing: boolean }
   | { type: "Fill"; id: string; mask: boolean; color: [number, number, number] }
-  | { type: "Gradient"; id: string; mask: boolean; gradient: GradientSpec };
+  | { type: "Gradient"; id: string; mask: boolean; gradient: GradientSpec }
+  | { type: "AddShape"; shape: ShapeSpec; color: [number, number, number] };
 
 export interface Dirty { structure: boolean; canvas: boolean; layers: string[]; }
 /** A rectangle of a layer's pixel grid (or its mask's), in whole pixels (engine `PixelRect`). */

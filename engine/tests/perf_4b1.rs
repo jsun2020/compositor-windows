@@ -155,3 +155,23 @@ fn gradient_previews_dragged_settled_and_patched_at_24_and_100_mp() {
         assert!(e.preview(id).is_some());
     }
 }
+
+#[test]
+#[ignore]
+fn a_shape_over_the_whole_canvas_at_24_and_100_mp() {
+    for (label, w, h) in [("24 MP", 6000u32, 4000u32), ("100 MP", 10000, 10000)] {
+        // An empty document: the shape's own pixels are the project's only ones.
+        let mut e = Engine::new();
+        let id = e.new_document(w, h, false).unwrap();
+        let mut times = Vec::new();
+        for (name, shape) in [("rectangle", ShapeSpec::Rectangle { rect: Rect { x: 0.0, y: 0.0, width: w as f64, height: h as f64 }, corner_radius: 400.0 }),
+            ("ellipse", ShapeSpec::Ellipse { rect: Rect { x: 0.0, y: 0.0, width: w as f64, height: h as f64 } })] {
+            let t = Instant::now();
+            run(&mut e, id, Command::AddShape { shape, color: [0.2, 0.4, 0.6] });
+            times.push(format!("{name} {:.0} ms", ms(t)));
+            e.undo(id).unwrap();
+        }
+        println!("{label}: a shape over the canvas: {}", times.join(", "));
+        assert_eq!(e.state(id).unwrap().undo_depth, 0);
+    }
+}

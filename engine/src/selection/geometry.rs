@@ -61,6 +61,20 @@ pub fn ellipse(r: Rect) -> Contour {
     polygon(&points)
 }
 
+/// One cubic Bezier `[p0, p1, p2, p3]` flattened as `ellipse` flattens its arcs, its points after
+/// `p0` up to and including `p3` pushed onto `points` (the caller has pushed `p0`).
+pub fn cubic(points: &mut Vec<Point>, [p0, p1, p2, p3]: [Point; 4]) {
+    let second = |a: Point, b: Point, c: Point| ((a.x - 2.0 * b.x + c.x).powi(2) + (a.y - 2.0 * b.y + c.y).powi(2)).sqrt();
+    let l = second(p0, p1, p2).max(second(p1, p2, p3));
+    let n = ((0.75 * l / CURVE_TOLERANCE).sqrt().ceil() as usize).max(1);
+    for i in 1..=n {
+        let t = i as f64 / n as f64;
+        let u = 1.0 - t;
+        let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+        points.push(Point { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y });
+    }
+}
+
 /// The contours mapped through `map` (document points in, document points out), then quantized.
 pub fn transformed(contours: &[Contour], map: &Affine) -> Vec<Contour> {
     contours.iter().map(|c| c.iter().map(|p| quantize(map.apply(Point { x: p[0] as f64 / SUBPIXEL, y: p[1] as f64 / SUBPIXEL }))).collect()).collect()

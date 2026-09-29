@@ -21,8 +21,14 @@ fn is_inside(doc: &Document, id: Uuid, folder: Uuid) -> bool {
 
 /// Inserts a blank layer above the active layer (or at the top), inside the active folder if one is active.
 pub fn add_blank_layer(doc: &mut Document) -> Result<Uuid, CommandError> {
+    let layer = Layer::blank(&next_layer_name(doc), doc.size());
+    insert_above_active(doc, layer)
+}
+
+/// Inserts `layer` where New Layer puts one: above the active layer (or at the top), inside the
+/// active folder if one is active; it becomes the active layer.
+pub fn insert_above_active(doc: &mut Document, mut layer: Layer) -> Result<Uuid, CommandError> {
     if doc.layers.len() >= MAX_LAYERS { return Err(CommandError::Argument("too many layers".into())); }
-    let mut layer = Layer::blank(&next_layer_name(doc), doc.size());
     let active = doc.active_layer_id.and_then(|id| doc.layer(id).cloned());
     layer.parent_id = match &active { Some(a) if a.is_group => Some(a.id), Some(a) => a.parent_id, None => None };
     let mut insertion = doc.active_layer_id.and_then(|id| doc.index_of(id)).map(|i| i + 1).unwrap_or(doc.layers.len());
