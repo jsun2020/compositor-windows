@@ -148,9 +148,9 @@ Photoshop.
 - With a selection: adjustments, filters and Invert change only what is selected (a blur still
   grows the layer where the selection reaches), and Levels and Curves show the histogram of the
   selected pixels. Delete clears the selected pixels, or fills a targeted mask with its background
-  colour (growing it to the canvas, as on the Mac 1.3.7). Add Mask hides the selection (Add Mask
-  (Hide All) shows only it) and uses it up. The Crop tool starts at the selection's bounds.
-  Adjustment layers ignore the selection.
+  colour (white unless its edges are mostly black), growing it to cover the canvas as Compositor
+  1.3.7 for Mac does. Add Mask hides the selection (Add Mask (Hide All) shows only it) and uses it
+  up. The Crop tool starts at the selection's bounds. Adjustment layers ignore the selection.
 - An empty selection (after Subtract or Contract) says so in the options bar, and every edit
   refuses it until it is deselected or replaced.
 - Selections are part of undo and, as on the Mac, are never saved in the project. Crop, Canvas
@@ -185,18 +185,21 @@ Photoshop.
 - Edit > Fill with Foreground Color (Alt+Backspace) and Fill with Background Color
   (Ctrl+Backspace): the selection, or the whole layer, which grows to cover the canvas as on the
   Mac; on a targeted mask its black or white, and the mask grows past its layer to cover the
-  canvas, as Compositor 1.3.7 for Mac does.
+  canvas, as Compositor 1.3.7 for Mac does. The new area takes the mask's background colour: white
+  unless the mask's edges are mostly black.
 - Gradient (G): drag a line; its ends can then be dragged (Shift holds 45 degrees), Enter or Apply
   paints it, Escape or Cancel drops it, and the first Undo discards it. Linear or Radial (Tab),
   Foreground to Background or to Transparent, Reverse, and Opacity (the digit keys set it). It
   previews from a reduced copy while dragged (a patch at full size inside a small selection) and
-  is applied to the full layer; switching tool or layer applies it first. A gradient on a targeted
-  mask grows it the same way.
+  is applied to the full layer; switching tool or layer, opening an adjustment panel, filling or
+  importing an image applies it first. A gradient on a targeted mask grows it the same way, with
+  the same background rule.
 - Shape (U; Shift+U or Tab steps Rectangle, Ellipse and Line): drag to draw the shape in the
   foreground colour on a new layer above the active one (Shift squares it or holds a line to 45
   degrees, Alt draws from the centre). Rectangles take a corner Radius, lines a Width. The layer
   keeps the Mac's shape record, so Compositor for Mac redraws it crisply when it is scaled there;
-  this app scales its pixels.
+  this app scales its pixels. It always uses the image's foreground colour, even with a mask
+  targeted.
 - A new Gradient Map, as a layer or from the Image menu, starts from the foreground to the
   background colour, and its two ends open the colour picker, which previews them live.
 - Large layers (over 4 megapixels) are edited, and their Levels and Curves histograms read, off the
