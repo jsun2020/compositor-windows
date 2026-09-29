@@ -147,16 +147,14 @@ pub fn rasterize(contours: &[Contour], left: f64, top: f64, width: u32, height: 
 pub struct SelectionClip { pub origin: (i64, i64), pub coverage: Option<GrayRaster> }
 
 impl SelectionClip {
-    /// The coverage bounds grown by a pixel, rounded out and cut to the canvas; there, the outline
-    /// filled (antialiased when the selection is, or has a feather) and blurred by sigma feather / 2
-    /// with the region's edge pixels repeated beyond it (`clampedToExtent`).
+    /// The coverage bounds grown by a pixel, rounded out and cut to the canvas (`region`, so the
+    /// rounding lives in one place, fix round 1, M-3); there, the outline filled (antialiased when the
+    /// selection is, or has a feather) and blurred by sigma feather / 2 with the region's edge pixels
+    /// repeated beyond it (`clampedToExtent`).
     pub fn new(selection: &Selection, canvas_width: u32, canvas_height: u32) -> SelectionClip {
         let none = SelectionClip { origin: (0, 0), coverage: None };
-        if selection.is_empty() { return none; }
-        let Some(b) = selection.coverage_bounds() else { return none };
-        let (x0, y0) = (((b.x - 1.0).floor()).max(0.0), ((b.y - 1.0).floor()).max(0.0));
-        let (x1, y1) = (((b.max_x() + 1.0).ceil()).min(canvas_width as f64), ((b.max_y() + 1.0).ceil()).min(canvas_height as f64));
-        if !(x1 - x0 >= 1.0) || !(y1 - y0 >= 1.0) { return none; }
+        let Some((x0, y0, x1, y1)) = Self::region(selection, canvas_width, canvas_height) else { return none };
+        let (x0, y0, x1, y1) = (x0 as f64, y0 as f64, x1 as f64, y1 as f64);
         let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
         let filled = rasterize(&selection.contours, x0, y0, w, h, selection.antialiased || selection.feather > 0.0);
         let coverage = if selection.feather > 0.0 { feather_blur(&filled, selection.feather / 2.0) } else { filled };
@@ -166,8 +164,9 @@ impl SelectionClip {
     /// The rectangle `new` fills, from the selection's bounds alone, without filling it: (x0, y0, x1,
     /// y1) in document pixels, None where `new`'s coverage is None. What a mask edit reads to find the
     /// tiles it paints (`raster_edit::mask_grid`, Task 14a), so the app's `editPixels` question never
-    /// rasterizes or feathers the outline on the UI thread (pre-flight audit I-5). The rounding is
-    /// `new`'s; mask_grow.rs pins the two equal.
+    /// rasterizes or feathers the outline on the UI thread (pre-flight audit I-5). `new` computes its
+    /// own rectangle by calling this (fix round 1, M-3), so the rounding lives in one place; they are
+    /// the same by construction, and mask_grow.rs still pins them equal.
     pub fn region(selection: &Selection, canvas_width: u32, canvas_height: u32) -> Option<(i64, i64, i64, i64)> {
         if selection.is_empty() { return None; }
         let b = selection.coverage_bounds()?;

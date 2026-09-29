@@ -68,6 +68,13 @@ impl Paint {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EditGrid { pub width: u32, pub height: u32, pub x: u32, pub y: u32, pub transform: LayerTransform }
 
+/// Snaps `v` to the nearest integer when it is within 1e-6 of one, else leaves it as it is. An inverse
+/// transform can map an exact document edge to a mask- or layer-grid coordinate a few ulps off an
+/// integer (e.g. -5.7e-13 instead of 0.0, or 700.0000000000001 instead of 700.0); left alone, `floor`
+/// or `ceil` would round that to the wrong pixel and grow an already-grown grid by one more pixel on a
+/// second, otherwise no-op edit (fix round 1, I-1).
+fn snap_near_int(v: f64) -> f64 { let r = v.round(); if (v - r).abs() < 1e-6 { r } else { v } }
+
 /// The grid for painting `layer`'s pixels: its own grid (its pixels, or its box rounded when it has
 /// none) grown to cover the canvas as the layer maps it, rounded out to whole pixels
 /// (`originalBounds.union(canvas.applying(inverted).integral)`, BrushStroke.swift:153-156).
@@ -75,10 +82,10 @@ pub fn image_grid(doc: &Document, layer: &Layer) -> Result<EditGrid, CommandErro
     let (w, h) = layer.pixels.as_ref().map_or((layer.transform.size.width.round().max(1.0) as u32, layer.transform.size.height.round().max(1.0) as u32), |p| (p.width, p.height));
     let inverse = layer.transform.pixel_to_document(w, h).invert().ok_or_else(|| CommandError::Argument("the layer cannot be painted".into()))?;
     let corners = [(0.0, 0.0), (doc.width as f64, 0.0), (doc.width as f64, doc.height as f64), (0.0, doc.height as f64)].map(|(x, y)| inverse.apply(Point { x, y }));
-    let x0 = corners.iter().map(|p| p.x).fold(0.0f64, f64::min).floor();
-    let y0 = corners.iter().map(|p| p.y).fold(0.0f64, f64::min).floor();
-    let x1 = corners.iter().map(|p| p.x).fold(w as f64, f64::max).ceil();
-    let y1 = corners.iter().map(|p| p.y).fold(h as f64, f64::max).ceil();
+    let x0 = snap_near_int(corners.iter().map(|p| p.x).fold(0.0f64, f64::min)).floor();
+    let y0 = snap_near_int(corners.iter().map(|p| p.y).fold(0.0f64, f64::min)).floor();
+    let x1 = snap_near_int(corners.iter().map(|p| p.x).fold(w as f64, f64::max)).ceil();
+    let y1 = snap_near_int(corners.iter().map(|p| p.y).fold(h as f64, f64::max)).ceil();
     let (gw, gh) = (x1 - x0, y1 - y0);
     let others: u64 = doc.layers.iter().filter(|l| l.id != layer.id).filter_map(|l| l.pixels.as_ref()).map(|r| r.width as u64 * r.height as u64).sum();
     if gw > MAX_SIDE as f64 || gh > MAX_SIDE as f64 || (gw * gh) as u64 > MAX_PIXELS.saturating_sub(others) {
@@ -208,12 +215,15 @@ fn layer_grid(layer: &Layer) -> (u32, u32) {
 }
 
 /// The document rectangle (`x0`, `y0`) to (`x1`, `y1`) on the grid `inverse` maps the document onto:
-/// the box of its corners there, rounded out to whole pixels (`CGRect.applying(_:).integral`).
+/// the box of its corners there, rounded out to whole pixels (`CGRect.applying(_:).integral`). Each
+/// corner is snapped to an integer first when it lands within 1e-6 of one (`snap_near_int`, fix round
+/// 1, I-1): otherwise a mask already grown exactly to the canvas can drift a few ulps off an edge and
+/// regrow by a pixel on the next no-op edit.
 fn rect_on(inverse: &Affine, x0: f64, y0: f64, x1: f64, y1: f64) -> (i64, i64, i64, i64) {
     let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].map(|(x, y)| inverse.apply(Point { x, y }));
     let (lx, hx) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.x), h.max(p.x)));
     let (ly, hy) = corners.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), p| (l.min(p.y), h.max(p.y)));
-    (lx.floor() as i64, ly.floor() as i64, hx.ceil() as i64, hy.ceil() as i64)
+    (snap_near_int(lx).floor() as i64, snap_near_int(ly).floor() as i64, snap_near_int(hx).ceil() as i64, snap_near_int(hy).ceil() as i64)
 }
 
 /// The Mac's raster-edit tile, in grid pixels (`BrushStroke.tileSize`, BrushStroke.swift:144 at v1.3.7).

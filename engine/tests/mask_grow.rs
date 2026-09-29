@@ -277,6 +277,20 @@ fn the_preview_shows_the_grown_mask_where_the_commit_leaves_it() {
     let state = e.state(id).unwrap().layers[0].clone();
     assert_eq!((state.mask_width, state.mask_height), (750, 500));
     assert_eq!(state.mask_placement, Some(at((0.0, 0.0), (3000.0, 2000.0))));
+    // Fix round 1, M-2: a uniform mid-grey (128) mask. Its background (`Mask::background`) is white
+    // (128 x 2 >= 255), different from its own byte, so the uniform fast path (preview.rs) must show
+    // 128 only over the old grid's footprint and the background past it -- not fill the whole grid with
+    // 128, which is what dropping its `!grew` guard would do. A gradient whose line runs from x 0 to 1
+    // paints nothing at x >= 1 (`GradientSpec::position` clamps to 1, so its alpha there is `to`'s: 0):
+    // the sampled mask is left exactly as it was at both this test's points.
+    let (mut e, id, layer) = document((300, 200), (60, 40), at((100.0, 80.0), (60.0, 40.0)), covering(1, 1, |_, _| 128), None);
+    let flat = linear(p(0.0, 0.0), p(1.0, 0.0), BLACK, CLEAR);
+    e.set_preview(id, Some(PreviewRequest::Gradient { layer, mask: true, gradient: flat, dragging: true })).unwrap();
+    let state = e.state(id).unwrap().layers[0].clone();
+    assert_eq!((state.mask_width, state.mask_height), (300, 200), "grown to the canvas, not reduced");
+    let grey = e.mask_pixels(id, layer).unwrap().unwrap();
+    assert_eq!(grey.bytes()[90 * 300 + 120], 128, "inside the old grid (the layer's own box): the mask's own byte");
+    assert_eq!(grey.bytes()[10 * 300 + 10], 255, "past the old grid: the background, not the mask's own byte");
 }
 
 #[test]
@@ -293,6 +307,44 @@ fn a_mask_gradient_through_a_job_leaves_what_it_leaves_in_place() {
     e.undo(id).unwrap();
     run(&mut e, id, command);
     assert_eq!(mask_of(&e, id), through_job);
+}
+
+#[test]
+fn a_second_fill_on_an_already_grown_mask_keeps_its_size_and_placement_and_reports_a_rectangle() {
+    // Fix round 1, I-1: a float drift regrows an already-grown mask. A 100 x 70 layer drawn at 0.7x
+    // (document size 70 x 49, origin (0, 1.4)) on a 700 x 490 canvas: the mask's own grid is the layer's,
+    // 100 x 70, and the canvas maps through the 0.7x scale to mask-grid (0, 0)-(1000, 700) -- already
+    // holding the layer's own grid, so a Fill grows the mask to exactly 1000 x 700. Reviewer's repro: a
+    // float drift in `rect_on`'s inverse mapping of the canvas edge can round that to 1000 x 701 on a
+    // SECOND fill of the mask already at that size (the first fill's own drift, if any, is absorbed by
+    // `union`-ing with the still-unchanged 100 x 70 own grid, so only the second fill sees it; this
+    // origin was found by sweeping multiples of 0.7 for one whose first fill lands exactly on 1000 x 700
+    // -- an origin of (0, 0) happens not to drift at all, so it does not exercise this bug).
+    let (mut e, id, layer) = document((700, 490), (100, 70), at((0.0, 1.4), (70.0, 49.0)), covering(1, 1, |_, _| 255), None);
+    run(&mut e, id, Command::Fill { id: layer, mask: true, color: [0.0, 0.0, 0.0] });
+    let grown = mask_of(&e, id);
+    assert_eq!((grown.pixels.width, grown.pixels.height), (1000, 700), "grown to the canvas");
+    let first_placement = grown.placement.expect("placed: it grew");
+    let from = e.state(id).unwrap().layers[0].mask_revision;
+    // A second Fill, inside a selection this time, on the already-grown mask: it must not regrow.
+    select(&mut e, id, 140.0, 98.0, 140.0, 98.0);
+    run(&mut e, id, Command::Fill { id: layer, mask: true, color: [1.0, 1.0, 1.0] });
+    let after = mask_of(&e, id);
+    assert_eq!((after.pixels.width, after.pixels.height), (1000, 700), "unchanged: no float-drift regrowth");
+    // Kept exactly, even though the mask did not grow this time -- the untested `m.placement.is_some()`
+    // half of the placement rule (mask_grid, raster_edit.rs): dropping it would clear the placement
+    // whenever an edit does not itself grow the mask.
+    assert_eq!(after.placement, Some(first_placement), "the same placement, exactly");
+    // Its lineage reports a rectangle, not None: the buffer kept its size and grid (`Lineage::record_edit`
+    // records whole only when either changed), so only the selection's own rectangle on the mask's grid
+    // is dirty -- computed the same way the app reads it (`SelectionClip::rect_on_grid`) from the
+    // selection just made and the placement the mask kept.
+    let doc = e.document(id).unwrap();
+    let selection = doc.selection.as_ref().expect("a selection");
+    let clip = SelectionClip::new(selection, doc.width, doc.height);
+    let expected = clip.rect_on_grid(&first_placement.pixel_to_document(1000, 700), 1000, 700);
+    assert!(expected.is_some(), "the selection reaches the grown mask");
+    assert_eq!(e.mask_delta(id, layer, from).unwrap(), expected, "a rectangle, not a whole re-upload");
 }
 
 #[test]

@@ -183,11 +183,18 @@ fn a_mask_gradient_and_a_mask_fill_grown_to_the_canvas_at_24_and_100_mp() {
     // a gradient, or a fill, grows the mask to the whole canvas. Budgets: the gradient no slower than the
     // pixel gradient's own commit over the whole canvas, measured natively on this machine in Task 8 (647
     // ms at 24 MP, 2706 ms at 100 MP, `a_gradient_and_a_fill_at_24_and_100_mp`): the mask paints one grey
-    // byte where that paints four. The fill twice Task 8's native fill there (133 / 343 ms): that one
-    // copied its 24 / 100 MP layer but painted a 3 MP ellipse; this one computes every pixel of the
-    // canvas. Above JOB_PIXELS both run in the job worker (ruling C1: `edit_pixels` counts the grown mask).
-    // The fill's are ceilings: under two thirds of one, the assert is tightened to 1.5x the measurement.
-    for (label, w, h, budget, fill_budget) in [("24 MP", 6000u32, 4000u32, 650.0, 266.0), ("100 MP", 10000, 10000, 2710.0, 686.0)] {
+    // byte where that paints four. Above JOB_PIXELS both run in the job worker (ruling C1: `edit_pixels`
+    // counts the grown mask).
+    //
+    // The fill's ceiling (fix round 1, 14a-perf-2): the first round's 266 / 686 ms was twice Task 8's own
+    // native fill there (133 / 343 ms), which fills a 2000 x 1500 ELLIPSE SELECTION inside a 24 / 100 MP
+    // layer -- `paint_grid`'s per-pixel loop skips most of the grid cheaply there (the coverage's early
+    // `continue`), so only about 3 MP of pixels ever reach the expensive transform/ramp/blend work. A
+    // Fill on a mask with no selection paints every pixel of the whole grown grid (24 / 100 MP), which
+    // costs about what the Gradient does above (both run the same unmodified `paint_grid` loop over the
+    // same grid): the ceiling is 1000 / 3300 ms, about 1.5x the worst measured (680 / 2163 ms, fix round
+    // 1's own measurement) and in the same range as the gradient's own budget.
+    for (label, w, h, budget, fill_budget) in [("24 MP", 6000u32, 4000u32, 650.0, 1000.0), ("100 MP", 10000, 10000, 2710.0, 3300.0)] {
         let mut doc = Document::new(w, h);
         let mut layer = Layer::with_pixels("Small", Raster::from_premultiplied(1500, 1000, [60, 90, 120, 255].repeat(1500 * 1000)), Point { x: ((w - 1500) / 2) as f64, y: ((h - 1000) / 2) as f64 });
         let checks: Vec<u8> = (0..1000u32).flat_map(|y| (0..1500u32).map(move |x| if (x / 50 + y / 50) % 2 == 0 { 0 } else { 255 })).collect();
