@@ -40,6 +40,8 @@ fn a_dragged_gradient_previews_from_a_reduced_copy_of_the_layer_grown_to_the_can
     let state = e.state(id).unwrap().layers[0].clone();
     // Halved until the longer side is at most 1024: 3000 -> 1500 -> 750.
     assert_eq!((state.pixels_width, state.pixels_height), (750, 500));
+    // The state shows the reduced copy; the stored layer (which decides the job worker) is unchanged.
+    assert_eq!(e.stored_pixels(id, layer).unwrap(), 1000 * 800);
     assert!(state.transform.origin.x <= 0.0 && state.transform.origin.y <= 0.0 && state.transform.origin.x + state.transform.size.width >= 3000.0, "{:?}", state.transform);
     // Left of the layer, where there were no pixels: the gradient alone (a quarter of the way: alpha 191).
     let left = shown(&e, id, 375, 1000);

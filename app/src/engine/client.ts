@@ -95,6 +95,9 @@ export class EngineClient {
   compositeEdit(doc: string, edit: PreviewEdit | null, region: { x: number; y: number; width: number; height: number }, outWidth: number, outHeight: number): Uint8Array {
     return this.wasm.composite_edit(doc, edit ? JSON.stringify(edit) : undefined, region.x, region.y, region.width, region.height, outWidth, outHeight);
   }
+  /** The layer's stored pixel count (`Engine::stored_pixels`): `state()` shows a previewed layer at the
+   * preview's size, which may be a reduced copy. */
+  storedPixels(doc: string, layer: string): number { return this.wasm.stored_pixels(doc, layer); }
   /** A view on wasm memory; valid only until the next engine call. The pointer is sequenced
    * into a local before `this.memory.buffer` is read: argument evaluation is left to right, so
    * reading the buffer first would capture it before `mask_pixels_ptr` marshals its two string

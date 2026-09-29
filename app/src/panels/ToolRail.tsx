@@ -5,7 +5,7 @@ import { PaletteSwatches } from "./PaletteSwatches";
 const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: "move", label: "Move", key: "V" }, { id: "marquee", label: "Marquee", key: "M" },
   { id: "lasso", label: "Lasso", key: "L" }, { id: "wand", label: "Magic Wand", key: "W" },
-  { id: "crop", label: "Crop", key: "C" }, { id: "eyedropper", label: "Eyedropper", key: "I" },
+  { id: "crop", label: "Crop", key: "C" }, { id: "gradient", label: "Gradient", key: "G" }, { id: "eyedropper", label: "Eyedropper", key: "I" },
   { id: "hand", label: "Hand", key: "H" }, { id: "zoom", label: "Zoom", key: "Z" },
 ];
 export function ToolRail() {

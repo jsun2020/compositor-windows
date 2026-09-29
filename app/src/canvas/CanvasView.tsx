@@ -11,6 +11,8 @@ import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../st
 import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 import { installSampling } from "./sampling";
+import { gradientLine, installGradientTool } from "./gradient-tool";
+import { gradientStops } from "../state/gradient-edit";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -70,10 +72,13 @@ export function CanvasView() {
       ants = { path, at, phase: antsPhaseRef.current };
     }
     const d = s.selectionDraft;
+    const line = gradientLine();
+    const [from, to] = gradientStops(s.gradientOptions, s.palette.foreground, s.palette.background);
     drawOverlay(overlay.getContext("2d")!, vp, dpr, {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
       transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
       ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null, sampleRing: s.sampleRing,
+      gradientLine: line ? { ...line, radial: s.gradientOptions.shape === "Radial", from, to } : null,
     });
   };
 
@@ -198,6 +203,12 @@ export function CanvasView() {
     return installSampling(el, () => spaceRef.current);
   }, []);
 
+  // The Gradient tool's line (canvas/gradient-tool.ts).
+  useEffect(() => {
+    const el = glRef.current?.parentElement; if (!el) return;
+    return installGradientTool(el, () => spaceRef.current);
+  }, []);
+
   // Adjustment eyedroppers: while a sample mode is armed (Levels' three, or Hue/Saturation's
   // replace/add/remove), a click reads the point under the cursor and feeds the open panel
   // instead of starting whatever gesture the active tool would otherwise begin. Registered with
@@ -224,7 +235,7 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode || picking || tool === "eyedropper" || isSelectionTool(tool) ? "crosshair" : "";
+    el.style.cursor = sampleMode || picking || tool === "eyedropper" || tool === "gradient" || isSelectionTool(tool) ? "crosshair" : "";
   }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.

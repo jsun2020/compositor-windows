@@ -22,8 +22,36 @@ export interface OverlayState {
   /** Null with no selection, or an empty one. */
   ants?: AntsState | null;
   draft?: DraftState | null;
+  /** The pending gradient's line in view px, its shape and its two stops as straight RGBA. */
+  gradientLine?: { start: { x: number; y: number }; end: { x: number; y: number }; radial: boolean; from: number[]; to: number[] } | null;
   /** While the canvas is sampled: the ring about the pointer (view px). */
   sampleRing?: { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor } | null;
+}
+
+/** The pending gradient (`drawGradientLine`, TransformOverlay.swift): a faint dashed rim where a radial
+ * one reaches its end, the line black 3 px under white 1 px, and at each end a 12 px white disc with a
+ * grey centre the stop's colour covers. */
+function drawGradientLine(ctx: CanvasRenderingContext2D, line: NonNullable<OverlayState["gradientLine"]>): void {
+  ctx.save();
+  if (line.radial) {
+    const r = Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y);
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(line.start.x, line.start.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.beginPath(); ctx.moveTo(line.start.x, line.start.y); ctx.lineTo(line.end.x, line.end.y);
+  ctx.strokeStyle = "rgba(0,0,0,0.7)"; ctx.lineWidth = 3; ctx.stroke();
+  ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke();
+  for (const [p, c] of [[line.start, line.from], [line.end, line.to]] as const) {
+    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = "white"; ctx.fill(); ctx.strokeStyle = "black"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgb(191,191,191)"; ctx.fill();
+    ctx.fillStyle = `rgba(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)}, ${c[3]})`; ctx.fill();
+  }
+  ctx.restore();
 }
 
 /** The side of the sample ring's box, in view px (`SampleRingOverlay`: a 116 pt frame). */
@@ -164,6 +192,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
   }
   if (state.ants) drawAnts(ctx, state.ants);
   if (state.draft) drawDraft(ctx, viewport, size, state.draft);
+  if (state.gradientLine) drawGradientLine(ctx, state.gradientLine);
   if (state.sampleRing) drawSampleRing(ctx, state.sampleRing);
   ctx.strokeStyle = "#ff40ff"; ctx.lineWidth = 1;
   for (const x of state.guides.xs) { const v = viewport.viewPoint({ x, y: 0 }, size).x; ctx.beginPath(); ctx.moveTo(v + 0.5, 0); ctx.lineTo(v + 0.5, viewport.viewSize.height); ctx.stroke(); }

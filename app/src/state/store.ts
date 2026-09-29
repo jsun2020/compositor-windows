@@ -13,9 +13,10 @@ import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } fr
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
+import { DEFAULT_GRADIENT, gradientSpec, hasLine, type GradientEdit, type GradientOptions } from "./gradient-edit";
 import { BLACK, WHITE, hsbOf, hsbToRgb, quantized, sameColor, withRgb, type PaletteColor, type PickerHSB } from "../tools/color";
 
-export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper";
+export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
@@ -156,6 +157,26 @@ export interface EditorStore {
    * while a mask is the target (`sampleColor`, EditorCanvas.swift:2045-2048). Nothing off the canvas,
    * over a transparent pixel, or while a job's result is to come. */
   sampleForeground(at: { x: number; y: number }): void;
+  gradientOptions: GradientOptions;
+  /** The gradient drawn but not yet applied (Gradient.swift): the engine previews it. While it is
+   * pending any other command applies it first (as a pending transform is committed), the first Undo
+   * discards it, and a change of tool, layer or target applies it (`resolveGradient`). */
+  gradientEdit: GradientEdit | null;
+  /** New settings; a pending gradient is drawn again with them (`gradientSettings` didSet). */
+  setGradientOptions(patch: Partial<GradientOptions>): void;
+  /** A press with the Gradient tool: a new line from `at` on the active layer or its mask (a pending
+   * one on the same target starts again there). False when nothing can be painted (`beginGradient`). */
+  beginGradient(at: { x: number; y: number }): boolean;
+  /** Moves an end of the pending line and previews it, from a reduced copy while `dragging`. */
+  moveGradient(ends: { start?: { x: number; y: number }; end?: { x: number; y: number } }, dragging: boolean): void;
+  /** The drag is over: a click without a line leaves nothing pending, else the full preview (`endGradientDrag`). */
+  endGradientDrag(): void;
+  /** Re-previews the pending gradient at full quality (settings or palette changed). */
+  refreshGradient(): void;
+  cancelGradient(): void;
+  /** Return or Apply: paints the pending gradient as one undo step ("Gradient" or "Gradient Mask"),
+   * through the job worker on a large layer (`commitGradient`). */
+  commitGradient(): void;
   setSampleRing(ring: SampleRing | null): void;
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
@@ -270,6 +291,30 @@ function setGradientMapEnd(highlights: boolean, color: PaletteColor): void {
   if (current.red === end.red && current.green === end.green && current.blue === end.blue) return;
   useEditor.getState().updateAdjust({ adjustment: { ...edit.adjustment, gradientMapSettings: { ...settings, [highlights ? "highlights" : "shadows"]: end } } });
 }
+/** Whether the active layer's pixels, or its mask, can take paint now (`canPaint`,
+ * EditorSession+Brush.swift:5-11): one layer selected and shown, not a folder unless its mask is the
+ * target, an enabled mask when it is, not an adjustment layer, no empty selection, no panel open, no
+ * job's result to come. */
+export function canPaintNow(): boolean {
+  const s = useEditor.getState();
+  const doc = s.activeId ? s.documents[s.activeId] : null;
+  const layer = doc ? activeLayer(doc) : null;
+  if (!doc || !layer || s.selectedLayerIds.length !== 1 || s.panelOwnsDocument() || s.working) return false;
+  if (doc.selection?.empty || !visibleIds(doc).has(layer.id)) return false;
+  return s.maskTargeted() ? layer.maskEnabled : !layer.isGroup && !layer.adjustment;
+}
+/** The pending gradient as the engine paints it, in the palette's colours now. */
+function currentSpec(e: GradientEdit) {
+  const s = useEditor.getState();
+  return gradientSpec(e, s.gradientOptions, s.paletteColor(false), s.paletteColor(true));
+}
+/** Shows the pending gradient: the engine's preview while it has a line, nothing otherwise. */
+function previewGradient(dragging: boolean): void {
+  const s = useEditor.getState(); const e = s.gradientEdit;
+  if (!e || !s.engine || !s.activeId) return;
+  s.engine.setPreview(s.activeId, hasLine(e) ? { preview: "Gradient", layer: e.layerId, mask: e.mask, gradient: currentSpec(e), dragging } : null);
+  s.refresh(s.activeId);
+}
 /** `withRgb` from an engine sample. */
 const withRgbFrom = (hsb: PickerHSB, rgb: [number, number, number]): PickerHSB => withRgb(hsb, { red: rgb[0], green: rgb[1], blue: rgb[2] });
 
@@ -286,6 +331,63 @@ export const useEditor = create<EditorStore>((set, get) => ({
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
   palette: DEFAULT_PALETTE, colorPicker: null, pickerAt: null, sampleRing: null,
+  gradientOptions: DEFAULT_GRADIENT, gradientEdit: null,
+  setGradientOptions: (patch) => { set((s) => ({ gradientOptions: { ...s.gradientOptions, ...patch } })); get().refreshGradient(); },
+  beginGradient: (at) => {
+    const { activeId, documents, gradientEdit } = get(); if (!activeId) return false;
+    const doc = documents[activeId];
+    const layer = activeLayer(doc); if (!layer) return false;
+    const mask = get().maskTargeted();
+    // Dragging a new line replaces the pending one on the same target.
+    if (gradientEdit && gradientEdit.layerId === layer.id && gradientEdit.mask === mask) {
+      set({ gradientEdit: { ...gradientEdit, start: at, end: at } });
+      get().engine!.setPreview(activeId, null); get().refresh(activeId);
+      return true;
+    }
+    if (gradientEdit) get().commitGradient();
+    if (!canPaintNow()) return false;
+    set({ gradientEdit: { layerId: layer.id, mask, start: at, end: at } });
+    return true;
+  },
+  moveGradient: (ends, dragging) => {
+    const e = get().gradientEdit; if (!e) return;
+    set({ gradientEdit: { ...e, ...(ends.start ? { start: ends.start } : {}), ...(ends.end ? { end: ends.end } : {}) } });
+    previewGradient(dragging);
+  },
+  endGradientDrag: () => {
+    const e = get().gradientEdit; if (!e) return;
+    if (!hasLine(e)) { get().cancelGradient(); return; }
+    previewGradient(false);
+  },
+  refreshGradient: () => { if (get().gradientEdit) previewGradient(false); else get().repaintOverlay(); },
+  cancelGradient: () => {
+    const { gradientEdit, engine, activeId } = get(); if (!gradientEdit) return;
+    set({ gradientEdit: null });
+    if (engine && activeId) { engine.setPreview(activeId, null); get().refresh(activeId); }
+  },
+  commitGradient: () => {
+    const e = get().gradientEdit; if (!e) return;
+    if (!hasLine(e) || get().working) { get().cancelGradient(); return; }
+    const command: Command = { type: "Gradient", id: e.layerId, mask: e.mask, gradient: currentSpec(e) };
+    set({ gradientEdit: null });
+    // The preview stays on screen until the result is put back (runEditJob clears it then).
+    // By the pixels the gradient paints (ruling C1, as `fillActive` does; Task 14a): on a mask, the mask
+    // grown to the canvas, so a small layer's mask on a large canvas is a large edit. One too large to
+    // paint is refused here, as the commit would refuse it: the job worker sees one layer, not the budget
+    // the others leave.
+    // Asked only with a job worker, as `usesJob` and `fillActive` do.
+    if (get().jobs) {
+      let painted: number;
+      try { painted = get().engine!.editPixels(get().activeId!, e.layerId, e.mask); }
+      catch (err) {
+        set({ error: String(err instanceof Error ? err.message : err) });
+        const { engine, activeId } = get(); if (engine && activeId) { engine.setPreview(activeId, null); get().refresh(activeId); }
+        return;
+      }
+      if (painted > get().jobPixels) { void get().runEditJob(command, e.layerId); return; }
+    }
+    if (!get().run(command)) { const { engine, activeId } = get(); if (engine && activeId) { engine.setPreview(activeId, null); get().refresh(activeId); } }
+  },
   pickerColor: () => { const p = get().colorPicker; return p ? quantized(hsbToRgb(p.hsb)) : null; },
   openColorPicker: (target) => {
     if (get().working) return false;
@@ -323,7 +425,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   sampleForeground: (at) => {
     const { engine, activeId, working } = get(); if (!engine || !activeId || working) return;
     const rgb = engine.sampleColor(activeId, at);
-    if (rgb) set({ palette: { ...get().palette, foreground: { red: rgb[0], green: rgb[1], blue: rgb[2] } } });
+    if (rgb) { set({ palette: { ...get().palette, foreground: { red: rgb[0], green: rgb[1], blue: rgb[2] } } }); get().refreshGradient(); }
   },
   setSampleRing: (sampleRing) => { set({ sampleRing }); get().repaintOverlay(); },
   maskTargeted: () => {
@@ -343,23 +445,27 @@ export const useEditor = create<EditorStore>((set, get) => ({
       const white = sameColor(color, WHITE);
       set({ palette: { ...p, maskPaintWhite: background ? !white : white } });
     } else set({ palette: background ? { ...p, background: color } : { ...p, foreground: color } });
+    get().refreshGradient();
   },
   swapPalette: () => {
     if (get().working) return;
     const p = get().palette;
     set({ palette: get().maskTargeted() ? { ...p, maskPaintWhite: !p.maskPaintWhite } : { ...p, foreground: p.background, background: p.foreground } });
+    get().refreshGradient();
   },
   resetPalette: () => {
     if (get().working) return;
     const p = get().palette;
     set({ palette: get().maskTargeted() ? { ...p, maskPaintWhite: false } : { ...p, foreground: BLACK, background: WHITE } });
+    get().refreshGradient();
   },
   setEngine: (engine) => set({ engine }),
   setJobs: (jobs) => set({ jobs }),
   usesJob: (layerId) => {
-    const { jobs, activeId, documents, jobPixels } = get();
+    const { jobs, engine, activeId, documents, jobPixels } = get();
     const layer = activeId ? documents[activeId]?.layers.find((l) => l.id === layerId) : undefined;
-    return !!jobs && !!layer && layer.pixelsWidth * layer.pixelsHeight > jobPixels;
+    // The stored layer's size: under an open preview the state shows the preview's, maybe reduced.
+    return !!jobs && !!engine && !!layer && engine.storedPixels(activeId!, layerId) > jobPixels;
   },
   runEditJob: async (command, layerId) => {
     const { engine, jobs, activeId } = get();
@@ -396,6 +502,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // Leaving the current document commits its pending edit rather than dropping it, as
     // ProjectWorkspace.select/newCanvas do on macOS.
     get().commitTransform();
+    get().commitGradient();
     dropOpenPanel();
     const state = get().engine!.state(id);
     const viewport = new Viewport();
@@ -405,6 +512,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   closeDocument: (id) => {
     get().commitTransform();
+    // A pending gradient belongs to the document on screen: closing it drops it, closing another applies it.
+    if (get().activeId === id) set({ gradientEdit: null }); else get().commitGradient();
     // A panel belongs to the active document; closing a background tab leaves it open.
     if (get().activeId === id) dropOpenPanel();
     get().engine!.closeDocument(id);
@@ -423,6 +532,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // Clicking the tab already on screen changes nothing, and so must not cancel its panel.
     if (id === get().activeId) return;
     get().commitTransform();
+    get().commitGradient();
     dropOpenPanel();
     const state = get().documents[id];
     set({ activeId: id, cropRect: null, selectedLayerIds: state?.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null, selectionDraft: null, outlineMove: null });
@@ -471,6 +581,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     // `commitTransform` clears `transformEdit` before issuing its own command, so the nested
     // `run` below sees none and this does not recurse.
     if (get().transformEdit) get().commitTransform();
+    // Likewise a pending gradient is applied before anything else records history (the Mac refuses
+    // them while it is pending: `canEditLayers`). `commitGradient` clears it before its own run.
+    if (get().gradientEdit) get().commitGradient();
     const { engine, activeId } = get();
     if (!engine || !activeId) return false;
     try {
@@ -482,10 +595,21 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   // A panel owns the document while it is open, as macOS's canEditLayers does; the menu items
   // for these are already disabled, so this stays quiet rather than raising the error banner.
-  undo: () => { if (get().panelOwnsDocument() || get().working) return; const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); } },
-  redo: () => { if (get().panelOwnsDocument() || get().working) return; const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); } },
+  // Like Photoshop, the first Undo discards a pending gradient; a Redo drops it too (`undo`, `restore`).
+  undo: () => {
+    if (get().panelOwnsDocument() || get().working) return;
+    if (get().gradientEdit) { get().cancelGradient(); return; }
+    const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); }
+  },
+  redo: () => {
+    if (get().panelOwnsDocument() || get().working) return;
+    get().cancelGradient();
+    const { engine, activeId } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); }
+  },
   setTool: (tool) => {
     if (get().tool === "move" && tool !== "move") get().commitTransform();
+    // Switching tools applies a pending gradient, as in Photoshop (`resolveGradient`).
+    if (tool !== get().tool) get().commitGradient();
     // Entering the crop tool seeds a rectangle, as macOS does (EditorSession.selectTool): the
     // selection's bounds when there is a selection with something in it, else the canvas (cropSeed).
     // The frame, the size readout and the Apply/Cancel buttons follow that rectangle, so once Apply
@@ -516,6 +640,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const valid = ids.filter((id) => state.layers.some((l) => l.id === id));
     const active = primary && valid.includes(primary) ? primary : valid[0] ?? null;
     get().commitTransform();
+    // Choosing a layer applies a pending gradient first (`resolveGradient`).
+    get().commitGradient();
     if (active !== state.activeLayerId) { engine.execute(activeId, { type: "SetActiveLayer", id: active }); }
     set({ selectedLayerIds: valid, maskSelected: false });
     get().refresh(activeId);
@@ -524,6 +650,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
   // mask closes a picker open on a swatch: a mask's palette is black and white (ColorPaletteControls.swift:53-56).
   setMaskSelected: (v) => {
     if (get().panelOwnsDocument()) return;
+    // Changing the target applies a pending gradient first.
+    if (v !== get().maskSelected) get().commitGradient();
     set({ maskSelected: v });
     if (get().colorPicker?.target.kind === "palette" && get().maskTargeted()) get().closeColorPicker(false);
   },
@@ -817,6 +945,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   cycleToolMode: () => {
     const { tool, selectionOptions: o } = get();
+    if (tool === "gradient") get().setGradientOptions({ shape: get().gradientOptions.shape === "Linear" ? "Radial" : "Linear" });
     if (tool === "marquee") get().setSelectionOptions({ marquee: o.marquee === "Rectangle" ? "Ellipse" : "Rectangle" });
     else if (tool === "lasso") get().setSelectionOptions({ lasso: o.lasso === "Freehand" ? "Polygonal" : "Freehand" });
   },

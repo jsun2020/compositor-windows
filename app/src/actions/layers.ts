@@ -1,5 +1,5 @@
 import { colorTuple } from "../tools/color";
-import { useEditor } from "../state/store";
+import { canPaintNow, useEditor } from "../state/store";
 import { activeLayer, visibleIds } from "../state/selection";
 import type { AdjustmentKind, BlendMode, SelectionMode } from "../engine/types";
 import { isEditableKind } from "../engine/types";
@@ -60,17 +60,11 @@ export function deleteKeyPressed(): void {
   c.s.run({ type: "ClearSelectedPixels", id: c.active!.id, mask: false });
 }
 
-/** Whether the active layer's pixels, or its mask, can take a fill now (`canPaint`,
- * EditorSession+Brush.swift:5-11): one layer selected and shown, not a folder unless its mask is the
- * target, an enabled mask when it is, not an adjustment layer, no empty selection, no panel open, no
- * job's result to come, no crop rectangle pending. */
+/** Whether a fill can paint now: the store's `canPaintNow`, and no crop rectangle pending (the Mac's
+ * `canEditLayers` wants `cropRect == nil`). */
 export function canPaint(): boolean {
-  const c = ctx(); if (!c?.active || c.selected.length !== 1 || c.s.panelOwnsDocument() || c.s.working) return false;
-  if (c.s.tool === "crop" && c.s.cropRect) return false;
-  if (c.doc.selection?.empty || !visibleIds(c.doc).has(c.active.id)) return false;
-  const mask = c.s.maskTargeted();
-  if (mask) return c.active.maskEnabled;
-  return !c.active.isGroup && !c.active.adjustment;
+  const s = useEditor.getState();
+  return !(s.tool === "crop" && s.cropRect) && canPaintNow();
 }
 
 /** Alt+Backspace / Ctrl+Backspace: the selection (or the whole layer) filled with the foreground or

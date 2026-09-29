@@ -340,6 +340,10 @@ impl WasmEngine {
     pub fn mask_pixels_len(&self, doc: &str, layer: &str) -> Result<usize, JsError> {
         Ok(self.engine.mask_pixels(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?.map_or(0, |m| m.bytes().len()))
     }
+    /// `Engine::stored_pixels`: the layer's stored pixel count, not a preview's.
+    pub fn stored_pixels(&self, doc: &str, layer: &str) -> Result<f64, JsError> {
+        Ok(self.engine.stored_pixels(parse_id(doc)?, parse_id(layer)?).map_err(js_err)? as f64)
+    }
     /// `Engine::layer_region`: the bytes of a rectangle of the layer's pixels at `level`, as shown.
     pub fn layer_region(&self, doc: &str, layer: &str, level: u32, x: u32, y: u32, width: u32, height: u32) -> Result<Uint8Array, JsError> {
         let bytes = self.engine.layer_region(parse_id(doc)?, parse_id(layer)?, level, PixelRect { x, y, width, height }).map_err(js_err)?;

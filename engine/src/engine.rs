@@ -302,6 +302,12 @@ impl Engine {
     }
     /// The preview showing on the canvas, if any.
     pub fn preview(&self, id: Uuid) -> Option<&PixelPreview> { self.sessions.get(&id).and_then(|s| s.preview.as_ref()) }
+    /// The pixels the layer stores (its width times its height; 0 without pixels), whatever a preview
+    /// shows: `state()` reports a previewed layer at the preview's size, which may be a reduced copy.
+    pub fn stored_pixels(&self, id: Uuid, layer: Uuid) -> Result<u64, CommandError> {
+        let l = self.session(id)?.document.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(l.pixels.as_ref().map_or(0, |p| p.width as u64 * p.height as u64))
+    }
     /// The layer's mask as the canvas shows it (a gradient's mask preview in its place).
     pub fn mask_pixels(&self, id: Uuid, layer: Uuid) -> Result<Option<GrayRaster>, CommandError> {
         let doc = self.render_document(id)?;

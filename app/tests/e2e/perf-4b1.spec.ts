@@ -1042,3 +1042,213 @@ test("eyedropper: a sample and the overlay that shows its ring, at 24 and 100 MP
   console.log(`eyedropper (release wasm, Edge): ${JSON.stringify(out)}`);
   for (const label of ["24 MP", "100 MP"]) expect(out[`${label}: sample and ring, worst ms`]).toBeLessThan(16);
 });
+
+test("gradient tool: drag ticks through the store and the commit through the worker, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      let installedAt = Infinity;
+      const timed = (name: string, after?: () => void) => {
+        const f = api.engine[name].bind(api.engine);
+        api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+      };
+      timed("jobInput");
+      // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
+      // outside a window (pre-flight audit I-7).
+      timed("installJob", () => { installedAt = performance.now(); api.store.getState().refresh(api.store.getState().activeId); result["frame after it ms"] = Math.round(frame()); result["frame after it, whole uploads"] = (window as any).__uploads.image; });
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: api.engine.state(doc).layers[0].id });
+      api.store.getState().openDocument(doc);
+      api.store.getState().setTool("gradient");
+      await settle(); frame();
+      const s = () => api.store.getState();
+      s().beginGradient({ x: w * 0.2, y: h * 0.5 });
+      const ticks: number[] = [];
+      for (let i = 0; i < 8; i++) {
+        const t0 = performance.now();
+        s().moveGradient({ end: { x: w * (0.5 + i * 0.04), y: h * 0.6 } }, true);
+        frame();
+        ticks.push(performance.now() - t0);
+      }
+      ticks.shift();
+      result["drag tick (store, engine and frame), worst ms"] = Math.round(Math.max(...ticks));
+      let t0 = performance.now();
+      s().endGradientDrag(); frame();
+      result["release (settled preview and frame) ms"] = Math.round(performance.now() - t0);
+      const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+        let last = performance.now(), gap = 0;
+        // performance.now() inside the callback, not the rAF timestamp (Task 6 fix round 1, issue 4; audit I-7).
+        const tick = () => { const now = performance.now(); if (now <= installedAt) gap = Math.max(gap, now - last); last = now; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      t0 = performance.now();
+      s().commitGradient();
+      result["Return (UI thread) ms"] = Math.round(performance.now() - t0);
+      result["commit: longest frame gap while the worker paints"] = await longestGap(() => !s().working);
+      result["commit done after ms"] = Math.round(performance.now() - t0);
+      result["undo depth"] = api.engine.state(doc).undoDepth;
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`gradient tool (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const label of ["24 MP", "100 MP"]) {
+    expect(out[`${label}: drag tick (store, engine and frame), worst ms`]).toBeLessThan(50);
+    expect(out[`${label}: release (settled preview and frame) ms`]).toBeLessThan(150);
+    expect(out[`${label}: commit: longest frame gap while the worker paints`]).toBeLessThan(100);
+    // OQ5's "500" at 100 MP is 450 (ruling I7; audit M-5).
+    expect(out[`${label}: jobInput ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    expect(out[`${label}: frame after it, whole uploads`], "the frame timed is the one that uploads the result").toBeGreaterThanOrEqual(1);
+    // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
+    expect(out[`${label}: frame after it ms`]).toBeLessThan(label === "24 MP" ? 350 : 400);
+  }
+  // Canvas Size and the Gradient at 24 MP; at 100 MP each entry holds 400 MB, past the history's
+  // 256 MiB, so none is kept (HISTORY_BYTE_LIMIT, as the Mac's DocumentHistory).
+  expect([out["24 MP: undo depth"], out["100 MP: undo depth"]]).toEqual([2, 0]);
+});
+
+test("gradient tool on a small layer's mask: the mask grows to the canvas and the commit goes through the worker, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    await ready(page);
+    await installFrameTimer(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const result: Record<string, number> = {};
+      let installedAt = Infinity, jobs = 0;
+      const timed = (name: string, after?: () => void) => {
+        const f = api.engine[name].bind(api.engine);
+        api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+      };
+      timed("jobInput");
+      // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
+      // outside a window (pre-flight audit I-7).
+      timed("installJob", () => { installedAt = performance.now(); api.store.getState().refresh(api.store.getState().activeId); result["frame after it ms"] = Math.round(frame()); result["frame after it, whole uploads"] = (window as any).__uploads.image; });
+      const client = api.store.getState().jobs; const send = client.run.bind(client);
+      client.run = (...a: unknown[]) => { jobs++; return send(...a); };
+      // A 1500 x 1000 layer in the middle of the canvas under a white mask, targeted (Task 14a).
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: 1500, height: 1000, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: null });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      api.engine.execute(doc, { type: "AddMask", id: layer, revealing: true });
+      const s = () => api.store.getState();
+      s().openDocument(doc);
+      s().setMaskSelected(true);
+      s().setTool("gradient");
+      await settle(); frame();
+      s().beginGradient({ x: w * 0.2, y: h * 0.5 });
+      s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
+      s().endGradientDrag(); frame();
+      const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+        let last = performance.now(), gap = 0;
+        // performance.now() inside the callback, not the rAF timestamp (Task 6 fix round 1, issue 4; audit I-7).
+        const tick = () => { const now = performance.now(); if (now <= installedAt) gap = Math.max(gap, now - last); last = now; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      const t0 = performance.now();
+      s().commitGradient();
+      result["Return (UI thread) ms"] = Math.round(performance.now() - t0);
+      result["commit: longest frame gap while the worker paints"] = await longestGap(() => !s().working);
+      result["jobs run"] = jobs;
+      const l = api.engine.state(doc).layers[0];
+      result["mask pixels"] = l.maskWidth * l.maskHeight;
+      return result;
+    }, [w, h]);
+    for (const [k, v] of Object.entries(r)) out[`${label}: ${k}`] = v;
+  }
+  console.log(`gradient tool on a growing mask (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    expect(out[`${label}: jobs run`], "the grown mask went to the worker").toBe(1);
+    expect(out[`${label}: mask pixels`]).toBe(w * h);
+    expect(out[`${label}: Return (UI thread) ms`]).toBeLessThan(150);
+    expect(out[`${label}: commit: longest frame gap while the worker paints`]).toBeLessThan(100);
+    expect(out[`${label}: jobInput ms`]).toBeLessThan(150);
+    // OQ5's "500" at 100 MP is 450 (ruling I7; audit M-5).
+    expect(out[`${label}: installJob ms`]).toBeLessThan(label === "24 MP" ? 150 : 450);
+    expect(out[`${label}: frame after it, whole uploads`], "the frame timed is the one that uploads the grown mask").toBeGreaterThanOrEqual(1);
+    expect(out[`${label}: frame after it ms`]).toBeLessThan(150);
+  }
+});
+
+test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so they go through the worker, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    for (const edit of ["fill", "gradient"]) {
+      await ready(page);
+      await installFrameTimer(page);
+      const r = await page.evaluate(async ([w, h, edit]) => {
+        const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+        const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const s = () => api.store.getState();
+        const result: Record<string, number> = {};
+        let installedAt = Infinity, jobs = 0;
+        const timed = (name: string, after?: () => void) => {
+          const f = api.engine[name].bind(api.engine);
+          api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+        };
+        timed("jobInput");
+        // The frame that draws the result, timed where it lands (as the "jobs" case does), so no interval is outside a window.
+        timed("installJob", () => { installedAt = performance.now(); s().refresh(s().activeId); result["frame after the result is put back ms"] = Math.round(frame()); result["that frame's whole uploads"] = (window as any).__uploads.image; });
+        const client = s().jobs; const send = client.run.bind(client);
+        client.run = (...a: unknown[]) => { jobs++; return send(...a); };
+        // performance.now() inside the callback, not the rAF timestamp (Task 6 fix round 1, issue 4).
+        const longestGap = (until: () => boolean) => new Promise<number>((done) => {
+          let last = performance.now(), gap = 0;
+          const tick = () => { const now = performance.now(); if (now <= installedAt) gap = Math.max(gap, now - last); last = now; if (until()) done(Math.round(gap)); else requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+        });
+        // A new document's blank layer stores no pixels, but a fill or a gradient paints the whole canvas.
+        const doc = api.engine.newDocument(w, h, true);
+        s().openDocument(doc);
+        await settle(); frame();
+        const layer = s().documents[doc].activeLayerId;
+        result["stored pixels"] = api.engine.storedPixels(doc, layer);
+        result["pixels the edit paints"] = api.engine.editPixels(doc, layer, false);
+        if (edit === "gradient") {
+          s().setTool("gradient");
+          s().beginGradient({ x: w * 0.2, y: h * 0.5 });
+          s().moveGradient({ end: { x: w * 0.8, y: h * 0.6 } }, true);
+          s().endGradientDrag(); frame(); await settle();
+        }
+        const t0 = performance.now();
+        if (edit === "fill") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", altKey: true }));
+        else s().commitGradient();
+        result["key (UI thread) ms"] = Math.round(performance.now() - t0);
+        result["longest frame gap while the worker paints"] = await longestGap(() => !s().working);
+        result["jobs run"] = jobs;
+        s().closeDocument(doc);
+        return result;
+      }, [w, h, edit] as [number, number, string]);
+      for (const [k, v] of Object.entries(r)) out[`${label} ${edit}: ${k}`] = v;
+    }
+  }
+  console.log(`ruling C1, blank layers (release wasm, Edge): ${JSON.stringify(out)}`);
+  for (const [label, w, h] of [["24 MP", 6000, 4000], ["100 MP", 10000, 10000]] as [string, number, number][]) {
+    for (const edit of ["fill", "gradient"]) {
+      const k = (name: string) => out[`${label} ${edit}: ${name}`];
+      expect(k("stored pixels"), "a blank layer stores nothing").toBe(0);
+      expect(k("pixels the edit paints"), "it paints the canvas").toBe(w * h);
+      expect(k("jobs run"), "decided by the pixels it paints (ruling C1), so the worker made it").toBe(1);
+      expect(k("key (UI thread) ms")).toBeLessThan(150);
+      expect(k("longest frame gap while the worker paints")).toBeLessThan(100);
+      expect(k("jobInput ms")).toBeLessThan(150);
+      expect(k("installJob ms")).toBeLessThan(label === "24 MP" ? 150 : 450);
+      expect(k("that frame's whole uploads"), "the frame timed is the one that uploads the result").toBeGreaterThanOrEqual(1);
+      // The "jobs" case's budget for the frame that re-uploads a whole committed layer (perf-4b1.spec.ts:186).
+      expect(k("frame after the result is put back ms")).toBeLessThan(label === "24 MP" ? 350 : 400);
+    }
+  }
+});

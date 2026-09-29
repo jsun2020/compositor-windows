@@ -29,6 +29,7 @@ function install(width: number, height: number, onInstall?: () => void) {
     execute: (_id: string, cmd: Command) => { log.push(`execute ${cmd.type}`); return { structure: true, canvas: false, layers: [] }; },
     setPreview: (_id: string, request: PreviewRequest | null) => { previews.push(request); return { structure: true, canvas: false, layers: [] }; },
     histogram: () => { log.push("histogram here"); return bins(); },
+    storedPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
     // Task 5's jobs API: a job's input carries its selection's points as a separate buffer (null
     // here -- these fixtures have no selection), beside the JSON and the pixel/mask buffers.
     jobInput: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },

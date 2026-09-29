@@ -49,7 +49,7 @@ export function MenuBar() {
       // A pending transform owns the gesture: macOS's `canUseHistory` requires
       // `transformEdit == nil`, so both items grey out until it commits or cancels. An open panel
       // makes both inert as well (store.undo/redo), so they grey out for it too.
-      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: editable && !s.transformEdit && !!activeDoc?.canUndo },
+      { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: editable && !s.transformEdit && (!!activeDoc?.canUndo || !!s.gradientEdit) },
       { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: editable && !s.transformEdit && !!activeDoc?.canRedo },
       "separator",
       { id: "fill-foreground", label: "Fill with Foreground Color", run: () => runAction("fill-foreground"), enabled: editable && canPaint() },

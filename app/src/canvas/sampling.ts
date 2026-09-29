@@ -4,10 +4,12 @@ import type { PaletteColor } from "../tools/color";
 /** Where a press on the canvas samples colour (EditorCanvas.swift:1419-1424): into the open colour
  * picker, whatever the tool; else into the foreground with the Eyedropper, unless an adjustment's
  * own eyedropper is armed (it answers the press itself); else null. */
-export function samplingInto(): "picker" | "foreground" | null {
+export function samplingInto(alt = false): "picker" | "foreground" | null {
   const s = useEditor.getState();
   if (s.colorPicker) return "picker";
-  if (s.tool === "eyedropper" && !s.adjustEdit?.sampleMode && s.activeId) return "foreground";
+  if (s.adjustEdit?.sampleMode || !s.activeId) return null;
+  // Alt with the Gradient tool stands in for the Eyedropper (`palettePicking`, EditorCanvas.swift:71).
+  if (s.tool === "eyedropper" || (s.tool === "gradient" && alt)) return "foreground";
   return null;
 }
 
@@ -37,7 +39,7 @@ export function installSampling(el: HTMLElement, spaceHeld: () => boolean): () =
     if (sampled) s.setSampleRing({ at, sampled, original });
   };
   const down = (e: PointerEvent) => {
-    into = e.button === 0 && !spaceHeld() ? samplingInto() : null;
+    into = e.button === 0 && !spaceHeld() ? samplingInto(e.altKey) : null;
     if (!into) return;
     e.stopImmediatePropagation();
     original = current();

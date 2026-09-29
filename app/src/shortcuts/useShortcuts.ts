@@ -79,6 +79,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "tool-lasso": s.setTool("lasso"); break;
     case "tool-wand": s.setTool("wand"); break;
     case "tool-eyedropper": s.setTool("eyedropper"); break;
+    case "tool-gradient": s.setTool("gradient"); break;
     case "fill-foreground": if (doc && !s.sheet) fillActive(false); break;
     case "fill-background": if (doc && !s.sheet) fillActive(true); break;
     case "select-all": if (doc) s.run({ type: "SelectAll" }); break;
@@ -92,12 +93,14 @@ export function runAction(id: ActionId, shift = false): void {
     case "apply":
       if (s.panelOwnsDocument()) break;
       if (s.selectionDraft) s.finishSelectionDraft();
+      else if (s.gradientEdit) s.commitGradient();
       else if (doc && s.tool === "crop") { const r = s.cropRect; if (r) { s.run({ type: "Crop", ...r }); s.setCropRect(null); } }
       else if (s.transformEdit) s.commitTransform();
       break;
     case "cancel":
       if (s.panelOwnsDocument()) break;
       if (s.selectionDraft) s.setSelectionDraft(null);
+      else if (s.gradientEdit) s.cancelGradient();
       else if (s.tool === "crop") s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
       break;
@@ -122,7 +125,11 @@ export function runAction(id: ActionId, shift = false): void {
     case "hue-saturation": s.beginAdjust({ kind: "Hue/Saturation" }); break;
     case "invert": invertActive(); break;
     default:
-      if (id.startsWith("opacity-")) { if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8))); }
+      if (id.startsWith("opacity-")) {
+        if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8)));
+        // With the Gradient tool the digits set its opacity, at least 1 % (`typeOpacityDigit`, EditorSession+Brush.swift:193-211).
+        else if (s.tool === "gradient" && !s.working) typeOpacityDigit(Number(id.slice(8)), Date.now(), (v) => s.setGradientOptions({ opacity: Math.max(0.01, v) }));
+      }
   }
 }
 
