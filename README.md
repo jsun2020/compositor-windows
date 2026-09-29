@@ -147,16 +147,16 @@ Photoshop.
   select its black areas, as on the Mac; Ctrl+Shift adds and Ctrl+Alt subtracts.
 - With a selection: adjustments, filters and Invert change only what is selected (a blur still
   grows the layer where the selection reaches), and Levels and Curves show the histogram of the
-  selected pixels. Delete clears the selected pixels, or fills a targeted mask white. Add Mask
-  hides the selection (Add Mask (Hide All) shows only it) and uses it up. The Crop tool starts at
-  the selection's bounds. Adjustment layers ignore the selection.
+  selected pixels. Delete clears the selected pixels, or fills a targeted mask with its background
+  colour (growing it to the canvas, as on the Mac 1.3.7). Add Mask hides the selection (Add Mask
+  (Hide All) shows only it) and uses it up. The Crop tool starts at the selection's bounds.
+  Adjustment layers ignore the selection.
 - An empty selection (after Subtract or Contract) says so in the options bar, and every edit
   refuses it until it is deselected or replaced.
 - Selections are part of undo and, as on the Mac, are never saved in the project. Crop, Canvas
   Size and Image Size drop the selection; Flip Canvas mirrors it.
 - Note: dragging a Marquee or an outline past the window's edge does not scroll the view yet.
-- Note: object selection, Select Subject, fills, the clipboard and the brushes are not in this
-  phase.
+- Note: object selection, Select Subject, the clipboard and the brushes are not in this phase.
 
 ### Select menu shortcuts
 
@@ -170,6 +170,55 @@ Photoshop.
 | Add to / subtract from the selection | Shift / Alt while drawing |
 | Nudge the selection (selection tools) | Arrow keys (Shift = 10 px) |
 | Clear the selected pixels | Delete |
+
+## Phase 4b-1: colour, fills, gradients and shapes
+
+- The palette at the foot of the tool rail: the foreground and background colours; X swaps them
+  and D restores black over white. With a layer's mask targeted they are black and white, and a
+  click on a swatch asks which ("Black - Hide" or "White - Reveal").
+- The colour picker, opened from a swatch: a saturation and brightness field, a hue strip, R, G, B
+  and hex, OK (Enter) and Cancel (Escape). It floats, opens where it was last left, and while it
+  is open a click or drag on the canvas samples the colour under the pointer, with a ring showing
+  the sampled colour over the one before.
+- Eyedropper (I): a click or drag on the canvas sets the foreground colour from what the canvas
+  shows. Alt with the Gradient tool does the same.
+- Edit > Fill with Foreground Color (Alt+Backspace) and Fill with Background Color
+  (Ctrl+Backspace): the selection, or the whole layer, which grows to cover the canvas as on the
+  Mac; on a targeted mask its black or white, and the mask grows past its layer to cover the
+  canvas, as Compositor 1.3.7 for Mac does.
+- Gradient (G): drag a line; its ends can then be dragged (Shift holds 45 degrees), Enter or Apply
+  paints it, Escape or Cancel drops it, and the first Undo discards it. Linear or Radial (Tab),
+  Foreground to Background or to Transparent, Reverse, and Opacity (the digit keys set it). It
+  previews from a reduced copy while dragged (a patch at full size inside a small selection) and
+  is applied to the full layer; switching tool or layer applies it first. A gradient on a targeted
+  mask grows it the same way.
+- Shape (U; Shift+U or Tab steps Rectangle, Ellipse and Line): drag to draw the shape in the
+  foreground colour on a new layer above the active one (Shift squares it or holds a line to 45
+  degrees, Alt draws from the centre). Rectangles take a corner Radius, lines a Width. The layer
+  keeps the Mac's shape record, so Compositor for Mac redraws it crisply when it is scaled there;
+  this app scales its pixels.
+- A new Gradient Map, as a layer or from the Image menu, starts from the foreground to the
+  background colour, and its two ends open the colour picker, which previews them live.
+- Large layers (over 4 megapixels) are edited, and their Levels and Curves histograms read, off the
+  interface thread: "Working..." shows meanwhile. Edits inside a selection upload only the pixels
+  they change, and undo keeps the last 100 steps, fewer once they hold more than 256 MB.
+- Note: a shape is drawn as the Mac draws it (Core Graphics' anti-aliasing is approximated by exact
+  area coverage); a scaled shape layer is not redrawn here.
+- Note: the colour picker works in sRGB, 8 bits a channel, as the Mac's does.
+- Note: Compositor for Mac 1.3 saves projects in format 11, which this version cannot open yet (it
+  opens formats 1-9); Mac projects saved by 1.2.x open as before. Opening and saving 1.3 projects
+  is the next update.
+
+### Colour and tool shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Eyedropper / Gradient / Shape | I / G / U |
+| Swap colours / default colours | X / D |
+| Fill with the foreground / background colour | Alt+Backspace / Ctrl+Backspace |
+| Gradient: Linear or Radial; Shape: next kind | Tab (Shape also Shift+U) |
+| Gradient opacity | 1-9 for 10-90 %, 0 for 100 % |
+| Apply / cancel a pending gradient | Enter / Escape |
 
 ## Prerequisites
 
