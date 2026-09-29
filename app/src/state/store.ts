@@ -13,6 +13,7 @@ import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } fr
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
+import { BLACK, WHITE, sameColor, type PaletteColor } from "../tools/color";
 
 export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
@@ -51,6 +52,12 @@ export interface TransformEdit {
    * duplicated nothing. */
   duplicateEntry: number | null;
 }
+
+/** The palette (ColorPalette.swift): the image's foreground and background colours, and, while a
+ * mask is the target, whether white is its foreground (`maskPaintWhite`; black otherwise). Kept for
+ * the app session, as the Mac keeps it per window. */
+export interface Palette { foreground: PaletteColor; background: PaletteColor; maskPaintWhite: boolean; }
+export const DEFAULT_PALETTE: Palette = { foreground: BLACK, background: WHITE, maskPaintWhite: false };
 
 /** A layer with more pixels than this is edited, and its histogram read, by the job worker rather than
  * on the UI thread (ruling OQ5): at 4 MP a Levels commit took about 0.35 s here. Below it a job's two
@@ -100,6 +107,18 @@ export interface EditorStore {
   outlineMove: { dx: number; dy: number } | null;
   /** The mode Shift / Alt held over the canvas imply, for the options bar (`heldSelectionMode`). */
   heldSelectionMode: SelectionMode | null;
+  palette: Palette;
+  /** Whether a mask is the paint target: the mask chip of the active layer, which has one (`isMaskSelected`). */
+  maskTargeted(): boolean;
+  /** The foreground or background colour the tools use: black or white while a mask is the target (`paletteColor`). */
+  paletteColor(background: boolean): PaletteColor;
+  /** Sets one swatch; while a mask is the target only black or white, as which of them is the foreground
+   * (`setPaletteColor`). Nothing while a job's result is to come (`canEditPalette`). */
+  setPaletteColor(color: PaletteColor, background: boolean): void;
+  /** X: swap the swatches, or black and white on a mask (`swapPaletteColors`). */
+  swapPalette(): void;
+  /** D: black over white, or black as the mask's foreground (`resetPaletteColors`). */
+  resetPalette(): void;
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
   /** Whether an edit of `layerId`'s pixels goes to the job worker: it has more than `jobPixels`. */
@@ -214,6 +233,35 @@ export const useEditor = create<EditorStore>((set, get) => ({
   blendPreview: null,
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
+  palette: DEFAULT_PALETTE,
+  maskTargeted: () => {
+    const { activeId, documents, maskSelected } = get();
+    const doc = activeId ? documents[activeId] : null;
+    return maskSelected && !!doc && !!activeLayer(doc)?.hasMask;
+  },
+  paletteColor: (background) => {
+    const p = get().palette;
+    if (get().maskTargeted()) return (background ? !p.maskPaintWhite : p.maskPaintWhite) ? WHITE : BLACK;
+    return background ? p.background : p.foreground;
+  },
+  setPaletteColor: (color, background) => {
+    if (get().working) return;
+    const p = get().palette;
+    if (get().maskTargeted()) {
+      const white = sameColor(color, WHITE);
+      set({ palette: { ...p, maskPaintWhite: background ? !white : white } });
+    } else set({ palette: background ? { ...p, background: color } : { ...p, foreground: color } });
+  },
+  swapPalette: () => {
+    if (get().working) return;
+    const p = get().palette;
+    set({ palette: get().maskTargeted() ? { ...p, maskPaintWhite: !p.maskPaintWhite } : { ...p, foreground: p.background, background: p.foreground } });
+  },
+  resetPalette: () => {
+    if (get().working) return;
+    const p = get().palette;
+    set({ palette: get().maskTargeted() ? { ...p, maskPaintWhite: false } : { ...p, foreground: BLACK, background: WHITE } });
+  },
   setEngine: (engine) => set({ engine }),
   setJobs: (jobs) => set({ jobs }),
   usesJob: (layerId) => {

@@ -4,7 +4,8 @@ export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "exp
   | "new-folder" | "duplicate" | "group" | "merge" | "clip" | "layer-up" | "layer-down" | "blend-next" | "blend-prev" | "delete-layer"
   | "opacity-0" | "opacity-1" | "opacity-2" | "opacity-3" | "opacity-4" | "opacity-5" | "opacity-6" | "opacity-7" | "opacity-8" | "opacity-9"
   | "levels" | "curves" | "hue-saturation" | "invert"
-  | "tool-marquee" | "tool-lasso" | "tool-wand" | "select-all" | "deselect" | "select-inverse" | "cycle-tool-mode";
+  | "tool-marquee" | "tool-lasso" | "tool-wand" | "select-all" | "deselect" | "select-inverse" | "cycle-tool-mode"
+  | "swap-colors" | "default-colors";
 
 export interface Shortcut { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean; }
 
@@ -36,6 +37,8 @@ export const SHORTCUTS = {
   "select-all": [{ key: "a", ctrl: true }], "deselect": [{ key: "d", ctrl: true }], "select-inverse": [{ key: "i", ctrl: true, shift: true }],
   // Tab switches the current tool's kind (EditorCanvas.swift:1823-1827).
   "cycle-tool-mode": [{ key: "Tab" }],
+  // The palette (EditorCanvas.swift:1835-1836).
+  "swap-colors": [{ key: "x" }], "default-colors": [{ key: "d" }],
 } satisfies Record<ActionId, Shortcut[]>;
 
 export function matchShortcut(e: KeyboardEvent): ActionId | null {

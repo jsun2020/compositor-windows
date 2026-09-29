@@ -82,6 +82,8 @@ export function runAction(id: ActionId, shift = false): void {
     case "deselect": if (doc?.selection) s.run({ type: "Deselect" }); break;
     case "select-inverse": if (doc?.selection) s.run({ type: "InvertSelection" }); break;
     case "cycle-tool-mode": s.cycleToolMode(); break;
+    case "swap-colors": s.swapPalette(); break;
+    case "default-colors": s.resetPalette(); break;
     // An open panel answers Enter and Escape itself (AdjustPanel.tsx); neither may also reach the
     // crop tool or a transform. An outline being drawn takes them first (EditorCanvas.swift:1772-1777).
     case "apply":

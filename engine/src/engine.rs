@@ -738,12 +738,18 @@ impl Engine {
     /// that special case once, under this same name, and it was never used by anything but such a
     /// test -- a live production caller (the Hue/Saturation eyedropper) reused it on the strength
     /// of the name alone and sampled its own preview by mistake (a Critical, Task 15 code review).
+    /// The visible composite's colour at the document pixel under `at`, straight and snapped to
+    /// 8 bits as the Mac reads it: `(min(a, v) / a * 255).rounded() / 255` (`sampleCompositeColor`,
+    /// ColorPalette.swift:182-203). None off the canvas or over a transparent pixel. It reads the
+    /// stored document, never an open preview.
     pub fn sample_color(&self, id: Uuid, at: Point) -> Result<Option<[f64; 3]>, CommandError> {
         let doc = &self.session(id)?.document;
+        if !(at.x >= 0.0 && at.y >= 0.0 && at.x < doc.width as f64 && at.y < doc.height as f64) { return Ok(None); }
         let region = Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 };
         let pixel = compositor::composite_edit_with(doc, None, region, 1, 1, &self.effects).pixel(0, 0);
         if pixel[3] == 0 { return Ok(None); }
-        Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))))
+        let alpha = pixel[3] as f64;
+        Ok(Some([0, 1, 2].map(|c| ((pixel[c] as f64).min(alpha) / alpha * 255.0).round() / 255.0)))
     }
     pub fn levels_sampling(&self, id: Uuid, layer: Uuid, settings: &LevelsSettings, at: Point, mode: LevelsSample) -> Result<LevelsSettings, CommandError> {
         match self.sample_layer_color(id, layer, at)? { Some(rgb) => Ok(settings.sampling(rgb, mode)), None => Ok(settings.clone()) }
