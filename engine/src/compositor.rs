@@ -48,13 +48,8 @@ pub fn prefilters(sampling: Sampling, distorted: bool) -> bool { sampling != Sam
 
 /// Sharp halvings for large reductions: reduce until one output pixel covers at most 2 source pixels.
 fn prefiltered(raster: &Raster, pixels_per_output: f64) -> (Raster, f64) {
-    let mut current = raster.clone();
-    let mut scale = 1.0;
-    for _ in 0..prefilter_level(raster.width, raster.height, pixels_per_output) {
-        current = current.halved();
-        scale *= 0.5;
-    }
-    (current, scale)
+    let level = prefilter_level(raster.width, raster.height, pixels_per_output);
+    (raster.reduced(level), 0.5f64.powi(level as i32))
 }
 
 /// (x0, y0, x1, y1) of the pixels with alpha > 0, x1/y1 exclusive; None when fully transparent.

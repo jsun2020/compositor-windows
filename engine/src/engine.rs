@@ -665,15 +665,11 @@ impl Engine {
     pub fn can_toggle_clipping(&self, id: Uuid, layer: Uuid) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_toggle_clipping(&self.session(id)?.document, layer)) }
     pub fn can_place(&self, id: Uuid, layer: Uuid, parent: Option<Uuid>) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_place(&self.session(id)?.document, layer, parent)) }
 
-    /// The layer's raster after `level` sharp halvings, through any open preview.
+    /// The layer's raster after `level` sharp halvings, through any open preview: from a halving the
+    /// pixels adopted from the job worker when there is one (`Raster::reduced`, F1).
     pub fn layer_raster(&self, id: Uuid, layer: Uuid, level: u32) -> Result<Option<Raster>, CommandError> {
         let doc = self.render_bytes(id)?;
-        let Some(mut raster) = doc.layer(layer).ok_or(CommandError::NoLayer)?.pixels.clone() else { return Ok(None); };
-        for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
-            if raster.width <= 1 || raster.height <= 1 { break; }
-            raster = raster.halved();
-        }
-        Ok(Some(raster))
+        Ok(doc.layer(layer).ok_or(CommandError::NoLayer)?.pixels.as_ref().map(|raster| raster.reduced(level)))
     }
     /// The raster the plan's draw of `layer` samples, through any open preview and pending edit,
     /// after `level` sharp halvings: the layer with its effects around it when the plan draws them
@@ -685,12 +681,7 @@ impl Engine {
         let doc = self.render_bytes(id)?;
         let l = doc.layer(layer).ok_or(CommandError::NoLayer)?;
         let raster = match effects_draw(l, edit) { Some(fx) => self.effects.image(l, &fx), None => l.pixels.clone() };
-        let Some(mut raster) = raster else { return Ok(None); };
-        for _ in 0..level.min(compositor::MAX_PREFILTER_LEVEL) {
-            if raster.width <= 1 || raster.height <= 1 { break; }
-            raster = raster.halved();
-        }
-        Ok(Some(raster))
+        Ok(raster.map(|raster| raster.reduced(level)))
     }
     /// The stored document with the adjustment layer and everything above it hidden: what renders
     /// beneath it, as macOS renders the layers underneath for its histogram and eyedroppers.

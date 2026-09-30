@@ -146,10 +146,12 @@ export class EngineClient {
    * after `level` halvings. */
   displayJobInput(doc: string, layer: string, level: number): JobInputCopy { return this.takeJob(this.wasm.prepare_display_job(doc, layer, level)); }
   /** Puts an edit job's result back (engine `install_job`), only onto the layer exactly as the job took
-   * it (its stamp, read from `input`); a changed layer refuses with the engine's message. */
-  installJob(doc: string, layer: string, input: string, output: string, pixels: ArrayBuffer | null, mask: ArrayBuffer | null): Dirty {
+   * it (its stamp, read from `input`); a changed layer refuses with the engine's message. `display` is
+   * the result halved to the canvas's level, which the new pixels adopt (F1). */
+  installJob(doc: string, layer: string, input: string, output: string, pixels: ArrayBuffer | null, mask: ArrayBuffer | null, display: ArrayBuffer | null = null): Dirty {
     const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
-    return JSON.parse(this.wasm.install_job(doc, layer, stamp, output, pixels ? new Uint8Array(pixels) : undefined, mask ? new Uint8Array(mask) : undefined)) as Dirty;
+    const view = (b: ArrayBuffer | null) => (b ? new Uint8Array(b) : undefined);
+    return JSON.parse(this.wasm.install_job(doc, layer, stamp, output, view(pixels), view(mask), view(display))) as Dirty;
   }
   /** Whether the canvas's effects image for `layer` is made already (engine `has_effects_image`):
    * `drawPixels` then hands it over without making it. */

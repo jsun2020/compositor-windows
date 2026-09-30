@@ -9,8 +9,9 @@ pub struct WasmEngine {
     engine: Engine, pending_saves: HashMap<Uuid, Package>, drawn: Option<Raster>,
     /// A job's pixel, mask and selection-point buffers, kept while the app copies them out: a job's
     /// input on the main thread, a job's result in the worker (`job_buffer_ptr`, `job_points_ptr`,
-    /// `release_job`).
-    job: (Option<Raster>, Option<GrayRaster>, Option<Vec<i32>>),
+    /// `release_job`). The fourth is an edit's result halved to the canvas's level (`job_display_ptr`,
+    /// F1), only in the worker.
+    job: (Option<Raster>, Option<GrayRaster>, Option<Vec<i32>>, Option<Raster>),
 }
 
 /// A buffer's bytes as a raster, when its size is known.
@@ -46,7 +47,7 @@ impl WasmEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
         console_error_panic_hook::set_once();
-        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None, job: (None, None, None) }
+        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None, job: (None, None, None, None) }
     }
 
     // Jobs (Phase 4b-1, engine `jobs.rs`). On the main thread: `prepare_job` or `prepare_display_job`,
@@ -57,14 +58,14 @@ impl WasmEngine {
     /// kept for `job_buffer_ptr` / `job_points_ptr`.
     pub fn prepare_job(&mut self, doc: &str, layer: &str) -> Result<String, JsError> {
         let (input, pixels, mask, points) = self.engine.job_input(parse_id(doc)?, parse_id(layer)?).map_err(js_err)?;
-        self.job = (pixels, mask, points);
+        self.job = (pixels, mask, points, None);
         serde_json::to_string(&input).map_err(js_err)
     }
     /// `Engine::display_job_input` (an effects job's input at `level` halvings) as JSON. An effects
     /// job never clips to a selection, so it keeps no points.
     pub fn prepare_display_job(&mut self, doc: &str, layer: &str, level: u32) -> Result<String, JsError> {
         let (input, pixels, mask) = self.engine.display_job_input(parse_id(doc)?, parse_id(layer)?, level).map_err(js_err)?;
-        self.job = (Some(pixels), mask, None);
+        self.job = (Some(pixels), mask, None, None);
         serde_json::to_string(&input).map_err(js_err)
     }
     /// The kept job buffer: the pixels, or the mask; null when there is none. A view on it is valid
@@ -79,13 +80,19 @@ impl WasmEngine {
     /// shape); null when the job has no selection. A view on it is valid until the next engine call.
     pub fn job_points_ptr(&self) -> *const u8 { self.job.2.as_ref().map_or(std::ptr::null(), |p| p.as_ptr() as *const u8) }
     pub fn job_points_len(&self) -> usize { self.job.2.as_ref().map_or(0, |p| p.len() * std::mem::size_of::<i32>()) }
-    pub fn release_job(&mut self) { self.job = (None, None, None); }
-    /// `Engine::install_job`: an edit job's result put back, if the layer still matches `stamp`.
-    pub fn install_job(&mut self, doc: &str, layer: &str, stamp_json: &str, output_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>) -> Result<String, JsError> {
+    /// The kept edit result halved to the canvas's level (`JobOutput.display`, F1); null when there is
+    /// none. A view on it is valid until the next engine call.
+    pub fn job_display_ptr(&self) -> *const u8 { self.job.3.as_ref().map_or(std::ptr::null(), |r| r.bytes().as_ptr()) }
+    pub fn job_display_len(&self) -> usize { self.job.3.as_ref().map_or(0, |r| r.bytes().len()) }
+    pub fn release_job(&mut self) { self.job = (None, None, None, None); }
+    /// `Engine::install_job`: an edit job's result put back, if the layer still matches `stamp`; its
+    /// pixels adopt `display`, their halving to the canvas's level, when the job made one.
+    pub fn install_job(&mut self, doc: &str, layer: &str, stamp_json: &str, output_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, display: Option<Vec<u8>>) -> Result<String, JsError> {
         let stamp: LayerStamp = serde_json::from_str(stamp_json).map_err(js_err)?;
         let output: JobOutput = serde_json::from_str(output_json).map_err(js_err)?;
         let (pixels, mask) = (raster_of(output.pixels, pixels)?, gray_of(output.mask, mask)?);
-        let dirty = self.engine.install_job(parse_id(doc)?, parse_id(layer)?, stamp, output, pixels, mask).map_err(js_err)?;
+        let display = raster_of(output.display.map(|d| (d.width, d.height)), display)?;
+        let dirty = self.engine.install_job(parse_id(doc)?, parse_id(layer)?, stamp, output, pixels, mask, display).map_err(js_err)?;
         serde_json::to_string(&dirty).map_err(js_err)
     }
     /// `Engine::has_effects_image`: whether the canvas's effects image for the layer is made already.
@@ -102,15 +109,16 @@ impl WasmEngine {
         let image = raster_of(Some((width, height)), Some(bytes))?.unwrap();
         self.engine.keep_effects_image(parse_id(doc)?, parse_id(layer)?, stamp, key, edit.as_ref(), image).map_err(js_err)
     }
-    /// `run_edit_job` (in the worker): the output as JSON; the buffers it replaced are kept. `points`
-    /// as `job_points_ptr` hands them out, when `input.selection` is not None.
-    pub fn run_edit_job(&mut self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>, command_json: &str) -> Result<String, JsError> {
+    /// `run_edit_job` (in the worker): the output as JSON; the buffers it replaced, and their halving
+    /// to the canvas's level at `out_per_doc` (F1), are kept. `points` as `job_points_ptr` hands them
+    /// out, when `input.selection` is not None.
+    pub fn run_edit_job(&mut self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>, command_json: &str, out_per_doc: f64) -> Result<String, JsError> {
         let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
         let command: Command = serde_json::from_str(command_json).map_err(js_err)?;
         let (pixels, mask) = (raster_of(input.pixels, pixels)?, gray_of(input.mask, mask)?);
         let points = points_of(input.selection.as_ref().map(JobSelection::point_count), points)?;
-        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), command).map_err(js_err)?;
-        self.job = (new_pixels, new_mask, None);
+        let (output, new_pixels, new_mask, display) = run_edit_job(&input, pixels, mask, points.as_deref(), command, out_per_doc).map_err(js_err)?;
+        self.job = (new_pixels, new_mask, None, display);
         serde_json::to_string(&output).map_err(js_err)
     }
     /// `run_histogram_job` (in the worker): four arrays of 256 bins, as JSON. `points` as
@@ -129,8 +137,8 @@ impl WasmEngine {
         let mask = gray_of(input.mask, mask)?;
         let edit = Self::parse_edit(edit_json)?;
         match run_effects_job(&input, pixels, mask, factor, edit.as_ref()).map_err(js_err)? {
-            Some((image, raster)) => { self.job = (Some(raster), None, None); Ok(Some(serde_json::to_string(&image).map_err(js_err)?)) }
-            None => { self.job = (None, None, None); Ok(None) }
+            Some((image, raster)) => { self.job = (Some(raster), None, None, None); Ok(Some(serde_json::to_string(&image).map_err(js_err)?)) }
+            None => { self.job = (None, None, None, None); Ok(None) }
         }
     }
     pub fn version(&self) -> String { Engine::version().to_string() }

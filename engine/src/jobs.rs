@@ -79,7 +79,9 @@ pub struct JobInput {
 }
 
 /// What an edit left of its layer: the transform, the mask's placement, which buffers it replaced
-/// (their sizes; the buffers travel beside) and the rectangles it changed them within.
+/// (their sizes; the buffers travel beside), the rectangles it changed them within, and the new
+/// pixels already halved to the level the canvas draws them at (`display`: the level and the size;
+/// the halved buffer travels beside, the fourth job buffer, F1).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobOutput {
@@ -88,7 +90,14 @@ pub struct JobOutput {
     pub pixels: Option<(u32, u32)>,
     pub mask: Option<(u32, u32)>,
     pub regions: Vec<(Plane, PixelRect)>,
+    #[serde(default)]
+    pub display: Option<DisplayHalving>,
 }
+
+/// The new pixels after `level` halvings (`width` x `height`): what the canvas uploads at the zoom the
+/// edit was asked at, made in the worker so the UI thread never halves a large result (F1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayHalving { pub level: u32, pub width: u32, pub height: u32 }
 
 /// An effects image made by a job: its size and the transparent pixels added on every side.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -196,9 +205,17 @@ impl Engine {
     /// goes through `Layer::mask_mut`, which moves the revision, so a mask moved while the job ran
     /// (a nudge, a Transform of the mask alone, an undo of either) refuses the result as a pixel edit
     /// would.
-    pub fn install_job(&mut self, id: Uuid, layer: Uuid, stamp: LayerStamp, output: JobOutput, pixels: Option<Raster>, mask: Option<GrayRaster>) -> Result<Dirty, CommandError> {
-        if pixels.as_ref().map(|p| (p.width, p.height)) != output.pixels || mask.as_ref().map(|m| (m.width, m.height)) != output.mask {
+    ///
+    /// `display` is the new pixels already halved to the canvas's level (`output.display`), which the
+    /// new pixels adopt (`Raster::adopt`): the next frame uploads it without halving the layer on the
+    /// UI thread (F1).
+    pub fn install_job(&mut self, id: Uuid, layer: Uuid, stamp: LayerStamp, output: JobOutput, pixels: Option<Raster>, mask: Option<GrayRaster>, display: Option<Raster>) -> Result<Dirty, CommandError> {
+        if pixels.as_ref().map(|p| (p.width, p.height)) != output.pixels || mask.as_ref().map(|m| (m.width, m.height)) != output.mask
+            || display.as_ref().map(|d| (d.width, d.height)) != output.display.map(|d| (d.width, d.height)) {
             return Err(CommandError::Argument("a job's buffers do not match its output".into()));
+        }
+        if let (Some(p), Some(d), Some(spec)) = (&pixels, &display, output.display) {
+            if !p.adopt(spec.level, d.clone()) { return Err(CommandError::Argument("a job's display halving does not match its pixels".into())); }
         }
         self.clear_preview(id);
         self.edit(id, |doc, _| {
@@ -234,21 +251,34 @@ impl Engine {
 /// Runs an edit job: `command` on the job's document, and what it left of the layer. Only the
 /// buffers the command replaced come back. `points` is the selection's flat buffer, as `job_input`
 /// returns it; required exactly when `input.selection` is.
-pub fn run_edit_job(input: &JobInput, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>, command: Command) -> Result<(JobOutput, Option<Raster>, Option<GrayRaster>), CommandError> {
+///
+/// `out_per_doc` is the scale the canvas draws the document at (device pixels per document pixel; 0
+/// for none): new pixels that changed as a whole are also returned halved to the level the canvas
+/// uploads them at (`compositor::prefilter_level`, the renderers' rule, on the result's own grid, so
+/// a blank layer a fill grew to the canvas counts too), which `install_job` hands them to adopt (F1).
+/// None when that level is 0, for Nearest sampling (never prefiltered), and when the edit reports
+/// changed rectangles (the UI thread then seeds the halvings from the old pixels).
+pub fn run_edit_job(input: &JobInput, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>, command: Command, out_per_doc: f64) -> Result<(JobOutput, Option<Raster>, Option<GrayRaster>, Option<Raster>), CommandError> {
     let mut engine = Engine::new();
     let id = engine.insert_document(input.document(pixels.clone(), mask.clone(), points)?);
     let dirty = engine.execute(id, command)?;
     let l = engine.document(id).and_then(|d| d.layer(input.layer.id)).ok_or(CommandError::NoLayer)?;
     let new_pixels = l.pixels.clone().filter(|p| !pixels.as_ref().is_some_and(|o| o.same_pixels(p)));
     let new_mask = l.mask.as_ref().map(|m| m.pixels.clone()).filter(|m| !mask.as_ref().is_some_and(|o| o.same_pixels(m)));
+    let regions: Vec<(Plane, PixelRect)> = dirty.regions.iter().filter(|r| r.layer == input.layer.id).map(|r| (r.plane, r.rect)).collect();
+    let display = new_pixels.as_ref().filter(|_| out_per_doc > 0.0 && l.transform.sampling != Sampling::Nearest && !regions.iter().any(|(plane, _)| *plane == Plane::Pixels))
+        .map(|p| (compositor::prefilter_level(p.width, p.height, p.width as f64 / (l.transform.size.width * out_per_doc).max(1e-9)), p))
+        .filter(|(level, _)| *level > 0)
+        .map(|(level, p)| (level, p.reduced(level)));
     let output = JobOutput {
         transform: l.transform,
         mask_placement: l.mask.as_ref().and_then(|m| m.placement),
         pixels: new_pixels.as_ref().map(|p| (p.width, p.height)),
         mask: new_mask.as_ref().map(|m| (m.width, m.height)),
-        regions: dirty.regions.iter().filter(|r| r.layer == input.layer.id).map(|r| (r.plane, r.rect)).collect(),
+        regions,
+        display: display.as_ref().map(|(level, d)| DisplayHalving { level: *level, width: d.width, height: d.height }),
     };
-    Ok((output, new_pixels, new_mask))
+    Ok((output, new_pixels, new_mask, display.map(|(_, d)| d)))
 }
 
 /// Runs a histogram job: the layer's histogram weighted by the selection (`Engine::histogram`).

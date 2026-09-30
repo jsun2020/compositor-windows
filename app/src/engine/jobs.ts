@@ -10,13 +10,15 @@
 
 /** What a job is asked to do. `input` is the engine's JobInput JSON; the buffers travel beside it. */
 export type JobRequest =
-  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string }
+  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string; outPerDoc: number }
   | { kind: "histogram"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null }
   | { kind: "effects"; input: string; pixels: ArrayBuffer; mask: ArrayBuffer | null; factor: number; edit: string | null };
 
 /** What came back: the engine's JSON answer (an edit's JobOutput, a histogram's bins, an effects
- * image's size and inset; null when an effects image found nothing to draw) and any buffers. */
-export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; }
+ * image's size and inset; null when an effects image found nothing to draw) and any buffers. An edit
+ * run at a scale (`outPerDoc`, device pixels per document pixel) also brings its new pixels halved to
+ * the level the canvas draws them at (`display`, engine `JobOutput.display`; F1). */
+export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null; }
 
 /** Messages to the worker and back. `fatal` on a failure marks a wasm trap (an `unreachable` panic,
  * an allocation abort): `RuntimeError.prototype instanceof WebAssembly.RuntimeError`, as the worker's

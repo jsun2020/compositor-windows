@@ -14,12 +14,19 @@ function kept(mask: boolean): ArrayBuffer | null {
   return new Uint8Array(memory!.buffer, ptr, len).slice().buffer;
 }
 const bytes = (b: ArrayBuffer | null) => (b ? new Uint8Array(b) : undefined);
+/** A copy of an edit's result halved to the canvas's level (the fourth job buffer, F1), or null. */
+function keptDisplay(): ArrayBuffer | null {
+  const len = engine!.job_display_len();
+  if (len === 0) return null;
+  const ptr = engine!.job_display_ptr();
+  return new Uint8Array(memory!.buffer, ptr, len).slice().buffer;
+}
 
 function run(request: JobRequest): JobResult {
   switch (request.kind) {
     case "edit": {
-      const header = engine!.run_edit_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points), request.command);
-      const result = { header, pixels: kept(false), mask: kept(true) };
+      const header = engine!.run_edit_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points), request.command, request.outPerDoc);
+      const result = { header, pixels: kept(false), mask: kept(true), display: keptDisplay() };
       engine!.release_job();
       return result;
     }
@@ -45,7 +52,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   }
   try {
     const result = run(message.request);
-    post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength }, [result.pixels, result.mask].filter((b): b is ArrayBuffer => b !== null));
+    post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength }, [result.pixels, result.mask, result.display ?? null].filter((b): b is ArrayBuffer => b !== null));
   } catch (err) {
     // A wasm trap (an `unreachable` panic, an allocation abort) throws a `WebAssembly.RuntimeError`,
     // not the ordinary `JsError` a refused command throws: it leaves this instance unusable (jobs.ts's

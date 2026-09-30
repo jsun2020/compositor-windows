@@ -515,11 +515,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
     }
     set({ working: true });
     let installed = false;
+    // The scale the canvas draws this document at, in device pixels per document pixel: the worker
+    // halves the result to the level the renderer will upload it at (F1).
+    const outPerDoc = (get().viewports[doc]?.pointsPerPixel ?? 0) * (globalThis.devicePixelRatio || 1);
     try {
-      const result = await jobs.run(`edit:${doc}`, { kind: "edit", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points, command: JSON.stringify(command) });
+      const result = await jobs.run(`edit:${doc}`, { kind: "edit", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points, command: JSON.stringify(command), outPerDoc });
       // Closed meanwhile: nothing to put back.
       if (!result || !get().documents[doc]) return false;
-      engine.installJob(doc, layerId, copy.input, result.header!, result.pixels, result.mask);
+      engine.installJob(doc, layerId, copy.input, result.header!, result.pixels, result.mask, result.display ?? null);
       installed = true;
       return true;
     } catch (e) {

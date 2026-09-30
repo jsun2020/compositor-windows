@@ -124,3 +124,48 @@ test("a blur on a large layer grows it through the worker exactly as it does in 
   // Ruling I5: the blur's commit ran in the worker, not silently on the UI thread.
   expect(await jobKinds(page), "the commit ran in the job worker").toEqual(["edit"]);
 });
+
+test("F1: on a zoomed-out canvas a worker's result comes back halved to the canvas's level, and draws as the CPU draws it", async ({ page }) => {
+  // The layer covers its canvas exactly, as zoom-render.spec.ts's layers do, so the comparison is the
+  // layer's own pixels at every output pixel.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(noisePngBase64);
+  const doc = await page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const png = Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, png, "noise", { x: 32, y: 32 });
+    api.store.setState({ jobPixels: 0 });
+    api.store.getState().openDocument(doc);
+    // What each install was handed as the result halved to the canvas's level (engine JobOutput.display).
+    const install = api.engine.installJob.bind(api.engine);
+    (window as any).__displays = [];
+    api.engine.installJob = (...a: unknown[]) => { (window as any).__displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0); return install(...a); };
+    await api.setZoom(0.25);
+    api.setCheckerboard(false);
+    return doc;
+  }, b64);
+  await page.evaluate(() => (window as any).__compositor.store.getState().beginAdjust({ kind: "Levels" }));
+  await page.waitForFunction(() => (window as any).__compositor.store.getState().adjustEdit?.histogram !== null);
+  await page.getByLabel("Output white").fill("190");
+  await page.getByRole("button", { name: "OK" }).click();
+  await idle(page);
+  // A quarter of a device pixel per document pixel: the 64 x 64 layer is drawn after one halving, 32 x 32,
+  // which the worker made and sent back with the result.
+  expect(await page.evaluate(() => (window as any).__displays)).toEqual([32 * 32 * 4]);
+  const r = await page.evaluate(async (doc) => {
+    const api = (window as any).__compositor;
+    const s = api.store.getState(); const d = s.documents[doc]; const vp = s.viewports[doc]; const dpr = window.devicePixelRatio || 1;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const gl = Array.from(api.readDocumentPixels()) as number[];
+    const rect = vp.documentRect({ width: d.width, height: d.height });
+    const w = Math.round((rect.x + rect.width) * dpr) - Math.round(rect.x * dpr);
+    const h = Math.round((rect.y + rect.height) * dpr) - Math.round(rect.y * dpr);
+    const cpu = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: d.width, height: d.height }, w, h)) as number[];
+    return { gl, cpu };
+  }, doc);
+  expect(r.gl.length).toBe(r.cpu.length);
+  expect(r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0), "the GPU draws the worker's halving as the CPU draws its own").toBeLessThanOrEqual(2);
+});

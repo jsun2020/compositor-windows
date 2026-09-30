@@ -6,6 +6,7 @@ import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewReques
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient, JobRequest, JobResult } from "../../src/engine/jobs";
 import type { ShellBridge } from "../../src/shell/bridge";
+import type { Viewport } from "../../src/canvas/viewport";
 
 function layer(id: string, width: number, height: number): LayerState {
   return { id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal",
@@ -25,6 +26,7 @@ function install(width: number, height: number, onInstall?: () => void) {
   const log: string[] = [];
   const previews: (PreviewRequest | null)[] = [];
   const requests: JobRequest[] = [];
+  const displays: (ArrayBuffer | null)[] = [];
   let finish: (r: JobResult | null) => void = () => {};
   const engine = {
     state: () => document(layer("A", width, height)),
@@ -35,14 +37,14 @@ function install(width: number, height: number, onInstall?: () => void) {
     // Task 5's jobs API: a job's input carries its selection's points as a separate buffer (null
     // here -- these fixtures have no selection), beside the JSON and the pixel/mask buffers.
     jobInput: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },
-    installJob: (_doc: string, layerId: string, input: string, output: string) => { log.push(`install ${layerId} ${output}`); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
+    installJob: (_doc: string, layerId: string, input: string, output: string, _pixels: ArrayBuffer | null, _mask: ArrayBuffer | null, display: ArrayBuffer | null) => { log.push(`install ${layerId} ${output}`); displays.push(display); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
     undo: () => { log.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     adjustmentIsIdentity: (a: LayerAdjustment) => JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind)),
   } as unknown as EngineClient;
   const jobs = { run: (_channel: string, request: JobRequest) => { requests.push(request); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: document(layer("A", width, height)) }, order: ["D"], selectedLayerIds: ["A"],
-    maskSelected: false, transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, working: false });
-  return { log, previews, requests, finish: (r: JobResult | null) => finish(r) };
+    maskSelected: false, transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, working: false, viewports: {} });
+  return { log, previews, requests, displays, finish: (r: JobResult | null) => finish(r) };
 }
 /** Opens Levels on layer A and moves a slider, so OK has something to apply. */
 function levelsChanged() {
@@ -73,6 +75,21 @@ describe("destructive commits on large layers go to the job worker", () => {
     expect(log.at(-1)).toBe("install A OUT");
     expect(useEditor.getState().working).toBe(false);
     expect(previews.length, "the engine cleared its own preview as it put the result back").toBe(shown);
+  });
+
+  it("an edit job carries the scale the canvas draws at, and the result's halving goes back with it (F1)", async () => {
+    const { requests, displays, finish } = install(2001, 2000);
+    // An eighth of a CSS pixel per document pixel; the node test has no devicePixelRatio, so 1.
+    useEditor.setState({ viewports: { D: { pointsPerPixel: 0.125 } as unknown as Viewport } });
+    levelsChanged();
+    useEditor.getState().commitAdjust();
+    const request = requests.at(-1)!;
+    expect(request.kind === "edit" && request.outPerDoc).toBe(0.125);
+    const display = new ArrayBuffer(8);
+    finish({ header: "OUT", pixels: new ArrayBuffer(4), mask: null, display });
+    await flush();
+    expect(displays).toEqual([display]);
+    expect(displays[0], "the very buffer the worker sent").toBe(display);
   });
 
   it("a layer at the threshold is edited on the UI thread as before", () => {
