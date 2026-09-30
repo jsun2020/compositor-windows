@@ -528,11 +528,13 @@ New in this set (blend modes, saturation, layers drawn one pixel for one pixel):
 New in this set, finished by hand on the Mac, then saved (File > Save) and exported:
 
 - mask-reveal-selection.comp -> mask-reveal-selection.png
-  View > Snap To: turn Guides on. Choose the Elliptical Marquee (press M, and Shift-M until the
-  ellipse shows), Anti-alias on, Feather 0. In the Layers panel click Reveal. Drag from where the
-  upper guides cross at the top left (x 50, y 35) to where they cross at the bottom right (x 190,
-  y 105). Click the Add Mask button at the foot of the Layers panel. Then click Hide, drag the same
-  ellipse from (50, 145) to (190, 215), and Option-click the Add Mask button. Save, then export.
+  View > Snap To: turn Guides on. Choose the Marquee (press M), then press Tab (or click Ellipse in
+  the Shape control of the tool options bar) until the elliptical marquee is selected. Leave
+  Anti-alias on and do not use Feather (a freshly dragged marquee is not feathered). In the Layers
+  panel click Reveal. Drag from where the upper guides cross at the top left (x 50, y 35) to where
+  they cross at the bottom right (x 190, y 105). Click the Add Mask button at the foot of the
+  Layers panel. Then click Hide, drag the same ellipse from (50, 145) to (190, 215), and
+  Option-click the Add Mask button. Save, then export.
 
 Made on the Mac from nothing in this folder (the first two) or from edited-rich-file.comp:
 
