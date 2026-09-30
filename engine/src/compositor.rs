@@ -249,7 +249,7 @@ fn adjust_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &
         if k <= 0.0 { continue; }
         // Full strength in Normal: the Mac's own 8-bit kernel, so an export matches it to the level.
         // Not for a layer whose own mode is not Normal (`keeps_alpha`): the Mac takes its
-        // full-coverage path there even when the Core Graphics mode is Normal.
+        // full-coverage path there.
         if k >= 1.0 && blend == BlendMode::Normal && !draw.keeps_alpha {
             let px = [target.data[i], target.data[i + 1], target.data[i + 2], target.data[i + 3]];
             if let Some(out) = prepared.pixel(px, p) { target.data[i..i + 4].copy_from_slice(&out); continue; }
@@ -325,8 +325,8 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
         if k <= 0.0 { continue; }
         let original = [target.data[i], target.data[i + 1], target.data[i + 2], target.data[i + 3]];
         let mut result = [blurred[i], blurred[i + 1], blurred[i + 2], blurred[i + 3]];
-        // The layer's own mode is not Normal: full coverage in its Core Graphics mode, original
-        // alpha kept, even when that mode is Normal (Task 1, `keeps_alpha`).
+        // The layer's own mode is not Normal: full coverage in that mode, original alpha kept
+        // (`keeps_alpha`).
         if draw.keeps_alpha { result = blended_keeping_alpha(blend, original, result); }
         target.data[i..i + 4].copy_from_slice(&toward(original, result, k));
     }}

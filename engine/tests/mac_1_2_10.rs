@@ -130,11 +130,11 @@ fn premultiplied(name: &str) -> (u8, u8, f64) {
 
 #[test]
 fn the_follow_up_probes_this_port_draws_exactly_match_the_mac_render_bit_for_bit() {
-    // Color Balance without Preserve Luminosity, both Add Noise modes, a Levels layer in Divide and
-    // one in Color Dodge (Core Graphics' own formulas agree with this port's here), both clipping
-    // stack bases, and an Invert layer.
-    for name in ["color-balance-no-preserve", "add-noise-uniform", "add-noise-gaussian-mono", "cgmode-levels-divide",
-        "color-dodge-adjustment", "cgmode-stack-bases", "invert"] {
+    // Color Balance without Preserve Luminosity, both Add Noise modes, a Levels layer in Color Dodge
+    // (Core Graphics' own formula agrees with this port's W3C one here, and 1.4.5 draws it through Core
+    // Image), and an Invert layer. `cgmode-levels-divide` and `cgmode-stack-bases` left this list in
+    // Phase 4.5: Compositor 1.4.5 blends them in their real modes (below).
+    for name in ["color-balance-no-preserve", "add-noise-uniform", "add-noise-gaussian-mono", "color-dodge-adjustment", "invert"] {
         let (width, theirs) = mac(name);
         let (d, at) = worst(&ours(name), &theirs, width, 0..width);
         assert_eq!(d, 0, "{name}: worst at {at:?}");
@@ -149,21 +149,101 @@ fn a_tinted_black_and_white_layer_matches_the_mac_render_within_one_level() {
     assert!(d <= 1, "worst {d} at {at:?}");
 }
 
-#[test]
-fn a_blur_layer_in_linear_burn_keeps_the_original_alpha_as_the_mac_does() {
-    // Ruling E-I1 confirmed by the Mac: the canvas edge does not fade (alpha exact). Measured colour
-    // 3, on 28 pixels over 2, all at the canvas edge.
-    let (width, theirs) = mac("cgmode-blur-linear-burn");
-    let port = ours("cgmode-blur-linear-burn");
-    let (mut colour, mut alpha) = (0u8, 0u8);
-    for (i, (a, b)) in port.iter().zip(&theirs).enumerate() {
-        if i % 4 == 3 { alpha = alpha.max(a.abs_diff(*b)); } else { colour = colour.max(a.abs_diff(*b)); }
+/// The largest difference over the colour channels of the pixels `inside` picks, straight RGBA8.
+fn worst_where(a: &[u8], b: &[u8], width: u32, inside: impl Fn(u32, u32) -> bool) -> u8 {
+    let mut d = 0u8;
+    for (p, (x, y)) in (0..a.len() / 4).map(|p| (p, ((p as u32) % width, (p as u32) / width))) {
+        if !inside(x, y) { continue; }
+        for c in 0..3 { d = d.max(a[p * 4 + c].abs_diff(b[p * 4 + c])); }
     }
-    assert_eq!(alpha, 0, "alpha");
-    assert!(colour <= 3, "colour {colour}");
-    assert_eq!(width, 160);
+    d
 }
 
+// Compositor 1.4.5 blends adjustment layers and clipping stacks in their real modes (LiveMaskRenderer.swift
+// :52-57, :89, :126-134 at v1.4.5), where 1.2.10, whose exports these are, drew the eight modes only Core
+// Image computes as Normal. Until their 1.4.5 re-exports (B1) arrive, the parts 1.4.5 draws differently
+// are held to the formulas and shown to differ from these exports; the rest still matches them.
+
+#[test]
+fn a_levels_layer_in_divide_blends_in_divide() {
+    // Levels to mid grey (128) at 60% over the tonal sweep: each channel moves 60% of the way to the
+    // backdrop divided by 128/255 (at most 1).
+    let (width, theirs) = mac("cgmode-levels-divide");
+    let port = ours("cgmode-levels-divide");
+    let doc = open(&format!("{}/cgmode-levels-divide.comp", fixtures()));
+    let sweep = doc.layers[0].pixels.as_ref().unwrap();
+    let grey = 128.0 / 255.0;
+    let mut want = port.clone();
+    for y in 0..sweep.height { for x in 0..sweep.width {
+        let p = sweep.pixel(x, y);
+        for c in 0..3 {
+            let cb = p[c] as f64 / 255.0;
+            let divided = (cb / grey).min(1.0);
+            want[((y * width + x) * 4) as usize + c] = ((cb + (divided - cb) * 0.6) * 255.0).round() as u8;
+        }
+    }}
+    assert!(worst_where(&port, &want, width, |_, _| true) <= 1, "Divide at 60%");
+    assert!(worst_where(&port, &theirs, width, |_, _| true) >= 4, "1.2.10 drew it as Normal");
+}
+
+#[test]
+fn a_clipping_stack_based_in_subtract_blends_in_subtract() {
+    // Two stacks over the hue sweep: an opaque (60, 150, 110) base, 100 x 100 at (10, 10), in Subtract,
+    // then one in Color Burn at (130, 10), each under a half-alpha (40, 20, 90) child 60 px wide, 20 px
+    // in from the base's left edge. The Color Burn stack is what 1.2.10 drew too (Core Graphics' own
+    // formula agreed with this port's there): bit for bit. The Subtract one is the backdrop minus the
+    // group (the child over the base), at least 0.
+    let (width, theirs) = mac("cgmode-stack-bases");
+    let port = ours("cgmode-stack-bases");
+    assert_eq!(worst_where(&port, &theirs, width, |x, _| x >= 120), 0, "the Color Burn stack");
+    let doc = open(&format!("{}/cgmode-stack-bases.comp", fixtures()));
+    let sweep = doc.layers[0].pixels.as_ref().unwrap();
+    let (base, child) = ([60.0f64, 150.0, 110.0], [40.0f64, 20.0, 90.0, 128.0]);
+    let mut want = port.clone();
+    for y in 10..110u32 { for x in 10..110u32 {
+        let p = sweep.pixel(x, y);
+        for c in 0..3 {
+            let group = if (30..90).contains(&x) { child[c] + base[c] * (1.0 - child[3] / 255.0) } else { base[c] };
+            want[((y * width + x) * 4) as usize + c] = (p[c] as f64 - group).max(0.0).round() as u8;
+        }
+    }}
+    assert!(worst_where(&port, &want, width, |x, _| x < 120) <= 1, "Subtract");
+    assert!(worst_where(&port, &theirs, width, |x, _| x < 120) >= 4, "1.2.10 drew the Subtract stack as Normal");
+}
+
+#[test]
+fn a_blur_layer_in_linear_burn_keeps_the_original_alpha_as_the_mac_does() {
+    // Ruling E-I1 confirmed by the Mac: the canvas edge does not fade (alpha exact against the 1.2.10
+    // export; 1.4.5 keeps the original alpha the same way, LiveMaskRenderer.swift:58). The colour is now
+    // Linear Burn of the original and its blur, both made opaque, the original alpha put back
+    // (`blended_keeping_alpha`), worked out here from this port's own composite without the blur layer
+    // and with it in Normal (the blur itself).
+    let (width, theirs) = mac("cgmode-blur-linear-burn");
+    let port = composite_of("cgmode-blur-linear-burn");
+    let straight = port.to_straight();
+    let alpha = (0..straight.len() / 4).map(|p| straight[p * 4 + 3].abs_diff(theirs[p * 4 + 3])).max().unwrap();
+    assert_eq!(alpha, 0, "alpha");
+    assert_eq!(width, 160);
+    let comp = format!("{}/cgmode-blur-linear-burn.comp", fixtures());
+    let region = Rect { x: 0.0, y: 0.0, width: 160.0, height: 100.0 };
+    let mut doc = open(&comp);
+    doc.layers[2].visible = false;
+    let original = composite(&doc, region, 160, 100);
+    doc.layers[2].visible = true;
+    doc.layers[2].blend_mode = BlendMode::Normal;
+    let blurred = composite(&doc, region, 160, 100);
+    let opaque = |p: &[u8], c: usize| { let a = p[3] as u32; if a == 0 { 0.0 } else { ((p[c] as u32 * 255 + a / 2) / a).min(255) as f64 / 255.0 } };
+    let mut colour = 0u8;
+    for ((o, b), got) in original.bytes().chunks_exact(4).zip(blurred.bytes().chunks_exact(4)).zip(port.bytes().chunks_exact(4)) {
+        for c in 0..3 {
+            let burnt = (opaque(o, c) + opaque(b, c) - 1.0).max(0.0);
+            let want = (((burnt * 255.0).round() as u32 * o[3] as u32 + 127) / 255) as u8;
+            colour = colour.max(got[c].abs_diff(want));
+        }
+    }
+    assert!(colour <= 1, "Linear Burn of the original and its blur: {colour}");
+    assert!(worst_where(&straight, &theirs, width, |_, _| true) >= 4, "1.2.10 drew the blur in Normal");
+}
 #[test]
 fn the_gaussian_blur_probes_match_the_mac_render_premultiplied() {
     // Measured colour and alpha: radius 6 (the exact kernel) 2 and 2; radius 40 (the halved path) 2

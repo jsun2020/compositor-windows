@@ -1,7 +1,7 @@
 import type { BlendMode } from "../../engine/types";
 
-// Mirrors BlendMode in engine/src/blend.rs. An adjustment layer's and a stack base's draw arrive
-// already mapped to their Core Graphics mode by the plan (BlendMode::cg_mode).
+// Mirrors BlendMode in engine/src/blend.rs. Every draw arrives in its own mode, an adjustment layer's
+// and a stack base's too (Compositor 1.4.5 blends them through Core Image where Core Graphics cannot).
 export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12,
   "Linear Burn": 13, "Linear Dodge (Add)": 14, "Soft Light": 15, "Hard Light": 16, "Vivid Light": 17, "Linear Light": 18, "Pin Light": 19, "Hard Mix": 20, Exclusion: 21, Subtract: 22, Divide: 23 };
 export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4, invert: 5, blackWhite: 6, colorBalance: 7, addNoise: 8 };

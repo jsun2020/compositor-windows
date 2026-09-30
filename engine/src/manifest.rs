@@ -48,25 +48,6 @@ pub enum BlendMode {
     #[serde(rename = "Divide")] Divide,
 }
 
-impl BlendMode {
-    /// The mode Core Graphics draws for this one (`LayerBlendMode.cgMode`, LayerAppearance.swift:28-49):
-    /// the same mode, except the eight modes only Core Image computes, which are Normal there. The
-    /// Mac blends through `cgMode` where it composites a whole surface in one draw: an adjustment
-    /// layer's blend (LiveMaskRenderer.swift:40, inside the branch its REAL mode chose at :24, which
-    /// the plan carries as `LayerDraw.keeps_alpha`) and a clipping stack's group (:74, :105). A
-    /// layer drawn on its own goes through SeparableBlend and gets the real mode. Color Burn and
-    /// Color Dodge map to Core Graphics' own modes, whose formulas the Mac calls wrong
-    /// (LayerAppearance.swift:51-52); this port applies its W3C formulas there too, and the Task 12
-    /// probes measure the difference. The render plan applies this, so both renderers inherit it.
-    pub fn cg_mode(self) -> BlendMode {
-        match self {
-            BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::VividLight | BlendMode::LinearLight
-            | BlendMode::PinLight | BlendMode::HardMix | BlendMode::Subtract | BlendMode::Divide => BlendMode::Normal,
-            other => other,
-        }
-    }
-}
-
 /// A saved alignment guide (v8, `CanvasGuide`, Document/Guides.swift:5-10). `position` is in
 /// document pixels: X for a vertical guide, Y for a horizontal one; it may be fractional and may
 /// lie outside the canvas.

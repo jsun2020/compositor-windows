@@ -489,7 +489,7 @@ test("blur adjustment layers draw on the GPU as on the CPU, reduced or not, dimm
   await expectMatchesCpu(page, "opacity");
   await run(page, { type: "SetLayerBlendMode", id, mode: "Multiply" });
   await expectMatchesCpu(page, "blend mode");
-  // A Core-Image-only mode: Normal at full coverage with the original alpha kept (keepsAlpha).
+  // A Core-Image-only mode: that mode at full coverage with the original alpha kept (keepsAlpha).
   await run(page, { type: "SetLayerBlendMode", id, mode: "Linear Burn" });
   await expectMatchesCpu(page, "Linear Burn");
   await run(page, { type: "SetLayerBlendMode", id, mode: "Normal" });

@@ -155,18 +155,22 @@ fn levels_to_mid_grey() -> LayerAdjustment {
 const CORE_IMAGE_ONLY: [BlendMode; 8] = [BlendMode::LinearBurn, BlendMode::LinearDodge, BlendMode::VividLight,
     BlendMode::LinearLight, BlendMode::PinLight, BlendMode::HardMix, BlendMode::Subtract, BlendMode::Divide];
 
+/// A mode's name as the formulas above spell it.
+fn name(mode: BlendMode) -> String { serde_json::to_value(mode).unwrap().as_str().unwrap().to_string() }
+
 #[test]
-fn an_adjustment_layer_blends_in_the_core_graphics_mode() {
-    // LiveMaskRenderer.adjust branches on the layer's OWN mode (LiveMaskRenderer.swift:24): any
-    // mode but Normal takes the full-coverage path that keeps the original alpha, and only the
-    // draw inside it goes through `cgMode` (:40), which is Normal for the eight modes only Core
-    // Image computes (LayerAppearance.swift:46-47). Soft Light is a Core Graphics mode, so it
-    // stays. Over an opaque backdrop a per-pixel kind keeps alpha 255 either way, so the eight
-    // composite exactly as Normal does.
+fn an_adjustment_layer_blends_in_its_own_mode() {
+    // Compositor 1.4.5: an adjustment layer in any mode but Normal takes the full-coverage path that
+    // keeps the original alpha (LiveMaskRenderer.swift:36-61), and blends its result in its real mode,
+    // through Core Image for the modes Core Graphics lacks or gets wrong (SeparableBlend.blend,
+    // SeparableBlend.swift:50-59; LiveMaskRenderer.swift:52-57). 1.2.10 drew the eight Core-Image-only
+    // modes as Normal there (`cgMode`). Levels to mid grey over an opaque backdrop: each channel is the
+    // mode's formula of the backdrop and 128.
     let region = Rect { x: 0.0, y: 0.0, width: 2.0, height: 1.0 };
+    let backdrop = [200u8, 90, 30, 255];
     let with_mode = |mode: BlendMode| {
         let mut doc = Document::new(2, 1);
-        let under = Layer::with_pixels("B", Raster::from_premultiplied(2, 1, [200u8, 90, 30, 255].repeat(2)), Point { x: 0.0, y: 0.0 });
+        let under = Layer::with_pixels("B", Raster::from_premultiplied(2, 1, backdrop.repeat(2)), Point { x: 0.0, y: 0.0 });
         let mut adj = Layer::blank("Levels", doc.size());
         adj.extra.adjustment = Some(levels_to_mid_grey());
         adj.blend_mode = mode;
@@ -176,41 +180,65 @@ fn an_adjustment_layer_blends_in_the_core_graphics_mode() {
     let (plan, normal) = with_mode(BlendMode::Normal);
     let PlanNode::Layer { draw } = &plan.nodes[1] else { panic!("the adjustment is a plain node") };
     assert!(!draw.keeps_alpha, "Normal composites through its coverage, alpha and all");
-    for mode in CORE_IMAGE_ONLY {
+    for mode in CORE_IMAGE_ONLY.into_iter().chain([BlendMode::SoftLight]) {
         let (plan, px) = with_mode(mode);
         let PlanNode::Layer { draw } = &plan.nodes[1] else { panic!("the adjustment is a plain node") };
-        assert_eq!(draw.blend, BlendMode::Normal, "{mode:?} reaches both renderers as Normal");
+        assert_eq!(draw.blend, mode, "{mode:?} reaches both renderers as itself");
         assert!(draw.keeps_alpha, "{mode:?} is not Normal, so the original alpha is kept");
-        assert_eq!(px, normal, "{mode:?}");
+        let want: Vec<u8> = (0..3).map(|c| (expected_blend(&name(mode), backdrop[c] as f32 / 255.0, 128.0 / 255.0).clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+        for c in 0..3 { assert!(px[c].abs_diff(want[c]) <= 1, "{mode:?}, channel {c}: {px:?} against {want:?}"); }
+        assert_eq!(px[3], 255);
+        assert_ne!(px, normal, "{mode:?} is not drawn as Normal");
     }
-    let (plan, soft) = with_mode(BlendMode::SoftLight);
-    let PlanNode::Layer { draw } = &plan.nodes[1] else { panic!("the adjustment is a plain node") };
-    assert_eq!(draw.blend, BlendMode::SoftLight);
-    assert!(draw.keeps_alpha);
-    assert_ne!(soft, normal, "a Core Graphics mode still blends");
 }
 
 #[test]
-fn a_clipping_stack_composites_in_its_base_core_graphics_mode() {
-    // prepareStacks stores `blend(base).cgMode` (LiveMaskRenderer.swift:74) for the group composite.
+fn a_clipping_stack_composites_in_its_bases_own_mode() {
+    // LiveMaskRenderer.swift:89 (`stackModes` holds the real mode) and :126-134 (the group through
+    // SeparableBlend.draw when the mode needs a surface), at v1.4.5; 1.2.10 stored `cgMode`. The
+    // group is the child over the base, opaque where the base is; it blends over the backdrop by the
+    // base's own formula.
     let region = Rect { x: 0.0, y: 0.0, width: 2.0, height: 1.0 };
+    let (backdrop, base_px, child_px) = ([200u8, 90, 30, 255], [60u8, 150, 110, 255], [40u8, 20, 90, 128]);
     let stack = |mode: BlendMode| {
         let mut doc = Document::new(2, 1);
-        let under = Layer::with_pixels("Backdrop", Raster::from_premultiplied(2, 1, [200u8, 90, 30, 255].repeat(2)), Point { x: 0.0, y: 0.0 });
-        let mut base = Layer::with_pixels("Base", Raster::from_premultiplied(2, 1, [60u8, 150, 110, 255].repeat(2)), Point { x: 0.0, y: 0.0 });
+        let under = Layer::with_pixels("Backdrop", Raster::from_premultiplied(2, 1, backdrop.repeat(2)), Point { x: 0.0, y: 0.0 });
+        let mut base = Layer::with_pixels("Base", Raster::from_premultiplied(2, 1, base_px.repeat(2)), Point { x: 0.0, y: 0.0 });
         base.blend_mode = mode;
-        let mut child = Layer::with_pixels("Child", Raster::from_premultiplied(2, 1, [40u8, 20, 90, 128].repeat(2)), Point { x: 0.0, y: 0.0 });
+        let mut child = Layer::with_pixels("Child", Raster::from_premultiplied(2, 1, child_px.repeat(2)), Point { x: 0.0, y: 0.0 });
         child.mask_source_id = Some(base.id);
         doc.layers = vec![under, base, child];
         (render_plan(&doc, None), composite(&doc, region, 2, 1).pixel(0, 0))
     };
+    let group: Vec<f32> = (0..3).map(|c| (child_px[c] as f32 + base_px[c] as f32 * (1.0 - child_px[3] as f32 / 255.0)) / 255.0).collect();
     let (_, normal) = stack(BlendMode::Normal);
     for mode in CORE_IMAGE_ONLY {
         let (plan, px) = stack(mode);
         let PlanNode::Stack { base, .. } = &plan.nodes[1] else { panic!("base and child form a stack") };
-        assert_eq!(base.blend, BlendMode::Normal, "{mode:?}");
-        assert_eq!(px, normal, "{mode:?}: Core Image only, so the stack composites as Normal");
+        assert_eq!(base.blend, mode, "{mode:?}");
+        let want: Vec<u8> = (0..3).map(|c| (expected_blend(&name(mode), backdrop[c] as f32 / 255.0, group[c]).clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+        for c in 0..3 { assert!(px[c].abs_diff(want[c]) <= 1, "{mode:?}, channel {c}: {px:?} against {want:?}"); }
+        assert_ne!(px, normal, "{mode:?} is not drawn as Normal");
     }
-    let (_, multiply) = stack(BlendMode::Multiply);
-    assert_ne!(multiply, normal, "a Core Graphics mode composites the stack in that mode");
+}
+
+#[test]
+fn a_linear_dodge_stack_exports_the_macs_own_numbers() {
+    // GPUCanvasTests.clippingStacksBlendInTheirBasesMode (GPUCanvasTests.swift:477-514 at v1.4.5):
+    // Base (0.4, 0.2, 0.1); Blended (0.3, 0.3, 0.3) in Linear Dodge, the stack's base; Clipped (0.2,
+    // 0.05, 0), 50 x 50 at the corner, clipped to Blended. Exported: (153, 64, 26) where Clipped
+    // covers, (179, 128, 102) where only Blended does, each within 1.
+    let byte = |v: f64| (v * 255.0).round() as u8;
+    let solid = |name: &str, rgb: [f64; 3], size: u32| Layer::with_pixels(name, Raster::from_premultiplied(size, size, [byte(rgb[0]), byte(rgb[1]), byte(rgb[2]), 255].repeat((size * size) as usize)), Point { x: 0.0, y: 0.0 });
+    let mut doc = Document::new(100, 100);
+    let base = solid("Base", [0.4, 0.2, 0.1], 100);
+    let mut blended = solid("Blended", [0.3, 0.3, 0.3], 100);
+    blended.blend_mode = BlendMode::LinearDodge;
+    let mut clipped = solid("Clipped", [0.2, 0.05, 0.0], 50);
+    clipped.mask_source_id = Some(blended.id);
+    doc.layers = vec![base, blended, clipped];
+    let at = |x: f64, y: f64| composite(&doc, Rect { x, y, width: 1.0, height: 1.0 }, 1, 1).pixel(0, 0);
+    let (covered, bare) = (at(20.0, 20.0), at(80.0, 80.0));
+    for (c, want) in [153u8, 64, 26].into_iter().enumerate() { assert!(covered[c].abs_diff(want) <= 1, "covered {covered:?}"); }
+    for (c, want) in [179u8, 128, 102].into_iter().enumerate() { assert!(bare[c].abs_diff(want) <= 1, "bare {bare:?}"); }
 }

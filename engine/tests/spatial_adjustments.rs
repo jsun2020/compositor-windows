@@ -253,12 +253,13 @@ fn a_blend_mode_blends_at_full_coverage_and_keeps_the_original_alpha() {
 
 #[test]
 fn a_blur_in_a_core_image_only_mode_keeps_the_original_alpha_as_the_mac_does() {
-    // Ruling E-I1. LiveMaskRenderer.swift:24 branches on the layer's OWN mode: a blur layer in
-    // Linear Burn takes the full-coverage path, drawn in Normal (its cgMode, :40) over the opaque
-    // original, then gets the original alpha back (:43). So the canvas edge does not fade, the
-    // colour is the unpremultiplied blur (of a flat colour: that colour), and nothing spreads
-    // where the original is clear. Taking the Normal path instead gives alpha 139 at x = 0 and
-    // [3, 1, 0, 4] at x = 40 (measured).
+    // Ruling E-I1. LiveMaskRenderer.swift:36-61 (v1.4.5) branches on the layer's OWN mode: a blur
+    // layer in Linear Burn takes the full-coverage path, blended in Linear Burn itself (through Core
+    // Image, :52-57; 1.2.10 drew it as Normal) over the opaque original, then gets the original alpha
+    // back. So the canvas edge does not fade, the colour is Linear Burn of the colour and its blur (of
+    // a flat colour: that colour, so 2 c - 255, at least 0), and nothing spreads where the original is
+    // clear. Taking the Normal path instead gives alpha 139 at x = 0 and [3, 1, 0, 4] at x = 40
+    // (measured).
     let mut doc = Document::new(64, 20);
     let block = Layer::with_pixels("Block", Raster::from_premultiplied(48, 20, [200u8, 90, 30, 255].repeat(960)), Point { x: -16.0, y: 0.0 });
     let mut b = blur(&doc, 4.0);
@@ -266,12 +267,12 @@ fn a_blur_in_a_core_image_only_mode_keeps_the_original_alpha_as_the_mac_does() {
     doc.layers = vec![block, b];
     let plan = render_plan(&doc, None);
     let PlanNode::Layer { draw } = &plan.nodes[1] else { panic!("the blur is a plain node") };
-    assert!(draw.keeps_alpha && draw.blend == BlendMode::Normal);
+    assert!(draw.keeps_alpha && draw.blend == BlendMode::LinearBurn);
     let out = full(&doc);
     for x in [0u32, 5, 31] {
         let p = out.pixel(x, 10);
         assert_eq!(p[3], 255, "alpha at x {x} is the original's: {p:?}");
-        for (c, want) in [200i32, 90, 30].into_iter().enumerate() {
+        for (c, want) in [200i32, 90, 30].map(|v| (2 * v - 255).max(0)).into_iter().enumerate() {
             assert!((p[c] as i32 - want).abs() <= 1, "colour at x {x}, channel {c}: {p:?}");
         }
     }
