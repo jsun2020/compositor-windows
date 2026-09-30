@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EFFECTS_LIMITS, EffectsImages, closedMeanwhile, placedLike, reducedLevel } from "../../src/canvas/effects-images";
 import type { Corners, LayerDraw, LayerTransform } from "../../src/engine/types";
 import type { EngineClient } from "../../src/engine/client";
-import type { JobClient, JobRequest, JobResult } from "../../src/engine/jobs";
+import { EFFECTS_JOB_DISPLACED, type JobClient, type JobRequest, type JobResult } from "../../src/engine/jobs";
 import { homographyUnitTo, mat3Apply } from "../../src/tools/transform-geometry";
 
 const defaults = { ...EFFECTS_LIMITS };
@@ -58,23 +58,26 @@ describe("EffectsImages.choose", () => {
    * when `finish` is called. */
   function setup() {
     const asked: JobRequest[] = [];
-    const state = { full: false, kept: 0, closed: false };
+    const state = { full: false, kept: 0, closed: false, broken: null as string | null };
     let finish: (r: JobResult | null) => void = () => {};
+    let fail: (e: Error) => void = () => {};
+    const failures: string[] = [];
     const engine = {
       hasEffectsImage: () => state.full,
       displayJobInput: (_d: string, _l: string, level: number) => {
         if (state.closed) throw new Error("No document with that id."); // the engine's NoDocument, word for word
+        if (state.broken) throw new Error(state.broken);
         return { input: JSON.stringify({ pixels: [40 >> level, 24 >> level], stamp: {} }), pixels: new ArrayBuffer(4), mask: null };
       },
       keepEffectsImage: () => { state.kept++; return true; },
     } as unknown as EngineClient;
-    const jobs = { run: (_c: string, r: JobRequest) => { asked.push(r); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
+    const jobs = { run: (_c: string, r: JobRequest) => { asked.push(r); return new Promise<JobResult | null>((resolve, reject) => { finish = resolve; fail = reject; }); } } as unknown as JobClient;
     let landed = 0;
     // Frames are painted only when the test says so (`paint`).
     const frames: (() => void)[] = [];
-    const images = new EffectsImages(() => jobs, () => { landed++; }, (f) => { frames.push(f); });
+    const images = new EffectsImages(() => jobs, () => { landed++; }, (f) => { frames.push(f); }, (m) => { failures.push(m); });
     const paint = () => { for (const f of frames.splice(0)) f(); };
-    return { images, engine, asked, state, finish: (r: JobResult | null) => finish(r), landed: () => landed, paint };
+    return { images, engine, asked, state, failures, finish: (r: JobResult | null) => finish(r), fail: (e: Error) => fail(e), landed: () => landed, paint };
   }
   const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -172,5 +175,27 @@ describe("EffectsImages.choose", () => {
     closed.images.choose(closed.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
     await flush();
     expect(closed.asked.length, "asked again").toBe(1);
+  });
+
+  it("tells the user of a failure that is not a closed document or a displaced job (re-review residual: it reached the console only)", async () => {
+    const t = setup();
+    // An ask the engine refuses for another reason: said, not thrown into a task nobody catches.
+    t.state.broken = "RangeError: Array buffer allocation failed";
+    t.images.choose(t.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush();
+    expect(t.failures).toEqual(["RangeError: Array buffer allocation failed"]);
+    // A job that fails is said too.
+    t.state.broken = null;
+    t.images.choose(t.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush();
+    t.fail(new Error("The edit failed and was stopped."));
+    await flush();
+    expect(t.failures).toEqual(["RangeError: Array buffer allocation failed", "The edit failed and was stopped."]);
+    // One an edit displaced is asked for again on the next frame, and not said.
+    t.images.choose(t.engine, "D", "A", "fx:1", drawOf(), 40, 24, null);
+    await flush();
+    t.fail(new Error(EFFECTS_JOB_DISPLACED));
+    await flush();
+    expect([t.failures.length, t.landed()]).toEqual([2, 1]);
   });
 });

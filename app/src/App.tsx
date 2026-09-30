@@ -60,8 +60,6 @@ export function App() {
       // The job worker: a second engine for work on one layer off the UI thread (engine jobs.rs).
       const jobs = new JobClient(engine.module, () => new Worker(new URL("./engine/job-worker.ts", import.meta.url), { type: "module" }));
       useEditor.getState().setJobs(jobs);
-      // Started now, not by the first large edit (final review F2).
-      jobs.warm();
       installTestApi({ engine, bridge, store: useEditor });
       bridge.onFileDrop((paths, position) => {
         const projects = paths.filter((p) => p.toLowerCase().endsWith(".comp"));
@@ -85,6 +83,11 @@ export function App() {
           void importImages(images, at);
         }
       });
+      // Started now, not by the first large edit (final review F2), and last: a worker that cannot be
+      // made (`new Worker` throws) must not stop the rest of startup. It says why in the banner; each
+      // large edit then tries again, and fails with its own message.
+      try { jobs.warm(); }
+      catch (e) { useEditor.getState().setError(`The job worker could not start: ${e instanceof Error ? e.message : String(e)}`); }
       setVersion(engine.version());
       setReady(true);
     }).catch((e) => setError(String(e)));

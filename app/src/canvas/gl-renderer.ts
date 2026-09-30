@@ -51,7 +51,7 @@ export class GlRenderer implements Renderer {
   constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext, hooks: RenderHooks = { jobs: () => null, landed: () => {} }) {
     this.textures = new LayerTextures(gl); this.masks = new MaskTextures(gl); this.fbos = new FboPool(gl); this.programs = createPrograms(gl);
     this.adjustTextures = new AdjustTextures(gl);
-    this.effectsImages = new EffectsImages(hooks.jobs, hooks.landed);
+    this.effectsImages = new EffectsImages(hooks.jobs, hooks.landed, undefined, hooks.failed);
     this.white = this.solid(gl.R8, gl.RED, [255]); this.transparent = this.solid(gl.RGBA8, gl.RGBA, [0, 0, 0, 0]);
     this.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
   }

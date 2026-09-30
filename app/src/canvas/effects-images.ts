@@ -66,9 +66,12 @@ export class EffectsImages {
    * at 24 MP) and the render that halves and uploads it (60-109 ms) then never share one frame. */
   private held = new Map<string, string>();
 
-  /** `nextFrame` runs its callback once a frame has been painted after this one (tests pass their own). */
+  /** `nextFrame` runs its callback once a frame has been painted after this one (tests pass their own).
+   * `failed` is told a failure the user should read: an ask the engine refused for another reason than
+   * a closed document or layer, or a job that failed (not one an edit displaced). */
   constructor(private readonly jobs: () => JobClient | null, private readonly landed: () => void,
-    private readonly nextFrame: (f: () => void) => void = (f) => requestAnimationFrame(() => requestAnimationFrame(f))) {}
+    private readonly nextFrame: (f: () => void) => void = (f) => requestAnimationFrame(() => requestAnimationFrame(f)),
+    private readonly failed: (message: string) => void = (message) => console.error(message)) {}
 
   /** For a large styled layer this frame: "full" when the engine has the full-size image (draw it the
    * usual way), else the reduced image to draw (null: none yet, draw the layer plainly). Asks the
@@ -111,8 +114,8 @@ export class EffectsImages {
           catch (e) {
             this.asked.delete(k);
             // The document or layer closed meanwhile: nothing to ask for. Anything else is a real
-            // failure and is not swallowed (final review minor 13).
-            if (!closedMeanwhile(e)) throw e;
+            // failure, and the user is told (final review minor 13; re-review: it reached the console only).
+            if (!closedMeanwhile(e)) this.failed(e instanceof Error ? e.message : String(e));
           }
         }, 0);
       } else {
@@ -151,8 +154,9 @@ export class EffectsImages {
       settled();
       // An edit or histogram job displaced this one (fix round 1, issue 3): it still needs making,
       // so the next frame must notice and ask again -- unlike an ordinary refusal or a dead worker,
-      // which leave the picture exactly as it was, nothing new to redraw for.
+      // which leave the picture exactly as it was, nothing new to redraw for, and are said.
       if (e instanceof Error && e.message === EFFECTS_JOB_DISPLACED) this.landed();
+      else this.failed(e instanceof Error ? e.message : String(e));
     });
   }
 

@@ -7,8 +7,9 @@ import { CpuRenderer } from "./cpu-renderer";
 
 export interface RenderOptions { checkerboard: boolean; }
 /** What a renderer may use besides the engine: the job worker (for large styled layers' effects
- * images, effects-images.ts) and a way to ask for another frame when one of its results lands. */
-export interface RenderHooks { jobs: () => JobClient | null; landed: () => void; }
+ * images, effects-images.ts), a way to ask for another frame when one of its results lands, and a way
+ * to say that making one failed (the error banner). */
+export interface RenderHooks { jobs: () => JobClient | null; landed: () => void; failed?: (message: string) => void; }
 export interface Renderer {
   readonly kind: "gl" | "cpu";
   /** Uploads whatever it needs and draws. There is no separate sync step: the GL renderer's

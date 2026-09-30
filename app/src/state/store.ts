@@ -696,6 +696,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().commitTransform();
     // Choosing a layer applies a pending gradient first (`resolveGradient`).
     get().commitGradient();
+    // On a large target that sends the gradient to the job worker: the click waits, as `run` does, or
+    // its SetActiveLayer would clear the preview the job keeps on screen until the result lands.
+    if (get().working) { set({ error: BUSY_MESSAGE }); return; }
     if (active !== state.activeLayerId) { engine.execute(activeId, { type: "SetActiveLayer", id: active }); }
     set({ selectedLayerIds: valid, maskSelected: false });
     get().refresh(activeId);
@@ -703,7 +706,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
   // Quiet: the chip handlers that call this have just had `selectLayers` raise the banner. Targeting a
   // mask closes a picker open on a swatch: a mask's palette is black and white (ColorPaletteControls.swift:53-56).
   setMaskSelected: (v) => {
-    if (get().panelOwnsDocument()) return;
+    // Nor while a job's result is to come: the Mac changes no target then (`selectLayerTarget`,
+    // LayerMask.swift:222-228 at v1.4.5, `guard !isProjectBusy`). Quiet too: the chip's own
+    // `selectLayers` has just raised the banner.
+    if (get().panelOwnsDocument() || get().working) return;
     // Changing the target applies a pending gradient first.
     if (v !== get().maskSelected) get().commitGradient();
     set({ maskSelected: v });

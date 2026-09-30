@@ -79,6 +79,25 @@ describe("a layer click while a job's result is to come (final review minor 1)",
     s().selectLayers(["B"], "B");
     expect(log).toEqual([`execute ${JSON.stringify({ type: "SetActiveLayer", id: "B" })}`]);
   });
+  it("a mask chip clicked meanwhile targets nothing either: the layer's click is refused and so is the target (re-review residual)", () => {
+    useEditor.setState({ working: true });
+    // What LayersList's mask chip does: choose the layer, then target its mask.
+    s().selectLayers(["A"], "A");
+    s().setMaskSelected(true);
+    expect([s().maskSelected, s().maskTargeted(), s().error]).toEqual([false, false, BUSY_MESSAGE]);
+  });
+  it("a click that applies a pending gradient through the worker waits too: no SetActiveLayer to clear the preview the job keeps (re-review residual)", () => {
+    draw([5, 6], [30, 6]);
+    const sent: string[] = [];
+    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
+    useEditor.setState({ jobPixels: 1, jobs });
+    const shown = previews.length;
+    s().selectLayers(["B"], "B");
+    expect(sent, "the gradient went to the worker").toEqual(["Gradient"]);
+    expect(log.filter((l) => l.includes("SetActiveLayer"))).toEqual([]);
+    expect([s().selectedLayerIds, s().error, s().working]).toEqual([["A"], BUSY_MESSAGE, true]);
+    expect(previews.length, "nothing cleared the gradient's preview").toBe(shown);
+  });
 });
 
 describe("a pending gradient", () => {

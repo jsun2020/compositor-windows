@@ -45,3 +45,15 @@ test("phase 2 client calls reach the engine", async ({ page }) => {
   expect(result.autoIsIdentity).toBe(true);   // a blank document has nothing to stretch
   expect(result.drawHasAdjustment).toBe(true);
 });
+
+test("a job worker that cannot be made does not stop the app starting, and says why", async ({ page }) => {
+  // A policy that forbids workers: the constructor throws. Startup goes on (the engine, the test API,
+  // file drops) and the banner names the worker (re-review residual: jobs.warm() used to run first).
+  await page.addInitScript(() => {
+    (window as unknown as { Worker: unknown }).Worker = class { constructor() { throw new Error("workers are blocked here"); } };
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await expect(page.getByTestId("error-banner")).toContainText("The job worker could not start: workers are blocked here");
+  expect(await page.evaluate(() => typeof (window as unknown as { __compositor?: { store?: unknown } }).__compositor?.store)).toBe("function");
+});
