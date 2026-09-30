@@ -207,12 +207,26 @@ async function onWholePixels(page: Page): Promise<boolean> {
   });
 }
 
-test("the blend-greys probe draws on the GPU as the Mac exported it, Soft Light included", async ({ page }) => {
+test("the blend-greys probe draws on the GPU as the Mac exported it, and Soft Light at 75% grey as the CPU draws it", async ({ page }) => {
+  // Two whole-document comparisons in the page: 13 s alone on the HD 520, and over the default 30 s once in a
+  // loaded whole-suite run (p45-scratch, 2026-09-30).
+  test.setTimeout(90_000);
   await openProbe(page, "blend-greys");
   expect(await onWholePixels(page), "the document sits on whole device pixels").toBe(true);
-  // The CPU is within 1 of the Mac (mac_1_2_10.rs); W3C's Soft Light was 14 off at the 75% grey.
-  // Measured 1 on p4a-scratch (2026-09-27).
-  expect(worstOf(await glPixels(page), await macPixels(page, "blend-greys"))).toBeLessThanOrEqual(1);
+  // The CPU is within 1 of the Mac 1.2.10 export (mac_1_2_10.rs) everywhere but Soft Light's 75% grey
+  // columns (band 0, x 80-120 and 200-240): Compositor 1.4.5 draws Soft Light by the W3C formula,
+  // 1.2.10 by Pegtop's, and the two differ only above half grey. There the GPU is held to the CPU,
+  // which mac_1_2_10.rs holds to the formula, until the 1.4.5 re-export (B1). Measured 1 on p4a-scratch
+  // (2026-09-27) and p45-scratch (2026-09-30).
+  const gl = await glPixels(page), mac = await macPixels(page, "blend-greys");
+  const cpu = await page.evaluate(() => {
+    const api = (window as any).__compositor; const s = api.store.getState(); const d = s.documents[s.activeId];
+    return Array.from(api.engine.composite(d.id, { x: 0, y: 0, width: d.width, height: d.height }, d.width, d.height)) as number[];
+  });
+  const brightSoftLight = (i: number) => { const p = i >> 2, x = p % 240, y = Math.floor(p / 240); return y < 60 && ((x >= 80 && x < 120) || (x >= 200 && x < 240)); };
+  expect(gl.length).toBe(mac.length);
+  expect(gl.reduce((m, v, i) => (brightSoftLight(i) ? m : Math.max(m, Math.abs(v - mac[i]))), 0), "as the Mac 1.2.10 exported it").toBeLessThanOrEqual(1);
+  expect(gl.reduce((m, v, i) => (brightSoftLight(i) ? Math.max(m, Math.abs(v - cpu[i])) : m), 0), "Soft Light at 75% grey, as the CPU").toBeLessThanOrEqual(1);
 });
 
 test("the motion-blur probe draws on the GPU as the Mac exported it", async ({ page }) => {

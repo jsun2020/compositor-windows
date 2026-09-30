@@ -47,8 +47,9 @@ fn expected_blend(mode: &str, cb: f32, cs: f32) -> f32 {
     match mode {
         "Linear Burn" => (cb + cs - 1.0).max(0.0),
         "Linear Dodge (Add)" => (cb + cs).min(1.0),
-        // Pegtop's, which the blend-greys probe fits within 1 level (probe results).
-        "Soft Light" => (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb,
+        // Core Image's, the W3C / PDF formula, as Compositor 1.4.5 draws it (LayerAppearance.swift:51-58);
+        // 1.2.10 drew Pegtop's through Core Graphics.
+        "Soft Light" => soft_light_w3c(cb, cs),
         "Hard Light" => if cs <= 0.5 { cb * 2.0 * cs } else { let s = 2.0 * cs - 1.0; cb + s - cb * s },
         "Vivid Light" => if cs <= 0.5 { burn(cb, 2.0 * cs) } else { dodge(cb, 2.0 * cs - 1.0) },
         "Linear Light" => (cb + 2.0 * cs - 1.0).clamp(0.0, 1.0),
@@ -60,6 +61,51 @@ fn expected_blend(mode: &str, cb: f32, cs: f32) -> f32 {
         "Normal" => cs,
         other => panic!("no formula for {other}"),
     }
+}
+
+/// The W3C / PDF Soft Light, written out from the spec: `D(cb)` is the square root but for a dark
+/// backdrop.
+fn soft_light_w3c(cb: f32, cs: f32) -> f32 {
+    if cs <= 0.5 { cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb) }
+    else { cb + (2.0 * cs - 1.0) * ((if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() }) - cb) }
+}
+
+/// One opaque `source` grey in `mode` over an opaque `backdrop` grey: the composite's red.
+fn grey_over_grey(mode: BlendMode, backdrop: u8, source: u8) -> u8 {
+    let mut doc = Document::new(1, 1);
+    let under = Layer::with_pixels("B", Raster::from_premultiplied(1, 1, vec![backdrop, backdrop, backdrop, 255]), Point { x: 0.0, y: 0.0 });
+    let mut over = Layer::with_pixels("S", Raster::from_premultiplied(1, 1, vec![source, source, source, 255]), Point { x: 0.0, y: 0.0 });
+    over.blend_mode = mode;
+    doc.layers = vec![under, over];
+    composite(&doc, Rect { x: 0.0, y: 0.0, width: 1.0, height: 1.0 }, 1, 1).pixel(0, 0)[0]
+}
+
+#[test]
+fn soft_light_is_the_w3c_formula_compositor_1_4_5_draws() {
+    // GPUCanvasTests.softLightMatchesPhotoshop (GPUCanvasTests.swift:522-545 at v1.4.5): a 0.5 backdrop
+    // under 0.9 exports 170, within 2. Pegtop's formula, 1.2.10's, gives 178 there.
+    let (cb, cs) = (128u8, 230u8);
+    let want = (soft_light_w3c(cb as f32 / 255.0, cs as f32 / 255.0) * 255.0).round() as u8;
+    assert_eq!(grey_over_grey(BlendMode::SoftLight, cb, cs), want);
+    assert!(want.abs_diff(170) <= 2, "the Mac's own bound: {want}");
+    let pegtop = |b: f32, s: f32| (1.0 - 2.0 * s) * b * b + 2.0 * s * b;
+    assert!(((pegtop(cb as f32 / 255.0, cs as f32 / 255.0) * 255.0).round() as u8).abs_diff(want) >= 6, "the fixture tells the two formulas apart");
+    // Over a dark backdrop (cb <= 0.25) under light sources, W3C's D(cb) is not the square root
+    // Photoshop uses: the soft-light-dark probe's case. Every pair is the formula, and some pair tells
+    // it from the square root. Awaiting B2 (soft-light-dark): the Mac's own comment calls Core Image's
+    // Soft Light only "within 5" of Photoshop's square-root D, so this dark branch is pinned as fact
+    // from the spec text, not yet checked against a Mac export.
+    let mut discriminates = false;
+    for backdrop in [0u8, 16, 40, 64] {
+        for source in [128u8, 192, 255] {
+            let (b, s) = (backdrop as f32 / 255.0, source as f32 / 255.0);
+            let want = (soft_light_w3c(b, s) * 255.0).round() as u8;
+            assert!(grey_over_grey(BlendMode::SoftLight, backdrop, source).abs_diff(want) <= 1, "{backdrop} under {source}");
+            let root = ((b + (2.0 * s - 1.0) * (b.sqrt() - b)) * 255.0).round() as u8;
+            discriminates |= root.abs_diff(want) >= 4;
+        }
+    }
+    assert!(discriminates, "the dark backdrops tell W3C's D(cb) from a square root");
 }
 
 #[test]

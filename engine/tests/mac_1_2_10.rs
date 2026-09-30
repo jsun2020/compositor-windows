@@ -177,20 +177,57 @@ fn the_gaussian_blur_probes_match_the_mac_render_premultiplied() {
 #[test]
 fn every_band_of_blend_greys_matches_the_mac_render() {
     // Six 60-row bands over a hue sweep, one per mode, each six 40-px grey columns: 25%, 50% and
-    // 75% grey, opaque then at half alpha. Soft Light is Pegtop's formula: measured 1 there and in
-    // Hard Light, 0 in the other four. The W3C Soft Light this port drew before was 14 levels off at
-    // the 75% grey (probe results).
+    // 75% grey, opaque then at half alpha. Measured 1 in Hard Light, 0 in the other four; Soft Light
+    // below.
     let (width, theirs) = mac("blend-greys");
     let port = ours("blend-greys");
-    for (band, mode, measured) in [(0u32, "Soft Light", 1u8), (1, "Hard Light", 1), (2, "Linear Light", 0), (3, "Pin Light", 0), (4, "Vivid Light", 0), (5, "Hard Mix", 0)] {
-        let rows = band * 60..band * 60 + 60;
+    let worst_in = |rows: std::ops::Range<u32>, columns: &dyn Fn(u32) -> bool| {
         let mut d = 0u8;
-        for y in rows { for x in 0..width { for c in 0..4 {
+        for y in rows { for x in (0..width).filter(|x| columns(*x)) { for c in 0..4 {
             let i = ((y * width + x) * 4 + c) as usize;
             d = d.max(port[i].abs_diff(theirs[i]));
         }}}
+        d
+    };
+    for (band, mode, measured) in [(1u32, "Hard Light", 1u8), (2, "Linear Light", 0), (3, "Pin Light", 0), (4, "Vivid Light", 0), (5, "Hard Mix", 0)] {
+        let d = worst_in(band * 60..band * 60 + 60, &|_| true);
         assert!(d <= measured, "{mode}: {d}, measured {measured}");
     }
+    // Soft Light (band 0) is Core Image's W3C formula in Compositor 1.4.5 (blend.rs `soft_light`), where
+    // 1.2.10 drew Pegtop's. The two agree for a source at or under half grey, so the 25% and 50%
+    // columns still match this 1.2.10 export (measured 1); the 75% ones (x 80-120 and 200-240) are
+    // checked against the formula below, and differ from this export, until its 1.4.5 re-export (B1).
+    let bright = |x: u32| (80..120).contains(&x) || (200..240).contains(&x);
+    assert!(worst_in(0..60, &|x| !bright(x)) <= 1, "Soft Light at 25% and 50% grey");
+    assert!(worst_in(0..60, &bright) >= 4, "1.2.10's Pegtop at 75% grey is not what 1.4.5 draws");
+    let doc = open(&format!("{}/blend-greys.comp", fixtures()));
+    let sweep = doc.layers[0].pixels.as_ref().unwrap();
+    let w3c = |cb: f64, cs: f64| if cs <= 0.5 { cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb) } else { cb + (2.0 * cs - 1.0) * ((if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() }) - cb) };
+    let mut worst = 0u8;
+    for column in [2u32, 5] {
+        // The column's grey as the compositor reads it: premultiplied over its alpha.
+        let source = doc.layers[1 + column as usize].pixels.as_ref().unwrap().pixel(0, 0);
+        let (cs, a) = (source[0] as f64 / source[3] as f64, source[3] as f64 / 255.0);
+        for y in 0..60 { for x in column * 40..column * 40 + 40 {
+            let under = sweep.pixel(x, y);
+            for c in 0..3 {
+                let cb = under[c] as f64 / 255.0;
+                let want = (((1.0 - a) * cb + a * w3c(cb, cs)) * 255.0).round() as u8;
+                worst = worst.max(port[((y * width + x) * 4 + c as u32) as usize].abs_diff(want));
+            }
+        }}
+    }
+    assert!(worst <= 1, "Soft Light at 75% grey is the W3C formula: {worst}");
+}
+
+/// A probe project opened as the Mac would.
+fn open(comp: &str) -> Document {
+    let manifest_json = std::fs::read_to_string(format!("{comp}/manifest.json")).unwrap();
+    let images = std::fs::read_dir(format!("{comp}/images")).unwrap().map(|entry| {
+        let entry = entry.unwrap();
+        (entry.file_name().into_string().unwrap(), std::fs::read(entry.path()).unwrap())
+    }).collect();
+    open_package(&Package { manifest_json, images }).unwrap()
 }
 
 #[test]
