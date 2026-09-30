@@ -173,6 +173,14 @@ vec3 rgbToHsl(vec3 c) {
 // wherever hsv.rs uses '%' on a value that can be negative; the non-colorize path wraps negatives
 // itself, which makes it equal to a floored mod, so mod() stays correct there.
 float rem(float x, float y) { return x - y * trunc(x / y); }
+// hsv.rs adjusted_saturation (HueSaturation.swift:342-348): below 0 scales toward grey, above 0
+// divides by what is left, +100 takes any colour all the way.
+float adjustedSaturation(float s, float amount) {
+  float a = clamp(amount / 100.0, -1.0, 1.0);
+  if (a <= 0.0) return max(0.0, s * (1.0 + a));
+  if (a >= 1.0) return s > 0.0 ? 1.0 : 0.0;
+  return min(1.0, s / (1.0 - a));
+}
 vec3 hslToRgb(vec3 hsl) {
   if (hsl.y <= 0.0) return vec3(hsl.z);
   float chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
@@ -263,7 +271,7 @@ vec3 throughHsl(vec3 c) {
     lightnessAmount = sampled.z / 100.0;
     hsl.x = mod(hsl.x + sampled.x, 360.0);
     if (hsl.x < 0.0) hsl.x += 360.0;
-    hsl.y = clamp(hsl.y * (1.0 + sampled.y / 100.0), 0.0, 1.0);
+    hsl.y = adjustedSaturation(hsl.y, sampled.y);
   }
   float amount = clamp(lightnessAmount, -1.0, 1.0);
   hsl.z = amount >= 0.0 ? hsl.z + (1.0 - hsl.z) * amount : hsl.z * (1.0 + amount);

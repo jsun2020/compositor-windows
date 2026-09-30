@@ -295,3 +295,77 @@ test("F1: the frame after a job's result at 24 and 100 MP, Levels on a layer and
     }
   }
 });
+
+test("1.4.5 results: frames of a document with a Soft Light layer, Levels in Linear Dodge, a stack based in Vivid Light and Hue/Saturation +50, at 24 and 100 MP", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const run = (doc: string, cmd: unknown) => api.engine.execute(doc, cmd);
+      const doc = api.engine.newDocument(10, 10, false);
+      run(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const base = api.engine.state(doc).layers[0].id;
+      // A Soft Light copy, a stack based in Vivid Light with a half-opaque copy clipped to it, a Levels
+      // layer in Linear Dodge and a Hue/Saturation layer at +50: every result Tasks 6-8 changed.
+      const top = () => api.engine.state(doc).activeLayerId as string;
+      run(doc, { type: "DuplicateLayer", id: base }); run(doc, { type: "SetLayerBlendMode", id: top(), mode: "Soft Light" });
+      run(doc, { type: "DuplicateLayer", id: base }); const stack = top(); run(doc, { type: "SetLayerBlendMode", id: stack, mode: "Vivid Light" });
+      run(doc, { type: "DuplicateLayer", id: base }); const child = top();
+      run(doc, { type: "SetLayerOpacity", id: child, opacity: 0.5 }); run(doc, { type: "ToggleClipping", id: child });
+      run(doc, { type: "AddAdjustmentLayer", kind: "Levels", seed: 0, shadows: null, highlights: null });
+      run(doc, { type: "SetLayerBlendMode", id: top(), mode: "Linear Dodge (Add)" });
+      run(doc, { type: "AddAdjustmentLayer", kind: "Hue/Saturation", seed: 0, shadows: null, highlights: null });
+      const hsv = api.engine.state(doc).layers.find((l: any) => l.id === top());
+      const saturate = (amount: number) => run(doc, { type: "SetAdjustment", id: hsv.id, adjustment: { ...hsv.adjustment,
+        hsvSettings: { range: "Master", colorize: false, invertRange: false,
+          adjustments: { Master: { hue: 0, saturation: amount, lightness: 0 } }, bands: hsv.adjustment.hsvSettings?.bands ?? {} } } });
+      saturate(50);
+      s().openDocument(doc);
+      await settle();
+      // Cold (LL-074): the first frame compiles the programs and uploads every layer; logged only.
+      result["cold first frame ms"] = Math.round(frame());
+      for (const zoom of ["fit", "1:1"]) {
+        if (zoom === "1:1") { await api.setZoom(1); await settle(); result["cold first 1:1 frame ms"] = Math.round(frame()); }
+        let worst = 0;
+        for (let i = 0; i < 5; i++) { s().invalidate(); worst = Math.max(worst, frame()); await settle(); }
+        result[`${zoom}: frame, worst of 5 ms`] = Math.round(worst);
+        // Dragging the Saturation field: the engine's edit, the store and the frame, per step. One step first,
+        // logged only (LL-074): a first run measured 834 ms for the first step at 100 MP fit, 16-31 ms after.
+        let t = performance.now(); saturate(45); s().refresh(doc); frame();
+        result[`cold first saturation step at ${zoom} ms`] = Math.round(performance.now() - t);
+        await settle();
+        let step = 0, gap = 0;
+        // One contiguous window over the steps: each gap is taken inside the rAF callback after its step (LL-074).
+        let last = performance.now();
+        for (const amount of [40, 45, 55, 60, 50]) {
+          const t0 = performance.now();
+          saturate(amount); s().refresh(doc);
+          frame();
+          step = Math.max(step, performance.now() - t0);
+          await new Promise<void>((done) => requestAnimationFrame(() => { const now = performance.now(); gap = Math.max(gap, now - last); last = now; done(); }));
+        }
+        await settle();
+        result[`${zoom}: saturation step (engine, store and frame), worst ms`] = Math.round(step);
+        result[`${zoom}: longest frame gap over the steps ms`] = Math.round(gap);
+      }
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`1.4.5 results (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`1.4.5 results renderer: ${renderer}`);
+  // Measured on the HD 520 (p45-scratch, 2026-09-30, three runs): frames 24-42 ms and saturation steps 26-43 ms at both
+  // sizes and zooms; the seven-layer document with a group costs about what 4b-1's drag tick did (50 ms budget).
+  for (const [label] of SIZES) for (const zoom of ["fit", "1:1"]) {
+    expect(out[`${label} ${zoom}: longest frame gap over the steps ms`], "each gap holds one step and one frame").toBeLessThan(100);
+    expect(out[`${label} ${zoom}: frame, worst of 5 ms`]).toBeLessThan(80);
+    expect(out[`${label} ${zoom}: saturation step (engine, store and frame), worst ms`]).toBeLessThan(100);
+  }
+});
