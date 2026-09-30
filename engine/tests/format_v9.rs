@@ -26,10 +26,11 @@ fn a_project_saved_by_the_mac_app_opens() {
 }
 
 #[test]
-fn saving_writes_version_9_like_the_mac() {
+fn saving_writes_version_11_like_the_mac_1_4_5() {
     let doc = open_package(&mac_fixture()).unwrap();
     let saved: Value = serde_json::from_str(&save_package(&doc).unwrap().manifest_json).unwrap();
-    assert_eq!(saved["version"], json!(9));
+    // Compositor for Mac 1.4.5 writes every save at 11, a version 9 project too (ProjectStore.swift:15, :21).
+    assert_eq!(saved["version"], json!(11));
     // Round-trip the saved file: it must re-open.
     let again = Package { manifest_json: saved.to_string(), images: save_package(&doc).unwrap().images };
     assert_eq!(open_package(&again).unwrap().layers.len(), 2);

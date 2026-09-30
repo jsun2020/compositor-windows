@@ -158,6 +158,19 @@ mod tests {
     // would require CI to grant that privilege, which is out of scope for this pass.
 
     #[test]
+    fn a_mac_save_opens_with_its_images_and_its_quick_look_preview_left_alone() {
+        // Compositor for Mac 1.3.7's save (format 11) carries QuickLook/Preview.jpg, which the Mac's
+        // own loading ignores (ProjectStore.swift:116-121, :146-196 at v1.4.5): only images/ is read.
+        let root = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../engine/tests/fixtures/mac-4b1-probes/shapes.mac-1.3.7.comp"));
+        assert!(root.join("QuickLook").join("Preview.jpg").is_file());
+        let header = read_package_manifest(root.to_string_lossy().to_string()).unwrap();
+        assert!(header.manifest.contains("\"version\" : 11"));
+        assert_eq!(header.image_names.len(), 7, "the seven layers' images, and nothing else: {:?}", header.image_names);
+        assert!(header.image_names.iter().all(|n| valid_image_name(n)));
+        assert!(read_package_image(root.to_string_lossy().to_string(), "Preview.jpg".into()).is_err(), "the preview is not an image of the project");
+    }
+
+    #[test]
     fn image_names_are_uuid_pngs_only() {
         assert!(valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.png"));
         assert!(valid_image_name("e621e1f8-c36c-495a-93fc-0c247a3e6e5f.mask.png"));

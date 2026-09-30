@@ -553,6 +553,12 @@ Made on the Mac from nothing in this folder (the first two) or from edited-rich-
 - resaved-edited-rich-file.comp -> resaved-edited-rich-file.png
   Open edited-rich-file.comp from this folder and change nothing. File > Save As,
   resaved-edited-rich-file.comp. Then export.
+
+Written by Compositor for Windows at project format 11 (0.6.0 and later):
+
+- port-v11-roundtrip.comp -> port-v11-roundtrip.png
+  It must open without an error. Export it, then File > Save As port-v11-roundtrip.resaved.comp
+  and send that back too.
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -884,6 +890,38 @@ fn phase_4_5_probes() -> Vec<(&'static str, Document)> {
     probes
 }
 
+/// A5 `port-v11-roundtrip.comp` (Phase 4.5 Task 5): what this build writes at format 11, for the Mac
+/// to open (without an error), export and save again: a text layer in a folder carrying both kinds of
+/// run (TypeTool.swift:190-202 at v1.4.5), its mask, a Levels adjustment layer and a guide. Opened
+/// here through `open_package`, as a Mac file would be, so the runs are the verbatim values the port
+/// keeps.
+fn port_v11_roundtrip_doc() -> Document {
+    let (folder, text, adj) = ("5A1B2C3D-4E5F-4A6B-8C7D-111111111111", "5A1B2C3D-4E5F-4A6B-8C7D-222222222222", "5A1B2C3D-4E5F-4A6B-8C7D-333333333333");
+    let transform = |x: i64, y: i64, w: i64, h: i64| serde_json::json!({ "origin": [x, y], "size": [w, h], "rotation": 0, "flipX": false, "flipY": false, "sampling": "High quality" });
+    let manifest = serde_json::json!({
+        "format": "com.compositor.project", "version": 11, "colorSpace": "sRGB", "resolution": 72,
+        "documentID": "5A1B2C3D-4E5F-4A6B-8C7D-000000000000", "width": 240, "height": 120, "activeLayerID": text,
+        "guides": [ { "axis": "horizontal", "id": "5A1B2C3D-4E5F-4A6B-8C7D-444444444444", "position": 60 } ],
+        "layers": [
+            { "id": folder, "name": "Folder", "isVisible": true, "isGroup": true, "opacity": 0.8, "transform": transform(0, 0, 240, 120) },
+            { "id": text, "name": "Hello World", "isVisible": true, "parentID": folder, "imageFile": format!("{text}.png"),
+              "maskFile": format!("{text}.mask.png"), "maskEnabled": true, "transform": transform(20, 30, 200, 60),
+              "text": { "alignment": "Left", "blue": 0, "content": "Hello World", "fontName": "Helvetica", "fontSize": 40, "green": 0,
+                        "leading": 0, "red": 0, "tracking": 0,
+                        "colorRuns": [ { "location": 6, "length": 5, "red": 1, "green": 0, "blue": 0 } ],
+                        "fontRuns": [ { "location": 0, "length": 5, "fontName": "Helvetica-Bold" } ] } },
+            { "id": adj, "name": "Levels", "isVisible": true, "transform": transform(0, 0, 240, 120),
+              "adjustment": serde_json::to_value(LayerAdjustment::new(AdjustmentKind::Levels)).unwrap() }
+        ]
+    });
+    let ramp: Vec<u8> = (0..60u32).flat_map(|y| (0..200u32).map(move |x| ((x + y) * 255 / 258) as u8)).collect();
+    let package = Package { manifest_json: manifest.to_string(), images: vec![
+        (format!("{text}.png"), encode_png(&colourful_gradient(200, 60), 72.0).unwrap()),
+        (format!("{text}.mask.png"), encode_gray_png(&GrayRaster::from_bytes(200, 60, ramp)).unwrap()),
+    ] };
+    open_package(&package).unwrap_or_else(|e| panic!("port-v11-roundtrip.comp: does not open: {e:?}"))
+}
+
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
 /// it is ever sent to a Mac.
@@ -939,6 +977,7 @@ fn write_mac_probes() {
     for (name, doc) in step_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in phase_4b1_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in phase_4_5_probes() { write_probe(&dir, name, &doc); }
+    write_probe(&dir, "port-v11-roundtrip.comp", &port_v11_roundtrip_doc());
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -1090,6 +1129,16 @@ fn every_4_5_probe_is_listed_and_holds_what_it_is_named_for() {
         "cgmode-blur-linear-burn.comp", "cgmode-levels-divide.comp", "color-dodge-adjustment.comp", "cgmode-stack-bases.comp"] {
         assert!(section.contains(&format!("- {name}")), "{name} is in the Phase 4.5 section");
     }
+}
+
+#[test]
+fn the_round_trip_probe_is_listed_and_written_at_format_11_with_its_runs() {
+    assert!(README_TXT.contains("- port-v11-roundtrip.comp"));
+    let saved: serde_json::Value = serde_json::from_str(&save_package(&port_v11_roundtrip_doc()).unwrap().manifest_json).unwrap();
+    assert_eq!(saved["version"], 11);
+    let text = saved["layers"].as_array().unwrap().iter().find(|l| l["name"] == "Hello World").unwrap();
+    assert_eq!((text["text"]["colorRuns"][0]["location"].as_i64(), text["text"]["fontRuns"][0]["fontName"].as_str()), (Some(6), Some("Helvetica-Bold")));
+    assert!(text["maskFile"].is_string() && text["parentID"].is_string());
 }
 
 #[test]

@@ -180,7 +180,8 @@ fn manifests_accept_adjustment_layers_only_when_well_formed() {
     assert_eq!(parsed.layers[0].adjustment.as_ref().unwrap().kind, AdjustmentKind::Levels);
     let group = json.replacen("\"isVisible\": true", "\"isVisible\": true, \"isGroup\": true", 1);
     assert!(matches!(Manifest::parse(&group), Err(ProjectError::Invalid)), "a folder cannot carry an adjustment");
-    let old = json.replacen("\"version\": 9", "\"version\": 6", 1);
+    let old = json.replacen(&format!("\"version\": {CURRENT_VERSION}"), "\"version\": 6", 1);
+    assert_ne!(old, json, "the version was replaced");
     assert!(matches!(Manifest::parse(&old), Err(ProjectError::Invalid)), "adjustments need version 7");
     let with_image = json.replacen("\"adjustment\": {", "\"imageFile\": \"X.png\", \"adjustment\": {", 1);
     assert!(matches!(Manifest::parse(&with_image), Err(ProjectError::Invalid)));

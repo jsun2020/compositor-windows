@@ -291,8 +291,9 @@ test("the Mac-saved fixture opens, matches and re-saves to a re-openable v9 mani
   expect(result.before.layers[1].transform.size).toEqual([962, 1708]);
   await expect(page.getByTestId("undrawn-notice")).toHaveCount(0);
 
-  // The save round-trips to version 9 with every layer's id and transform unchanged.
-  expect(result.savedManifest.version).toBe(9);
+  // The save round-trips at version 11 (as Compositor for Mac 1.4.5 re-saves a 1.2.6 file) with every
+  // layer's id and transform unchanged.
+  expect(result.savedManifest.version).toBe(11);
   expect(result.savedManifest.layers.map((l: any) => l.id)).toEqual(inputManifest.layers.map((l) => l.id));
   inputManifest.layers.forEach((l, i) => {
     expect(result.savedManifest.layers[i].transform).toEqual(l.transform);
