@@ -56,6 +56,13 @@ Phase 4 is delivered in four parts:
 - 4c Brushes: Brush and Eraser with size, hardness, opacity, smoothing and Shift for straight lines, mask painting, the Blur tool, Clone Stamp.
 - 4d Spot Healing Brush and Content-Aware Fill (including extending past edges).
 
+4b-1 shipped as 0.5.0 on 2026-09-30. Decisions taken on 2026-09-29 and 2026-09-30, after the user's Mac moved to Compositor 1.3.7 and then 1.4.5 (upstream tag v1.4.5, project format 11; research: `docs/superpowers/research/mac-1.4.5-delta.md`):
+- The oracle moves to Mac 1.4.5 from the next phase on. 4b-1 already followed 1.3.7 in one behaviour: a Fill, a Gradient or Delete in a selection on a targeted mask grows the mask past its layer to cover the canvas (unchanged in 1.4.5).
+- Phase 4.5, a catch-up with Mac 1.4.5, comes next, before the rest of Phase 4: first F1 (the job worker returns the display level with its result, removing the UI-thread prefilter of large results; `docs/superpowers/phase4b1-rulings-and-open-items.md`); then opening and saving project format 11 (text colour and font runs; the port writes 11); then the results 1.4.5 changed (Soft Light through Core Image's W3C formula, adjustment layers and clipping-stack bases blended in their real modes, Hue/Saturation's positive saturation, Inverse of a whole-canvas selection leaving none); then small 1.4.5 behaviours (Ungroup Layers, dragging tabs, resize-handle snapping, the Move bar's W/H). The 4b-1 Mac probes are pinned there.
+- Add Mask with a selection now follows 1.4.5 (and Photoshop): the button reveals the selection and Alt-click hides it, replacing the 2026-09-27 rule above.
+- After Phase 4.5: 4b-2, 4c (re-researched against 1.4.5, which changed the brushes most), 4d, then Phase 5. Phase 3.5d (resampling like the Mac, plus 1.4.5's pixel-for-pixel copy of upright unscaled layers) follows Phase 4.5.
+- Mac probes for Phase 4.5: a focused set of about 20 exports from 1.4.5 (text runs, a re-saved rich project, the mask reveal, the six earlier probes 1.4.5 should draw differently, and new blend-mode and saturation probes), not a re-export of every earlier probe.
+
 Phase 5, text and layer effects (added 2026-09-24 at the user's request): the type tool and editable text layers, live shape layers, and editing layer effects (stroke, drop shadow). Phase 3.5 already renders and preserves all three.
 
 Phase 6, Liquify and Smudge (added 2026-09-24): the Smear tool's Liquify, Blur and Smudge modes.
