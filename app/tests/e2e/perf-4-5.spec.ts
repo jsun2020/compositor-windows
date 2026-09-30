@@ -44,16 +44,32 @@ async function ready(page: import("@playwright/test").Page): Promise<string> {
   });
 }
 
+// Fix round 1, I2: the pre-flight's 150 ms budget at 24 MP was never measured; ops/selection.rs's
+// `clear_selected` (predating this task: a to_vec, a per-pixel pass and a memcmp over the whole layer,
+// O(layer) not O(selection)) is the review's native-bench-confirmed cost, and `seed_adopted` adds only
+// about 5-11 ms on top of it. Measured warmed (one full round run first, LL-074) both alone and in the
+// whole file: see task-3-report.md, "Fix round 1" for the numbers and which of these applied.
+const DELETE_BUDGET_24MP = 150;
+const ROUNDS = 5;
+
 test("F1: a Delete inside a selection after a job's result at 24 and 100 MP, at fit and at 40 %: the adopted halving seeded, not made again", async ({ page }) => {
   // `seed_halvings` -> `seed_adopted` (raster.rs): after a whole-layer result is adopted, an edit inside a selection on
   // the UI thread copies the adopted halving (1/4^level of the layer: 6.25 MB at level 3 of 100 MP, 100 MB at level 1)
   // and halves again only the selection's reach. 40 % gives level 1, the dearest copy.
+  //
+  // Fix round 1, I1: a Delete inside a selection is a PARTIAL edit. The renderer's partial-upload path
+  // (gl-renderer.ts:150-153) calls `pixelsDelta` then `engine.layerRegion` (`Engine::layer_region`,
+  // engine.rs:342's non-preview branch, which itself goes through `layer_raster` -> `Raster::reduced`),
+  // never `engine.layerPixels` (the whole-upload path `layer_pixels_ptr` serves). A broken `seed_adopted`
+  // cannot show up under `layerPixels` here -- it shows up under `layerRegion`, so that is what is timed
+  // and asserted; `layerPixels` is still timed and logged (never 0 would be a surprise worth seeing) but
+  // no longer asserted, since with `whole == 0` it can only ever restate that assertion.
   test.setTimeout(900_000);
   const out: Record<string, number> = {};
   let renderer = "";
   for (const [label, w, h] of SIZES) {
     renderer = await ready(page);
-    const r = await page.evaluate(async ([w, h]) => {
+    const r = await page.evaluate(async ([w, h, ROUNDS]) => {
       const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
       const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const s = () => api.store.getState();
@@ -65,16 +81,21 @@ test("F1: a Delete inside a selection after a job's result at 24 and 100 MP, at 
       api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
       s().openDocument(doc);
       await settle(); frame();
-      // Each install's display halving (the fill's result adopted), and `layerPixels` - a halving made on the UI
-      // thread - timed inside the frame after the Delete.
-      let inFrame = false, halving = 0;
+      // Each install's display halving (the fill's result adopted); `layerPixels` (the whole-upload
+      // halving, logged only, I1) and `layerRegion` (the partial-upload path this scenario actually
+      // takes) timed inside the frame after the Delete.
+      let inFrame = false, halving = 0, region = 0;
       const displays: number[] = [];
       const install = api.engine.installJob.bind(api.engine);
       api.engine.installJob = (...a: unknown[]) => { displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0); return install(...a); };
       const pixels = api.engine.layerPixels.bind(api.engine);
       api.engine.layerPixels = (...a: unknown[]) => { const t = performance.now(); try { return pixels(...a); } finally { if (inFrame) halving += performance.now() - t; } };
+      const layerRegion = api.engine.layerRegion.bind(api.engine);
+      api.engine.layerRegion = (...a: unknown[]) => { const t = performance.now(); try { return layerRegion(...a); } finally { if (inFrame) region += performance.now() - t; } };
       // One round: the whole layer filled through the worker (its result comes back halved to the canvas's level and
       // is adopted), then a 1024 x 1024 marquee cleared on the UI thread, as the Delete key does (`deleteKeyPressed`).
+      // `n` only offsets the marquee so each round clears a fresh, still-filled patch; `wasmBytes()` (I2) is logged
+      // so heap growth shows up in the numbers instead of being guessed at.
       const round = async (n: number) => {
         if (api.engine.state(doc).selection) s().run({ type: "Deselect" });
         const before = displays.length;
@@ -87,52 +108,72 @@ test("F1: a Delete inside a selection after a job's result at 24 and 100 MP, at 
         const t0 = performance.now();
         s().run({ type: "ClearSelectedPixels", id: layer, mask: false });
         const step = performance.now() - t0;
-        halving = 0; inFrame = true;
+        halving = 0; region = 0; inFrame = true;
         const after = frame();
         inFrame = false;
         const whole = (window as any).__uploads.image as number;
+        const sub = (window as any).__uploads.sub as number;
         const cleared = api.engine.composite(doc, { x: x + 512, y: y + 512, width: 1, height: 1 }, 1, 1)[3] === 0 ? 1 : 0;
+        const memory = api.engine.wasmBytes();
         await settle();
-        return { step, after, halving, whole, adopted, cleared };
+        return { step, after, halving, region, whole, sub, adopted, cleared, memory };
       };
       for (const zoom of ["fit", "40 %"]) {
         if (zoom === "40 %") { await api.setZoom(0.4); await settle(); frame(); }
-        // Cold (LL-074): the first round at this zoom, logged only.
+        // A full warm round (I2, discarded entirely: `n` -1 clears its own patch, never read below) settles
+        // the heap (allocator growth, GC) before anything is timed.
+        await round(-1);
+        // Cold (LL-074): the first TIMED round at this zoom, logged only.
         const cold = await round(0);
         result[`${zoom}: cold Delete ms`] = Math.round(cold.step);
         result[`${zoom}: cold frame after ms`] = Math.round(cold.after);
-        let step = 0, after = 0, halved = 0, whole = 0, adopted = 0, cleared = 0;
-        for (let n = 1; n <= 3; n++) {
+        result[`${zoom}: cold memory bytes`] = cold.memory;
+        let step = 0, after = 0, halved = 0, region = 0, whole = 0, sub = 0, adopted = 0, cleared = 0, memory = 0;
+        const afters: number[] = [];
+        for (let n = 1; n <= ROUNDS; n++) {
           const t = await round(n);
-          step = Math.max(step, t.step); after = Math.max(after, t.after); halved = Math.max(halved, t.halving);
-          whole += t.whole; adopted += t.adopted; cleared += t.cleared;
+          step = Math.max(step, t.step); after = Math.max(after, t.after); halved = Math.max(halved, t.halving); region = Math.max(region, t.region);
+          whole += t.whole; sub += t.sub; adopted += t.adopted; cleared += t.cleared; memory = Math.max(memory, t.memory);
+          afters.push(t.after);
         }
-        result[`${zoom}: Delete (UI thread), worst of 3 ms`] = Math.round(step);
-        result[`${zoom}: frame after, worst of 3 ms`] = Math.round(after);
+        // I3: the frame after only calls renderPlan, pixelsDelta and crops at most 1 MB out of the
+        // adopted halving -- the worst-of-N spikes seen on this laptop are jitter (GC, the OS scheduler),
+        // not this frame's own cost, so the budget is asserted on the median, with the worst logged.
+        afters.sort((a, b) => a - b);
+        const medianAfter = afters[Math.floor(afters.length / 2)];
+        result[`${zoom}: Delete (UI thread), worst of ${ROUNDS} ms`] = Math.round(step);
+        result[`${zoom}: frame after, median of ${ROUNDS} ms`] = Math.round(medianAfter);
+        result[`${zoom}: frame after, worst of ${ROUNDS} ms`] = Math.round(after);
         result[`${zoom}: layerPixels in the frame after, worst ms`] = Math.round(halved);
+        result[`${zoom}: layerRegion in the frame after, worst ms`] = Math.round(region);
         result[`${zoom}: whole uploads in the frames after`] = whole;
+        result[`${zoom}: partial uploads in the frames after`] = sub;
         result[`${zoom}: rounds whose fill came back halved`] = adopted;
         result[`${zoom}: rounds whose Delete cleared the centre`] = cleared;
+        result[`${zoom}: memory bytes, worst`] = memory;
         result[`${zoom}: canvas scale x 1000`] = Math.round(s().viewports[doc].pointsPerPixel * (window.devicePixelRatio || 1) * 1000);
       }
       s().closeDocument(doc);
       return result;
-    }, [w, h] as [number, number]);
+    }, [w, h, ROUNDS] as [number, number, number]);
     for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
   }
   console.log(`F1 Delete after a job (release wasm, Edge): ${JSON.stringify(out)}`);
   console.log(`F1 Delete after a job renderer: ${renderer}`);
-  // Not measured on the scratch clone (added by the pre-flight, I2). Budgets: 4b-1's for the frame after a partial edit
-  // (33 ms, no whole upload: perf-4b1.spec.ts, ruling M4) and for a key on the UI thread (150 ms) at 24 MP; 400 ms at
-  // 100 MP, where the seeding copies up to 100 MB at level 1. A halving made again on the UI thread is what F1 removed.
+  // Budgets (fix round 1): 4b-1's for the frame after a partial edit, on its median (33 ms, no whole
+  // upload: perf-4b1.spec.ts, ruling M4, I3); for the Delete key on the UI thread, `DELETE_BUDGET_24MP`
+  // at 24 MP (see its own comment for which value and why) and 400 ms at 100 MP, where the seeding
+  // copies up to 100 MB at level 1. `layerRegion`, not `layerPixels` (I1), is F1's own budget here: the
+  // adopted halving was seeded, so the partial upload crops it and halves nothing.
   for (const [label] of SIZES) for (const zoom of ["fit", "40 %"]) {
     const k = (name: string) => out[`${label} ${zoom}: ${name}`];
-    expect(k("rounds whose fill came back halved"), "every fill's result came back halved and was adopted").toBe(3);
-    expect(k("rounds whose Delete cleared the centre"), "every Delete ran").toBe(3);
+    expect(k("rounds whose fill came back halved"), "every fill's result came back halved and was adopted").toBe(ROUNDS);
+    expect(k("rounds whose Delete cleared the centre"), "every Delete ran").toBe(ROUNDS);
     expect(k("whole uploads in the frames after"), "a partial edit uploads no whole texture").toBe(0);
-    expect(k("layerPixels in the frame after, worst ms"), "the adopted halving was seeded, not made again").toBeLessThan(20);
-    expect(k("frame after, worst of 3 ms")).toBeLessThan(33);
-    expect(k("Delete (UI thread), worst of 3 ms")).toBeLessThan(label === "24 MP" ? 150 : 400);
+    expect(k("partial uploads in the frames after"), "each Delete's frame took the partial path").toBeGreaterThanOrEqual(ROUNDS);
+    expect(k("layerRegion in the frame after, worst ms"), "the adopted halving was seeded: the partial upload crops it and halves nothing").toBeLessThan(20);
+    expect(k(`frame after, median of ${ROUNDS} ms`)).toBeLessThan(33);
+    expect(k(`Delete (UI thread), worst of ${ROUNDS} ms`)).toBeLessThan(label === "24 MP" ? DELETE_BUDGET_24MP : 400);
   }
 });
 

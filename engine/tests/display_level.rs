@@ -154,3 +154,20 @@ fn letting_go_of_halvings_lets_go_of_an_adopted_one_too() {
     r.forget_halvings();
     assert!(r.adopted().is_none());
 }
+
+#[test]
+fn adopt_refuses_a_level_past_where_a_side_already_reached_1() {
+    // Fix round 1, minor b: a 1001 x 6 raster's height reaches 1 after 2 halvings (1001x6 -> 500x3 ->
+    // 250x1) and `size_at_level` freezes there, so level 2 (genuine) and level 5 (bogus: no real 3rd,
+    // 4th or 5th halving ever ran) report the very same size, 250 x 1. Without the refusal, `adopt(5,
+    // ..)` would succeed here (the size check alone cannot tell them apart), and a later `seed_halvings`
+    // on a same-size sibling would divide this raster's frozen height past 0 and panic on the length
+    // `Raster::from_premultiplied` asserts (a wasm trap).
+    let thin = pattern(1001, 6);
+    assert_eq!(thin.size_at_level(2), (250, 1));
+    assert_eq!(thin.size_at_level(5), (250, 1), "the size freezes once a side reaches 1");
+    assert!(thin.adopt(2, from_scratch(&thin, 2)), "the genuine level is accepted");
+    assert!(!thin.adopt(5, from_scratch(&thin, 5)), "a level past the freeze is refused");
+    // The genuine adoption from the line above is untouched by the refused call.
+    assert_eq!(thin.adopted().map(|(level, _)| level), Some(2));
+}

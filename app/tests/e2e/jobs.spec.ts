@@ -126,8 +126,12 @@ test("a blur on a large layer grows it through the worker exactly as it does in 
 });
 
 test("F1: on a zoomed-out canvas a worker's result comes back halved to the canvas's level, and draws as the CPU draws it", async ({ page }) => {
-  // The layer covers its canvas exactly, as zoom-render.spec.ts's layers do, so the comparison is the
-  // layer's own pixels at every output pixel.
+  // The layer covers its canvas exactly, as zoom-render.spec.ts's layers do, so every output pixel comes
+  // from the layer alone. The ground truth is composited from an INDEPENDENT copy of the result (a fresh
+  // document, imported from an export of it) that never adopted anything of its own: `Engine::composite`
+  // on `doc` itself would read the very same adopted halving the GPU draws (`compositor::prefiltered` ->
+  // `Raster::reduced`, F1), so comparing against `doc`'s own composite cannot catch a wrong halving --
+  // both sides would show the identical bug (fix round 1, minor a).
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
@@ -163,9 +167,15 @@ test("F1: on a zoomed-out canvas a worker's result comes back halved to the canv
     const rect = vp.documentRect({ width: d.width, height: d.height });
     const w = Math.round((rect.x + rect.width) * dpr) - Math.round(rect.x * dpr);
     const h = Math.round((rect.y + rect.height) * dpr) - Math.round(rect.y * dpr);
-    const cpu = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: d.width, height: d.height }, w, h)) as number[];
+    // An independent copy of the Levels-adjusted result: exported (the stored, full-resolution pixels,
+    // untouched by any adopted halving) and reimported into a fresh document, so its raster has never had
+    // `adopt` called on it and this composite halves the CPU way from scratch.
+    const png = api.engine.exportPng(doc);
+    const truth = api.engine.newDocument(d.width, d.height, false);
+    api.engine.importImage(truth, png, "truth", { x: d.width / 2, y: d.height / 2 });
+    const cpu = Array.from(api.engine.composite(truth, { x: 0, y: 0, width: d.width, height: d.height }, w, h)) as number[];
     return { gl, cpu };
   }, doc);
   expect(r.gl.length).toBe(r.cpu.length);
-  expect(r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0), "the GPU draws the worker's halving as the CPU draws its own").toBeLessThanOrEqual(2);
+  expect(r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0), "the GPU draws the worker's halving as the CPU halves an independent copy of the same result").toBeLessThanOrEqual(2);
 });

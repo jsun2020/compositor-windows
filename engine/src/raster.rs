@@ -209,9 +209,13 @@ impl Raster {
     }
     /// Keeps `reduced`, this raster after `level` halvings made elsewhere (the job worker), for every
     /// clone of it: `reduced(level)` then returns it without halving anything. Refused (false) at level
-    /// 0 or when it is not the size `level` halvings make.
+    /// 0, when it is not the size `level` halvings make, or when `level` is past the point where a side
+    /// already reached 1 (fix round 1, minor b): `size_at_level` freezes there, so a later level would
+    /// report the very same size as an earlier, genuine one, and `seed_adopted`'s own arithmetic (which
+    /// does not freeze the same way) would divide a frozen side to 0 and panic on the length mismatch.
     pub fn adopt(&self, level: u32, reduced: Raster) -> bool {
         if level == 0 || level > MAX_PREFILTER_LEVEL || (reduced.width, reduced.height) != self.size_at_level(level) { return false; }
+        if (self.width >> (level - 1)) < 2 || (self.height >> (level - 1)) < 2 { return false; }
         *self.inner.adopted.lock().unwrap() = Some((level, reduced));
         true
     }
