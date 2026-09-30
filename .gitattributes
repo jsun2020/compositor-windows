@@ -1,3 +1,4 @@
 # Files produced by the macOS app are compared byte for byte; never convert their line endings.
 engine/tests/fixtures/mac-1.2.6/** -text
 engine/tests/fixtures/mac-1.2.10-probes/** -text
+engine/tests/fixtures/mac-4b1-probes/** -text
