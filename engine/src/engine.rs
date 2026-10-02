@@ -8,6 +8,7 @@ pub struct Session {
     pub history: History,
     pub path: Option<String>,
     pub preview: Option<PixelPreview>,
+    pub floating: Option<ops::floating::FloatingEdit>,
     /// The recent changed rectangles of its layers' buffers (`Engine::pixels_delta`).
     pub lineage: Lineage,
 }
@@ -37,6 +38,9 @@ pub struct LayerState {
     pub mask_placement: Option<LayerTransform>,
     pub mask_background: u8,
     #[serde(skip_serializing_if = "Option::is_none")] pub adjustment: Option<LayerAdjustment>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub text: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub shape: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub effects: Option<LayerEffects>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -176,7 +180,7 @@ impl Engine {
     fn insert(&mut self, document: Document, path: Option<String>) -> Uuid {
         let handle = Uuid::new_v4();
         let history = self.history_limits.map_or_else(History::default, |(entries, bytes)| History::with_limits(entries, bytes));
-        self.sessions.insert(handle, Session { document, history, path, preview: None, lineage: Lineage::default() });
+        self.sessions.insert(handle, Session { document, history, path, preview: None, floating: None, lineage: Lineage::default() });
         self.order.push(handle);
         handle
     }
@@ -208,6 +212,7 @@ impl Engine {
     }
 
     pub fn save_package(&self, id: Uuid) -> Result<Package, CommandError> {
+        if self.session(id)?.floating.is_some(){return Err(CommandError::Refused("Apply or cancel the floating selection first".into()));}
         Ok(package::save_package(&self.session(id)?.document)?)
     }
     pub fn mark_saved(&mut self, id: Uuid, path: Option<String>) {
@@ -237,7 +242,7 @@ impl Engine {
                 mask_revision: l.mask_revision, mask_enabled: l.mask.as_ref().map_or(true, |m| m.enabled),
                 mask_linked: l.mask.as_ref().map_or(true, |m| m.is_linked()), mask_source_id: l.mask_source_id,
                 mask_placement: l.mask.as_ref().and_then(|m| m.placement), mask_background: l.mask.as_ref().map_or(255, |m| m.background()),
-                adjustment: l.extra.adjustment.clone(),
+                adjustment: l.extra.adjustment.clone(),text:l.extra.text.clone(),shape:l.extra.shape.clone(),effects:l.extra.effects.clone(),
             }).collect(),
             guides: d.guides.clone(),
             undrawn: d.undrawn(),
@@ -403,6 +408,7 @@ impl Engine {
                 if let Some(mask) = layer.mask.as_mut() { mask.pixels = m; }
                 layer.mask_revision = preview.revision;
             }
+            if let Some(placement)=preview.mask_placement {if let Some(mask)=layer.mask.as_mut(){mask.placement=placement;layer.mask_revision=preview.revision;}}
         }
         Ok(std::borrow::Cow::Owned(doc))
     }
@@ -431,17 +437,55 @@ impl Engine {
             s.preview = None;
         }
     }
+    pub fn keep_job_preview(&mut self, id: Uuid, layer: Uuid, stamp: LayerStamp, output: JobOutput, pixels: Raster, followed: Option<GrayRaster>, display: Option<Raster>) -> Result<Dirty, CommandError> {
+        let doc=&self.session(id)?.document;
+        let own=doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        if LayerStamp::of(doc,own)!=stamp {return Err(CommandError::Refused(jobs::LAYER_CHANGED.into()));}
+        if output.pixels!=Some((pixels.width,pixels.height)) || followed.as_ref().map(|m|(m.width,m.height))!=output.mask || !output.transform.is_valid()
+            || pixels.width as i64>MAX_SIDE || pixels.height as i64>MAX_SIDE
+            || doc.used_pixels().saturating_sub(own.pixels.as_ref().map_or(0,|p|p.width as u64*p.height as u64))+pixels.width as u64*pixels.height as u64>MAX_PIXELS {
+            return Err(CommandError::Argument("invalid preview result".into()));
+        }
+        if display.as_ref().map(|d|(d.width,d.height))!=output.display.map(|d|(d.width,d.height)){return Err(CommandError::Argument("invalid preview halving".into()));}
+        if let (Some(d),Some(spec))=(display,output.display) {if !pixels.adopt(spec.level,d){return Err(CommandError::Argument("invalid preview halving".into()));}}
+        else if output.transform==own.transform {
+            if let Some(parent)=&own.pixels {if let Some(rect)=output.regions.iter().filter(|(p,_)|*p==Plane::Pixels).map(|(_,r)|*r).reduce(|a,b|a.union(&b)){pixels.seed_halvings(parent,rect);}}
+        }
+        let source=PreviewSource::of(doc,layer);
+        self.preview_revision+=1;let revision=PREVIEW_REVISION_BASE+self.preview_revision;
+        let next=PixelPreview::new(layer,pixels,output.transform,revision,&PreviewRequest::ContentFill{layer},source,PreviewTarget::Pixels{followed});
+        let s=self.sessions.get_mut(&id).unwrap();record_preview(&mut s.lineage,&s.document,s.preview.as_ref(),Some(&next));s.preview=Some(next);
+        Ok(Dirty::pixels(vec![layer]))
+    }
+
+    pub fn keep_text_preview(&mut self,id:Uuid,layer:Uuid,stamp:LayerStamp,style:serde_json::Value,image:Raster)->Result<Dirty,CommandError>{
+        let doc=self.document(id).ok_or(CommandError::NoDocument)?;
+        let original=doc.layer(layer).ok_or(CommandError::NoLayer)?;
+        if LayerStamp::of(doc,original)!=stamp{return Err(CommandError::Refused(jobs::LAYER_CHANGED.into()));}
+        let source=PreviewSource::of(doc,layer);let mut next=doc.clone();
+        ops::text::install(&mut next,Some(layer),style,image,Point{x:0.0,y:0.0})?;
+        let shown=next.layer(layer).unwrap();
+        self.preview_revision+=1;let revision=PREVIEW_REVISION_BASE+self.preview_revision;
+        let mut preview=PixelPreview::new(layer,shown.pixels.clone().unwrap(),shown.transform,revision,&PreviewRequest::Text{layer},source,PreviewTarget::Pixels{followed:None});
+        preview.mask_placement=Some(shown.mask.as_ref().and_then(|m|m.placement));
+        let s=self.sessions.get_mut(&id).unwrap();record_preview(&mut s.lineage,&s.document,s.preview.as_ref(),Some(&preview));s.preview=Some(preview);
+        Ok(Dirty::pixels(vec![layer]))
+    }
 
     /// Runs `f` on a copy of the document; on success the copy replaces it and the original goes to history.
     /// `f` reads the selection's clip through the engine's cache (`SelectionClips`).
     pub(crate) fn edit<F>(&mut self, id: Uuid, f: F) -> Result<Dirty, CommandError>
     where F: FnOnce(&mut Document, &SelectionClips) -> Result<Dirty, CommandError> {
+        self.edit_with_change(id,false,f)
+    }
+    pub(crate) fn edit_with_change<F>(&mut self,id:Uuid,confirmed:bool,f:F)->Result<Dirty,CommandError>
+    where F:FnOnce(&mut Document,&SelectionClips)->Result<Dirty,CommandError>{
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let mut next = s.document.clone();
         let dirty = f(&mut next, &self.clips)?;
         // The active layer is selection, not content: a command that only moves it (SetActiveLayer)
         // still applies, but records no history entry and so leaves redo intact, as macOS does.
-        let content_changed = !next.same_content(&s.document);
+        let content_changed = confirmed || !next.same_content(&s.document);
         renew_revisions(&s.document, &mut next, &mut self.revision);
         s.lineage.record_edit(&s.document, &next, &dirty.regions);
         seed_halvings(&s.document, &next, &dirty.regions);
@@ -452,6 +496,7 @@ impl Engine {
     }
 
     pub fn execute(&mut self, handle: Uuid, command: Command) -> Result<Dirty, CommandError> {
+        if self.session(handle)?.floating.is_some() { return Err(CommandError::Refused("Apply or cancel the floating selection first".into())); }
         self.clear_preview(handle);
         self.edit(handle, |doc, clips| match command {
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
@@ -500,6 +545,22 @@ impl Engine {
             Command::PlaceLayer { id, parent, above, at_bottom } => { ops::hierarchy::place_layer(doc, id, parent, above, at_bottom)?; Ok(Dirty::structure()) }
             Command::MoveLayerBy { id, offset } => { ops::hierarchy::move_layer_by(doc, id, offset)?; Ok(Dirty::structure()) }
             Command::DuplicateLayer { id } => { ops::hierarchy::duplicate_layer(doc, id)?; Ok(Dirty::structure()) }
+            Command::LayerViaCopy { id, mask } => { ops::clipboard::layer_via_copy(doc, id, mask)?; Ok(Dirty::everything()) }
+            Command::BrushStroke { id, mask, brush } => ops::brush::paint(doc, clips, id, mask, &brush),
+            Command::ContentAwareFill { id } => ops::content_fill::apply(doc,clips,id),
+            Command::SetLayerEffects {id,effects}=>{
+                if effects.as_ref().is_some_and(|e|!e.is_valid()){return Err(CommandError::Argument("invalid layer effects".into()));}
+                let layer=doc.layer_mut(id).ok_or(CommandError::NoLayer)?;
+                if layer.is_group||layer.is_adjustment()||layer.pixels.is_none(){return Err(CommandError::Refused("Select a pixel layer for layer effects".into()));}
+                layer.extra.effects=effects;Ok(Dirty::structure())
+            }
+            Command::CutPixels { id, mask } => {
+                let selection = doc.selection.clone();
+                if selection.is_none() { ops::selection::select_all(doc); }
+                ops::selection::clear_selected(doc, clips, id, mask)?;
+                doc.selection = selection;
+                Ok(Dirty::pixels(vec![id]))
+            }
             Command::DuplicateLayerTo { id, parent, above, at_bottom } => { ops::hierarchy::duplicate_layer_to(doc, id, parent, above, at_bottom)?; Ok(Dirty::structure()) }
             Command::DuplicateLayerTransformed { id, transform } => { let copy = ops::hierarchy::duplicate_layer(doc, id)?; ops::transform::set_transform(doc, copy, transform)?; Ok(Dirty::structure()) }
             Command::DeleteLayers { ids, bake } => {
@@ -591,6 +652,7 @@ impl Engine {
         had
     }
     pub fn undo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        if self.session(id)?.floating.is_some(){self.cancel_floating(id)?;return Ok(Dirty::everything());}
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         if let Some(before) = s.history.undo(&s.document) {
@@ -602,6 +664,7 @@ impl Engine {
         Ok(Dirty::everything())
     }
     pub fn redo(&mut self, id: Uuid) -> Result<Dirty, CommandError> {
+        if self.session(id)?.floating.is_some(){return Err(CommandError::Refused("Apply or cancel the floating selection first".into()));}
         if self.drop_preview(id) { return Ok(Dirty::everything()); }
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         if let Some(after) = s.history.redo(&s.document) {
@@ -644,6 +707,46 @@ impl Engine {
                 Ok(id)
             }
         }
+    }
+
+    pub fn paste_raster(&mut self, id: Uuid, raster: Raster, origin: Option<Point>, keep_selection: bool) -> Result<Dirty, CommandError> {
+        self.clear_preview(id);
+        self.edit(id, |doc, _| {
+            let selection = doc.selection.clone();
+            ops::clipboard::paste(doc, raster, origin)?;
+            if keep_selection { doc.selection = selection; }
+            Ok(Dirty::everything())
+        })
+    }
+
+    fn replace_transient(&mut self, id: Uuid, mut next: Document, renew: bool) -> Result<(), CommandError> {
+        let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
+        if renew { renew_revisions(&s.document, &mut next, &mut self.revision); }
+        s.lineage.record_edit(&s.document, &next, &[]);
+        s.document = next;
+        self.clips.retain_current(&s.document);
+        Ok(())
+    }
+    pub fn begin_floating(&mut self, id: Uuid, source: Uuid, duplicate: bool) -> Result<Uuid, CommandError> {
+        if self.session(id)?.floating.is_some() { return Err(CommandError::Refused("A floating selection is already being edited".into())); }
+        let mut doc = self.session(id)?.document.clone();
+        let edit = ops::floating::begin(&mut doc, source, duplicate, &self.clips)?;
+        let layer = edit.layer;
+        self.replace_transient(id, doc, true)?;
+        self.session_mut(id)?.floating = Some(edit);
+        Ok(layer)
+    }
+    pub fn cancel_floating(&mut self, id: Uuid) -> Result<(), CommandError> {
+        if let Some(edit) = self.session_mut(id)?.floating.take() { self.replace_transient(id, edit.before, false)?; }
+        Ok(())
+    }
+    pub fn commit_floating(&mut self, id: Uuid, draft: LayerTransform, corners: Option<[Point; 4]>) -> Result<Dirty, CommandError> {
+        let s = self.session(id)?;
+        let edit = s.floating.as_ref().ok_or_else(|| CommandError::Refused("No floating selection is being edited".into()))?;
+        let next = ops::floating::finish(&s.document, edit, draft, corners)?;
+        let before = self.session_mut(id)?.floating.take().unwrap().before;
+        self.replace_transient(id, before, false)?;
+        self.edit(id, |doc, _| { *doc = next; Ok(Dirty::everything()) })
     }
 
     // Exports and every render below find effects images in, and leave them in, the engine's cache.

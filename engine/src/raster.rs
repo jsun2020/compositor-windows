@@ -233,7 +233,10 @@ impl Raster {
     /// only calling this when the grid itself -- not just its size -- is unchanged (`engine.rs`'s
     /// `seed_halvings`, Task 3 fix round 1, bug 1).
     pub fn seed_halvings(&self, parent: &Raster, rect: PixelRect) {
-        if self.width != parent.width || self.height != parent.height || self.same_pixels(parent) { return; }
+        // A worker already supplied the displayed level. Rebuilding the parent's
+        // entire cached ladder would copy up to a third of the full raster here.
+        if self.adopted().is_some(){return;}
+        if self.width != parent.width || self.height != parent.height || self.buffer_id()==parent.buffer_id() { return; }
         self.seed_adopted(parent, rect);
         let Some(parent_half) = parent.memoized_half() else { return };
         let (w, h) = self.half_size();

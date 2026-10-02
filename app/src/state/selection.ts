@@ -55,6 +55,10 @@ export function editedShape(state: DocumentState, transformEdit: TransformEdit |
   }
   const layer = activeLayer(state);
   if (!layer || layer.isGroup) return null;
+  if (!maskSelected && layer.hasPixels && !layer.adjustment && selected.length === 1 && state.selection?.bounds && !state.selection.empty) {
+    const b = state.selection.bounds;
+    return { transform: { origin: [Math.floor(b.x), Math.floor(b.y)], size: [Math.max(1, Math.ceil(b.x + b.width) - Math.floor(b.x)), Math.max(1, Math.ceil(b.y + b.height) - Math.floor(b.y))], rotation: 0, flipX: false, flipY: false, sampling: "High quality" }, corners: null };
+  }
   if (maskSelected && layer.hasMask && !layer.maskLinked) return { transform: layer.maskPlacement ?? layer.transform, corners: null };
   return { transform: layer.transform, corners: null };
 }

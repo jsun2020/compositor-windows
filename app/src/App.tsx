@@ -26,6 +26,10 @@ import { TransformInspector } from "./panels/TransformInspector";
 import { AdjustPanel } from "./panels/AdjustPanel";
 import { UndrawnNotice } from "./panels/UndrawnNotice";
 import { ColorPickerPanel } from "./panels/ColorPickerPanel";
+import { BrushOptions } from "./panels/BrushOptions";
+import { ContentFillPanel } from "./panels/ContentFillPanel";
+import {TextPanel} from "./panels/TextPanel";
+import {EffectsPanel} from "./panels/EffectsPanel";
 import "./styles.css";
 
 export function App() {
@@ -103,6 +107,7 @@ export function App() {
       <SelectionOptions />
       <GradientOptions />
       <ShapeOptions />
+      <BrushOptions />
       <TransformInspector />
       <div className="workspace">
         <ToolRail />
@@ -113,6 +118,9 @@ export function App() {
         </div>
       </div>
       <AdjustPanel />
+      <ContentFillPanel />
+      <TextPanel />
+      <EffectsPanel />
       <ColorPickerPanel />
       <UndrawnNotice />
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){working && <span data-testid="working"> - Working...</span>}</div>

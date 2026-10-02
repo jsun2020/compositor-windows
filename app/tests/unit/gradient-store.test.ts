@@ -54,7 +54,7 @@ function install(l: LayerState = layer()) {
     redo: () => { log.push("redo"); return { structure: true, canvas: false, layers: [] }; },
     storedPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
     editPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
-    jobInput: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
+    jobInputAsync: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
   } as unknown as EngineClient;
   const jobs = { run: () => new Promise(() => {}) } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [l.id], maskSelected: false,
@@ -199,7 +199,7 @@ describe("a pending gradient", () => {
     expect([log, s().gradientEdit, s().error, previews.at(-1)]).toEqual([[], null, "too large", null]);
   });
   it("clears the pending preview when the job's own input throws (fix round 3, M-3)", () => {
-    useEditor.setState({ jobPixels: 1, engine: { ...s().engine!, jobInput: () => { throw new Error("boom"); } } as never });
+    useEditor.setState({ jobPixels: 1, engine: { ...s().engine!, jobInputAsync: () => { throw new Error("boom"); } } as never });
     draw([5, 6], [30, 6]);
     expect(last()).not.toBeNull(); // the pending gradient's preview shows before the commit is attempted
     s().commitGradient();
@@ -219,7 +219,7 @@ describe("a pending gradient", () => {
     const sent: string[] = []; const installed: string[] = [];
     let finish: (r: JobResult | null) => void = () => {};
     const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise<JobResult | null>((r) => { finish = r; }); } } as unknown as JobClient;
-    const engine = { ...s().engine!, installJob: (_d: string, layerId: string) => { installed.push(layerId); return { structure: true, canvas: false, layers: [] }; } } as unknown as EngineClient;
+    const engine = { ...s().engine!, installJobAsync: (_d: string, layerId: string) => { installed.push(layerId); return { structure: true, canvas: false, layers: [] }; } } as unknown as EngineClient;
     useEditor.setState({ jobPixels: 1, jobs, engine });
     expect(s().run({ type: "Deselect" })).toBe(false);
     expect(s().error).toBe(BUSY_MESSAGE);

@@ -2,6 +2,8 @@
 // main thread and posted here, running one job at a time on transferred buffers (engine `jobs.rs`).
 import { initSync, WasmEngine } from "./pkg/compositor_engine.js";
 import type { FromWorker, JobRequest, JobResult, ToWorker } from "./jobs";
+import { renderText } from "../tools/text-raster";
+import type { TextStyle } from "../tools/text-style";
 
 let engine: WasmEngine | null = null;
 let memory: WebAssembly.Memory | null = null;
@@ -24,6 +26,20 @@ function keptDisplay(): ArrayBuffer | null {
 
 function run(request: JobRequest): JobResult {
   switch (request.kind) {
+    case "text": {const {width,height,pixels}=renderText(JSON.parse(request.input) as TextStyle);return{header:JSON.stringify({width,height}),pixels,mask:null};}
+    case "documentEdit": {
+      const header=engine!.run_document_edit_job(request.input,request.layers.map(l=>bytes(l.pixels)??null),request.layers.map(l=>bytes(l.mask)??null),bytes(request.points),request.layer,request.command,request.outPerDoc);
+      try{return{header,pixels:kept(false),mask:kept(true),display:keptDisplay()};}finally{engine!.release_job();}
+    }
+    case "clipboard": {
+      const png = engine!.run_clipboard_job(request.input, request.layers.map((l) => bytes(l.pixels) ?? null), request.layers.map((l) => bytes(l.mask) ?? null), bytes(request.points), request.png);
+      const h = JSON.parse(request.input) as { region: { x: number; y: number; width: number; height: number } };
+      return { header: JSON.stringify(h.region), pixels: png.buffer as ArrayBuffer, mask: null };
+    }
+    case "decodeClipboard": {
+      const header = engine!.decode_clipboard(new Uint8Array(request.pixels));
+      try { return { header, pixels: kept(false), mask: null }; } finally { engine!.release_job(); }
+    }
     case "edit": {
       const header = engine!.run_edit_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points), request.command, request.outPerDoc);
       const result = { header, pixels: kept(false), mask: kept(true), display: keptDisplay() };

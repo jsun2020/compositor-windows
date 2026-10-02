@@ -10,6 +10,13 @@ export class MockBridge implements ShellBridge {
   private dropHandlers: ((paths: string[], position: { x: number; y: number } | null) => void)[] = [];
   private recent: string[] = [];
   private failWriteMessage: string | null = null;
+  private clipboard: { bytes: Uint8Array; origin: [number, number] | null; layerToken?:string } | null = null;
+  seedClipboard(bytes: Uint8Array, origin: [number, number] | null = null): void { this.clipboard = { bytes: bytes.slice(), origin }; }
+  async readClipboardImage(): Promise<{ bytes: Uint8Array; origin: [number, number] | null; layerToken?:string }> {
+    if (!this.clipboard) throw new Error("The clipboard does not contain an image");
+    return { bytes: this.clipboard.bytes.slice(), origin: this.clipboard.origin ? [...this.clipboard.origin] : null,layerToken:this.clipboard.layerToken };
+  }
+  async writeClipboardImage(bytes: Uint8Array, origin: [number, number], layerToken?:string): Promise<void> { this.checkFailWrite(); this.seedClipboard(bytes, origin);this.clipboard!.layerToken=layerToken; }
 
   setNextPick(path: string | null): void { this.picks.push(path); }
   seedFile(path: string, bytes: Uint8Array): void { this.files.set(path, bytes); }

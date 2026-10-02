@@ -33,7 +33,7 @@ body { margin: 0; }
 /* Workspace */
 .workspace { display: flex; flex: 1 1 auto; min-height: 0; }
 
-.tool-rail { display: flex; flex-direction: column; flex: 0 0 44px; width: 44px; background: #2a2a2a; border-right: 1px solid #000; padding-top: 4px; }
+.tool-rail { display: flex; flex-direction: column; flex: 0 0 44px; width: 44px; background: #2a2a2a; border-right: 1px solid #000; padding-top: 4px; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
 /* As the Mac's rail (ContentView.swift): a 36 px button, 7 px corners, the chosen tool on a soft white fill. */
 .tool-rail button { display: flex; align-items: center; justify-content: center; padding: 0; width: 36px; height: 36px; margin: 2px 4px; background: none; border: none; color: #d8d8d8; cursor: pointer; border-radius: 7px; }
 .tool-rail button:hover { background: rgba(255, 255, 255, 0.06); }
@@ -175,3 +175,9 @@ body { margin: 0; }
 .color-swatch-button { width: 36px; height: 18px; padding: 0; border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 3px; cursor: pointer; }
 .gradient-swatch { display: inline-block; width: 56px; height: 18px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.5); }
 .tool-options .muted { color: #999; }
+:root .authoring-panel {width:420px;max-height:85vh;overflow:auto;}
+.authoring-panel textarea {width:100%;box-sizing:border-box;resize:vertical;color:inherit;background:var(--panel-bg,#202024);border:1px solid #666;padding:8px;}
+.authoring-grid {display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0;}
+.authoring-grid label {display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.authoring-grid input:not([type=checkbox]),.authoring-grid select {max-width:150px;width:100%;box-sizing:border-box;}
+.authoring-panel fieldset {border:1px solid #666;margin:8px 0;}

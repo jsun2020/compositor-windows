@@ -63,6 +63,7 @@ pub enum PreviewEdit {
     Group { #[serde(deserialize_with = "deserialize_ids")] ids: Vec<Uuid>, #[serde(rename = "box")] bounds: LayerTransform, draft: LayerTransform, #[serde(default)] corners: Option<[Point; 4]> },
     Mask { #[serde(with = "ids::upper")] id: Uuid, draft: LayerTransform },
     Adjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    Effects { #[serde(with = "ids::upper")] id: Uuid, effects: Option<LayerEffects> },
 }
 
 fn deserialize_ids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Uuid>, D::Error> {

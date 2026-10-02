@@ -29,6 +29,10 @@ export class TransformSession {
     let draft = drag.updated(target, opts);
     if (mode.kind === "move" && snap) {
       const s = snapOffset(boundsOf(draft), snap.xs, snap.ys, snap.tolerance);
+      if (mods.shift) {
+        if (Math.abs(point.x - startDoc.x) >= Math.abs(point.y - startDoc.y)) { s.dy = 0; s.y = null; }
+        else { s.dx = 0; s.x = null; }
+      }
       if (s.dx !== 0 || s.dy !== 0) draft = { ...draft, origin: [draft.origin[0] + s.dx, draft.origin[1] + s.dy] };
       if (s.x !== null) guides.xs.push(s.x); if (s.y !== null) guides.ys.push(s.y);
     }

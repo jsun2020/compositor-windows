@@ -10,6 +10,10 @@
 
 /** What a job is asked to do. `input` is the engine's JobInput JSON; the buffers travel beside it. */
 export type JobRequest =
+  | {kind:"text";input:string;pixels:null;mask:null}
+  | { kind: "documentEdit"; input: string; layer: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; pixels: null; mask: null; points: ArrayBuffer | null; command: string; outPerDoc: number }
+  | { kind: "clipboard"; input: string; pixels: null; mask: null; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; points: ArrayBuffer | null; png: boolean }
+  | { kind: "decodeClipboard"; input: string; pixels: ArrayBuffer; mask: null }
   | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string; outPerDoc: number }
   | { kind: "histogram"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null }
   | { kind: "effects"; input: string; pixels: ArrayBuffer; mask: ArrayBuffer | null; factor: number; edit: string | null };
@@ -19,6 +23,16 @@ export type JobRequest =
  * run at a scale (`outPerDoc`, device pixels per document pixel) also brings its new pixels halved to
  * the level the canvas draws them at (`display`, engine `JobOutput.display`; F1). */
 export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null; }
+
+/** Retire large transferred buffers after installation. Current WebView2/Edge
+ * can detach/release them immediately, avoiding a large GC on the next edit.
+ * Older runtimes retain normal GC behavior. Prepared previews keep their buffers
+ * until Apply/Cancel. Small results remain available to callers as before. */
+export function releaseJobResult(result:JobResult|null):void {
+  if(!result)return;for(const b of [result.pixels,result.mask,result.display]){
+    if(b&&b.byteLength>=4*1024*1024){const transferable=b as ArrayBuffer&{transfer?:(length:number)=>ArrayBuffer};transferable.transfer?.(0);}
+  }
+}
 
 /** Messages to the worker and back. `fatal` on a failure marks a wasm trap (an `unreachable` panic,
  * an allocation abort): `RuntimeError.prototype instanceof WebAssembly.RuntimeError`, as the worker's
@@ -49,6 +63,7 @@ export function trapMessage(error: string): string {
 
 /** The buffers a request hands over, for `postMessage`'s transfer list. */
 export function transferables(request: JobRequest): ArrayBuffer[] {
+  if (request.kind === "clipboard" || request.kind === "documentEdit") return [...request.layers.flatMap((l) => [l.pixels, l.mask]), request.points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
   const points = "points" in request ? request.points : null;
   return [request.pixels, request.mask, points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
 }

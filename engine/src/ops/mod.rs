@@ -12,3 +12,8 @@ pub mod merge;
 pub mod selection;
 pub mod raster_edit;
 pub mod shape;
+pub mod clipboard;
+pub mod floating;
+pub mod brush;
+pub mod text;
+pub mod content_fill;

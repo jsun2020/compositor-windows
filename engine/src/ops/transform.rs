@@ -18,6 +18,7 @@ pub fn set_transform(doc: &mut Document, id: Uuid, transform: LayerTransform) ->
         if placement != mask.placement { layer.mask_mut().unwrap().placement = placement; }
     }
     layer.transform = transform;
+    ops::shape::redraw(doc,id)?;
     Ok(())
 }
 

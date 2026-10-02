@@ -35,3 +35,4 @@ mod tests {
         assert_eq!(percent_decode("trailing%"), "trailing%");
     }
 }
+pub mod clipboard;

@@ -24,6 +24,11 @@ pub enum Command {
     PlaceLayer { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     MoveLayerBy { #[serde(with = "ids::upper")] id: Uuid, offset: i32 },
     DuplicateLayer { #[serde(with = "ids::upper")] id: Uuid },
+    LayerViaCopy { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
+    CutPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
+    BrushStroke { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, brush: crate::BrushSpec },
+    ContentAwareFill { #[serde(with = "ids::upper")] id: Uuid },
+    SetLayerEffects { #[serde(with = "ids::upper")] id: Uuid, effects: Option<crate::LayerEffects> },
     DuplicateLayerTo { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     DuplicateLayerTransformed { #[serde(with = "ids::upper")] id: Uuid, transform: LayerTransform },
     DeleteLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, #[serde(default)] bake: bool },
@@ -82,6 +87,11 @@ pub enum Command {
 impl Command {
     pub fn action_name(&self) -> &'static str {
         match self {
+            Command::LayerViaCopy { .. } => "Layer via Copy",
+            Command::CutPixels { .. } => "Cut",
+            Command::BrushStroke { brush, .. } => match brush.operation {crate::BrushOperation::Blur { .. }=>"Blur",crate::BrushOperation::Clone { .. }=>"Clone Stamp",crate::BrushOperation::Heal { .. }=>"Spot Healing",_=>if brush.erasing {"Erase"}else{"Brush Stroke"}},
+            Command::ContentAwareFill { .. } => "Content-Aware Fill",
+            Command::SetLayerEffects {..}=>"Layer Effects",
             Command::AddBlankLayer => "New Layer",
             Command::RenameLayer { .. } => "Rename Layer",
             Command::SetLayerVisible { .. } => "Layer Visibility",

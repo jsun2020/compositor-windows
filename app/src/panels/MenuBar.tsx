@@ -9,6 +9,10 @@ import {
   loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink, canUngroupActive,
 } from "../actions/layers";
 import { ADJUSTMENT_KINDS, isEditableKind } from "../engine/types";
+import { canCopyPixels } from "../actions/clipboard";
+import { beginContentFill,canContentFill } from "../actions/content-fill";
+import {canEditText,editActiveText} from "../actions/text";
+import {canEditEffects,beginEffects} from "../actions/effects";
 
 type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
 
@@ -52,13 +56,22 @@ export function MenuBar() {
       { id: "undo", label: "Undo", run: () => runAction("undo"), enabled: editable && !s.transformEdit && (!!activeDoc?.canUndo || !!s.gradientEdit) },
       { id: "redo", label: "Redo", run: () => runAction("redo"), enabled: editable && !s.transformEdit && !!activeDoc?.canRedo },
       "separator",
+      { id: "cut", label: "Cut", run: () => runAction("cut"), enabled: editable && canCopyPixels() },
+      { id: "copy", label: "Copy", run: () => runAction("copy"), enabled: editable && canCopyPixels() },
+      { id: "copy-merged", label: "Copy Merged", run: () => runAction("copy-merged"), enabled: editable && canCopyPixels(true) },
+      { id: "paste", label: "Paste", run: () => runAction("paste"), enabled: editable },
+      { id: "transform", label: activeDoc?.selection ? "Transform Selection" : "Free Transform", run: () => runAction("transform"), enabled: editable && !s.transformEdit },
+      "separator",
       { id: "fill-foreground", label: "Fill with Foreground Color", run: () => runAction("fill-foreground"), enabled: editable && canPaint() },
       { id: "fill-background", label: "Fill with Background Color", run: () => runAction("fill-background"), enabled: editable && canPaint() },
+      { id:"content-fill",label:"Content-Aware Fill...",run:()=>void beginContentFill(),enabled:canContentFill() },
     ] },
     { title: "Layer", items: [
+      {id:"layer-edit-text",label:"Edit Text...",run:editActiveText,enabled:canEditText()},
+      {id:"layer-effects",label:"Layer Effects...",run:beginEffects,enabled:canEditEffects()},
       { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: editable },
       { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: editable },
-      { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: editable },
+      { id: "layer-duplicate", label: activeDoc?.selection ? "Layer via Copy" : "Duplicate Layer", run: () => runAction("duplicate"), enabled: editable },
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
       { id: "layer-ungroup", label: "Ungroup Layers", run: () => runAction("ungroup"), enabled: editable && canUngroupActive() },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: editable },

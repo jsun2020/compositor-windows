@@ -86,8 +86,8 @@ test("F1: a Delete inside a selection after a job's result at 24 and 100 MP, at 
       // takes) timed inside the frame after the Delete.
       let inFrame = false, halving = 0, region = 0;
       const displays: number[] = [];
-      const install = api.engine.installJob.bind(api.engine);
-      api.engine.installJob = (...a: unknown[]) => { displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0); return install(...a); };
+      const install = api.engine.installJobAsync.bind(api.engine);
+      api.engine.installJobAsync = (...a: unknown[]) => { displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0); return install(...a); };
       const pixels = api.engine.layerPixels.bind(api.engine);
       api.engine.layerPixels = (...a: unknown[]) => { const t = performance.now(); try { return pixels(...a); } finally { if (inFrame) halving += performance.now() - t; } };
       const layerRegion = api.engine.layerRegion.bind(api.engine);
@@ -233,9 +233,16 @@ test("F1: the frame after a job's result at 24 and 100 MP, Levels on a layer and
           const f = api.engine[name].bind(api.engine);
           api.engine[name] = (...a: unknown[]) => { before?.(a); const t = performance.now(); try { return f(...a); } finally { const ms = performance.now() - t; if (name === "layerPixels") { if (inFrame) halving += ms; } else result[`${name} ms`] = Math.round(ms); after?.(); } };
         };
-        timed("jobInput");
+        // Cooperatively copied buffers now cross through the async APIs. Keep
+        // the original UI-work budgets: count the time spent copying/installing,
+        // excluding frame yields, and still measure every frame gap below.
+        const timedAsync=(name:string,key:string,cpu:string,before?:(a:unknown[])=>void,after?:()=>void)=>{
+          const f=api.engine[name].bind(api.engine);api.engine[name]=async(...a:unknown[])=>{before?.(a);const result=await f(...a);reread();after?.();return result;};
+          const reread=()=>{result[`${key} ms`]=Math.round(api.engine[cpu]);};
+        };
+        timedAsync("jobInputAsync","jobInput","lastJobInputCpuMs");
         timed("layerPixels");
-        timed("installJob", (a) => displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0), () => {
+        timedAsync("installJobAsync","installJob","lastInstallCpuMs", (a) => displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0), () => {
           installedAt = performance.now();
           s().refresh(s().activeId);
           inFrame = true;

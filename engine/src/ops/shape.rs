@@ -2,7 +2,7 @@
 //! rectangle (its corners rounded by at most half its shorter side), an ellipse, or a line stroked
 //! with round ends, filled with one colour on a new layer above the active one, in one undo step.
 //! The layer keeps a `shape` record the Mac reads (`LayerShapeStyle`), so the Mac redraws the shape
-//! when the layer is scaled there; this port does not redraw it (ruling OQ19). Any other change to
+//! when the layer is scaled; Phase 5 redraws this record on resize. Any other change to
 //! the layer's pixels drops the record (`Layer::set_pixels`), as the Mac's `liveShape` does.
 use crate::selection::coverage::rasterize;
 use crate::selection::geometry::{cubic, ellipse, polygon, rectangle};
@@ -191,4 +191,35 @@ pub fn add_shape(doc: &mut Document, spec: &ShapeSpec, color: [f64; 3]) -> Resul
     let mut layer = Layer::with_pixels(&next_shape_name(doc, spec.kind()), shape_raster(spec, color), Point { x: bounds.x, y: bounds.y });
     layer.extra.shape = Some(shape_record(spec, color));
     ops::layers::insert_above_active(doc, layer)
+}
+
+/// A live shape always draws into the new box; line ends remain fractions of it,
+/// while corner radius and line width stay in layer pixels (ShapeTool.swift).
+pub fn redraw_image(record:&serde_json::Value,size:Size,scale:f64)->Option<Raster>{
+    let (w,h)=(size.width.round().max(1.0) as u32,size.height.round().max(1.0) as u32);
+    if w as i64>MAX_SIDE||h as i64>MAX_SIDE||w as u64*h as u64>MAX_PIXELS{return None;}
+    let color=[record.get("red")?.as_f64()?,record.get("green")?.as_f64()?,record.get("blue")?.as_f64()?];
+    if color.iter().any(|v|!v.is_finite()||!(0.0..=1.0).contains(v)){return None;}
+    let local=Rect{x:0.0,y:0.0,width:w as f64,height:h as f64};
+    let contour=match record.get("kind")?.as_str()? {
+        "Rectangle"=>{let radius=record.get("cornerRadius").and_then(|v|v.as_f64()).unwrap_or(0.0)*scale;if !radius.is_finite(){return None;}let radius=radius.max(0.0).min(local.width/2.0).min(local.height/2.0);if radius>0.0{rounded_rectangle(local,radius)}else{rectangle(local)}},
+        "Ellipse"=>ellipse(local),
+        "Line"=>{
+            let unit=|name:&str|{let a=record.get(name)?.as_array()?;let(x,y)=(a.first()?.as_f64()?,a.get(1)?.as_f64()?);if !x.is_finite()||!y.is_finite(){return None;}Some(Point{x:x*w as f64,y:y*h as f64})};
+            let width=record.get("lineWidth")?.as_f64()?*scale;if !width.is_finite()||width<=0.0{return None;}capsule(unit("start")?,unit("end")?,width)
+        },_=>return None,
+    };
+    let coverage=rasterize(&[contour],0.0,0.0,w,h,true);let mut data=vec![0;w as usize*h as usize*4];
+    for(p,&a)in data.chunks_exact_mut(4).zip(coverage.bytes()){for k in 0..3{p[k]=(color[k]*a as f64).round() as u8;}p[3]=a;}
+    Some(Raster::from_premultiplied(w,h,data))
+}
+pub fn redraw(doc:&mut Document,id:Uuid)->Result<(),CommandError>{
+    let old=doc.layer(id).ok_or(CommandError::NoLayer)?.clone();
+    let (Some(record),Some(image))=(old.extra.shape.as_ref(),old.pixels.as_ref())else{return Ok(());};
+    let(w,h)=(old.transform.size.width.round().max(1.0) as u64,old.transform.size.height.round().max(1.0) as u64);
+    if(w,h)==(image.width as u64,image.height as u64){return Ok(());}
+    if w*h>MAX_PIXELS.saturating_sub(doc.used_pixels()-image.width as u64*image.height as u64){return Err(ProjectError::TooLarge.into());}
+    let Some(drawn)=redraw_image(record,old.transform.size,1.0)else{return Ok(());};
+    let target=doc.layer_mut(id).unwrap();if target.mask.as_ref().is_some_and(|m|m.placement.is_none()){target.mask_mut().unwrap().placement=Some(old.transform);}
+    target.set_pixels(Some(drawn));target.extra.shape=Some(record.clone());Ok(())
 }

@@ -105,9 +105,8 @@ export function TransformInspector() {
           <option>Nearest</option><option>Smooth</option><option>High quality</option>
         </select>
       </label>
-      {/* Left in place unseen when nothing waits for them (TransformInspector.swift:49-60 at v1.4.5), so nothing in
-          the bar shifts when a distortion starts in the middle of a drag. */}
-      <span style={{ visibility: s.transformEdit?.corners ? "visible" : "hidden" }}>
+      {/* Keep the bar stable, and show explicit actions for Free Transform and floating selections. */}
+      <span style={{ visibility: s.transformEdit?.corners || s.transformEdit?.floating || s.transformEdit?.persistent ? "visible" : "hidden" }}>
         <button data-testid="transform-cancel" onClick={() => s.cancelTransform()}>Cancel</button>
         <button data-testid="transform-apply" className="primary" onClick={() => s.commitTransform()}>Apply</button>
       </span>

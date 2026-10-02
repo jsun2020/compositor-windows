@@ -7,6 +7,10 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "preview")]
 pub enum PreviewRequest {
+    /// A prepared worker result installed with `Engine::keep_job_preview`.
+    ContentFill { #[serde(with="ids::upper")] layer: Uuid },
+    Text { #[serde(with="ids::upper")] layer: Uuid },
+    Shape { #[serde(with="ids::upper")] layer:Uuid,draft:LayerTransform },
     Adjustment { #[serde(with = "ids::upper")] layer: Uuid, adjustment: LayerAdjustment },
     /// The same adjustment while a slider is still moving: previewed from a smaller copy
     /// (`COLOUR_DRAG_LIMIT`) and followed by an `Adjustment` request once input settles.
@@ -20,13 +24,16 @@ pub enum PreviewRequest {
 
 impl PreviewRequest {
     pub fn layer(&self) -> Uuid {
-        match self { PreviewRequest::Adjustment { layer, .. } | PreviewRequest::DragAdjustment { layer, .. } | PreviewRequest::Filter { layer, .. } | PreviewRequest::Gradient { layer, .. } => *layer }
+        match self { PreviewRequest::Shape{layer,..}|PreviewRequest::Text {layer}|PreviewRequest::ContentFill { layer } | PreviewRequest::Adjustment { layer, .. } | PreviewRequest::DragAdjustment { layer, .. } | PreviewRequest::Filter { layer, .. } | PreviewRequest::Gradient { layer, .. } => *layer }
     }
     /// Whether two requests compute the same pixels: the same layer and settings at the same
     /// effective limit (a Grain drag and a settled Grain are both full size).
     fn same_output(&self, other: &PreviewRequest) -> bool {
         use PreviewRequest::*;
         let content = match (self, other) {
+            (ContentFill { .. }, ContentFill { .. }) => true,
+            (Text {..},Text{..})=>true,
+            (Shape{draft:a,..},Shape{draft:b,..})=>a==b,
             (Adjustment { adjustment: a, .. } | DragAdjustment { adjustment: a, .. }, Adjustment { adjustment: b, .. } | DragAdjustment { adjustment: b, .. }) => a == b,
             (Filter { params: a, .. }, Filter { params: b, .. }) => a == b,
             (Gradient { mask: a, gradient: g, .. }, Gradient { mask: b, gradient: h, .. }) => a == b && g == h,
@@ -63,6 +70,7 @@ pub enum PreviewTarget { Pixels { followed: Option<GrayRaster> }, Patch(PixelRec
 pub struct PixelPreview {
     pub layer: Uuid, pub raster: Raster, pub transform: LayerTransform, pub revision: u64, pub request: PreviewRequest, pub source: PreviewSource,
     pub target: PreviewTarget,
+    pub mask_placement: Option<Option<LayerTransform>>,
     /// A patch drawn over the stored pixels, made once and only when something reads the pixels whole
     /// (the CPU compositor, a whole texture upload): the GPU's partial path reads the patch alone.
     patched: std::sync::OnceLock<Raster>,
@@ -72,8 +80,8 @@ impl PixelPreview {
     /// Whether `request`, on a document that is now `source`, would compute exactly these pixels
     /// again, so they can be kept.
     pub fn answers(&self, request: &PreviewRequest, source: &PreviewSource) -> bool { self.request.same_output(request) && self.source == *source }
-    fn new(layer: Uuid, raster: Raster, transform: LayerTransform, revision: u64, request: &PreviewRequest, source: PreviewSource, target: PreviewTarget) -> PixelPreview {
-        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, patched: std::sync::OnceLock::new() }
+    pub(crate) fn new(layer: Uuid, raster: Raster, transform: LayerTransform, revision: u64, request: &PreviewRequest, source: PreviewSource, target: PreviewTarget) -> PixelPreview {
+        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, mask_placement:None,patched: std::sync::OnceLock::new() }
     }
     /// The stored pixels with this preview's patch drawn over them, made on first use.
     pub fn patched(&self, stored: &Raster) -> Raster {
@@ -122,6 +130,8 @@ pub const PATCH_LIMIT: u64 = 1 << 19;
 /// looks coarse.
 pub fn preview_limit(request: &PreviewRequest) -> u32 {
     match request {
+        PreviewRequest::Text{..}|PreviewRequest::ContentFill { .. } => u32::MAX,
+        PreviewRequest::Shape{..}=>1536,
         PreviewRequest::Adjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_PREVIEW_LIMIT },
         PreviewRequest::DragAdjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_DRAG_LIMIT },
         PreviewRequest::Filter { params, .. } => if matches!(params, FilterParams::AddNoise { .. }) { u32::MAX } else { FILTER_PREVIEW_LIMIT },
@@ -150,6 +160,16 @@ pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) 
 /// `compute_preview` with the selection's clip from `clips`: the engine's, so every tick of a drag
 /// under one selection reuses one clip (final review F1).
 pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, revision: u64) -> Option<PixelPreview> {
+    if let PreviewRequest::Shape{layer,draft}=request {
+        if !draft.is_valid(){return None;}
+        let original=doc.layer(*layer)?;let record=original.extra.shape.as_ref()?;
+        let scale=(1536.0/draft.size.width.max(draft.size.height)).min(1.0);
+        let size=Size{width:(draft.size.width*scale).round().max(1.0),height:(draft.size.height*scale).round().max(1.0)};
+        let drawn=ops::shape::redraw_image(record,size,scale)?;
+        let mut preview=PixelPreview::new(*layer,drawn,*draft,revision,request,PreviewSource::of(doc,*layer),PreviewTarget::Pixels{followed:None});
+        preview.mask_placement=Some(original.mask.as_ref().and_then(|m|m.follow(&original.transform,draft)));
+        return Some(preview);
+    }
     if let PreviewRequest::Gradient { layer, mask, gradient, .. } = request {
         return gradient_preview(doc, clips, request, *layer, *mask, gradient, revision);
     }
@@ -159,6 +179,7 @@ pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &Pr
     let (source, factor) = reduced(raster, limit);
     let made_from = PreviewSource::of(doc, layer.id);
     match request {
+        PreviewRequest::Shape{..}|PreviewRequest::Text{..}|PreviewRequest::ContentFill { .. } => None,
         PreviewRequest::Adjustment { adjustment, .. } | PreviewRequest::DragAdjustment { adjustment, .. } => {
             if !adjustment.is_valid() { return None; }
             let coverage = ops::adjust::edit_coverage(doc, clips, &layer.transform, source.width, source.height).ok()?;

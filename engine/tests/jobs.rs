@@ -88,6 +88,21 @@ fn a_job_inside_a_selection_brings_its_changed_rectangle_back() {
 }
 
 #[test]
+fn a_large_partial_job_brings_an_independently_correct_display_level_back() {
+    let mut doc=Document::new(4001,1000);
+    let layer=Layer::with_pixels("Pattern",pattern(4001,1000),p(0.0,0.0));let id=layer.id;
+    doc.active_layer_id=Some(id);doc.layers.push(layer);let mut e=Engine::new();let handle=e.insert_document(doc);
+    run(&mut e,handle,Command::SelectShape{kind:SelectionShape::Rectangle,points:vec![p(20.0,20.0),p(36.0,20.0),p(36.0,28.0),p(20.0,28.0)],mode:SelectionMode::Replace,antialiased:false});
+    let (input,pixels,mask,points)=crossed(&e,handle,id);
+    let (output,new_pixels,new_mask,display)=run_edit_job(&input,pixels,mask,points.as_deref(),Command::InvertPixels{id,mask:false},0.1).unwrap();
+    assert_eq!(output.regions.len(),1);let spec=output.display.expect("large partial edit supplies a display level");let image=new_pixels.unwrap();
+    let truth=Raster::from_premultiplied(image.width,image.height,image.bytes().to_vec()).reduced(spec.level);
+    assert_eq!(display.as_ref().unwrap().bytes(),truth.bytes());
+    e.install_job(handle,id,input.stamp,output,Some(image),new_mask,display).unwrap();
+    assert_eq!(e.document(handle).unwrap().layer(id).unwrap().pixels.as_ref().unwrap().reduced(spec.level).bytes(),truth.bytes());
+}
+
+#[test]
 fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
     for change in ["pixels", "transform", "mask"] {
         let (mut e, id, layer) = document();

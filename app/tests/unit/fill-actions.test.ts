@@ -25,7 +25,7 @@ function install(l: LayerState = layer(), selection: SelectionState | null = nul
     state: () => state,
     execute: (_id: string, c: Command) => { log.push(JSON.stringify(c)); return { structure: true, canvas: false, layers: [] }; },
     storedPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
-    jobInput: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
+    jobInputAsync: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
     setPreview: () => ({ structure: true, canvas: false, layers: [] }),
     editPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
   } as unknown as EngineClient;

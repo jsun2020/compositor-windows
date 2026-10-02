@@ -213,7 +213,7 @@ pub(crate) fn followed(mask: &GrayRaster, old: (u32, u32), grid: &EditGrid, crop
 /// A layer that can be painted: not a folder (its mask can be), not an adjustment layer, an enabled
 /// mask when the mask is the target (`canPaint`, EditorSession+Brush.swift:5-11); a selection with
 /// something in it when there is one.
-fn check_target(doc: &Document, id: Uuid, mask: bool) -> Result<(), CommandError> {
+pub(crate) fn check_target(doc: &Document, id: Uuid, mask: bool) -> Result<(), CommandError> {
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
     if doc.selection.as_ref().is_some_and(|s| s.is_empty()) { return Err(CommandError::Refused(ops::selection::EMPTY_SELECTION.into())); }
     if mask {
@@ -327,7 +327,7 @@ pub fn mask_grid(doc: &Document, id: Uuid, grows: bool) -> Result<MaskGrid, Comm
 /// pixels over the old grid, stretched onto it nearest where they are sized otherwise (a 1 x 1 mask, a
 /// solid placed one). Each new tile starts so (`allocateTile`, :585-613), as the commit's canvas does
 /// (`BrushCommit.render`, :888-896).
-fn mask_on_grid(m: &Mask, grid: &MaskGrid) -> Vec<u8> {
+pub(crate) fn mask_on_grid(m: &Mask, grid: &MaskGrid) -> Vec<u8> {
     let mut out = vec![m.background(); grid.width as usize * grid.height as usize];
     let (mw, mh) = (m.pixels.width as u64, m.pixels.height as u64);
     let src = m.pixels.bytes();

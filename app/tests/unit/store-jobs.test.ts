@@ -37,7 +37,8 @@ function install(width: number, height: number, onInstall?: () => void) {
     // Task 5's jobs API: a job's input carries its selection's points as a separate buffer (null
     // here -- these fixtures have no selection), beside the JSON and the pixel/mask buffers.
     jobInput: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },
-    installJob: (_doc: string, layerId: string, input: string, output: string, _pixels: ArrayBuffer | null, _mask: ArrayBuffer | null, display: ArrayBuffer | null) => { log.push(`install ${layerId} ${output}`); displays.push(display); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
+    jobInputAsync: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },
+    installJobAsync: (_doc: string, layerId: string, input: string, output: string, _pixels: ArrayBuffer | null, _mask: ArrayBuffer | null, display: ArrayBuffer | null) => { log.push(`install ${layerId} ${output}`); displays.push(display); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
     undo: () => { log.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     adjustmentIsIdentity: (a: LayerAdjustment) => JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind)),
   } as unknown as EngineClient;

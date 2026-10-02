@@ -51,7 +51,7 @@ impl JobSelection {
     /// The contours' points as a flat buffer: one contour after another, each point's x then y.
     pub fn flatten(contours: &[Contour]) -> Vec<i32> { contours.iter().flatten().flat_map(|p| [p[0], p[1]]).collect() }
     /// The contours a flat buffer of `flatten`'s shape holds, split back up by `contour_lengths`.
-    fn unflatten(&self, points: &[i32]) -> Result<Vec<Contour>, CommandError> {
+    pub fn unflatten(&self, points: &[i32]) -> Result<Vec<Contour>, CommandError> {
         if points.len() != self.point_count() { return Err(CommandError::Argument("a job's selection does not match its point count".into())); }
         let mut out = Vec::with_capacity(self.contour_lengths.len());
         let mut at = 0;
@@ -92,7 +92,11 @@ pub struct JobOutput {
     pub regions: Vec<(Plane, PixelRect)>,
     #[serde(default)]
     pub display: Option<DisplayHalving>,
+    /// A checked changed pixel avoids comparing two entire large buffers on the UI thread.
+    #[serde(default)] pub witness: Option<ChangeWitness>,
 }
+#[derive(Clone,Copy,Debug,PartialEq,Eq,Serialize,Deserialize)]
+pub struct ChangeWitness {pub x:u32,pub y:u32,pub before:[u8;4],pub after:[u8;4]}
 
 /// The new pixels after `level` halvings (`width` x `height`): what the canvas uploads at the zoom the
 /// edit was asked at, made in the worker so the UI thread never halves a large result (F1).
@@ -217,8 +221,15 @@ impl Engine {
         if let (Some(p), Some(d), Some(spec)) = (&pixels, &display, output.display) {
             if !p.adopt(spec.level, d.clone()) { return Err(CommandError::Argument("a job's display halving does not match its pixels".into())); }
         }
+        let confirmed=output.witness.is_some_and(|w|{
+            let old=self.document(id).and_then(|d|d.layer(layer)).and_then(|l|l.pixels.as_ref());
+            match (old,pixels.as_ref()){
+                (Some(a),Some(b)) if (a.width,a.height)==(b.width,b.height)&&w.x<a.width&&w.y<a.height=>output.regions.iter().any(|(plane,r)|*plane==Plane::Pixels&&w.x>=r.x&&w.y>=r.y&&w.x<r.x.saturating_add(r.width)&&w.y<r.y.saturating_add(r.height))&&w.before!=w.after&&a.pixel(w.x,w.y)==w.before&&b.pixel(w.x,w.y)==w.after,
+                _=>false,
+            }
+        });
         self.clear_preview(id);
-        self.edit(id, |doc, _| {
+        self.edit_with_change(id,confirmed, |doc, _| {
             let now = LayerStamp::of(doc, doc.layer(layer).ok_or(CommandError::NoLayer)?);
             if now != stamp { return Err(CommandError::Refused(LAYER_CHANGED.into())); }
             let l = doc.layer_mut(layer).ok_or(CommandError::NoLayer)?;
@@ -259,17 +270,31 @@ impl Engine {
 /// None when that level is 0, for Nearest sampling (never prefiltered), and when the edit reports
 /// changed rectangles (the UI thread then seeds the halvings from the old pixels).
 pub fn run_edit_job(input: &JobInput, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>, command: Command, out_per_doc: f64) -> Result<(JobOutput, Option<Raster>, Option<GrayRaster>, Option<Raster>), CommandError> {
+    run_document_edit(input.document(pixels.clone(),mask.clone(),points)?,input.layer.id,pixels,mask,command,out_per_doc)
+}
+pub fn run_document_edit(document: Document,layer:Uuid,pixels:Option<Raster>,mask:Option<GrayRaster>,command:Command,out_per_doc:f64)->Result<(JobOutput,Option<Raster>,Option<GrayRaster>,Option<Raster>),CommandError>{
     let mut engine = Engine::new();
-    let id = engine.insert_document(input.document(pixels.clone(), mask.clone(), points)?);
+    let id = engine.insert_document(document);
     let dirty = engine.execute(id, command)?;
-    let l = engine.document(id).and_then(|d| d.layer(input.layer.id)).ok_or(CommandError::NoLayer)?;
+    let l = engine.document(id).and_then(|d| d.layer(layer)).ok_or(CommandError::NoLayer)?;
     let new_pixels = l.pixels.clone().filter(|p| !pixels.as_ref().is_some_and(|o| o.same_pixels(p)));
     let new_mask = l.mask.as_ref().map(|m| m.pixels.clone()).filter(|m| !mask.as_ref().is_some_and(|o| o.same_pixels(m)));
-    let regions: Vec<(Plane, PixelRect)> = dirty.regions.iter().filter(|r| r.layer == input.layer.id).map(|r| (r.plane, r.rect)).collect();
-    let display = new_pixels.as_ref().filter(|_| out_per_doc > 0.0 && l.transform.sampling != Sampling::Nearest && !regions.iter().any(|(plane, _)| *plane == Plane::Pixels))
+    let regions: Vec<(Plane, PixelRect)> = dirty.regions.iter().filter(|r| r.layer == layer).map(|r| (r.plane, r.rect)).collect();
+    // Small partial edits keep the established incremental cache path. At more
+    // than 4 MP, copying that full cached ladder can itself block the UI, so the
+    // worker supplies the requested display level even for a local rectangle.
+    let display = new_pixels.as_ref().filter(|p| out_per_doc > 0.0 && l.transform.sampling != Sampling::Nearest &&
+        (p.width as u64*p.height as u64>4_000_000 || !regions.iter().any(|(plane,_)|*plane==Plane::Pixels)))
         .map(|p| (compositor::prefilter_level(p.width, p.height, p.width as f64 / (l.transform.size.width * out_per_doc).max(1e-9)), p))
         .filter(|(level, _)| *level > 0)
         .map(|(level, p)| (level, p.reduced(level)));
+    let witness=match (&pixels,&new_pixels){
+        (Some(before),Some(after)) if (before.width,before.height)==(after.width,after.height)=>{
+            regions.iter().filter(|(p,_)|*p==Plane::Pixels).find_map(|(_,r)|{
+                for y in r.y..(r.y+r.height).min(before.height){for x in r.x..(r.x+r.width).min(before.width){let(a,b)=(before.pixel(x,y),after.pixel(x,y));if a!=b{return Some(ChangeWitness{x,y,before:a,after:b});}}}None
+            })
+        },_=>None,
+    };
     let output = JobOutput {
         transform: l.transform,
         mask_placement: l.mask.as_ref().and_then(|m| m.placement),
@@ -277,6 +302,7 @@ pub fn run_edit_job(input: &JobInput, pixels: Option<Raster>, mask: Option<GrayR
         mask: new_mask.as_ref().map(|m| (m.width, m.height)),
         regions,
         display: display.as_ref().map(|(level, d)| DisplayHalving { level: *level, width: d.width, height: d.height }),
+        witness,
     };
     Ok((output, new_pixels, new_mask, display.map(|(_, d)| d)))
 }

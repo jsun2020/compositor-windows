@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit, SelectionMode, WandSettings } from "../engine/types";
 import { DEFAULT_WAND } from "../engine/types";
 import type { EngineClient, JobInputCopy } from "../engine/client";
-import type { JobClient } from "../engine/jobs";
+import {releaseJobResult,type JobClient,type JobResult} from "../engine/jobs";
 import { cropSeed } from "../tools/crop-tool";
 import type { LassoKind, MarqueeKind, SelectionDraft } from "../tools/selection-draft";
 import type { ShellBridge } from "../shell/bridge";
@@ -17,8 +17,12 @@ import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } 
 import { DEFAULT_SHAPE, nextShapeKind, shapeSpec, type ShapeDraft, type ShapeOptions } from "../tools/shape-draft";
 import { DEFAULT_GRADIENT, gradientSpec, hasLine, type GradientEdit, type GradientOptions } from "./gradient-edit";
 import { BLACK, WHITE, hsbOf, hsbToRgb, quantized, sameColor, withRgb, type PaletteColor, type PickerHSB } from "../tools/color";
+import { DEFAULT_BRUSH, cancelBrush, type BrushOptions, type BrushDraft } from "../tools/brush";
+import type { ContentFillEdit } from "../actions/content-fill";
+import {cancelText,type TextEdit} from "../actions/text";
+import {cancelEffects,type EffectsEdit} from "../actions/effects";
 
-export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient" | "shape";
+export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient" | "shape" | "brush" | "eraser" | "blur" | "clone" | "healing" | "text";
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
@@ -39,6 +43,7 @@ export const DEFAULT_SELECTION_OPTIONS: SelectionOptions = {
 export const SELECTION_AMOUNT_MAX: Record<SelectionAmountOperation, number> = { Expand: 500, Contract: 500, Feather: 250 };
 
 export interface TransformEdit {
+  floating?: boolean;
   kind: "layer" | "group" | "mask";
   id: string;
   ids: string[];
@@ -86,6 +91,15 @@ export const JOB_PIXELS = 4_000_000;
 export const BUSY_MESSAGE = "Wait for the current edit to finish.";
 
 export interface EditorStore {
+  textEdit:TextEdit|null;
+  effectsEdit:EffectsEdit|null;
+  cloneSource:{document:string;point:[number,number]}|null;
+  cloneOffset:[number,number]|null;
+  contentFill: ContentFillEdit | null;
+  brushOptions: BrushOptions;
+  brushDraft: BrushDraft | null;
+  setBrushOptions(patch: Partial<BrushOptions>): void;
+  invalidateOverlay(): void;
   engine: EngineClient | null;
   /** The job worker's client (engine `jobs.rs`); null until the engine has loaded. */
   jobs: JobClient | null;
@@ -292,6 +306,7 @@ function cancelSettle(): void {
  * `activeId` at the time, so that is the document whose preview is cleared. Callers leaving or
  * closing the active document use this; closing some other, background tab must not. */
 function dropOpenPanel(): void {
+  cancelText();cancelEffects();
   cancelSettle();
   const { adjustEdit, engine, activeId } = useEditor.getState();
   if (!adjustEdit) return;
@@ -343,6 +358,23 @@ function loadShowGuides(): boolean {
 }
 
 export const useEditor = create<EditorStore>((set, get) => ({
+  textEdit:null,effectsEdit:null,
+  cloneSource:null,cloneOffset:null,
+  contentFill:null,
+  brushOptions: DEFAULT_BRUSH, brushDraft: null,
+  setBrushOptions: (patch) => {
+    const next = { ...get().brushOptions };
+    for (const key of ["diameter","hardness","opacity","smoothing","blurRadius"] as const) {
+      const v=patch[key]; if (v===undefined || !Number.isFinite(v)) continue;
+      const [lo,hi]=key==="diameter"?[1,2000]:key==="opacity"?[0.01,1]:key==="hardness"?[0,1]:key==="blurRadius"?[0.5,50]:[0,100];
+      next[key]=Math.min(hi,Math.max(lo,v));
+    }
+    if(typeof patch.aligned==="boolean")next.aligned=patch.aligned;
+    if(typeof patch.allLayers==="boolean")next.allLayers=patch.allLayers;
+    if(patch.healingMode&&["Content-Aware","Create Texture","Proximity Match"].includes(patch.healingMode))next.healingMode=patch.healingMode;
+    set({brushOptions:next});
+  },
+  invalidateOverlay: () => set(s=>({overlayTick:s.overlayTick+1})),
   engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(),
@@ -511,31 +543,36 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!engine || !jobs || !activeId) return false;
     if (get().working) { set({ error: BUSY_MESSAGE }); return false; }
     const doc = activeId;
+    const allLayers=command.type==="BrushStroke"&&command.brush.operation?.kind==="Clone"&&command.brush.operation.allLayers;
     let copy: JobInputCopy;
-    try { copy = engine.jobInput(doc, layerId); }
+    set({ working: true });
+    try { const prepared=allLayers ? {input:engine.jobHeader(doc,layerId),pixels:null,mask:null,points:null} : engine.jobInputAsync(doc, layerId);copy=prepared instanceof Promise?await prepared:prepared; }
     catch (e) {
       set({ error: String(e instanceof Error ? e.message : e) });
-      // A refused job leaves nothing running (`working` never becomes true, so the `finally` below
-      // never runs): the preview it was about to replace must be cleared here instead (fix round 1, M-3).
+      // Input preparation refused before the job's finally block: clear its preview and busy flag.
       engine.setPreview(doc, null); get().refresh(doc);
+      set({working:false});
       return false;
     }
     set({ working: true });
-    let installed = false;
+    let installed = false,result:JobResult|null=null;
     // The scale the canvas draws this document at, in device pixels per document pixel: the worker
     // halves the result to the level the renderer will upload it at (F1).
     const outPerDoc = (get().viewports[doc]?.pointsPerPixel ?? 0) * (globalThis.devicePixelRatio || 1);
     try {
-      const result = await jobs.run(`edit:${doc}`, { kind: "edit", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points, command: JSON.stringify(command), outPerDoc });
+      const request=allLayers ? { kind:"documentEdit" as const,...await engine.clipboardInputAsync(doc,layerId,false,true),layer:layerId,pixels:null,mask:null,command:JSON.stringify(command),outPerDoc }
+        : {kind:"edit" as const,input:copy.input,pixels:copy.pixels,mask:copy.mask,points:copy.points,command:JSON.stringify(command),outPerDoc};
+      result = await jobs.run(`edit:${doc}`,request);
       // Closed meanwhile: nothing to put back.
       if (!result || !get().documents[doc]) return false;
-      engine.installJob(doc, layerId, copy.input, result.header!, result.pixels, result.mask, result.display ?? null);
+      await engine.installJobAsync(doc, layerId, copy.input, result.header!, result.pixels, result.mask, result.display ?? null);
       installed = true;
       return true;
     } catch (e) {
       set({ error: String(e instanceof Error ? e.message : e) });
       return false;
     } finally {
+      releaseJobResult(result);
       set({ working: false });
       if (get().documents[doc]) {
         // A result that was not put back leaves a panel's preview behind: take it away.
@@ -651,6 +688,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   // for these are already disabled, so this stays quiet rather than raising the error banner.
   // Like Photoshop, the first Undo discards a pending gradient; a Redo drops it too (`undo`, `restore`).
   undo: () => {
+    if(get().brushDraft){cancelBrush();return;}
     if (get().panelOwnsDocument() || get().working) return;
     if (get().gradientEdit) { get().cancelGradient(); return; }
     const { engine, activeId } = get(); if (engine && activeId) { engine.undo(activeId); get().refresh(activeId); }
@@ -665,6 +703,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const { engine } = get(); if (engine && activeId) { engine.redo(activeId); get().refresh(activeId); }
   },
   setTool: (tool) => {
+    if(get().textEdit||get().effectsEdit){get().panelOwnsDocument(true);return;}
+    if (get().brushDraft && tool!==get().tool) cancelBrush();
     if (get().tool === "move" && tool !== "move") get().commitTransform();
     // Switching tools applies a pending gradient, as in Photoshop (`resolveGradient`).
     if (tool !== get().tool) get().commitGradient();
@@ -756,6 +796,17 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const { engine, activeId, selectedLayerIds, maskSelected } = get(); if (!engine || !activeId) return false;
     const state = get().documents[activeId];
     if (!canTransform(state, selectedLayerIds, maskSelected) || get().transformEdit) return false;
+    const source = activeLayer(state);
+    if (state.selection && !state.selection.empty && selectedLayerIds.length === 1 && !maskSelected && source?.hasPixels && !source.isGroup && !source.adjustment) {
+      try {
+        engine.beginFloating(activeId, source.id, !!duplicate);
+        get().refresh(activeId);
+        const layer = activeLayer(get().documents[activeId])!;
+        const t = layer.transform;
+        set({ transformEdit: { kind: "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: false, duplicateEntry: null, floating: true } });
+        return true;
+      } catch (e) { set({ error: e instanceof Error ? e.message : String(e) }); return false; }
+    }
     if (transformsAsGroup(state, selectedLayerIds)) {
       const box = groupBox(state, selectedLayerIds)!;
       set({ transformEdit: { kind: "group", id: state.activeLayerId!, ids: selectedLayerIds, box, original: box, draft: box, corners: null, persistent, duplicated: false, duplicateEntry: null } });
@@ -786,12 +837,21 @@ export const useEditor = create<EditorStore>((set, get) => ({
     set({ transformEdit: { kind: maskAlone ? "mask" : "layer", id: layer.id, ids: [layer.id], box: t, original: t, draft: t, corners: null, persistent, duplicated: willDuplicate, duplicateEntry } });
     return true;
   },
-  previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; set({ transformEdit: { ...e, draft, corners: corners === undefined ? e.corners : corners } }); get().invalidate(); },
+  previewTransform: (draft, corners) => { const e = get().transformEdit; if (!e || !isValidTransform(draft)) return; const c=corners===undefined?e.corners:corners;set({ transformEdit: { ...e, draft, corners:c } });
+    const {engine,activeId,documents}=get();if(engine&&activeId&&e.kind==="layer"&&!e.floating&&documents[activeId].layers.find(l=>l.id===e.id)?.shape){engine.setPreview(activeId,c?null:{preview:"Shape",layer:e.id,draft});}
+    get().invalidate(); },
   beginDistort: () => { const e = get().transformEdit; if (!e || e.corners || e.kind === "mask") return; set({ transformEdit: { ...e, corners: cornersToTuples(cornersOf(e.draft)), persistent: true } }); },
   commitTransform: () => {
     const e = get().transformEdit; const { engine, activeId } = get(); if (!e || !engine || !activeId) return;
+    if(get().documents[activeId]?.layers.find(l=>l.id===e.id)?.shape)engine.setPreview(activeId,null);
     set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
     const draft = roundedTransform(e.draft);
+    if (e.floating) {
+      try { engine.commitFloating(activeId, e.corners ? e.draft : draft, e.corners); }
+      catch (error) { engine.cancelFloating(activeId); set({ error: error instanceof Error ? error.message : String(error) }); }
+      get().refresh(activeId);
+      return;
+    }
     const unchanged = e.corners
       ? JSON.stringify(e.corners) === JSON.stringify(cornersToTuples(cornersOf(e.original)))
       : JSON.stringify(draft) === JSON.stringify(roundedTransform(e.original));
@@ -803,7 +863,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   cancelTransform: () => {
     const e = get().transformEdit; const { engine, activeId } = get(); if (!e) return;
+    if(engine&&activeId&&get().documents[activeId]?.layers.find(l=>l.id===e.id)?.shape)engine.setPreview(activeId,null);
     set({ transformEdit: null, snapGuides: { xs: [], ys: [] } });
+    if (e.floating && engine && activeId) { engine.cancelFloating(activeId); get().refresh(activeId); return; }
     // The Alt-drag copy is dropped with `revert`, which removes the DuplicateLayer entry
     // outright. A plain `undo` here would leave it on the redo stack, and Ctrl+Shift+Z would
     // bring the cancelled copy back. macOS closes the transaction with nothing recorded.
@@ -827,6 +889,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   }),
   setBlendPreview: (m) => set({ blendPreview: m }),
   previewEdit: () => {
+    const fx=get().effectsEdit;if(fx?.preview)return{kind:"effects",id:fx.layer,effects:fx.effects};
     const a = get().adjustEdit;
     if (a && a.target === "adjustmentLayer" && a.preview && a.adjustment) return { kind: "adjustment", id: a.layerId, adjustment: a.adjustment };
     const e = get().transformEdit; if (!e) return null;
@@ -835,6 +898,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     return { kind: "layer", id: e.id, draft: e.draft, corners: e.corners };
   },
   panelOwnsDocument: (refuse = false) => {
+    if(get().contentFill||get().brushDraft||get().textEdit||get().effectsEdit){if(refuse)set({error:"Apply or cancel the pending edit first"});return true;}
     if (!get().adjustEdit) return false;
     if (refuse) set({ error: "Apply or cancel the open adjustment first" });
     return true;

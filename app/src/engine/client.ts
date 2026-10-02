@@ -1,4 +1,5 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
+import {releaseJobResult} from "./jobs";
 import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PixelRect, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
 
 /** `[x, y, width, height]` from the engine as a rectangle; an empty array as null (take it whole). */
@@ -11,6 +12,9 @@ function rectOf(v: ArrayLike<number>): PixelRect | null { return v.length === 4 
 export interface JobInputCopy { input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; }
 
 export class EngineClient {
+  lastJobInputCpuMs=0;
+  lastInstallCpuMs=0;
+  private installQueue:Promise<void>=Promise.resolve();
   private constructor(private readonly wasm: WasmEngine, private readonly memory: WebAssembly.Memory, readonly module: WebAssembly.Module) {}
 
   /** Compiles the engine's wasm once and instantiates it; the compiled module is kept for the job
@@ -48,6 +52,11 @@ export class EngineClient {
   documentIds(): string[] { return this.wasm.document_ids(); }
   state(doc: string): DocumentState { return JSON.parse(this.wasm.state(doc)) as DocumentState; }
   execute(doc: string, command: Command): Dirty { return JSON.parse(this.wasm.execute(doc, JSON.stringify(command))) as Dirty; }
+  beginFloating(doc: string, layer: string, duplicate: boolean): string { return this.wasm.begin_floating(doc, layer, duplicate); }
+  cancelFloating(doc: string): void { this.wasm.cancel_floating(doc); }
+  commitFloating(doc: string, transform: LayerTransform, corners: import("./types").Corners | null): Dirty {
+    return JSON.parse(this.wasm.commit_floating(doc, JSON.stringify(transform), corners ? JSON.stringify(corners) : undefined)) as Dirty;
+  }
   undo(doc: string): Dirty { return JSON.parse(this.wasm.undo(doc)) as Dirty; }
   redo(doc: string): Dirty { return JSON.parse(this.wasm.redo(doc)) as Dirty; }
   /** Drops the last history entry and returns to the state before it, with no redo: for a
@@ -142,6 +151,56 @@ export class EngineClient {
   }
   /** A job's input for `layer` (engine `job_input`): the stored layer, never a preview. */
   jobInput(doc: string, layer: string): JobInputCopy { return this.takeJob(this.wasm.prepare_job(doc, layer)); }
+  jobHeader(doc: string, layer: string): string {
+    try { return this.wasm.prepare_job(doc, layer); } finally { this.wasm.release_job(); }
+  }
+  private async copyStored(doc:string,layer:string,mask:boolean,size:number,cpu?:{value:number}):Promise<ArrayBuffer|null>{
+    if(!size)return null;
+    const allocated=performance.now(),out=new Uint8Array(size);let start=performance.now();if(cpu)cpu.value+=start-allocated;
+    for(let at=0;at<size;at+=4*1024*1024){
+      const t=performance.now(),length=Math.min(4*1024*1024,size-at),ptr=this.wasm.stored_buffer_ptr(doc,layer,mask);
+      out.set(new Uint8Array(this.memory.buffer,ptr+at,length),at);
+      if(cpu)cpu.value+=performance.now()-t;
+      if(performance.now()-start>=8&&at+length<size){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();}
+    }
+    return out.buffer;
+  }
+  jobInputAsync(doc:string,layer:string):JobInputCopy|Promise<JobInputCopy>{
+    const started=performance.now();
+    const input=this.wasm.prepare_job(doc,layer);let points:ArrayBuffer|null=null;
+    const h=JSON.parse(input) as {pixels:[number,number]|null;mask:[number,number]|null;selection:unknown};
+    const pixelSize=h.pixels?h.pixels[0]*h.pixels[1]*4:0,maskSize=h.mask?h.mask[0]*h.mask[1]:0;
+    if(pixelSize+maskSize<=4*1024*1024){const result=this.takeJob(input);this.lastJobInputCpuMs=performance.now()-started;return result;}
+    try{if(h.selection!=null){const len=this.wasm.job_points_len(),ptr=this.wasm.job_points_ptr();points=new Uint8Array(this.memory.buffer,ptr,len).slice().buffer;}}
+    finally{this.wasm.release_job();}
+    const cpu={value:performance.now()-started};
+    return(async()=>{const pixels=await this.copyStored(doc,layer,false,pixelSize,cpu);
+    const mask=await this.copyStored(doc,layer,true,maskSize,cpu);this.lastJobInputCpuMs=cpu.value;
+    return{input,pixels,mask,points};})();
+  }
+  clipboardInput(doc: string, layer: string | null, mask: boolean, merged: boolean): { input: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; points: ArrayBuffer | null } {
+    const snapshot = this.takeJob(this.wasm.prepare_clipboard(doc, layer ?? undefined, mask, merged));
+    const header = JSON.parse(snapshot.input) as { layers: { record: { id: string } }[] };
+    const layers = header.layers.map(({ record }) => {
+      const pixels = this.layerPixels(doc, record.id)?.slice().buffer ?? null;
+      const mask = this.maskPixels(doc, record.id)?.slice().buffer ?? null;
+      return { pixels, mask };
+    });
+    return { input: snapshot.input, layers, points: snapshot.points };
+  }
+  async clipboardInputAsync(doc:string,layer:string|null,mask:boolean,merged:boolean):Promise<ReturnType<EngineClient["clipboardInput"]>>{
+    const snapshot=this.takeJob(this.wasm.prepare_clipboard(doc,layer??undefined,mask,merged));
+    const header=JSON.parse(snapshot.input) as {layers:{record:{id:string};pixels:[number,number]|null;mask:[number,number]|null}[]};
+    const layers:ReturnType<EngineClient["clipboardInput"]>["layers"]=[];
+    for(const l of header.layers)layers.push({pixels:await this.copyStored(doc,l.record.id,false,l.pixels?l.pixels[0]*l.pixels[1]*4:0),mask:await this.copyStored(doc,l.record.id,true,l.mask?l.mask[0]*l.mask[1]:0)});
+    return{input:snapshot.input,layers,points:snapshot.points};
+  }
+  pastePixels(doc: string, width: number, height: number, pixels: ArrayBuffer, origin: [number, number] | null, keepSelection = false): Dirty {
+    return JSON.parse(this.wasm.paste_pixels(doc, width, height, new Uint8Array(pixels), origin?.[0], origin?.[1], keepSelection)) as Dirty;
+  }
+  pasteCopiedLayers(doc:string,snapshot:ReturnType<EngineClient["clipboardInput"]>):Dirty{
+    return JSON.parse(this.wasm.paste_copied_layers(doc,snapshot.input,snapshot.layers.map(l=>l.pixels?new Uint8Array(l.pixels):null),snapshot.layers.map(l=>l.mask?new Uint8Array(l.mask):null))) as Dirty;
+  }
   /** An effects job's input (engine `display_job_input`): the layer as the canvas shows it, its pixels
    * after `level` halvings. */
   displayJobInput(doc: string, layer: string, level: number): JobInputCopy { return this.takeJob(this.wasm.prepare_display_job(doc, layer, level)); }
@@ -152,6 +211,46 @@ export class EngineClient {
     const stamp = JSON.stringify((JSON.parse(input) as { stamp: unknown }).stamp);
     const view = (b: ArrayBuffer | null) => (b ? new Uint8Array(b) : undefined);
     return JSON.parse(this.wasm.install_job(doc, layer, stamp, output, view(pixels), view(mask), view(display))) as Dirty;
+  }
+  async installJobAsync(doc:string,layer:string,input:string,output:string,pixels:ArrayBuffer|null,mask:ArrayBuffer|null,display:ArrayBuffer|null=null,preview=false,valid:()=>boolean=()=>true):Promise<Dirty>{
+    // One small FFI copy is cheaper than staging; keep the established install path.
+    if(!preview&&(pixels?.byteLength??0)+(mask?.byteLength??0)+(display?.byteLength??0)<=4*1024*1024){if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=this.installJob(doc,layer,input,output,pixels,mask,display);this.lastInstallCpuMs=performance.now()-t;return dirty;}
+    const before=this.installQueue;let release!:()=>void;this.installQueue=new Promise<void>(r=>{release=r;});await before;
+    try{
+      const dirty=await this.stageJob(doc,layer,input,output,pixels,mask,display,preview,valid);
+      // A committed large result has moved into WASM. Retire its transferred
+      // buffers before callers draw the first frame; previews still need them.
+      if(!preview){const t=performance.now();releaseJobResult({header:output,pixels,mask,display});this.lastInstallCpuMs+=performance.now()-t;}
+      return dirty;
+    }finally{release();}
+  }
+  private async stageJob(doc:string,layer:string,input:string,output:string,pixels:ArrayBuffer|null,mask:ArrayBuffer|null,display:ArrayBuffer|null,preview:boolean,valid:()=>boolean):Promise<Dirty>{
+    const began=performance.now();this.lastInstallCpuMs=0;
+    if(!valid())throw Error("The preview was cancelled");
+    const stamp=JSON.stringify((JSON.parse(input) as {stamp:unknown}).stamp),buffers=[pixels,mask,display];
+    this.wasm.begin_staged_install(pixels?.byteLength??0,mask?.byteLength??0,display?.byteLength??0);
+    this.lastInstallCpuMs=performance.now()-began;
+    try{
+      let start=performance.now();
+      for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane];if(!b)continue;
+        for(let at=0;at<b.byteLength;at+=4*1024*1024){const t=performance.now(),length=Math.min(4*1024*1024,b.byteLength-at);this.wasm.append_staged_install(plane,new Uint8Array(b,at,length));this.lastInstallCpuMs+=performance.now()-t;
+          if(!valid())throw Error("The preview was cancelled");
+          if(performance.now()-start>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();}
+        }
+      }
+      if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=JSON.parse(this.wasm.finish_staged_install(doc,layer,stamp,output,preview)) as Dirty;this.lastInstallCpuMs+=performance.now()-t;return dirty;
+    }finally{this.wasm.cancel_staged_install();}
+  }
+  keepJobPreview(doc:string,layer:string,input:string,output:string,pixels:ArrayBuffer,mask:ArrayBuffer|null,display:ArrayBuffer|null=null):Dirty{
+    const stamp=JSON.stringify((JSON.parse(input) as {stamp:unknown}).stamp);
+    return JSON.parse(this.wasm.keep_job_preview(doc,layer,stamp,output,new Uint8Array(pixels),mask?new Uint8Array(mask):undefined,display?new Uint8Array(display):undefined)) as Dirty;
+  }
+  textStamp(doc:string,layer:string):string {try{return JSON.stringify((JSON.parse(this.wasm.prepare_job(doc,layer)) as {stamp:unknown}).stamp);}finally{this.wasm.release_job();}}
+  installText(doc:string,layer:string|null,style:import("../tools/text-style").TextStyle,width:number,height:number,pixels:ArrayBuffer,origin:[number,number],stamp:string|null):Dirty {
+    return JSON.parse(this.wasm.install_text(doc,layer??undefined,JSON.stringify(style),width,height,new Uint8Array(pixels),origin[0],origin[1],stamp??undefined)) as Dirty;
+  }
+  keepTextPreview(doc:string,layer:string,style:import("../tools/text-style").TextStyle,width:number,height:number,pixels:ArrayBuffer,stamp:string):void {
+    this.wasm.keep_text_preview(doc,layer,JSON.stringify(style),width,height,new Uint8Array(pixels),stamp);
   }
   /** Whether the canvas's effects image for `layer` is made already (engine `has_effects_image`):
    * `drawPixels` then hands it over without making it. */
