@@ -2,8 +2,9 @@ import { useState, type DragEvent } from "react";
 import { useEditor } from "../state/store";
 import type { LayerState } from "../engine/types";
 import { layerRows, dropTarget, type Row } from "./layer-rows";
+import { activeLayer } from "../state/selection";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive, ungroupActive } from "../actions/layers";
 
 /** Ctrl-click on a thumbnail loads it as a selection, Ctrl-Shift adds and Ctrl-Alt subtracts
  * (`loadMode`, NativeLayerList.swift:1007-1019, :1235-1238); Ctrl-click elsewhere in a row still
@@ -60,6 +61,8 @@ export function LayersList() {
   const menuItems = (): MenuItem[] => [
     { id: "duplicate", label: "Duplicate Layer", run: duplicateSelected },
     { id: "group", label: "Group Layers", run: groupSelected },
+    // A folder right-clicked can be ungrouped (NativeLayerList.swift:159-165 at v1.4.5).
+    ...(activeLayer(doc)?.isGroup ? [{ id: "ungroup", label: "Ungroup Layers", run: ungroupActive }] : []),
     { id: "merge", label: mergeTitle(), run: mergeSelected },
     "separator",
     { id: "mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true) },
@@ -117,7 +120,9 @@ export function LayersList() {
       <div className="layers-footer">
         <button data-testid="layer-add" title="New layer" onClick={() => s.run({ type: "AddBlankLayer" })}>+</button>
         <button data-testid="layer-add-folder" title="New folder" onClick={addFolder}>[ ]</button>
-        <button data-testid="layer-add-mask" title="Add mask" onClick={() => addMaskToActive(true)}>M</button>
+        {/* LayerMaskMenu.swift:9-14 at v1.4.5: reveals, Alt-click (the Mac's Option-click) the opposite. */}
+        <button data-testid="layer-add-mask" title={doc.selection ? "Add layer mask revealing the selection (Alt-click to hide it)" : "Add layer mask (Alt-click for a black mask)"}
+          onClick={(e) => addMaskToActive(!e.altKey)}>M</button>
         <button data-testid="layer-delete" title="Delete" onClick={deleteSelected}>x</button>
       </div>
       {menu && <ContextMenu at={menu} items={menuItems()} onClose={() => setMenu(null)} />}

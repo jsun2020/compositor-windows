@@ -358,7 +358,7 @@ export function CanvasView() {
       // Re-read the document: beginTransform may have just duplicated the layer, adding it
       // to the layers array snapTargets scans (and excludes by movingIds).
       const targets = snapTargets(useEditor.getState().documents[s0.activeId!], after.ids);
-      session = new TransformSession({ mode, startDoc: docPoint(e), original: after.draft, originalCorners: after.corners ? after.corners.map(fromTuple) : null, snap: mode.kind === "move" ? { ...targets, tolerance } : null });
+      session = new TransformSession({ mode, startDoc: docPoint(e), original: after.draft, originalCorners: after.corners ? after.corners.map(fromTuple) : null, snap: mode.kind === "move" || mode.kind === "resize" ? { ...targets, tolerance } : null, lockRatio: useEditor.getState().locksTransformRatio });
       el.setPointerCapture(e.pointerId);
     };
     const move = (e: PointerEvent) => {

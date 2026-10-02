@@ -369,3 +369,371 @@ test("1.4.5 results: frames of a document with a Soft Light layer, Levels in Lin
     expect(out[`${label} ${zoom}: saturation step (engine, store and frame), worst ms`]).toBeLessThan(100);
   }
 });
+test("Add Mask with a selection at 24 and 100 MP: Reveal Selection and Hide Selection, the step and the frame after", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      s().openDocument(doc);
+      await settle(); frame();
+      // An antialiased ellipse over the middle 80%, then the button (Reveal) or Alt-click (Hide): the
+      // store's step (the engine rasterizes the clip at the layer's size) and the frame that uploads the mask.
+      const once = async (revealing: boolean) => {
+        api.engine.execute(doc, { type: "SelectShape", kind: "Ellipse", points: [[w * 0.1, h * 0.1], [w * 0.9, h * 0.1], [w * 0.9, h * 0.9], [w * 0.1, h * 0.9]], mode: "Replace", antialiased: true });
+        s().refresh(doc); frame(); await settle();
+        const t0 = performance.now();
+        s().run({ type: "AddMaskFromSelection", id: layer, revealing });
+        const step = performance.now() - t0;
+        const after = frame();
+        await settle();
+        api.engine.execute(doc, { type: "DeleteMask", id: layer }); s().refresh(doc); frame(); await settle();
+        return [Math.round(step), Math.round(after)];
+      };
+      // Cold (LL-074): the first one at this size, logged only.
+      [result["cold step ms"], result["cold frame after ms"]] = await once(true);
+      for (const [name, revealing] of [["Reveal Selection", true], ["Hide Selection", false]] as [string, boolean][]) {
+        let step = 0, after = 0;
+        for (let i = 0; i < 3; i++) { const [a, b] = await once(revealing); step = Math.max(step, a); after = Math.max(after, b); }
+        result[`${name}: step, worst of 3 ms`] = step;
+        result[`${name}: frame after, worst of 3 ms`] = after;
+      }
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`Add Mask with a selection (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`Add Mask renderer: ${renderer}`);
+  // Measured on the HD 520 (p45-scratch, 2026-09-30, two runs): steps 162-212 ms at 24 MP and 506-545 ms at 100 MP
+  // (the clip rasterized at the layer's size on the UI thread, as since Phase 4a; the swap of tones costs
+  // nothing, ruling OQ9); frames after 19-20 ms and 59-77 ms. The frame budgets are 4b-1's for a whole mask
+  // upload (150 / 400); the step ones leave this laptop's swings room (ruling OQ17).
+  for (const [label] of SIZES) for (const name of ["Reveal Selection", "Hide Selection"]) {
+    expect(out[`${label} ${name}: step, worst of 3 ms`]).toBeLessThan(label === "24 MP" ? 400 : 1000);
+    expect(out[`${label} ${name}: frame after, worst of 3 ms`]).toBeLessThan(label === "24 MP" ? 150 : 400);
+  }
+});
+test("Inverse at 24 and 100 MP: of Select All (no selection left) and of a marquee, the step and the frame after", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      s().openDocument(doc);
+      await settle(); frame();
+      const marquee = { type: "SelectShape", kind: "Rectangle", points: [[w * 0.2, h * 0.2], [w * 0.8, h * 0.2], [w * 0.8, h * 0.8], [w * 0.2, h * 0.8]], mode: "Replace", antialiased: true };
+      // Ctrl+Shift+I as the key sends it (useShortcuts: `select-inverse`), the store's run and the frame after.
+      const once = async (select: unknown) => {
+        s().run(select); frame(); await settle();
+        const t0 = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "I", ctrlKey: true, shiftKey: true }));
+        const step = performance.now() - t0;
+        const after = frame();
+        const none = api.engine.state(doc).selection === null ? 1 : 0;
+        await settle();
+        return [Math.round(step), Math.round(after), none];
+      };
+      [result["cold step ms"], result["cold frame after ms"]] = await once({ type: "SelectAll" });
+      for (const [name, select] of [["of Select All", { type: "SelectAll" }], ["of a marquee", marquee]] as [string, unknown][]) {
+        let step = 0, after = 0, none = 0;
+        for (let i = 0; i < 3; i++) { const [a, b, n] = await once(select); step = Math.max(step, a); after = Math.max(after, b); none += n; }
+        result[`${name}: step, worst of 3 ms`] = step;
+        result[`${name}: frame after, worst of 3 ms`] = after;
+        result[`${name}: times no selection was left`] = none;
+      }
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`Inverse (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`Inverse renderer: ${renderer}`);
+  for (const [label] of SIZES) {
+    expect(out[`${label} of Select All: times no selection was left`], "the inverse of everything is no selection").toBe(3);
+    expect(out[`${label} of a marquee: times no selection was left`]).toBe(0);
+    // Measured on the HD 520 (p45-scratch, 2026-09-30, two runs): steps 1 ms and frames 4 ms at both sizes (the
+    // outline is geometry, not pixels). A step inside a frame and 4b-1's frame budget.
+    for (const name of ["of Select All", "of a marquee"]) {
+      expect(out[`${label} ${name}: step, worst of 3 ms`]).toBeLessThan(16);
+      expect(out[`${label} ${name}: frame after, worst of 3 ms`]).toBeLessThan(33);
+    }
+  }
+});
+test("Ungroup Layers at 24 and 100 MP: the step and the frame after", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const base = api.engine.state(doc).layers[0].id;
+      // A folder at half opacity holding a full-size copy in Screen and a copy clipped to it:
+      // ungrouping drops the folder's look, so the frame after composites the children anew.
+      api.engine.execute(doc, { type: "DuplicateLayer", id: base });
+      const a = api.engine.state(doc).activeLayerId;
+      api.engine.execute(doc, { type: "SetLayerBlendMode", id: a, mode: "Screen" });
+      api.engine.execute(doc, { type: "DuplicateLayer", id: a });
+      const b = api.engine.state(doc).activeLayerId;
+      api.engine.execute(doc, { type: "SetLayerBlendMode", id: b, mode: "Normal" });
+      api.engine.execute(doc, { type: "SetLayerOpacity", id: b, opacity: 0.5 });
+      api.engine.execute(doc, { type: "ToggleClipping", id: b });
+      s().openDocument(doc);
+      await settle(); frame();
+      const once = async () => {
+        api.engine.execute(doc, { type: "GroupLayers", ids: [a, b] });
+        const folder = api.engine.state(doc).activeLayerId;
+        api.engine.execute(doc, { type: "SetLayerOpacity", id: folder, opacity: 0.5 });
+        s().refresh(doc); s().selectLayers([folder], folder); frame(); await settle();
+        const t0 = performance.now();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "G", ctrlKey: true, shiftKey: true }));
+        const left = api.engine.state(doc).layers.some((l: any) => l.id === folder) ? 1 : 0;
+        const step = performance.now() - t0;
+        const after = frame();
+        await settle();
+        return [Math.round(step), Math.round(after), left];
+      };
+      [result["cold step ms"], result["cold frame after ms"]] = await once();
+      let step = 0, after = 0, left = 0;
+      for (let i = 0; i < 3; i++) { const [x, y, f] = await once(); step = Math.max(step, x); after = Math.max(after, y); left += f; }
+      result["folders left after Shift+Ctrl+G"] = left;
+      result["step, worst of 3 ms"] = step;
+      result["frame after, worst of 3 ms"] = after;
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`Ungroup (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`Ungroup renderer: ${renderer}`);
+  for (const [label] of SIZES) {
+    expect(out[`${label} folders left after Shift+Ctrl+G`], "every timed step ungrouped").toBe(0);
+    // Measured on the HD 520 (p45-scratch, 2026-09-30, two runs): steps 2-5 ms and frames after 10-13 ms at both sizes
+    // (a structure change: no pixels move). A step inside a frame and 4b-1's frame budget.
+    expect(out[`${label} step, worst of 3 ms`]).toBeLessThan(16);
+    expect(out[`${label} frame after, worst of 3 ms`]).toBeLessThan(33);
+  }
+});
+
+test("dragging a tab at 24 and 100 MP: the tick that starts the drag (it selects the tab) and every later tick, as frame gaps", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    // Two documents of this size and a small one; the drag takes the second big one's tab to the end.
+    const ids = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const make = (width: number, height: number) => {
+        const doc = api.engine.newDocument(10, 10, false);
+        api.engine.execute(doc, { type: "CanvasSize", width, height, anchor: 4, fill: [0.5, 0.4, 0.3] });
+        api.store.getState().openDocument(doc);
+        return doc as string;
+      };
+      const ids = [make(w, h), make(w, h), make(256, 256)];
+      await settle();
+      return ids;
+    }, [w, h] as [number, number]);
+    const tab = (id: string) => page.locator(`[data-testid="project-tab"][data-doc-id="${id}"]`);
+    // Warm-up (LL-074): switch to each tab once so every document's layers are on the GPU.
+    for (const id of ids) { await tab(id).click(); await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); }
+    await tab(ids[0]).click();
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    // Frame gaps in one contiguous window from the press to the release.
+    await page.evaluate(() => {
+      const w = window as any; w.__gaps = [] as number[]; w.__gapping = true;
+      let last = performance.now();
+      const tick = () => { const now = performance.now(); w.__gaps.push(now - last); last = now; if (w.__gapping) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+    const box = (await tab(ids[1]).boundingBox())!;
+    const end = (await tab(ids[2]).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    const startAt = await page.evaluate(() => (window as any).__gaps.length);
+    await page.mouse.move(box.x + box.width / 2 + 6, box.y + box.height / 2);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const afterStart = await page.evaluate(() => (window as any).__gaps.length);
+    const steps = 20;
+    for (let i = 1; i <= steps; i++) await page.mouse.move(box.x + box.width / 2 + 6 + (end.x + end.width - box.x) * i / steps, box.y + box.height / 2);
+    await page.mouse.up();
+    const r = await page.evaluate(([startAt, afterStart, ids]) => {
+      const w = window as any; w.__gapping = false;
+      const gaps: number[] = w.__gaps;
+      const s = w.__compositor.store.getState();
+      return {
+        start: Math.round(Math.max(0, ...gaps.slice(startAt, afterStart))),
+        later: Math.round(Math.max(0, ...gaps.slice(afterStart))),
+        moved: s.order.join() === [ids[0], ids[2], ids[1]].join() ? 1 : 0,
+        active: s.activeId === ids[1] ? 1 : 0,
+      };
+    }, [startAt, afterStart, ids] as [number, number, string[]]);
+    out[`${label} longest gap around the tick that starts the drag, ms`] = r.start;
+    out[`${label} longest gap over the later ticks, ms`] = r.later;
+    out[`${label} dropped at the end`] = r.moved;
+    out[`${label} the dragged tab is active`] = r.active;
+    await page.evaluate((ids) => { const s = (window as any).__compositor.store.getState(); for (const id of ids) s.closeDocument(id); }, ids);
+  }
+  console.log(`tab drag (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`tab drag renderer: ${renderer}`);
+  for (const [label] of SIZES) {
+    expect(out[`${label} dropped at the end`], "the drag reordered the tabs").toBe(1);
+    expect(out[`${label} the dragged tab is active`], "dragging a tab selects it").toBe(1);
+    // Measured on the HD 520 (p45-scratch, 2026-09-30, two runs): 22-24 ms around the tick that starts the drag (it
+    // selects the tab, so a frame of the other 24 or 100 MP document follows) and 18-33 ms over the later ticks.
+    // 4b-1's gap budget for the first and its drag-tick budget for the rest.
+    expect(out[`${label} longest gap around the tick that starts the drag, ms`]).toBeLessThan(100);
+    expect(out[`${label} longest gap over the later ticks, ms`]).toBeLessThan(50);
+  }
+});
+
+test("a resize-handle drag with snapping at 24 and 100 MP: the tick (snapping, store and frame) and the release", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      // The layer at half size in the top-left quarter; its right-middle handle is dragged toward the
+      // canvas's centre line, which it snaps to on the last tick.
+      const t = api.engine.state(doc).layers[0].transform;
+      api.engine.execute(doc, { type: "SetLayerTransform", id: layer, transform: { ...t, origin: [w * 0.1, h * 0.1], size: [w * 0.25, h * 0.5] } });
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      s().openDocument(doc); s().setTool("move");
+      await settle(); frame();
+      const el = (document.querySelector('[data-testid="canvas-view"] canvas') as HTMLElement).parentElement!;
+      const at = (x: number, y: number) => {
+        const vp = s().viewports[doc]; const p = vp.viewPoint({ x, y }, { width: w, height: h }); const rect = el.getBoundingClientRect();
+        return { clientX: rect.left + p.x, clientY: rect.top + p.y };
+      };
+      const fire = (type: string, x: number, y: number) => el.dispatchEvent(new PointerEvent(type, { ...at(x, y), pointerId: 1, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true }));
+      // The handle sits at (0.35 w, 0.35 h). A synthetic pointer cannot be captured, so the press's
+      // setPointerCapture throws after the session starts; the page logs it and the drag goes on.
+      const drag = async (ticks: number) => {
+        const x0 = w * 0.35, y = h * 0.35, x1 = w * 0.5 - 2 / s().viewports[doc].pointsPerPixel;
+        fire("pointerdown", x0, y);
+        const times: number[] = [];
+        for (let i = 1; i <= ticks; i++) {
+          const t0 = performance.now();
+          fire("pointermove", x0 + (x1 - x0) * i / ticks, y);
+          frame();
+          times.push(performance.now() - t0);
+        }
+        const draft = s().transformEdit?.draft;
+        const snapped = draft ? Math.abs(draft.origin[0] + draft.size[0] - w * 0.5) < 1e-6 : false;
+        const t0 = performance.now();
+        fire("pointerup", x1, y); frame();
+        const release = performance.now() - t0;
+        await settle();
+        return { times, snapped, release };
+      };
+      // Cold (LL-074): one drag first, logged; then the timed one.
+      const cold = await drag(4);
+      result["cold first tick ms"] = Math.round(cold.times[0]);
+      api.engine.undo(doc); s().refresh(doc); frame(); await settle();
+      const timed = await drag(10);
+      result["tick (snapping, store and frame), worst ms"] = Math.round(Math.max(...timed.times));
+      result["release (commit and frame) ms"] = Math.round(timed.release);
+      result["the right edge snapped to the centre line"] = timed.snapped ? 1 : 0;
+      result["undo depth"] = api.engine.state(doc).undoDepth;
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`resize drag (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`resize drag renderer: ${renderer}`);
+  for (const [label] of SIZES) {
+    expect(out[`${label} the right edge snapped to the centre line`], "the drag snapped").toBe(1);
+    // Measured on the HD 520 (p45-scratch, 2026-09-30, two release runs): ticks 5-7 ms and releases 4-5 ms at both sizes
+    // (a transform moves no pixels until it is applied). 4b-1's drag-tick and release budgets.
+    expect(out[`${label} tick (snapping, store and frame), worst ms`]).toBeLessThan(50);
+    expect(out[`${label} release (commit and frame) ms`]).toBeLessThan(150);
+  }
+});
+
+test("a typed W at 24 and 100 MP: Enter in the Move bar (the transform applied, one step) and the frame after", async ({ page }) => {
+  test.setTimeout(900_000);
+  const out: Record<string, number> = {};
+  let renderer = "";
+  for (const [label, w, h] of SIZES) {
+    renderer = await ready(page);
+    const r = await page.evaluate(async ([w, h]) => {
+      const api = (window as any).__compositor; const frame = (window as any).__frame as () => number;
+      const settle = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const s = () => api.store.getState();
+      const result: Record<string, number> = {};
+      const doc = api.engine.newDocument(10, 10, false);
+      api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
+      const layer = api.engine.state(doc).layers[0].id;
+      api.engine.execute(doc, { type: "SetActiveLayer", id: layer });
+      s().openDocument(doc); s().setTool("move");
+      await settle(); frame();
+      // The W field as the user types into it: the value set the way React sees typing, then Enter.
+      const type = async (value: number) => {
+        const input = document.querySelector('input[aria-label="W"]') as HTMLInputElement;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, String(value));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle();
+        const t0 = performance.now();
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const step = performance.now() - t0;
+        const after = frame();
+        await settle();
+        return [Math.round(step), Math.round(after)];
+      };
+      [result["cold step ms"], result["cold frame after ms"]] = await type(Math.round(w * 0.9));
+      let step = 0, after = 0;
+      for (const f of [0.8, 0.7, 0.6]) { const [a, b] = await type(Math.round(w * f)); step = Math.max(step, a); after = Math.max(after, b); }
+      result["Enter (store, engine), worst of 3 ms"] = step;
+      result["frame after, worst of 3 ms"] = after;
+      const t = api.engine.state(doc).layers[0].transform;
+      result["width x 1000 / canvas"] = Math.round(t.size[0] / w * 1000);
+      result["height x 1000 / canvas"] = Math.round(t.size[1] / h * 1000);
+      s().closeDocument(doc);
+      return result;
+    }, [w, h] as [number, number]);
+    for (const [k, v] of Object.entries(r)) out[`${label} ${k}`] = v;
+  }
+  console.log(`typed W (release wasm, Edge): ${JSON.stringify(out)}`);
+  console.log(`typed W renderer: ${renderer}`);
+  for (const [label] of SIZES) {
+    // The last value typed was 0.6 of the width; the lock (on) scaled the height with it.
+    expect(out[`${label} width x 1000 / canvas`]).toBe(600);
+    expect(out[`${label} height x 1000 / canvas`]).toBe(600);
+    // Measured on the HD 520 (p45-scratch, 2026-09-30, two runs): Enter 1-2 ms and the frame after 4-15 ms at both sizes
+    // (a transform moves no pixels). A step inside a frame and 4b-1's frame budget.
+    expect(out[`${label} Enter (store, engine), worst of 3 ms`]).toBeLessThan(16);
+    expect(out[`${label} frame after, worst of 3 ms`]).toBeLessThan(33);
+  }
+});

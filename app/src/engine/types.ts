@@ -176,6 +176,7 @@ export type Command =
   | { type: "SetLayerBlendMode"; id: string; mode: BlendMode }
   | { type: "AddGroup" }
   | { type: "GroupLayers"; ids: string[] }
+  | { type: "UngroupLayers"; id: string }
   | { type: "PlaceLayer"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "MoveLayerBy"; id: string; offset: number }
   | { type: "DuplicateLayer"; id: string }

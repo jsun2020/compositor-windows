@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cornersOf, containsPoint, hitOverlay, homographyUnitTo, isUsableCorners, mat3Apply, mat3Invert, overlayGeometry, pixelToDocument, snapOffset, transformDrag } from "../../src/tools/transform-geometry";
+import { cornersOf, containsPoint, hitOverlay, homographyUnitTo, isUsableCorners, mat3Apply, mat3Invert, overlayGeometry, pixelToDocument, resizedTo, snapOffset, transformDrag } from "../../src/tools/transform-geometry";
 import { HANDLES } from "../../src/tools/crop-geometry";
 import { Viewport } from "../../src/canvas/viewport";
 import type { LayerTransform } from "../../src/engine/types";
@@ -74,3 +74,21 @@ function pointOfT(tr: LayerTransform, unit: { x: number; y: number }) {
   const r = (tr.rotation % 360) * Math.PI / 180; const x = (unit.x - 0.5) * w, y = (unit.y - 0.5) * h;
   return { x: cx + x * Math.cos(r) - y * Math.sin(r), y: cy + x * Math.sin(r) + y * Math.cos(r) };
 }
+
+// The Move bar's W and H (TransformInspector.swift:89-100 at v1.4.5): the size typed, from the origin; with the
+// aspect lock on the other side scales by the same factor; under 1 (or not a number) nothing changes.
+describe("typed W and H (resizedTo)", () => {
+  const base = t(10, 20, 200, 100, 30);
+  it("keeps the origin and, locked, the ratio", () => {
+    expect(resizedTo(base, 300, true, true)).toEqual({ ...base, size: [300, 100 * 300 / 200] });
+    expect(resizedTo(base, 50, false, true)).toEqual({ ...base, size: [200 * 50 / 100, 50] });
+  });
+  it("unlocked, changes only the side typed", () => {
+    expect(resizedTo(base, 300, true, false)).toEqual({ ...base, size: [300, 100] });
+    expect(resizedTo(base, 7, false, false)).toEqual({ ...base, size: [200, 7] });
+  });
+  it("ignores a size under 1 or not a number", () => {
+    for (const v of [0.5, 0, -10, Number.NaN]) expect(resizedTo(base, v, true, true)).toBe(base);
+    expect(resizedTo(base, 1, false, false).size).toEqual([200, 1]);
+  });
+});

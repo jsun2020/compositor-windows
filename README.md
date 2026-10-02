@@ -90,9 +90,9 @@ Photoshop.
 - All 24 of the Mac's blend modes, in its menu order. New: Linear Burn, Linear Dodge (Add),
   Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix, Exclusion, Subtract
   and Divide. As on the Mac, an adjustment layer in any mode but Normal blends its result at
-  full strength and keeps the alpha of what lies beneath it; in the eight modes the Mac computes
-  with Core Image, that blend is Normal. A clipped group in one of those eight composites as
-  Normal, as on the Mac.
+  full strength and keeps the alpha of what lies beneath it. (Until Phase 4.5 the eight modes
+  Compositor 1.2 computed with Core Image were drawn as Normal for an adjustment layer and a
+  clipped group, as 1.2 drew them; see Phase 4.5.)
 - Adjustment layers for Add Noise, Gaussian Blur, Motion Blur, Invert, Black & White and
   Color Balance, from Layer > New Adjustment, with panels (Invert has nothing to set). Blur
   layers blur everything beneath them, fading at the canvas edge as the Mac's do.
@@ -149,8 +149,9 @@ Photoshop.
   grows the layer where the selection reaches), and Levels and Curves show the histogram of the
   selected pixels. Delete clears the selected pixels, or fills a targeted mask with its background
   colour (white unless its edges are mostly black), growing it to cover the canvas as Compositor
-  1.3.7 for Mac does. Add Mask hides the selection (Add Mask (Hide All) shows only it) and uses it
-  up. The Crop tool starts at the selection's bounds. Adjustment layers ignore the selection.
+  1.3.7 for Mac does. Add Mask reveals the selection (Alt-click, or Add Mask (Hide All), hides it)
+  and uses it up (Phase 4.5; 1.2 hid it). The Crop tool starts at the selection's bounds.
+  Adjustment layers ignore the selection.
 - An empty selection (after Subtract or Contract) says so in the options bar, and every edit
   refuses it until it is deselected or replaced.
 - Selections are part of undo and, as on the Mac, are never saved in the project. Crop, Canvas
@@ -208,9 +209,6 @@ Photoshop.
 - Note: a shape is drawn as the Mac draws it (Core Graphics' anti-aliasing is approximated by exact
   area coverage); a scaled shape layer is not redrawn here.
 - Note: the colour picker works in sRGB, 8 bits a channel, as the Mac's does.
-- Note: Compositor for Mac 1.3 saves projects in format 11, which this version cannot open yet (it
-  opens formats 1-9); Mac projects saved by 1.2.x open as before. Opening and saving 1.3 projects
-  is the next update.
 
 ### Colour and tool shortcuts
 
@@ -222,6 +220,40 @@ Photoshop.
 | Gradient: Linear or Radial; Shape: next kind | Tab (Shape also Shift+U) |
 | Gradient opacity | 1-9 for 10-90 %, 0 for 100 % |
 | Apply / cancel a pending gradient | Enter / Escape |
+
+## Phase 4.5: Compositor for Mac 1.4.5
+
+- Projects saved by Compositor for Mac 1.3 and 1.4 (format 11) open, and every save is written at
+  format 11. A text layer's coloured words and its words in another face are kept exactly as the
+  Mac saved them (this app has no text tool yet, and draws text as the Mac last drew it). A project
+  from a newer Mac says which formats this version reads.
+- Soft Light is drawn as Compositor 1.4.5 draws it (the W3C formula; 1.2 used another one, which
+  differs where the top layer is lighter than mid grey).
+- An adjustment layer, and a clipping mask's base layer, blend in their own mode in all 24 modes
+  (1.2 drew Linear Burn, Linear Dodge, Vivid Light, Linear Light, Pin Light, Hard Mix, Subtract and
+  Divide as Normal there).
+- Hue/Saturation raises saturation as Photoshop does: +50 doubles it, +100 takes any colour all the
+  way.
+- Add Mask with a selection reveals the selection; Alt-click on the mask button hides it.
+- Inverse of a selection that covers the whole canvas leaves nothing selected.
+- Layer > Ungroup Layers (Shift+Ctrl+G, or a folder's context menu): the folder's layers take its
+  place and the folder goes.
+- Drag a tab along the tab strip to reorder the open projects.
+- Resize handles snap the edges they move to the canvas and other layers, as a move does.
+- The Move bar has W and H fields and an aspect lock (on at first), which the handles follow too;
+  Shift turns it the other way while held.
+- A large edit through the background worker comes back ready to draw at the canvas's zoom, so the
+  frame after it no longer stalls (up to half a second at 100 megapixels before).
+- Note: the Mac's overflow menu for many tabs, showing a mask alone (Alt-click on its thumbnail) and
+  flipping a layer by dragging a handle past the opposite side are not in this version.
+
+### Phase 4.5 shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Ungroup Layers | Shift+Ctrl+G |
+| Add a mask hiding the selection (or all black) | Alt-click the mask button |
+| Keep or free the aspect ratio while dragging a handle | Shift (turns the Move bar's lock the other way) |
 
 ## Prerequisites
 
@@ -252,9 +284,11 @@ pnpm build:portable   # build and package the portable Windows zip
 ## Project file interoperability
 
 Projects are `.comp` folder packages, compatible with Compositor for macOS. This app opens
-projects from Compositor for Mac 1.2.10 (format version 9) and every earlier format (1 to 9),
-writes version 9 as the Mac does, and saves them back without losing anything. What they
-contain is drawn as the Mac draws it, within the reduced-copy blur note above, except:
+projects from Compositor for Mac 1.4.5 (format version 11) and every earlier format (1 to 11),
+writes version 11 as the Mac does, and saves them back without losing anything: a text layer's
+colour and font runs come back exactly as the Mac wrote them, and the Mac's Quick Look preview
+inside a project is left out of a save (the Mac makes it again on its next save). What they
+contain is drawn as Compositor 1.4.5 draws it, within the reduced-copy blur note above, except:
 
 - a layer enlarged in High quality (the default), which Compositor for Mac draws with Core
   Graphics' high-quality filter and this app bilinearly: sharper soft edges on the Mac, up to 29
@@ -262,7 +296,11 @@ contain is drawn as the Mac draws it, within the reduced-copy blur note above, e
   filter (probe results, "Step probes");
 - layer effects, which match the Mac's renders (11 of the 16 effects probes exactly, 4 within 3
   levels, and the last apart from the resampling above) but are written as the Mac's code writes
-  them, not yet checked against a project the Mac itself saved with effects.
+  them, not yet checked against a project the Mac itself saved with effects;
+- text colour and font runs, checked so far against projects written by hand from the Mac's code
+  (and a real 1.4.5 save without text), until the user's Mac saves with text runs come back;
+- an upright layer placed at a fraction of a pixel and drawn at 100 %, which Compositor 1.4.5
+  copies pixel for pixel and this app still blends (Phase 3.5d).
 
 ## Further reading
 

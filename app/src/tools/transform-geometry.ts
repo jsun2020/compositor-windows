@@ -29,6 +29,14 @@ export function isValidTransform(t: LayerTransform): boolean {
 export function roundedTransform(t: LayerTransform): LayerTransform {
   return { ...t, origin: [Math.round(t.origin[0]), Math.round(t.origin[1])], size: [Math.max(1, Math.round(t.size[0])), Math.max(1, Math.round(t.size[1]))], rotation: Math.round(t.rotation) };
 }
+/** The Move bar's W or H typed (TransformInspector.swift:89-100 at v1.4.5): the size set from the origin, the
+ * other side scaled by the same factor when `lockRatio`; under 1, or not a number, changes nothing. */
+export function resizedTo(t: LayerTransform, value: number, width: boolean, lockRatio: boolean): LayerTransform {
+  if (!(value >= 1)) return t;
+  let [w, h] = t.size;
+  if (width) { if (lockRatio) h *= value / w; w = value; } else { if (lockRatio) w *= value / h; h = value; }
+  return { ...t, size: [w, h] };
+}
 export function scalePercent(t: LayerTransform, pixel: SizeLike): number { return t.size[0] / Math.max(1, pixel.width) * 100; }
 export function scaledToPercent(t: LayerTransform, percent: number, pixel: SizeLike): LayerTransform {
   const c = center(t); const w = pixel.width * percent / 100, h = pixel.height * percent / 100;
@@ -215,4 +223,47 @@ export function snapOffset(box: RectLike, xs: number[], ys: number[], tolerance:
   const h = shift([box.x, box.x + box.width / 2, box.x + box.width], xs, tolerance);
   const v = shift([box.y, box.y + box.height / 2, box.y + box.height], ys, tolerance);
   return { dx: h.move, dy: v.move, x: h.target, y: v.target };
+}
+
+/** A resize handle dragged to `point`, nudged so the edges the handle moves land on a nearby target within
+ * `tolerance` document pixels, as a moved layer's do (`snappedResizePoint`, Crop.swift:139-182 at v1.4.5).
+ * `update` is the drag's own result for a pointer. Each edge snaps on its own; kept `proportional`, only the
+ * nearer one does and the other follows the ratio. An upright layer only: a turned one's edges do not run
+ * along the targets. */
+export function snappedResizePoint(point: P, original: LayerTransform, start: P, index: number, proportional: boolean,
+  xs: number[], ys: number[], tolerance: number, update: (p: P) => LayerTransform): { point: P; guides: { xs: number[]; ys: number[] } } {
+  if (radians(original) !== 0) return { point, guides: { xs: [], ys: [] } };
+  const handle = HANDLES[index];
+  const grab = pointOf(original, handle);
+  // Where the dragged handle is, to tell its edge from the one across from it.
+  const at = { x: grab.x + point.x - start.x, y: grab.y + point.y - start.y };
+  const edge = (t: LayerTransform, horizontal: boolean): number => {
+    const [lo, hi] = horizontal ? [t.origin[0], t.origin[0] + t.size[0]] : [t.origin[1], t.origin[1] + t.size[1]];
+    const v = horizontal ? at.x : at.y;
+    return Math.abs(lo - v) <= Math.abs(hi - v) ? lo : hi;
+  };
+  const nearest = (value: number, lines: number[]): number | null => {
+    let best: number | null = null;
+    for (const l of lines) if (Math.abs(l - value) <= tolerance && (best === null || Math.abs(l - value) < Math.abs(best - value))) best = l;
+    return best;
+  };
+  const draft = update(point);
+  let snaps: { horizontal: boolean; target: number }[] = [];
+  if (handle.x !== 0.5) { const x = nearest(edge(draft, true), xs); if (x !== null) snaps.push({ horizontal: true, target: x }); }
+  if (handle.y !== 0.5) { const y = nearest(edge(draft, false), ys); if (y !== null) snaps.push({ horizontal: false, target: y }); }
+  if (proportional && snaps.length === 2) {
+    const off = (s: { horizontal: boolean; target: number }) => Math.abs(s.target - edge(draft, s.horizontal));
+    snaps = [off(snaps[1]) < off(snaps[0]) ? snaps[1] : snaps[0]];
+  }
+  // An edge follows the pointer in a straight line along each axis, so one step measured across a pixel lands it.
+  const result = { ...point };
+  for (const snap of snaps) {
+    const before = edge(update(result), snap.horizontal);
+    const nudged = snap.horizontal ? { x: result.x + 1, y: result.y } : { x: result.x, y: result.y + 1 };
+    const perPixel = edge(update(nudged), snap.horizontal) - before;
+    if (Math.abs(perPixel) <= 0.01) continue;
+    const shift = (snap.target - before) / perPixel;
+    if (snap.horizontal) result.x += shift; else result.y += shift;
+  }
+  return { point: result, guides: { xs: snaps.filter((s) => s.horizontal).map((s) => s.target), ys: snaps.filter((s) => !s.horizontal).map((s) => s.target) } };
 }

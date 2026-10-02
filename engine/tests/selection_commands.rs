@@ -113,6 +113,30 @@ fn select_all_and_inverse() {
 }
 
 #[test]
+fn the_inverse_of_everything_deselects() {
+    // SelectionTests.inverseOfEverythingDeselects (SelectionTests.swift:126-134 at v1.4.5): Select All
+    // then Inverse leaves nothing selected, as one step, and undo brings the whole canvas back.
+    let (mut e, id) = session(100, 80);
+    run(&mut e, id, Command::SelectAll);
+    let before = depth(&e, id);
+    run(&mut e, id, Command::InvertSelection);
+    assert!(selection(&e, id).is_none() && e.state(id).unwrap().selection.is_none(), "no selection, not an empty one");
+    assert_eq!(depth(&e, id), before + 1, "one step");
+    e.undo(id).unwrap();
+    let back = selection(&e, id).expect("the selection is back");
+    assert!(!back.is_empty());
+    assert_eq!(back.bounds(), Some(rect(0.0, 0.0, 100.0, 80.0)));
+    // A selection past the canvas covers all of it once cut to it, so its inverse is nothing too.
+    lasso(&mut e, id, square(-10.0, -10.0, 200.0), SelectionMode::Replace);
+    run(&mut e, id, Command::InvertSelection);
+    assert!(selection(&e, id).is_none());
+    // Anything short of the whole canvas still leaves the rest selected.
+    lasso(&mut e, id, vec![p(0.0, 0.0), p(100.0, 0.0), p(100.0, 79.0), p(0.0, 79.0)], SelectionMode::Replace);
+    run(&mut e, id, Command::InvertSelection);
+    assert_eq!(selection(&e, id).unwrap().bounds(), Some(rect(0.0, 79.0, 100.0, 1.0)));
+}
+
+#[test]
 fn dragging_moves_the_outline_in_whole_pixels_as_one_undo_step() {
     let (mut e, id) = session(100, 100);
     lasso(&mut e, id, square(10.0, 10.0, 20.0), SelectionMode::Replace);

@@ -71,10 +71,13 @@ pub fn select_all(doc: &mut Document) { doc.selection = Some(Selection::new(canv
 /// Deselect: no selection.
 pub fn deselect(doc: &mut Document) { doc.selection = None; }
 
-/// Inverse: the canvas minus the selection, its flags kept; nothing without one.
+/// Inverse: the canvas minus the selection, its flags kept; nothing without one. The inverse of
+/// everything is no selection at all, as in Photoshop, not an empty one that stops every edit
+/// (`invertSelection`, Selection.swift:354-362 at v1.4.5).
 pub fn invert_selection(doc: &mut Document) {
     let Some(current) = doc.selection.clone() else { return };
-    doc.selection = Some(Selection::new(g::combine(&canvas(doc), &current.contours, Boolean::Difference), current.antialiased, current.feather));
+    let inverse = Selection::new(g::combine(&canvas(doc), &current.contours, Boolean::Difference), current.antialiased, current.feather);
+    doc.selection = if inverse.is_empty() { None } else { Some(inverse) };
 }
 
 /// The outline moved by whole pixels (`moveSelection(by:)`: offsets rounded), not cut to the canvas,
@@ -202,11 +205,13 @@ pub fn clear_selected(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask
     Ok(())
 }
 
-/// Add Mask with a selection (`addMask(revealing:)`, LayerMask.swift:233-260): a mask on the
-/// layer's pixel grid (its rectangle when it has none), white when `revealing` and black
-/// otherwise, painted the opposite tone through the selection's clip -- its coverage with the
-/// feather, cut to the canvas (`selection.clip(canvas:)`, :245-249). The selection is used up in
-/// the same step. An empty selection clips everything away: a plain mask, the selection used up.
+/// Add Mask with a selection (`addMask(revealing:)`, LayerMask.swift:237-267 at v1.4.5): a mask on
+/// the layer's pixel grid (its rectangle when it has none). Reveal Selection fills it black and
+/// paints white through the selection's clip -- its coverage with the feather, cut to the canvas
+/// (`selection.clip(canvas:)`, :253-257) -- so only the selection shows; Hide Selection (Alt-click)
+/// is the reverse. Compositor 1.2.10 had the tones the other way round. The selection is used up in
+/// the same step. An empty selection clips everything away: a plain black mask when revealing, a
+/// plain white one when hiding.
 pub fn add_mask_from_selection(doc: &mut Document, clips: &SelectionClips, id: Uuid, revealing: bool) -> Result<(), CommandError> {
     if doc.selection.is_none() { return Err(refused(NO_SELECTION)); }
     let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
@@ -218,7 +223,7 @@ pub fn add_mask_from_selection(doc: &mut Document, clips: &SelectionClips, id: U
     let (w, h) = (w as u32, h as u32);
     // The clip itself, empty or not (`clip(canvas:)`): an empty selection clips everything away.
     let Some(coverage) = selection_coverage_with(doc, clips, &layer.transform.pixel_to_document(w, h), w, h) else { return Err(refused(NO_SELECTION)) };
-    let pixels = if revealing { GrayRaster::from_bytes(w, h, coverage.bytes().iter().map(|c| 255 - c).collect()) } else { coverage };
+    let pixels = if revealing { coverage } else { GrayRaster::from_bytes(w, h, coverage.bytes().iter().map(|c| 255 - c).collect()) };
     doc.layer_mut(id).unwrap().set_mask(Some(Mask { pixels, enabled: true, placement: None, linked: None }));
     doc.selection = None;
     Ok(())

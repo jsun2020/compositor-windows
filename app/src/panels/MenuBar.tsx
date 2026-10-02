@@ -6,7 +6,7 @@ import { activeLayer } from "../state/selection";
 import {
   addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy, canPaint,
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
-  loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink,
+  loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink, canUngroupActive,
 } from "../actions/layers";
 import { ADJUSTMENT_KINDS, isEditableKind } from "../engine/types";
 
@@ -60,6 +60,7 @@ export function MenuBar() {
       { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: editable },
       { id: "layer-duplicate", label: "Duplicate Layer", run: () => runAction("duplicate"), enabled: editable },
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
+      { id: "layer-ungroup", label: "Ungroup Layers", run: () => runAction("ungroup"), enabled: editable && canUngroupActive() },
       { id: "layer-merge", label: mergeTitle(), run: () => runAction("merge"), enabled: editable },
       "separator",
       ...ADJUSTMENT_KINDS.map((kind) => ({

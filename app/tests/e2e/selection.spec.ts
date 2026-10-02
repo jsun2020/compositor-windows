@@ -200,19 +200,43 @@ test("Invert, Levels and Delete stay inside the selection; an adjustment layer i
   expect(await pixel(page, [40, 4])).toEqual([255, 255, 0, 255]);
 });
 
-test("Add Mask with a selection hides it and uses it up; the Crop tool starts at the selection", async ({ page }) => {
+test("Add Mask with a selection reveals it (Alt-click hides it) and uses it up; the Crop tool starts at the selection", async ({ page }) => {
   await setup(page);
   await page.keyboard.press("m");
   await drag(page, [8, 6], [24, 30]);
   await page.keyboard.press("c");
   expect(await page.evaluate(() => (window as any).__compositor.store.getState().cropRect)).toEqual({ x: 8, y: 6, width: 16, height: 24 });
   await page.keyboard.press("Escape");
+  await expect(page.getByTestId("layer-add-mask")).toHaveAttribute("title", /revealing the selection/);
   await page.getByTestId("layer-add-mask").click();
   const s = await state(page);
   expect(s.selection).toBeNull();
   expect(s.layers[0].hasMask).toBe(true);
+  // Reveal Selection (LayerMask.swift:237-267 at v1.4.5): the selection shows, the rest is hidden.
+  expect((await pixel(page, [12, 12]))[3]).toBe(255);
+  expect((await pixel(page, [40, 40]))[3]).toBe(0);
+  await page.keyboard.press("Control+z");
+  expect((await state(page)).selection).not.toBeNull();
+  await page.getByTestId("layer-add-mask").click({ modifiers: ["Alt"] });
+  expect((await state(page)).layers[0].hasMask).toBe(true);
   expect((await pixel(page, [12, 12]))[3]).toBe(0);
   expect((await pixel(page, [40, 40]))[3]).toBe(255);
+});
+
+test("Inverse of Select All leaves nothing selected, so Fill reaches the whole layer again; undo brings the selection back", async ({ page }) => {
+  // Selection.swift:354-362 at v1.4.5 (Phase 4.5).
+  await setup(page);
+  await page.keyboard.press("Control+a");
+  const depth = await undoDepth(page);
+  await page.keyboard.press("Control+Shift+i");
+  expect(await selection(page)).toBeNull();
+  expect(await undoDepth(page)).toBe(depth + 1);
+  // With an empty selection left instead, Fill would be refused; with none it fills everything.
+  await page.keyboard.press("Alt+Backspace");
+  await expect.poll(() => pixel(page, [60, 40])).toEqual([0, 0, 0, 255]);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  expect((await selection(page)).bounds).toEqual({ x: 0, y: 0, width: 64, height: 48 });
 });
 
 test("the Select menu: All, Inverse, Expand and Feather with their amount, the layer's pixels, and Ctrl-click on a thumbnail", async ({ page }) => {

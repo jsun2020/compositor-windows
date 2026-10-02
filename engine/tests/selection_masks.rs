@@ -1,8 +1,10 @@
 //! Delete with a selection and Add Mask from Selection (Phase 4a), ported from Compositor for
 //! Mac's SelectionEditTests: deleteClearsSelectedPixelsOrDeletesTheLayerWithoutASelection,
-//! clipFollowsScaledLayersAndSoftensEdges, maskButtonAddsWhiteMaskOrHidesTheSelection,
-//! layerMenuMasksUseTheSelection, maskFromSelectionLinesUpOnScaledLayers and (adapted: Fill is not
-//! in this phase) maskFillHidesOnlyTheSelectedArea, with their sizes, points and expectations.
+//! clipFollowsScaledLayersAndSoftensEdges, and (adapted: Fill is not in this phase)
+//! maskFillHidesOnlyTheSelectedArea, with their sizes, points and expectations. Add Mask with a
+//! selection follows v1.4.5 (Phase 4.5, the user's ruling of 2026-09-30):
+//! maskButtonAddsWhiteMaskOrRevealsTheSelection, hidingMasksUseTheSelection and
+//! maskFromSelectionLinesUpOnScaledLayers (SelectionEditTests.swift:160-219 at v1.4.5).
 use compositor_engine::*;
 use uuid::Uuid;
 
@@ -88,34 +90,51 @@ fn delete_on_a_mask_fills_the_selection_white() {
 }
 
 #[test]
-fn add_mask_with_a_selection_hides_the_selection_and_uses_it_up() {
+fn the_mask_button_adds_a_white_mask_or_reveals_the_selection() {
+    // maskButtonAddsWhiteMaskOrRevealsTheSelection (SelectionEditTests.swift:160-179 at v1.4.5).
     let (mut e, id, layer) = session(100, 40, &solid(100, 40, RED));
+    run(&mut e, id, Command::AddMask { id: layer, revealing: true });
+    assert_eq!(Command::AddMask { id: layer, revealing: true }.action_name(), "Add Reveal-All Mask");
+    assert_eq!(pixel(&e, id, 30, 20)[3], 255);
+    e.undo(id).unwrap();
+    assert!(!has_mask(&e, id, layer));
     select(&mut e, id, 20.0, 10.0, 30.0, 20.0);
     let before = e.state(id).unwrap().undo_depth;
     run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: true });
+    assert_eq!(Command::AddMaskFromSelection { id: layer, revealing: true }.action_name(), "Reveal Selection");
     assert_eq!(e.state(id).unwrap().undo_depth, before + 1, "one step");
     assert!(!has_selection(&e, id), "the selection is used up");
-    assert_eq!(pixel(&e, id, 30, 20)[3], 0, "selected area: black, hidden");
-    assert_eq!(pixel(&e, id, 5, 5)[3], 255, "everything else: white, visible");
+    assert_eq!(pixel(&e, id, 30, 20)[3], 255, "selected area: white, visible");
+    assert_eq!(pixel(&e, id, 5, 5)[3], 0, "everything else: black, hidden");
     e.undo(id).unwrap();
     assert!(!has_mask(&e, id, layer) && has_selection(&e, id));
 }
 
 #[test]
-fn add_black_mask_with_a_selection_shows_only_the_selection() {
+fn hiding_masks_use_the_selection() {
+    // hidingMasksUseTheSelection (SelectionEditTests.swift:181-200 at v1.4.5): Alt-click on the
+    // button, or Add Mask (Hide All), with a selection hides it; without one it is a plain black mask.
     let (mut e, id, layer) = session(100, 40, &solid(100, 40, RED));
     select(&mut e, id, 20.0, 10.0, 30.0, 20.0);
     run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: false });
+    assert_eq!(Command::AddMaskFromSelection { id: layer, revealing: false }.action_name(), "Hide Selection");
     assert!(!has_selection(&e, id));
-    assert_eq!(pixel(&e, id, 30, 20)[3], 255, "selected area: white, visible");
-    assert_eq!(pixel(&e, id, 5, 5)[3], 0, "everything else: black, hidden");
+    assert_eq!(pixel(&e, id, 30, 20)[3], 0, "selected area: black, hidden");
+    assert_eq!(pixel(&e, id, 5, 5)[3], 255, "everything else: white, visible");
+    e.undo(id).unwrap();
+    assert!(!has_mask(&e, id, layer) && has_selection(&e, id));
+    run(&mut e, id, Command::Deselect);
+    run(&mut e, id, Command::AddMask { id: layer, revealing: false });
+    assert_eq!(Command::AddMask { id: layer, revealing: false }.action_name(), "Add Hide-All Mask");
+    assert_eq!(pixel(&e, id, 30, 20)[3], 0);
 }
 
 #[test]
 fn a_mask_from_a_selection_lines_up_on_a_scaled_layer() {
+    // maskFromSelectionLinesUpOnScaledLayers (SelectionEditTests.swift:202-219 at v1.4.5): Hide Selection.
     let (mut e, id, layer) = session(100, 100, &solid(50, 50, [0, 0, 255, 255]));
     select(&mut e, id, 0.0, 0.0, 50.0, 50.0);
-    run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: true });
+    run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: false });
     assert_eq!(e.document(id).unwrap().layer(layer).unwrap().mask.as_ref().unwrap().pixels.width, 50, "the mask uses the layer's pixel grid");
     assert_eq!(pixel(&e, id, 25, 25)[3], 0);
     assert_eq!(pixel(&e, id, 75, 75)[3], 255);
@@ -126,8 +145,8 @@ fn a_mask_from_a_selection_lines_up_on_a_scaled_layer() {
 fn a_mask_from_a_feathered_selection_takes_the_feather() {
     // Feather 4 is a Gaussian of sigma 2 across the edge at x = 20 (global constraint: feather
     // sigma = feather / 2). The pixel centred at x = 18 sits 1.5 px outside the edge, x = 21 sits
-    // 1.5 px inside; coverage there is Phi(distance / sigma) and a revealing mask paints
-    // 255 * (1 - coverage) through the clip (LayerMask.swift:245-249).
+    // 1.5 px inside; coverage there is Phi(distance / sigma) and a revealing mask is black painted
+    // white through the clip, 255 * coverage (LayerMask.swift:249-257 at v1.4.5).
     let (mut e, id, layer) = session(100, 40, &solid(100, 40, RED));
     select(&mut e, id, 20.0, 10.0, 30.0, 20.0);
     run(&mut e, id, Command::FeatherSelection { amount: 4 });
@@ -135,8 +154,8 @@ fn a_mask_from_a_feathered_selection_takes_the_feather() {
     let mask = e.document(id).unwrap().layer(layer).unwrap().mask.clone().unwrap().pixels;
     let (outside, inside) = (mask.bytes()[20 * 100 + 18] as f64, mask.bytes()[20 * 100 + 21] as f64);
     let sigma = 2.0;
-    let expected_outside = 255.0 * (1.0 - phi(-1.5 / sigma));
-    let expected_inside = 255.0 * (1.0 - phi(1.5 / sigma));
+    let expected_outside = 255.0 * phi(-1.5 / sigma);
+    let expected_inside = 255.0 * phi(1.5 / sigma);
     // Tolerance, not measured: the feather's formula truncates the Gaussian kernel at 3 sigma
     // (radius = ceil(sigma * 3)) and renormalizes, which redistributes under 0.3% of the mass (the
     // two-tailed mass beyond 3 sigma), and it convolves discrete pixel samples rather than
@@ -156,14 +175,18 @@ fn an_empty_selection_clears_nothing_but_still_makes_a_plain_mask() {
     run(&mut e, id, Command::SelectShape { kind: SelectionShape::Rectangle, points: corners(0.0, 0.0, 100.0, 40.0), mode: SelectionMode::Subtract, antialiased: true });
     assert!(matches!(e.execute(id, Command::ClearSelectedPixels { id: layer, mask: false }), Err(CommandError::Refused(m)) if m == compositor_engine::ops::selection::EMPTY_SELECTION));
     run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: true });
-    assert!(!has_selection(&e, id) && pixel(&e, id, 30, 20)[3] == 255, "a plain white mask, the empty selection used up (LayerMask.swift:245)");
-    // Ruling I6: an opaque layer composites white regardless of whether a mask exists at all, so
-    // the pixel check above alone would pass with the mask creation dropped. Assert the mask was
-    // actually made, and that it is the plain white mask the brief describes (LayerMask.swift:245:
-    // an empty selection clips everything away, so a revealing mask is entirely white).
+    // An empty selection clips everything away (LayerMask.swift:253-257 at v1.4.5), so Reveal
+    // Selection leaves the black it starts from: the layer hidden, the empty selection used up.
+    assert!(!has_selection(&e, id) && pixel(&e, id, 30, 20)[3] == 0, "a plain black mask, the empty selection used up");
+    let mask = e.document(id).unwrap().layer(layer).unwrap().mask.clone().unwrap().pixels;
+    assert!(mask.bytes().iter().all(|&b| b == 0), "the mask is plain black everywhere, not just at the one sampled pixel");
+    // Hide Selection starts from white, and an empty clip paints nothing on it. Ruling I6: an opaque
+    // layer composites the same with no mask at all, so the mask itself is checked.
+    e.undo(id).unwrap();
+    run(&mut e, id, Command::AddMaskFromSelection { id: layer, revealing: false });
     assert!(has_mask(&e, id, layer), "Add Mask from Selection must still create a mask");
     let mask = e.document(id).unwrap().layer(layer).unwrap().mask.clone().unwrap().pixels;
-    assert!(mask.bytes().iter().all(|&b| b == 255), "the mask is plain white everywhere, not just at the one sampled pixel");
+    assert!(mask.bytes().iter().all(|&b| b == 255), "the mask is plain white everywhere");
 }
 
 #[test]

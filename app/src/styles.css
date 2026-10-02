@@ -26,7 +26,7 @@ body { margin: 0; }
 
 /* Project tabs */
 .tabs { display: flex; flex: 0 0 auto; background: #232323; border-bottom: 1px solid #000; overflow-x: auto; }
-.tab { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-right: 1px solid #000; cursor: pointer; color: #999; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-right: 1px solid #000; cursor: pointer; color: #999; user-select: none; }
 .tab.active { background: #1e1e1e; color: #fff; }
 .tab button { background: none; border: none; color: inherit; cursor: pointer; padding: 0 2px; }
 
@@ -136,6 +136,10 @@ body { margin: 0; }
 /* The selection tools' header (Phase 4a). */
 .tool-options .segmented button[aria-pressed="true"] { border-color: #3a6ea5; background: #3a6ea5; color: #fff; }
 .tool-options .hint { color: #999; }
+/* The Move bar keeps to one row and scrolls sideways with no scroll bar, as the Mac's does (TransformInspector.swift:20,
+   :48 at v1.4.5: a horizontal ScrollView with its indicators hidden): a second row would shrink the canvas under it. */
+/* flex-shrink 0: a flex item that scrolls may otherwise shrink below its row (it did, to 10 px, over a tall document). */
+.tool-options.one-row { white-space: nowrap; overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
 
 /* The palette at the foot of the tool rail (ColorPaletteControls.swift): 24 px swatches, the background
    one 12 px down and right of the foreground one, swap and default-colour buttons beside them. */

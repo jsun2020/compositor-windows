@@ -10,6 +10,7 @@ import { Viewport } from "../canvas/viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "../tools/transform-geometry";
 import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } from "./selection";
+import { reorderedTabs } from "./tab-reorder";
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
@@ -113,6 +114,9 @@ export interface EditorStore {
   collapsed: Record<string, string[]>;
   transformEdit: TransformEdit | null;
   snapGuides: { xs: number[]; ys: number[] };
+  /** The Move bar's aspect lock (`locksTransformRatio`, EditorSession.swift:197 at v1.4.5): whether a handle and a
+   * typed W or H keep the ratio. On at first, and not saved. */
+  locksTransformRatio: boolean;
   /** Whether the document's saved guides are drawn (View > Hide/Show Guides). Persisted so the
    * choice survives a relaunch, as it does on the Mac. */
   showGuides: boolean;
@@ -204,6 +208,8 @@ export interface EditorStore {
   openDocument(id: string): void;
   closeDocument(id: string): void;
   setActive(id: string): void;
+  /** A tab dragged to `index` in the strip's order (`ProjectWorkspace.moveTab`): chrome, no undo step. */
+  moveTab(id: string, index: number): void;
   refresh(id?: string): void;
   revealActiveLayer(): void;
   /** True when the engine accepted the command; a refusal raises the banner. */
@@ -228,6 +234,7 @@ export interface EditorStore {
   commitTransform(): void;
   cancelTransform(): void;
   setSnapGuides(g: { xs: number[]; ys: number[] }): void;
+  setLocksTransformRatio(v: boolean): void;
   toggleGuides(): void;
   setBlendPreview(m: BlendMode | null): void;
   previewEdit(): PreviewEdit | null;
@@ -338,7 +345,7 @@ function loadShowGuides(): boolean {
 export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
-  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, showGuides: loadShowGuides(),
+  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(),
   blendPreview: null,
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
@@ -570,6 +577,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
         ...(s.activeId === id ? { selectionDraft: null, outlineMove: null } : {}) };
     });
   },
+  moveTab: (id, index) => set((s) => ({ order: reorderedTabs(s.order, id, index) })),
   setActive: (id) => {
     // Clicking the tab already on screen changes nothing, and so must not cancel its panel.
     if (id === get().activeId) return;
@@ -811,6 +819,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().invalidate();
   },
   setSnapGuides: (g) => set({ snapGuides: g }),
+  setLocksTransformRatio: (v) => set({ locksTransformRatio: v }),
   toggleGuides: () => set((s) => {
     const showGuides = !s.showGuides;
     try { localStorage.setItem(GUIDES_KEY, String(showGuides)); } catch { /* ignore */ }

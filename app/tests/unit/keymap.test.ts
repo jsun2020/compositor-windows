@@ -38,6 +38,12 @@ describe("keymap", () => {
     expect(matchShortcut(ev("ArrowDown", { shiftKey: true }))).toBe("nudge-down");
   });
 
+  it("groups with Ctrl+G and ungroups with Shift+Ctrl+G (KeyboardShortcuts.swift:92-93 at v1.4.5)", () => {
+    expect(matchShortcut(ev("g", { ctrlKey: true }))).toBe("group");
+    expect(matchShortcut(ev("G", { ctrlKey: true, shiftKey: true }))).toBe("ungroup");
+    expect(matchShortcut(ev("g", { ctrlKey: true, altKey: true }))).toBe("clip");
+  });
+
   it("maps layer shortcuts", () => {
     expect(matchShortcut(ev("j", { ctrlKey: true }))).toBe("duplicate");
     expect(matchShortcut(ev("g", { ctrlKey: true }))).toBe("group");

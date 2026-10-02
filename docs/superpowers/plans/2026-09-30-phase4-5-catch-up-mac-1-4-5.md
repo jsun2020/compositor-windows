@@ -1,5 +1,29 @@
 # Phase 4.5: Catch Up With Compositor for Mac 1.4.5 - Implementation Plan
 
+## Execution status on the real checkout, 2026-10-02
+
+Tasks 1-8 were already committed on `phase4.5` at starting HEAD `3e69dac`.
+The continuation delivered Tasks 9-15. Actual checkout results, the two
+isolated performance failures and their one rerun, the full browser timeout
+and second full run, native portable UI checks, and remaining Mac acceptance
+are recorded in [the delivery report](../phase4-5-rulings-and-open-items.md).
+Scratch-clone measurements below remain historical planning evidence.
+
+- [x] Task 9: selection mask reveal/hide and Alt action.
+- [x] Task 10: whole-canvas inverse leaves no selection.
+- [x] Task 11: Ungroup Layers in the engine, menus and shortcuts.
+- [x] Task 12: tab drag reorder with busy guards.
+- [x] Task 13: resize-handle snapping.
+- [x] Task 14: W/H and aspect lock in the Move bar.
+- [x] Task 15: README/spec and 0.6.0; full suites and release timings.
+- [x] Controller portable build and real packaged WebView2 interaction checks.
+
+The original per-step checkboxes are retained as the plan's proposed sequence;
+validation was consolidated across the tasks, with 23 restored mutation checks
+and one local completion commit, rather than seven separate task commits.
+This finishes the Phase 4.5 milestone; the rest of Phase 4 and Phase 5 are not
+marked complete by this status update.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compositor for Windows catches up with the Mac app the user now runs, Compositor 1.4.5 (project format 11). Tasks 1-2 pin the Phase 4b-1 Mac exports and write the Phase 4.5 Mac probes with their hand steps; Tasks 3-4 are F1 (the job worker returns its result already halved to the level the canvas draws it at, so the UI thread never halves a large result) and the fix wave's residuals; Task 5 opens and saves project format 11 (text colour and font runs kept verbatim, refused as the Mac refuses them, every save written at 11); Tasks 6-10 are the results 1.4.5 changed (Soft Light by Core Image's W3C formula, adjustment layers and clipping-stack bases blended in their real modes, Photoshop's positive saturation, Add Mask revealing the selection with Alt for the opposite, Inverse of a whole-canvas selection leaving none); Tasks 11-14 are the small 1.4.5 behaviours (Ungroup Layers, dragging tabs to reorder them, resize handles that snap as moving does, the Move bar's W and H fields); Task 15 documents it all and makes the version 0.6.0.

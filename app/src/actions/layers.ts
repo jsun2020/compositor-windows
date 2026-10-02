@@ -24,6 +24,20 @@ export function deleteSelected(): void {
 }
 export function duplicateSelected(): void { const c = ctx(); if (!c?.active || c.active.isGroup) return; c.s.commitTransform(); c.s.run({ type: "DuplicateLayer", id: c.active.id }); }
 export function groupSelected(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "GroupLayers", ids: c.selected }); }
+/** Ungroup Layers needs a folder as the active layer (`canUngroupLayers`, LayerGroups.swift:215 at v1.4.5). */
+export function canUngroupActive(): boolean { const c = ctx(); return !!c?.active?.isGroup && !c.s.panelOwnsDocument(); }
+/** The active folder's children take its place and the folder goes; the children are selected, the first
+ * one active (`ungroupLayers`, LayerGroups.swift:220-239 at v1.4.5), and the folder's collapsed state goes. */
+export function ungroupActive(): void {
+  const c = ctx(); if (!c || !canUngroupActive()) return;
+  const folder = c.active!.id;
+  const children = c.doc.layers.filter((l) => l.parentId === folder).map((l) => l.id);
+  c.s.commitTransform();
+  if (!c.s.run({ type: "UngroupLayers", id: folder })) return;
+  const st = useEditor.getState();
+  st.selectLayers(children, children[0] ?? null);
+  if (st.activeId && (st.collapsed[st.activeId] ?? []).includes(folder)) st.toggleCollapsed(folder);
+}
 export function mergeSelected(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); if (c.engine.mergeAction(c.doc.id, c.selected)) c.s.run({ type: "MergeLayers", ids: c.selected }); }
 export function mergeTitle(): string { const c = ctx(); return (c && c.engine.mergeAction(c.doc.id, c.selected)) || "Merge Down"; }
 export function addFolder(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "AddGroup" }); }
@@ -31,9 +45,9 @@ export function addFolder(): void { const c = ctx(); if (!c) return; c.s.commitT
 // like every other action here. Without that, a pending mask move survives the mask it moves
 // and Enter later fails with "the layer has no mask"; macOS disables both menu items while a
 // transform is pending (canEditLayers requires transformEdit == nil).
-// With a selection, Add Mask paints the opposite tone through it and uses it up, one undo step
-// ("Add Mask from Selection", LayerMask.swift:228-260); every Add Mask entry point on the Mac goes
-// through that one `addMask`.
+// With a selection, Add Mask reveals it ("Reveal Selection") or, when `revealing` is false, hides it
+// ("Hide Selection"), and uses it up, one undo step (LayerMask.swift:237-267 at v1.4.5); every Add
+// Mask entry point on the Mac goes through that one `addMask`.
 export function addMaskToActive(revealing: boolean): void {
   const c = ctx(); if (!c?.active || c.active.hasMask) return; c.s.commitTransform();
   const ok = c.s.run(c.doc.selection ? { type: "AddMaskFromSelection", id: c.active.id, revealing } : { type: "AddMask", id: c.active.id, revealing });

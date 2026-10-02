@@ -6,7 +6,7 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive, ungroupActive } from "../actions/layers";
 import { isSelectionTool } from "../tools/selection-draft";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
@@ -110,6 +110,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "new-folder": addFolder(); break;
     case "duplicate": duplicateSelected(); break;
     case "group": groupSelected(); break;
+    case "ungroup": ungroupActive(); break;
     case "merge": mergeSelected(); break;
     case "clip": toggleClippingOfActive(); break;
     case "layer-up": moveActiveBy(1); break;

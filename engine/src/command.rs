@@ -19,6 +19,8 @@ pub enum Command {
     SetLayerBlendMode { #[serde(with = "ids::upper")] id: Uuid, mode: BlendMode },
     AddGroup,
     GroupLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid> },
+    /// Ungroup Layers: the folder's children take its place and the folder goes (LayerGroups.swift:214-239).
+    UngroupLayers { #[serde(with = "ids::upper")] id: Uuid },
     PlaceLayer { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     MoveLayerBy { #[serde(with = "ids::upper")] id: Uuid, offset: i32 },
     DuplicateLayer { #[serde(with = "ids::upper")] id: Uuid },
@@ -65,7 +67,8 @@ pub enum Command {
     LoadMaskSelection { #[serde(with = "ids::upper")] id: Uuid, mode: SelectionMode, antialiased: bool },
     /// Delete with a selection: the selected pixels cleared, or the mask filled white there (`mask`).
     ClearSelectedPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
-    /// Add Mask with a selection: `revealing` white with the selection black, or the reverse.
+    /// Add Mask with a selection: `revealing` shows only the selection (Reveal Selection), otherwise
+    /// it hides it (Hide Selection), as Compositor 1.4.5 does.
     AddMaskFromSelection { #[serde(with = "ids::upper")] id: Uuid, revealing: bool },
     // Colour and fills (Phase 4b-1).
     /// Fill the selection (or the whole layer) with `color`; on the mask, its first channel is grey.
@@ -94,6 +97,7 @@ impl Command {
             Command::SetLayerBlendMode { .. } => "Layer Blend Mode",
             Command::AddGroup => "New Folder",
             Command::GroupLayers { .. } => "Group Layers",
+            Command::UngroupLayers { .. } => "Ungroup Layers",
             Command::PlaceLayer { .. } => "Move Layer",
             Command::MoveLayerBy { .. } => "Reorder Layers",
             Command::DuplicateLayer { .. } => "Duplicate Layer",
@@ -107,7 +111,9 @@ impl Command {
             Command::DistortLayer { .. } => "Distort",
             Command::DistortLayers { .. } => "Distort Layers",
             Command::SetMaskPlacement { .. } => "Transform Layer Mask",
-            Command::AddMask { .. } => "Add Mask",
+            // LayerMask.swift:261 and :274 at v1.4.5.
+            Command::AddMask { revealing: true, .. } => "Add Reveal-All Mask",
+            Command::AddMask { revealing: false, .. } => "Add Hide-All Mask",
             Command::DeleteMask { .. } => "Delete Layer Mask",
             Command::SetMaskEnabled { .. } => "Enable Layer Mask",
             Command::SetMaskLinked { .. } => "Link Layer Mask",
@@ -140,7 +146,8 @@ impl Command {
             // SelectionEdits.swift:46 and :55, LayerMask.swift:254.
             Command::ClearSelectedPixels { mask: false, .. } => "Clear",
             Command::ClearSelectedPixels { mask: true, .. } => "Fill Mask",
-            Command::AddMaskFromSelection { .. } => "Add Mask from Selection",
+            Command::AddMaskFromSelection { revealing: true, .. } => "Reveal Selection",
+            Command::AddMaskFromSelection { revealing: false, .. } => "Hide Selection",
             // SelectionEdits.swift:34, Gradient.swift:98.
             Command::Fill { mask: false, .. } => "Fill",
             Command::Fill { mask: true, .. } => "Fill Mask",

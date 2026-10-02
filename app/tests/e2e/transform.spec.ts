@@ -135,3 +135,59 @@ test("an unlinked mask alone: arrow nudges and Alt-drag move the mask, not the l
   expect(d.layers[0].maskPlacement.origin).not.toEqual(afterNudge.maskPlacement.origin);
   expect(d.layers[0].transform.origin).toEqual(before.transform.origin);
 });
+
+test("a resize handle snaps the edge it drags to another layer's edge, as a move snaps (Crop.swift:139-182 at v1.4.5)", async ({ page }) => {
+  await setup(page);
+  const b64 = await page.evaluate(redSquarePngBase64);
+  // A second layer whose left edge, x 300, is the target; the red layer's right edge starts at 250.
+  await page.evaluate(async (b64) => {
+    const api = (window as any).__compositor; const s = api.store.getState(); const doc = s.activeId;
+    const red = api.engine.state(doc).activeLayerId;
+    api.engine.importImage(doc, Uint8Array.from(atob(b64), (c: string) => c.charCodeAt(0)), "target", { x: 325, y: 45 });
+    const id = api.engine.state(doc).activeLayerId; const t = api.engine.state(doc).layers.find((l: any) => l.id === id).transform;
+    api.engine.execute(doc, { type: "SetLayerTransform", id, transform: { ...t, origin: [300, 20], size: [50, 50] } });
+    api.engine.execute(doc, { type: "SetActiveLayer", id: red });
+    s.refresh(); s.selectLayers([red], red);
+  }, b64);
+  // The right-middle handle dragged to x 294, 6 short of 300 and inside the 10 px reach: the edge lands on 300.
+  const a = await viewPoint(page, 250, 150), b = await viewPoint(page, 294, 150);
+  await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move((a.x + b.x) / 2, a.y); await page.mouse.move(b.x, b.y);
+  expect((await page.evaluate(() => (window as any).__compositor.store.getState().snapGuides)).xs).toEqual([300]);
+  await page.mouse.up();
+  const l = (await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].layers; })).find((x: any) => x.name === "red");
+  expect(l.transform.origin[0] + l.transform.size[0]).toBe(300);
+  // The aspect lock is on (the Mac's default): the height follows the width, about the left-middle handle.
+  expect(l.transform.size).toEqual([150, 150]);
+  expect(l.transform.origin).toEqual([150, 75]);
+  // Out of reach (x 280, 20 short) it does not snap.
+  const c = await viewPoint(page, 300, 150), d = await viewPoint(page, 280, 150);
+  await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move((c.x + d.x) / 2, c.y); await page.mouse.move(d.x, d.y); await page.mouse.up();
+  const m = (await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].layers; })).find((x: any) => x.name === "red");
+  expect(m.transform.origin[0] + m.transform.size[0]).toBe(280);
+});
+
+test("the Move bar's W and H resize from the origin, and the lock keeps the ratio there and on a handle (TransformInspector.swift:24-29 at v1.4.5)", async ({ page }) => {
+  await setup(page);
+  const lock = page.getByTestId("transform-lock");
+  await expect(lock).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("W", { exact: true }).fill("200");
+  await page.keyboard.press("Enter");
+  let l = await layer(page);
+  expect(l.transform.size).toEqual([200, 200]);
+  expect(l.transform.origin).toEqual([150, 100]);
+  await lock.click();
+  await expect(lock).toHaveAttribute("aria-pressed", "false");
+  await page.getByLabel("H", { exact: true }).fill("50");
+  await page.keyboard.press("Enter");
+  l = await layer(page);
+  expect(l.transform.size).toEqual([200, 50]);
+  // Unlocked, a corner handle changes each side on its own: the bottom-right corner, at (350, 150), dragged
+  // to (370, 190) makes the layer 220 x 90.
+  await drag(page, { x: 350, y: 150 }, { x: 370, y: 190 });
+  expect((await layer(page)).transform.size).toEqual([220, 90]);
+  // Shift turns the lock the other way while held, and the button shows it turned.
+  await page.keyboard.down("Shift");
+  await expect(lock).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.up("Shift");
+  await expect(lock).toHaveAttribute("aria-pressed", "false");
+});
