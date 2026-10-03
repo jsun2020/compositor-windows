@@ -849,11 +849,101 @@ Evidence: `interactive-priority-native-clipboard.log`,
 `clipboard-20261003-215052/native-clipboard.json` and
 `interactive-priority-clipboard-exact-comparison.json`.
 
-Current production clipboard acceptance is established; the Windows Notepad
+Production 2139 clipboard acceptance is established; the Windows Notepad
 question and interactive handoff are no longer required. Historical access
 failures remain preserved. The four current performance case failures, earlier
 intermittent failures, Mac alpha oracle returns and Mac gesture confirmations
 remain open; full acceptance is not claimed.
+
+## Solid rectangle coverage bypass checkpoint
+
+An unrounded rectangle covers every pixel of its truncated stored raster,
+including fractional bounds. Shape rasterization now writes its opaque RGBA
+pixels directly instead of allocating a full grey coverage plane and converting
+it pixel by pixel. Rounded rectangles, ellipses and lines retain the general
+rasterizer; layer placement and command history are unchanged.
+
+An independent regression first passes against the old implementation, then
+against the optimization. It compares the general antialiased selection
+rasterizer at four integer/fractional sizes, all 256 channel values, half-rounding
+and out-of-range clamp values, and negative/zero corner radii. All dimensions
+and RGBA bytes are exact. Source commit is `a72c892`.
+
+The complete native workspace passes 622 tests with zero failures and the same
+10 ignored cases. All 287 unit tests, three TypeScript checks and the fixed-asset
+build pass. Release and fixed-test WASM share SHA-256
+`1223942C74CB77E04FC1606921DA5BC5943E54A9D9E83DDE55F6AD1532ED9B3B`.
+All nine shape/text/effect browser cases pass. The unchanged original shape
+performance case passes with 100 MP rectangle creation at 1603 ms / <2000 ms;
+the complete suite independently measures 1614 ms and passes that case.
+Evidence: `solid-rectangle-reference.log`, `solid-rectangle-native.log`,
+`solid-rectangle-source-check-final.log`, `solid-rectangle-source-summary.json`,
+`solid-rectangle-shape-ui.log` and `solid-rectangle-shape-performance.log`.
+
+The complete original 29-case performance suite finishes 25 passed / four
+failed in 27.5 minutes, one worker and zero retries. Three cases fail before
+their bodies at the unchanged 30-second page fixture: history, grown mask
+gradient and eyedropper sample/ring. They have no new measured values and are
+not accepted as zero or passed. The remaining failure is C1's 100 MP blank-layer
+gradient frame gap, 134 ms / <100 ms. The gradient-preview case passes all
+original pixel-, mask- and selection-preview budgets; older intermittent failures remain
+open. Performance evidence: `solid-rectangle-performance.log` and
+`solid-rectangle-performance-summary.json`.
+
+All 195 functional browser cases pass in 8.7 minutes, with the same 29 opt-in
+performance skips. Those skips do not establish performance acceptance.
+Evidence: `solid-rectangle-functional.log` and
+`solid-rectangle-regression-summary.json`.
+
+Production 2328 builds after the sequential suites from source `a72c892`.
+Its marker is `COMPOSITOR_BUILD_0.8.0_20261003-2328`. The ZIP has 4,743,456
+bytes, SHA-256 `5A6B3691031A34547C8D9DB9AAD82AEEFB18351E5B553BF18DCED30E41377EDE`;
+the EXE has 11,977,216 bytes, SHA-256
+`1BF1CB2D8D123CA99DD1CA8974F9D44BBCF33AE0B7000FB6A1F8C74A039F38F2`.
+ZIP CRCs, archived EXE identity and release/test WASM identity pass
+(`solid-rectangle-package-integrity.json`).
+
+The first two native attempts fail at page readiness before business assertions.
+Read-only CDP evidence shows the target URL can be assigned before the actual
+page navigation commits. The final fixture waits for the real Compositor document
+title within the original 45-second readiness window. Native UI, Mac and clipboard
+business assertions and their budgets are unchanged; CDP cleanup is bounded so
+failed fixtures release their owned process. Failed attempts and DOM/context
+inventories remain retained separately.
+
+The same verified portable then passes all eight native UI groups, four native
+Mac reads and four atomic saves with no development test API and zero page errors.
+All three opened Mac PNGs remain byte-identical to production 2139. The continued
+text/shape/effect values remain font size 38, width 150, Stroke 7 and Shadow 14.
+Evidence: `solid-rectangle-native-ui-title-ready.log`,
+`solid-rectangle-native-mac-title-ready.log`,
+`solid-rectangle-native-mac-export-comparison.json` and
+`solid-rectangle-native-title-ready-summary.json`.
+
+Current production 2328 clipboard acceptance stops at the independent read-only
+snapshot with `CLIPBRD_E_CANT_OPEN` (0x800401D0), before any mutation.
+The native read-only probe also reports access denied. Production 2139's six
+protocol groups, exact pixels and restoration remain historical evidence;
+they do not establish the newer package's clipboard gate. Evidence:
+`solid-rectangle-native-clipboard.log` and
+`clipboard-20261004-001745/helper-error.txt`.
+
+A separate unchanged-budget diagnostic run passes the three page-fixture-failed
+original cases: history, grown-mask gradients and eyedropper. Eyedropper worst
+sample/ring time is 7.4 ms at 24 MP and 1.7 ms at 100 MP. The full suite still
+records its four failures; this targeted run does not replace that result.
+`solid-rectangle-failed-page-cases.log` retains the actual measurements.
+An independent eyedropper trace passes the original body and identifies a cold
+15.4 ms overlay draw; sampleColor itself stays below 1 ms. No speculative
+sampling optimization is adopted from this passing diagnostic.
+
+An early staged-allocation prototype is retained only as an investigation.
+Both baseline and prototype fail original C1 assertions: the prototype reduces
+100 MP gradient gap to 59 ms but records a 24 MP gradient result frame of
+450 ms / <350 ms. It also lacks proof of exact-size reservation reuse. No
+prototype source is adopted and no budget is relaxed. Evidence:
+`solid-rectangle-c1-early-reserve.log` and
+`solid-rectangle-c1-early-reserve-job-trace-results.json`.
 
 ## Additional Mac alpha sampling handoff
 
@@ -899,12 +989,14 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The four current performance case failures
-and earlier intermittent failures need fixes and repeatable evidence under
-their original budgets. Production 2139 passes the full guarded native
-clipboard protocol with four exact image comparisons, two editable UTF-16
-records and original clipboard restoration. Earlier production 1206/1556
-successes and 1901/2041 access failures remain preserved. Mac gesture
+Full acceptance remains incomplete. The solid-rectangle full performance suite
+has three original page-fixture failures and C1's 134 ms / <100 ms gradient
+frame gap; earlier intermittent failures still need repeatable evidence.
+Production 2139 is the latest completed native clipboard checkpoint: six
+guarded protocol groups, four exact image comparisons, two editable UTF-16
+records and original clipboard restoration. Production 2328 is building from
+the checked solid-rectangle source; its native gates are not yet claimed.
+Earlier production successes and access failures remain preserved. Mac gesture
 confirmation and alpha oracle returns remain pending. Current Mac-no-edit and
 Mac-edited exports are exact; Mac-created enlarged text remains quantified
 and open; covered overlap edges now match. No assertion, budget, warm-up

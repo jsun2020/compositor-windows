@@ -43,15 +43,15 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
+- [x] Native workspace tests: 622 passed, zero failures, 10 existing ignored.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Latest interactive-priority source full fixed-asset browser suite: 195 passed,
-  29 unchanged opt-in skips, one worker and zero retries (7.9 minutes).
+- [x] Latest solid-rectangle source full fixed-asset browser suite: 195 passed,
+  29 unchanged opt-in skips, one worker and zero retries (8.7 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
   protocol groups and four exact image comparisons; the original clipboard is restored.
-- [x] Current production 2139 clipboard verification: six native protocol groups,
+- [x] Production 2139 clipboard verification: six native protocol groups,
   four exact RGBA comparisons, two editable UTF-16 records and original formats
   restored.
 - [x] Historical production 1556 clipboard verification: six native protocol groups,
@@ -66,7 +66,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   Mac-created enlarged-text export fidelity. Covered overlap edges are now exact.
 
 
-Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
+Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
 621 native tests, 287 unit tests and 195 current functional browser passes
 with 29 original skips. Production 1654 passes eight native
 UI groups and four native Mac package reads/writes; production 1901 packages the newer
@@ -138,3 +138,22 @@ protocol run then passes all six native groups and four strict image comparisons
 with the original Text/UnicodeText clipboard restored. Windows interactive
 verification is no longer required. Mac alpha returns and gesture confirmation
 remain pending, alongside the original performance gates.
+
+Solid rectangle rasterization now avoids the full grey coverage intermediate,
+with exact independent reference coverage over fractional bounds and all
+channel values. All 622 native tests and 287 unit tests pass; all nine targeted
+shape/text/effect browser cases and all 195 functional cases pass with the
+original 29 opt-in skips. The 100 MP rectangle takes 1603 ms in the targeted
+original case and 1614 ms in the full suite, both below the original 2000 ms
+limit. The complete original 29-case performance run finishes 25 passed / four
+failed (27.5 minutes): three 30-second page-fixture timeouts before test bodies
+and C1 blank-gradient frame gap 134 ms / <100 ms. All previous intermittent
+failures remain recorded. Production 2328 builds after functional success and passes ZIP/EXE/WASM identity,
+eight native UI groups, four Mac package reads and four atomic saves. All three
+Mac open PNGs remain byte-identical to 2139. Clipboard validation stops at the
+read-only snapshot before mutation with CLIPBRD_E_CANT_OPEN; current-package
+clipboard acceptance remains open. A separate original-budget run passes the
+three page-fixture-failed cases, but does not replace the full suite result.
+The early-allocation diagnostic still fails an original C1 result-frame budget
+and is not adopted. Mac alpha returns and gestures remain pending, so the
+full-acceptance goal stays active.
