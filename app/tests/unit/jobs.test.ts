@@ -239,3 +239,20 @@ it("does not loan a canvas pixel spare to a mask edit or a histogram",async()=>{
     workers[0].reply(done(2,"bins"));await hist;
   }finally{jobs.dispose();clearJobBuffers();}
 });
+
+it("reclaims a completed 100 MP edit's idle scratch heap while preserving its result and queued job",async()=>{
+  const {jobs,workers}=client();const resultPixels=new ArrayBuffer(8);new Uint8Array(resultPixels).set([0,11,22,33,44,55,66,77]);
+  try{
+    const request:JobRequest={kind:"edit",input:"{}",pixels:new ArrayBuffer(4),mask:null,points:null,command:JSON.stringify({type:"ApplyAdjustment"}),outPerDoc:1};
+    const edit=jobs.run("edit",request);await settle();workers[0].reply({type:"ready"});await settle();
+    const next=jobs.run("queued",histogram("queued"));
+    // The measured 100 MP Levels heap fits the absolute 1 GiB safety cap,
+    // but its no-longer-used workspace must not overlap main-thread installation.
+    const measuredHeap=960626688;expect(measuredHeap).toBeLessThan(WORKER_MEMORY_LIMIT);
+    workers[0].reply({type:"done",id:1,result:{header:"pixels",pixels:resultPixels,mask:null},memory:measuredHeap});
+    const installed=await edit;expect(installed?.pixels).toBe(resultPixels);expect(Array.from(new Uint8Array(installed!.pixels!))).toEqual([0,11,22,33,44,55,66,77]);
+    expect(workers[0].terminated).toBe(true);await settle();expect(jobs.spawned).toBe(2);
+    workers[1].reply({type:"ready"});await settle();expect(workers[1].jobs()).toEqual([2]);
+    workers[1].reply(done(2,"queued-result"));expect((await next)?.header).toBe("queued-result");
+  }finally{jobs.dispose();}
+});

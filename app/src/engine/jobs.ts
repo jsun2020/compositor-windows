@@ -46,6 +46,9 @@ export type FromWorker = { type: "ready" } | { type: "done"; id: number; result:
 /** A worker that has grown its wasm memory past this is replaced after its job: wasm memory never
  * shrinks, and a second heap of gigabytes would crowd the app's own. */
 export const WORKER_MEMORY_LIMIT = 1024 * 1024 * 1024;
+/** A completed large job leaves its scratch heap idle. Reclaim it before the
+ * main engine installs the transferred result; keep the absolute safety cap above. */
+const WORKER_RECLAIM_LIMIT = 768 * 1024 * 1024;
 
 /** The message a displaced effects job's promise rejects with (fix round 1, issue 3): an edit or
  * histogram job outranked it while it was running. Distinct from an ordinary refusal or a dead
@@ -198,7 +201,7 @@ export class JobClient {
     // replaced outright, the same as one that grew past the memory limit; a clean JsError refusal
     // keeps the worker, as before.
     const fatal = message.type === "failed" && message.fatal;
-    if (fatal || message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
+    if (fatal || message.memory > WORKER_MEMORY_LIMIT || (message.type === "done" && message.memory > WORKER_RECLAIM_LIMIT)) { this.worker?.terminate(); this.worker = null; this.ready = null; }
     if (message.type === "failed") job.reject(new Error(fatal ? trapMessage(message.error) : message.error));
     else if(this.newest.get(job.channel) === job.id)job.resolve(message.result);
     else{releaseJobResult(message.result);job.resolve(null);}

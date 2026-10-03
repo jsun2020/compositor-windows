@@ -44,10 +44,10 @@ gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
-- [x] Vitest: 278 passed. Current TypeScript and fixed-asset UI build pass.
-- [ ] Current full fixed-asset browser suite: 193 passed, one page-setup timeout,
-  29 existing opt-in perf skips. The previous source revision passed all 194
-  functional cases; the current revision requires completion of this gate.
+- [x] Vitest: 280 passed. Current TypeScript and fixed-asset UI build pass.
+- [ ] Latest texture-level source full fixed-asset browser suite is in progress.
+  The preceding worker-reclamation source passes 194 functional cases,
+  29 unchanged opt-in skips, one worker and zero retries (6.1 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
@@ -65,16 +65,16 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-621 native tests, 278 unit tests, 193 current functional browser passes, one
-page-setup timeout and 29 original skips. Production 1654 passes eight native
+621 native tests, 279 unit tests and 194 current functional browser passes
+with 29 original skips. Production 1654 passes eight native
 UI groups and four native Mac package reads/writes; production 1901 packages the newer
 output-capacity and texture reuse changes and also passes those native UI/Mac
 checks. Production 1556 passes six
 clipboard groups with four exact image checks and restoration; 1654 clipboard
 access was denied at read-only preflight. Production 1901 protocol validation
 stops before any mutation because the independent OLE snapshot cannot open
-the clipboard, despite a separate host Win32 open/close succeeding. The latest full run of all 29 performance
-cases is 26 passes / three failures: 100 MP Levels installation CPU 476 / <450 ms,
+the clipboard, despite a separate host Win32 open/close succeeding. The previous output-capacity revision full run of all 29 performance
+cases was 26 passes / three failures: 100 MP Levels installation CPU 476 / <450 ms,
 100 MP blank-gradient frame gap 160 / <100 ms, and a selection-Levels page-setup
 timeout before its test body. All four result-frame budgets pass in that run.
 A separate diagnostic proves the original F1 body can pass with texture object
@@ -84,3 +84,22 @@ ready for Mac 1.4.5 export to identify the remaining enlarged-text sampling
 difference; returned Mac exports and the pending gesture confirmations are
 still required. Implementation and these passing layers do not establish full
 acceptance.
+
+Completed-job scratch heap reclamation is now implemented and passes 279 unit
+tests and six real-worker cases. The original 1 GiB absolute cap remains;
+completed results above 768 MiB retire their unused worker before installation.
+The measured 960,626,688-byte Levels heap is reclaimed in the original-body
+prototype, whose 100 MP installation is 308 ms / <450 ms. The current source
+full performance run finishes 20 passes / nine failures; all 194 functional
+cases pass with 29 unchanged skips. 100 MP Levels installation is 284 ms /
+<450 ms, but result frames and other responsiveness gates remain open.
+Production 1901 evidence
+applies to the preceding output-capacity/texture revision. Full acceptance
+remains open until the new source, package and outstanding Mac/native gates
+are verified.
+
+The corrected F1 diagnostic identifies same-size preview/result grids with
+changed source prefilter levels. Texture object reuse now covers this transition
+while preserving complete uploads, bytes, filters, cache metadata and document
+ownership. All 280 unit tests, three TypeScript checks and fixed-asset build
+pass; the latest original full performance and functional runs are in progress.

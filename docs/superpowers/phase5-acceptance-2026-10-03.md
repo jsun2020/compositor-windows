@@ -560,6 +560,104 @@ original `ruling C1:` test. Evidence: `texture-c1-profile-job-trace-final.log`,
 `texture-c1-profile-job-trace-results.json`, `texture-c1-profile-summary.json`
 and `texture-c1-profile-blank-gradient-trace.json`.
 
+## Completed-job scratch heap reclamation in progress
+
+A more detailed C1 trace keeps the original body and assertions. Its failures
+are 24 MP and 100 MP gradient worker-edit gaps of 333 ms and 385 ms / <100 ms.
+The corresponding rAF intervals overlap 327.2 ms and 369.3 ms of GPU
+RendererCompositor command flushing, with no overlapping main-thread long task.
+The 334 ms GetGLError wait is in the first navigation's cold warm-up, not either
+failed timed gradient window. No per-frame application getError call exists,
+so removing one would not fix those failures. Evidence:
+`texture-c1-detailed-job-trace.log`, `texture-c1-detailed-summary.json` and
+`texture-c1-detailed-blank-gradient-trace.json`.
+
+The separate diagnostic-only `--enable-gpu-service-tracing` launch records
+per-driver GL calls using [Chromium's documented tracing method](https://chromium.googlesource.com/chromium/src/+/master/docs/gpu/debugging_gpu_related_code.md).
+It passes the original C1 assertions once, while its timed 100 MP result frame
+still contains 351.6 ms in glReadPixelsRobustANGLE (367 ms total / <600 ms).
+It does not establish a source fix or close earlier intermittent failures.
+The official regression configuration receives no extra tracing flags. Evidence:
+`texture-c1-service-job-trace.log` and `texture-c1-service-blank-gradient-trace.json`.
+
+Texture inspection disproves the proposed level-only reuse opportunity: the
+24 MP gradient changes from a 1500 x 1000 preview to a 1264 x 1000 result; the
+100 MP gradient changes from 1250 x 1250 to 1123 x 1250. No equal-sized texture
+can be reused for these transitions. The first inspection attached too early
+before a renderer existed; the corrected attachment records all four navigations.
+Evidence: `texture-c1-texture-inspect-job-trace-final.log` and
+`texture-c1-texture-transitions.json`. A same-process, same-STA clipboard
+comparison fails Win32 open with both a null handle and a valid own hidden
+window (error 5), and fails OLE access with CLIPBRD_E_CANT_OPEN. It reads no
+contents and changes no data or permissions. Evidence:
+`clipboard-owner-compare.json`. The host's power plan is read-only checked
+as Balanced; no power setting is changed.
+
+A separate 400 MB synthetic copy experiment compares fresh browser pages.
+Original staged WASM copies take 254.2 and 302.0 ms CPU. Zero-prefilling each
+chunk before its copy costs 326.9 ms total (276.6 ms just prefilling); plain
+ArrayBuffer copying costs 339.6 ms and verifies every byte. Prefill adds CPU
+cost and is not adopted. Evidence: `staged-copy-prefill-diagnostic.json`.
+
+The original F1 diagnostic then records a 100 MP Levels worker heap of
+960,626,688 bytes after its completed job. That is below the original absolute
+1 GiB cap, so it otherwise stays resident while the main engine installs its
+400 MB result. An early-reclamation prototype retires that idle heap and
+passes the unchanged F1 body, with 308 ms installation CPU, 12 ms result frame
+and 20 ms worker-edit gap for 100 MP Levels. It does not prove stable acceptance
+by itself. Evidence: `worker-768-prototype-job-trace.log` and
+`worker-768-prototype-job-trace-results.json`.
+
+The source now retires a worker after a completed result above 768 MiB, before
+resolving that result to its caller. The original 1 GiB absolute cap and fatal
+trap handling remain. Transferred pixels belong to the main thread already;
+no input retry or result reexecution occurs, and queued jobs use a fresh worker.
+A regression covers the measured heap size below the absolute cap, unchanged
+result bytes and the queued job on the replacement. All 279 unit tests, all
+three TypeScript checks and the fixed-asset build pass. Six real-worker cases
+pass, including exact selected Levels/blur pixels and undo, complete Fill/Gradient
+bytes, transferred output reuse and rejection of incomplete staged planes.
+The complete original performance run finishes with 20 passes and nine failures
+in 9.1 minutes. Functional regression passes all 194 cases with the 29 unchanged
+opt-in performance skips in 6.1 minutes. Both run sequentially with one worker
+and no retries, retaining separate outputs and all prior failed evidence.
+100 MP Levels installation is 284 ms / <450 ms (24 MP 64 ms); 100 MP blank Fill
+installation is 269 ms. GPU result frames remain over budget: 24 MP Levels
+312 ms and 100 MP Levels 230 ms / <100 ms. Other failed gates are Add Mask,
+partial uploads, histogram/commit, gradient previews, growing-mask gradients,
+small-layer mask Fill, gradient tool on a small mask, and 100 MP brush/retouch
+(ContentFill frame gap 101.5 ms / <100 ms). C1 passes this run, but previous
+intermittent failures remain open. Evidence: `worker-reclaim-source-check.log`,
+`worker-reclaim-jobs-e2e.log` and `worker-reclaim-regression-summary.json`.
+
+## Preview-to-result texture grid reuse in progress
+
+The first F1 texture diagnostic selected the separate Delete-after-job case
+because its title shares the prefix; its evidence is preserved and is not used
+to justify the result-frame change. The corrected selector runs the unchanged
+F1 result body and assertions, recording all four navigations. For Levels, the
+settled 24 MP preview and result both upload 1500 x 1000, with prefilter levels
+1 and 2; the 100 MP pair both upload 1250 x 1250, with levels 1 and 3.
+The diagnostic passes once (100 MP Levels installation 270 ms, result 75 ms,
+worker gap 25 ms); this does not close the preceding full-run failures.
+Evidence: `texture-f1-result-level-inspect-job-trace.log`,
+`texture-f1-result-level-inspect-job-trace-results.json` and
+`texture-f1-result-level-transitions.json`.
+
+The source now reuses existing GL chunk objects for the same physical raster
+dimensions even when its source prefilter level changes. Byte keys, revisions,
+filter mode and level metadata still change; every texel is replaced through
+the existing complete texImage2D uploads. Changed dimensions and separate
+documents retain their existing ownership behavior. The additional regression
+checks a two-chunk boundary, every byte, LINEAR filter updates and the new
+level-sensitive upload cache. The initial source replacement did not match
+CRLF line endings; the new regression failed against the unchanged guard, and
+its failed log is retained. After applying and verifying the actual source diff,
+all 280 unit tests, all three TypeScript checks and fixed-asset build pass.
+Complete regressions are in progress with separate output paths and all original
+acceptance budgets unchanged. Evidence: `texture-level-source-check.log`,
+`texture-level-source-check-final.log` and `texture-level-regression-summary.json`.
+
 ## Additional Mac alpha sampling handoff
 
 Four generated projects isolate white-pixel alpha filtering from text rendering:
@@ -604,7 +702,7 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The three current performance failures and
+Full acceptance remains incomplete. The nine current performance failures and
 earlier intermittent failures need fixes and repeatable evidence under their
 original budgets. Production 1206
 clipboard protocol and exact synthetic-image pixel checks pass; production 1556

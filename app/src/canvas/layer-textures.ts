@@ -85,8 +85,10 @@ export class LayerTextures {
     if (!pixels || size.width === 0 || size.height === 0) { if (existing) this.remove(docId, id); return; }
     if (existing && existing.key === bytesKey && existing.level === level && existing.nearest === nearest) return;
     // A whole upload still replaces every texel, but a same-sized result need
-    // not destroy/recreate its GL objects. Keep the chunk objects and update their filters.
-    const reuse = existing && existing.level === level && existing.width === size.width && existing.height === size.height ? existing : undefined;
+    // not destroy/recreate its GL objects. The source prefilter level can change
+    // when a reduced preview becomes the full result without changing this grid.
+    // Keep the chunk objects, replace every texel and update their filters/metadata.
+    const reuse = existing && existing.width === size.width && existing.height === size.height ? existing : undefined;
     if (existing && !reuse) this.remove(docId, id);
     const gl = this.gl;
     const chunks: Chunk[] = [];
