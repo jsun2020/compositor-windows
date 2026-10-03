@@ -19,7 +19,7 @@ import type { LassoKind, MarqueeKind } from "../tools/selection-draft";
 /** Which icon a tool shows: the Marquee and the Lasso follow their mode, as on the Mac
  *  (ContentView.swift: circle.dashed in Ellipse mode, its own icon for the polygonal lasso). */
 export type ToolIconName = "move" | "marquee-rectangle" | "marquee-ellipse" | "lasso-freehand" | "lasso-polygonal"
-  | "wand" | "crop" | "gradient" | "shape" | "eyedropper" | "hand" | "zoom";
+  | "wand" | "crop" | "gradient" | "shape" | "eyedropper" | "hand" | "zoom" | "brush" | "eraser" | "blur" | "clone" | "healing" | "text";
 
 export function toolIconName(tool: Tool, marquee: MarqueeKind, lasso: LassoKind): ToolIconName {
   switch (tool) {
@@ -30,6 +30,12 @@ export function toolIconName(tool: Tool, marquee: MarqueeKind, lasso: LassoKind)
 }
 
 const SHAPES: Record<ToolIconName, ReactNode> = {
+  "text": <><path d="M4 4h16M12 4v16M8 20h8"/></>,
+  "brush": <><path d="m14 6 4-4 4 4-10 10-4-4z"/><path d="M9 14c-5-2-2 6-7 6 8 3 11-1 7-6"/></>,
+  "eraser": <><path d="m3 14 10-11 8 8-9 10H9z"/><path d="m8 9 8 8M12 21h10"/></>,
+  "blur":<><path d="M12 2c-3 5-7 9-7 13a7 7 0 0 0 14 0c0-4-4-8-7-13Z"/><path d="M8 15a4 4 0 0 0 4 4"/></>,
+  "clone":<><path d="M9 14V9a3 3 0 1 1 6 0v5l4 3v3H5v-3z"/><path d="M4 22h16"/></>,
+  "healing":<><path d="m3 13 10-10a3 3 0 0 1 4 0l4 4a3 3 0 0 1 0 4L11 21a3 3 0 0 1-4 0l-4-4a3 3 0 0 1 0-4Z"/><path d="m7 9 8 8m-4-6 .01.01m2 2 .01.01"/></>,
   // lucide move-diagonal-2 (SF arrow.up.left.and.arrow.down.right)
   "move": <><path d="M19 13v6h-6" /><path d="M5 11V5h6" /><path d="m5 5 14 14" /></>,
   // lucide square-dashed (SF rectangle.dashed)

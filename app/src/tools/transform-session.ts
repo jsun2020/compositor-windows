@@ -1,8 +1,10 @@
 import type { LayerTransform } from "../engine/types";
-import { boundsOf, cornersDrag, snapOffset, transformDrag, type P, type TransformDragMode } from "./transform-geometry";
+import { boundsOf, cornersDrag, snapOffset, snappedResizePoint, transformDrag, type P, type TransformDragMode } from "./transform-geometry";
 
 export interface SnapTargetsWithTolerance { xs: number[]; ys: number[]; tolerance: number; }
-export interface SessionInit { mode: TransformDragMode; startDoc: P; original: LayerTransform; originalCorners: P[] | null; snap: SnapTargetsWithTolerance | null; }
+/** `lockRatio`: whether a handle keeps the aspect ratio (Shift turns it the other way); true when left out,
+ * as the Mac's `locksTransformRatio` starts. */
+export interface SessionInit { mode: TransformDragMode; startDoc: P; original: LayerTransform; originalCorners: P[] | null; snap: SnapTargetsWithTolerance | null; lockRatio?: boolean; }
 export interface SessionResult { draft: LayerTransform; corners: P[] | null; guides: { xs: number[]; ys: number[] }; }
 
 export class TransformSession {
@@ -14,9 +16,23 @@ export class TransformSession {
       const corners = cornersDrag(originalCorners, startDoc, mode.index < 0 ? "move" : mode.index).updated(point, mods.shift);
       return { draft: original, corners, guides };
     }
-    let draft = transformDrag(original, startDoc, mode).updated(point, { lockRatio: mode.kind === "resize", shift: mods.shift, alt: mods.alt });
+    const lockRatio = this.init.lockRatio ?? true;
+    const drag = transformDrag(original, startDoc, mode);
+    const opts = { lockRatio, shift: mods.shift, alt: mods.alt };
+    // A resize handle snaps the edges it moves (Crop.swift:139-182 at v1.4.5), with the ratio as the drag keeps it.
+    let target = point;
+    if (mode.kind === "resize" && snap) {
+      const snapped = snappedResizePoint(point, original, startDoc, mode.index, lockRatio !== mods.shift, snap.xs, snap.ys, snap.tolerance, (p) => drag.updated(p, opts));
+      target = snapped.point;
+      guides.xs.push(...snapped.guides.xs); guides.ys.push(...snapped.guides.ys);
+    }
+    let draft = drag.updated(target, opts);
     if (mode.kind === "move" && snap) {
       const s = snapOffset(boundsOf(draft), snap.xs, snap.ys, snap.tolerance);
+      if (mods.shift) {
+        if (Math.abs(point.x - startDoc.x) >= Math.abs(point.y - startDoc.y)) { s.dy = 0; s.y = null; }
+        else { s.dx = 0; s.x = null; }
+      }
       if (s.dx !== 0 || s.dy !== 0) draft = { ...draft, origin: [draft.origin[0] + s.dx, draft.origin[1] + s.dy] };
       if (s.x !== null) guides.xs.push(s.x); if (s.y !== null) guides.ys.push(s.y);
     }

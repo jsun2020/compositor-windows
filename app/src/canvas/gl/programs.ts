@@ -1,7 +1,7 @@
 import type { BlendMode } from "../../engine/types";
 
-// Mirrors BlendMode in engine/src/blend.rs. An adjustment layer's and a stack base's draw arrive
-// already mapped to their Core Graphics mode by the plan (BlendMode::cg_mode).
+// Mirrors BlendMode in engine/src/blend.rs. Every draw arrives in its own mode, an adjustment layer's
+// and a stack base's too (Compositor 1.4.5 blends them through Core Image where Core Graphics cannot).
 export const BLEND_INDEX: Record<BlendMode, number> = { Normal: 0, Multiply: 1, Screen: 2, Overlay: 3, Darken: 4, Lighten: 5, Difference: 6, "Color Dodge": 7, "Color Burn": 8, Hue: 9, Saturation: 10, Color: 11, Luminosity: 12,
   "Linear Burn": 13, "Linear Dodge (Add)": 14, "Soft Light": 15, "Hard Light": 16, "Vivid Light": 17, "Linear Light": 18, "Pin Light": 19, "Hard Mix": 20, Exclusion: 21, Subtract: 22, Divide: 23 };
 export const ADJUST_KIND: Record<string, number> = { identity: 0, tables: 1, gradientMap: 2, hsv: 3, grain: 4, invert: 5, blackWhite: 6, colorBalance: 7, addNoise: 8 };
@@ -10,15 +10,18 @@ const VERT_UNIT = `#version 300 es
 in vec2 unit;
 uniform mat3 unitToClip;
 uniform vec4 uvRect;
+uniform vec2 edgePadding;
 uniform bool flipX;
 uniform bool flipY;
 out vec2 uv;
 void main() {
-  vec2 f = uvRect.xy + unit * uvRect.zw;
+  vec2 lo = edgePadding * vec2(uvRect.x <= 0.0 ? 1.0 : 0.0, uvRect.y <= 0.0 ? 1.0 : 0.0);
+  vec2 hi = edgePadding * vec2(uvRect.x + uvRect.z >= 1.0 ? 1.0 : 0.0, uvRect.y + uvRect.w >= 1.0 ? 1.0 : 0.0);
+  vec2 f = uvRect.xy - lo + unit * (uvRect.zw + lo + hi);
   vec2 lu = vec2(flipX ? 1.0 - f.x : f.x, flipY ? 1.0 - f.y : f.y);
   vec3 p = unitToClip * vec3(lu, 1.0);
   gl_Position = vec4(p.xy, 0.0, p.z);
-  uv = unit;
+  uv = unit + (-lo + unit * (lo + hi)) / uvRect.zw;
 }`;
 const VERT_SCREEN = `#version 300 es
 in vec2 unit;
@@ -50,7 +53,11 @@ float sep(int mode, float cb, float cs) {
   if (mode == 8) return cb >= 1.0 ? 1.0 : (cs <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / cs));
   if (mode == 13) return max(0.0, cb + cs - 1.0);
   if (mode == 14) return min(1.0, cb + cs);
-  if (mode == 15) return (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb;   // Pegtop, as blend.rs soft_light
+  if (mode == 15) {   // W3C / Core Image, as blend.rs soft_light
+    if (cs <= 0.5) return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);
+    float d = cb <= 0.25 ? ((16.0 * cb - 12.0) * cb + 4.0) * cb : sqrt(cb);
+    return cb + (2.0 * cs - 1.0) * (d - cb);
+  }
   if (mode == 16) { if (cs <= 0.5) return cb * 2.0 * cs; float s = 2.0 * cs - 1.0; return cb + s - cb * s; }
   if (mode == 17) {
     if (cs <= 0.5) { float s = 2.0 * cs; return cb >= 1.0 ? 1.0 : (s <= 0.0 ? 0.0 : 1.0 - min(1.0, (1.0 - cb) / s)); }
@@ -84,6 +91,10 @@ vec4 compose(vec4 dst, vec4 src, int mode) {
 const FRAG_LAYER = `#version 300 es
 precision highp float;
 in vec2 uv;
+uniform vec4 uvRect;
+uniform vec2 edgePadding;
+uniform vec4 copyGrid;
+uniform float copyHeight;
 uniform sampler2D tex;
 uniform sampler2D backdrop;
 uniform sampler2D coverage;
@@ -96,7 +107,19 @@ ${BLEND_GLSL}
 void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
-  vec4 s = texture(tex, uv) * k;
+  vec4 sampled;
+  if (edgePadding.x > 0.0 || edgePadding.y > 0.0) {
+    vec2 f = uvRect.xy + uv * uvRect.zw;
+    vec2 edge = clamp(min(f, vec2(1.0) - f) / max(fwidth(f), vec2(1e-8)) + 0.5, 0.0, 1.0);
+    float edgeCoverage = floor(edge.x * edge.y * 255.0) / 255.0;
+    // Interpolated UVs can land one float below a texel boundary at a half-pixel
+    // origin. Derive copy coordinates from device pixels to keep those ties exact.
+    vec2 pixel = (vec2(gl_FragCoord.x, copyHeight - gl_FragCoord.y) - copyGrid.xy) / copyGrid.zw;
+    sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
+    // Covered source bytes are rounded before blending with the backdrop.
+    sampled = floor(sampled * edgeCoverage * 255.0 + 0.5) / 255.0;
+  } else sampled = texture(tex, uv);
+  vec4 s = sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
   // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
   // undefined; the value feeds compose() and would corrupt clipping coverage on any backend
@@ -169,6 +192,14 @@ vec3 rgbToHsl(vec3 c) {
 // wherever hsv.rs uses '%' on a value that can be negative; the non-colorize path wraps negatives
 // itself, which makes it equal to a floored mod, so mod() stays correct there.
 float rem(float x, float y) { return x - y * trunc(x / y); }
+// hsv.rs adjusted_saturation (HueSaturation.swift:342-348): below 0 scales toward grey, above 0
+// divides by what is left, +100 takes any colour all the way.
+float adjustedSaturation(float s, float amount) {
+  float a = clamp(amount / 100.0, -1.0, 1.0);
+  if (a <= 0.0) return max(0.0, s * (1.0 + a));
+  if (a >= 1.0) return s > 0.0 ? 1.0 : 0.0;
+  return min(1.0, s / (1.0 - a));
+}
 vec3 hslToRgb(vec3 hsl) {
   if (hsl.y <= 0.0) return vec3(hsl.z);
   float chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
@@ -259,7 +290,7 @@ vec3 throughHsl(vec3 c) {
     lightnessAmount = sampled.z / 100.0;
     hsl.x = mod(hsl.x + sampled.x, 360.0);
     if (hsl.x < 0.0) hsl.x += 360.0;
-    hsl.y = clamp(hsl.y * (1.0 + sampled.y / 100.0), 0.0, 1.0);
+    hsl.y = adjustedSaturation(hsl.y, sampled.y);
   }
   float amount = clamp(lightnessAmount, -1.0, 1.0);
   hsl.z = amount >= 0.0 ? hsl.z + (1.0 - hsl.z) * amount : hsl.z * (1.0 + amount);
@@ -484,7 +515,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
+    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),

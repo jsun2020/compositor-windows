@@ -5,7 +5,10 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 pub const MANIFEST_FORMAT: &str = "com.compositor.project";
-pub const CURRENT_VERSION: u32 = 9;
+/// The format version this build writes and the newest it reads: Compositor for Mac 1.4.5's
+/// (`ProjectManifest.current`, ProjectStore.swift:15). Version 10 added text colour runs and 11 text
+/// font runs (ProjectStore.swift:209-213); every save writes 11, as the Mac's does.
+pub const CURRENT_VERSION: u32 = 11;
 pub const MAX_GUIDES: usize = 1_000;
 pub const MAX_SIDE: i64 = 30_000;
 pub const MAX_PIXELS: u64 = 100_000_000;
@@ -43,25 +46,6 @@ pub enum BlendMode {
     #[serde(rename = "Exclusion")] Exclusion,
     #[serde(rename = "Subtract")] Subtract,
     #[serde(rename = "Divide")] Divide,
-}
-
-impl BlendMode {
-    /// The mode Core Graphics draws for this one (`LayerBlendMode.cgMode`, LayerAppearance.swift:28-49):
-    /// the same mode, except the eight modes only Core Image computes, which are Normal there. The
-    /// Mac blends through `cgMode` where it composites a whole surface in one draw: an adjustment
-    /// layer's blend (LiveMaskRenderer.swift:40, inside the branch its REAL mode chose at :24, which
-    /// the plan carries as `LayerDraw.keeps_alpha`) and a clipping stack's group (:74, :105). A
-    /// layer drawn on its own goes through SeparableBlend and gets the real mode. Color Burn and
-    /// Color Dodge map to Core Graphics' own modes, whose formulas the Mac calls wrong
-    /// (LayerAppearance.swift:51-52); this port applies its W3C formulas there too, and the Task 12
-    /// probes measure the difference. The render plan applies this, so both renderers inherit it.
-    pub fn cg_mode(self) -> BlendMode {
-        match self {
-            BlendMode::LinearBurn | BlendMode::LinearDodge | BlendMode::VividLight | BlendMode::LinearLight
-            | BlendMode::PinLight | BlendMode::HardMix | BlendMode::Subtract | BlendMode::Divide => BlendMode::Normal,
-            other => other,
-        }
-    }
 }
 
 /// A saved alignment guide (v8, `CanvasGuide`, Document/Guides.swift:5-10). `position` is in
@@ -254,9 +238,10 @@ impl Manifest {
             // own arrived in v8 (ProjectStore.swift:212-216).
             if layer.is_group() && (blend != BlendMode::Normal || (self.version < 8 && opacity != 1.0)) { return Err(Invalid); }
             // Live text is a valid LayerTextStyle on a pixel layer that is not a folder or an
-            // adjustment (ProjectStore.swift:196-198).
+            // adjustment, its colour runs from version 10 and its font runs from 11
+            // (ProjectStore.swift:208-214 at v1.4.5).
             if let Some(text) = &layer.text {
-                if !text_is_valid(text) || layer.image_file.is_none() || layer.is_group() || layer.adjustment.is_some() { return Err(Invalid); }
+                if !text_is_valid(text, self.version) || layer.image_file.is_none() || layer.is_group() || layer.adjustment.is_some() { return Err(Invalid); }
             }
         }
         validate_hierarchy(&self.layers)?;
@@ -286,13 +271,14 @@ impl Manifest {
     }
 }
 
-/// `LayerTextStyle.isValid` (TypeTool.swift:25-36), read from the verbatim value. Swift's
-/// synthesized decode requires every key but `boxSize`, so a missing required key or a wrong type
-/// makes the text invalid, as it makes the Mac refuse the project. `boxSize` is a CGSize, which
-/// Swift encodes as `[width, height]`. Its area follows 1.2.10's `boxIsValid` (200,000,000,
-/// TypeTool.swift:28), not this build's 100 MP image budget: it validates a value the port never
-/// renders, and refusing it would stop a 1.2.10 file opening.
-fn text_is_valid(text: &Value) -> bool {
+/// `LayerTextStyle.isValid` (TypeTool.swift:25-62 at v1.4.5), read from the verbatim value, with the
+/// version gates on its runs (ProjectStore.swift:211-212). Swift's synthesized decode requires every
+/// key but `boxSize`, `colorRuns` and `fontRuns`, so a missing required key or a wrong type makes the
+/// text invalid, as it makes the Mac refuse the project. `boxSize` is a CGSize, which Swift encodes as
+/// `[width, height]`. Its area follows 1.2.10's `boxIsValid` (200,000,000, TypeTool.swift:28), not this
+/// build's 100 MP image budget: it validates a value the port never renders, and refusing it would stop
+/// a Mac file opening.
+fn text_is_valid(text: &Value, version: u32) -> bool {
     let number = |key: &str, range: std::ops::RangeInclusive<f64>| {
         text.get(key).and_then(Value::as_f64).is_some_and(|v| v.is_finite() && range.contains(&v))
     };
@@ -306,7 +292,8 @@ fn text_is_valid(text: &Value) -> bool {
             _ => false,
         },
     };
-    content.chars().map(char::len_utf16).sum::<usize>() <= 100_000
+    let units = content.chars().map(char::len_utf16).sum::<usize>();
+    units <= 100_000
         && text.get("fontName").is_some_and(Value::is_string)
         && matches!(text.get("alignment").and_then(Value::as_str), Some("Left" | "Center" | "Right"))
         && number("fontSize", 1.0..=2000.0)
@@ -314,6 +301,52 @@ fn text_is_valid(text: &Value) -> bool {
         && number("tracking", -100.0..=1000.0)
         && number("leading", 0.0..=5000.0)
         && box_ok
+        && runs_are_valid(text.get("colorRuns"), units, 10, version, colour_run_is_valid)
+        && runs_are_valid(text.get("fontRuns"), units, 11, version, font_run_is_valid)
+}
+
+/// A Swift `Int` as its synthesized decoder reads one: a JSON integer, or a number with no fraction
+/// that fits (`Int(exactly:)`).
+fn swift_int(value: Option<&Value>) -> Option<i64> {
+    let v = value?;
+    v.as_i64().or_else(|| v.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9.2e18).map(|f| f as i64))
+}
+
+/// A text's colour or font runs (`colorRunsAreValid` / `fontRunsAreValid`, TypeTool.swift:43-62):
+/// absent or null, or a non-empty list of objects, each with its `location` and `length` as integers,
+/// sorted, not overlapping (a run starts at or after the last one's end), each at least one UTF-16 unit
+/// long, not overflowing, and ending within the text's `units`; `own` checks a run's other keys. A
+/// present list needs format version `since` (ProjectStore.swift:211-212).
+fn runs_are_valid(runs: Option<&Value>, units: usize, since: u32, version: u32, own: fn(&Map<String, Value>) -> bool) -> bool {
+    let list = match runs {
+        None | Some(Value::Null) => return true,
+        Some(Value::Array(list)) => list,
+        Some(_) => return false,
+    };
+    if version < since || list.is_empty() { return false; }
+    let mut end = 0i64;
+    for run in list {
+        let Some(run) = run.as_object() else { return false };
+        let (Some(location), Some(length)) = (swift_int(run.get("location")), swift_int(run.get("length"))) else { return false };
+        if location < end || length <= 0 || location > i64::MAX - length || !own(run) { return false; }
+        end = location + length;
+    }
+    end <= units as i64
+}
+
+/// A colour run's channels: numbers, finite, 0 to 1 (TypeTool.swift:48).
+fn colour_run_is_valid(run: &Map<String, Value>) -> bool {
+    ["red", "green", "blue"].into_iter().all(|k| run.get(k).and_then(Value::as_f64).is_some_and(|v| v.is_finite() && (0.0..=1.0).contains(&v)))
+}
+
+/// A font run's face: a string, not empty, at most 200 characters and no newline (TypeTool.swift:58).
+/// Swift counts `Character`s (grapheme clusters); this counts Unicode scalars, which is the same for a
+/// PostScript name and stricter only for a name of over 200 scalars that forms at most 200 clusters (a
+/// recorded deviation, ruling OQ5). `Character.isNewline` is true for these scalars.
+fn font_run_is_valid(run: &Map<String, Value>) -> bool {
+    let Some(name) = run.get("fontName").and_then(Value::as_str) else { return false };
+    !name.is_empty() && name.chars().count() <= 200
+        && !name.chars().any(|c| matches!(c, '\n' | '\r' | '\u{0B}' | '\u{0C}' | '\u{85}' | '\u{2028}' | '\u{2029}'))
 }
 
 pub fn validate_hierarchy(layers: &[LayerRecord]) -> Result<(), ProjectError> {

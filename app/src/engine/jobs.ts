@@ -9,14 +9,31 @@
 // selection at all (None) only by whether a buffer was passed, not by its length.
 
 /** What a job is asked to do. `input` is the engine's JobInput JSON; the buffers travel beside it. */
+import {releaseJobBuffer,takeSpareJobBuffer} from "./job-buffers";
+
 export type JobRequest =
-  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string }
+  | {kind:"text";input:string;pixels:null;mask:null}
+  | { kind: "documentEdit"; input: string; layer: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; pixels: null; mask: null; points: ArrayBuffer | null; command: string; outPerDoc: number }
+  | { kind: "clipboard"; input: string; pixels: null; mask: null; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; points: ArrayBuffer | null; png: boolean }
+  | { kind: "decodeClipboard"; input: string; pixels: ArrayBuffer; mask: null }
+  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string; outPerDoc: number; outputPixels?: ArrayBuffer | null }
   | { kind: "histogram"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null }
   | { kind: "effects"; input: string; pixels: ArrayBuffer; mask: ArrayBuffer | null; factor: number; edit: string | null };
 
 /** What came back: the engine's JSON answer (an edit's JobOutput, a histogram's bins, an effects
- * image's size and inset; null when an effects image found nothing to draw) and any buffers. */
-export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; }
+ * image's size and inset; null when an effects image found nothing to draw) and any buffers. An edit
+ * run at a scale (`outPerDoc`, device pixels per document pixel) also brings its new pixels halved to
+ * the level the canvas draws them at (`display`, engine `JobOutput.display`; F1). */
+export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null; }
+
+/** Retire large transferred buffers after installation. The bounded buffer pool
+ * detaches callers while keeping a spare for the next edit; previews keep their
+ * buffers until Apply/Cancel. Small results remain available as before. */
+export function releaseJobResult(result:JobResult|null):void {
+  if(!result)return;for(const b of [result.pixels,result.mask,result.display]){
+    if(b)releaseJobBuffer(b);
+  }
+}
 
 /** Messages to the worker and back. `fatal` on a failure marks a wasm trap (an `unreachable` panic,
  * an allocation abort): `RuntimeError.prototype instanceof WebAssembly.RuntimeError`, as the worker's
@@ -24,11 +41,14 @@ export interface JobResult { header: string | null; pixels: ArrayBuffer | null; 
  * re-entrancy guard set on that instance, so every later call throws "recursive use of an object..."
  * -- the worker itself is unusable from here on, not just the one job, unlike a clean refusal. */
 export type ToWorker = { type: "init"; module: WebAssembly.Module } | { type: "job"; id: number; request: JobRequest };
-export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number } | { type: "failed"; id: number; error: string; memory: number; fatal: boolean };
+export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number; recycled?: ArrayBuffer[] } | { type: "failed"; id: number; error: string; memory: number; fatal: boolean };
 
 /** A worker that has grown its wasm memory past this is replaced after its job: wasm memory never
  * shrinks, and a second heap of gigabytes would crowd the app's own. */
 export const WORKER_MEMORY_LIMIT = 1024 * 1024 * 1024;
+/** A completed large job leaves its scratch heap idle. Reclaim it before the
+ * main engine installs the transferred result; keep the absolute safety cap above. */
+const WORKER_RECLAIM_LIMIT = 768 * 1024 * 1024;
 
 /** The message a displaced effects job's promise rejects with (fix round 1, issue 3): an edit or
  * histogram job outranked it while it was running. Distinct from an ordinary refusal or a dead
@@ -47,8 +67,9 @@ export function trapMessage(error: string): string {
 
 /** The buffers a request hands over, for `postMessage`'s transfer list. */
 export function transferables(request: JobRequest): ArrayBuffer[] {
+  if (request.kind === "clipboard" || request.kind === "documentEdit") return [...request.layers.flatMap((l) => [l.pixels, l.mask]), request.points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
   const points = "points" in request ? request.points : null;
-  return [request.pixels, request.mask, points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
+  return [request.pixels, request.mask, points, request.kind === "edit" ? request.outputPixels ?? null : null].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
 }
 
 interface Pending { id: number; channel: string; request: JobRequest; resolve: (r: JobResult | null) => void; reject: (e: Error) => void; }
@@ -62,6 +83,8 @@ export class JobClient {
   private ready: Promise<void> | null = null;
   private queue: Pending[] = [];
   private running: Pending | null = null;
+  /** Interactive input copies may yield before their request can be queued. */
+  private preparations = new Set<symbol>();
   /** The newest job id asked for on each channel. */
   private newest = new Map<string, number>();
   private nextId = 1;
@@ -71,11 +94,34 @@ export class JobClient {
   constructor(private readonly module: WebAssembly.Module, private readonly spawn: () => Worker) {}
 
   /** Whether a job is running or waiting. */
-  get busy(): boolean { return this.running !== null || this.queue.length > 0; }
+  get busy(): boolean { return this.running !== null || this.queue.length > 0 || this.preparations.size > 0; }
 
   /** Starts the worker now, so its spawn and the module's instantiation are paid at startup rather
    * than by the first job (final review F2). Nothing when one is already started. */
   warm(): void { if (!this.worker) void this.start(); }
+
+  /** Reserve priority while an interactive caller copies its input. Replace an
+   * effects worker now, so startup overlaps that copy; queued effects wait until
+   * every caller submits or releases its reservation, including cancellation. */
+  prepareInteractive(): () => void {
+    const ticket = Symbol();
+    this.preparations.add(ticket);
+    try { this.displaceEffects(); this.warm(); }
+    catch (error) {
+      this.preparations.delete(ticket);
+      this.worker?.terminate(); this.worker = null; this.ready = null;
+      throw error;
+    }
+    return () => { if (this.preparations.delete(ticket)) void this.pump(); };
+  }
+
+  private displaceEffects(): void {
+    if (this.running?.request.kind !== "effects") return;
+    const displaced = this.running;
+    this.running = null;
+    this.worker?.terminate(); this.worker = null; this.ready = null;
+    displaced.reject(new Error(EFFECTS_JOB_DISPLACED));
+  }
 
   run(channel: string, request: JobRequest): Promise<JobResult | null> {
     const id = this.nextId++;
@@ -94,12 +140,7 @@ export class JobClient {
       // the old worker are detached by then, so the interrupted request itself can never safely run
       // again unchanged -- letting its own asker rebuild a fresh request is the only sound way to
       // let it "run again after" the job that displaced it, not a literal re-queue of this Pending.
-      if (request.kind !== "effects" && this.running && this.running.request.kind === "effects") {
-        const displaced = this.running;
-        this.running = null;
-        this.worker?.terminate(); this.worker = null; this.ready = null;
-        displaced.reject(new Error(EFFECTS_JOB_DISPLACED));
-      }
+      if (request.kind !== "effects") this.displaceEffects();
       void this.pump();
     });
   }
@@ -144,6 +185,7 @@ export class JobClient {
 
   private async pump(): Promise<void> {
     if (this.running || this.queue.length === 0) return;
+    if (this.preparations.size && !this.queue.some(p => p.request.kind !== "effects")) return;
     const job = this.next();
     // Superseded while it waited behind another job.
     if (this.newest.get(job.channel) !== job.id) { job.resolve(null); void this.pump(); return; }
@@ -156,21 +198,34 @@ export class JobClient {
     // run a job the client already told its caller was dropped, and confuse the fresh worker's own
     // pending job with an extra reply it never asked for (fix round 2, minor finding).
     if (this.running !== job) return;
+    // A blank layer has no pixel input to reuse. Give canvas-painting edits an
+    // existing output-sized spare instead of retaining it while the worker
+    // allocates another full raster. It is never an input to the WASM kernel.
+    if (job.request.kind === "edit" && !job.request.pixels && !job.request.outputPixels) {
+      try {
+        const command = JSON.parse(job.request.command) as { type: string; mask?: boolean };
+        const input = JSON.parse(job.request.input) as { width: number; height: number };
+        if ((command.type === "Fill" || command.type === "Gradient") && !command.mask)
+          job.request.outputPixels = takeSpareJobBuffer(input.width * input.height * 4);
+      } catch { /* The worker keeps ownership of invalid-request errors. */ }
+    }
     const message: ToWorker = { type: "job", id: job.id, request: job.request };
     this.worker!.postMessage(message, transferables(job.request));
   }
 
   private finish(message: Exclude<FromWorker, { type: "ready" }>): void {
     const job = this.running;
-    if (!job || job.id !== message.id) return;
+    if(message.type==="done")for(const buffer of message.recycled??[])releaseJobBuffer(buffer);
+    if (!job || job.id !== message.id) {if(message.type==="done")releaseJobResult(message.result);return;}
     this.running = null;
     // A wasm trap poisons the whole instance (see `FromWorker`'s doc on `fatal`), so the worker is
     // replaced outright, the same as one that grew past the memory limit; a clean JsError refusal
     // keeps the worker, as before.
     const fatal = message.type === "failed" && message.fatal;
-    if (fatal || message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
+    if (fatal || message.memory > WORKER_MEMORY_LIMIT || (message.type === "done" && message.memory > WORKER_RECLAIM_LIMIT)) { this.worker?.terminate(); this.worker = null; this.ready = null; }
     if (message.type === "failed") job.reject(new Error(fatal ? trapMessage(message.error) : message.error));
-    else job.resolve(this.newest.get(job.channel) === job.id ? message.result : null);
+    else if(this.newest.get(job.channel) === job.id)job.resolve(message.result);
+    else{releaseJobResult(message.result);job.resolve(null);}
     void this.pump();
   }
 
@@ -179,6 +234,7 @@ export class JobClient {
     this.worker = null;
     for (const p of this.queue) p.resolve(null);
     this.queue = [];
+    this.preparations.clear();
     this.running?.resolve(null);
     this.running = null;
   }

@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { prefilterLevel, sizeAtLevel } from "../../src/canvas/layer-textures";
+import { pixelCopyAtScale, prefilterLevel, sizeAtLevel } from "../../src/canvas/layer-textures";
 import { renderOrder } from "../../src/canvas/renderer";
 import type { DocumentState, LayerState, LayerTransform } from "../../src/engine/types";
 
 const box: LayerTransform = { origin: [0, 0], size: [10, 10], rotation: 0, flipX: false, flipY: false, sampling: "High quality" };
+
+it("copies only an upright final 1:1 sampling grid, including device scale and prefilter level", () => {
+  expect(pixelCopyAtScale(0, 100, 100, 1, 0, false)).toBe(true);
+  expect(pixelCopyAtScale(360, 100, 50, 2, 0, false)).toBe(true);
+  expect(pixelCopyAtScale(0, 100, 100, 0.25, 2, false)).toBe(true);
+  expect(pixelCopyAtScale(0, 100, 100.05, 1, 0, false)).toBe(true);
+  expect(pixelCopyAtScale(0, 100, 100.2, 1, 0, false)).toBe(false);
+  expect(pixelCopyAtScale(0.01, 100, 100, 1, 0, false)).toBe(false);
+  expect(pixelCopyAtScale(0, 100, 100, 1, 0, true)).toBe(false);
+  expect(pixelCopyAtScale(0, 0, 100, 1, 0, false)).toBe(false);
+});
 function layer(id: string, over: Partial<LayerState> = {}): LayerState {
   return {
     id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal", transform: box,

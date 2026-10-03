@@ -6,6 +6,7 @@ import type { Command, DocumentState, LayerAdjustment, LayerState, PreviewReques
 import type { EngineClient } from "../../src/engine/client";
 import type { JobClient, JobRequest, JobResult } from "../../src/engine/jobs";
 import type { ShellBridge } from "../../src/shell/bridge";
+import type { Viewport } from "../../src/canvas/viewport";
 
 function layer(id: string, width: number, height: number): LayerState {
   return { id, name: id, visible: true, isGroup: false, parentId: null, opacity: 1, blendMode: "Normal",
@@ -25,6 +26,7 @@ function install(width: number, height: number, onInstall?: () => void) {
   const log: string[] = [];
   const previews: (PreviewRequest | null)[] = [];
   const requests: JobRequest[] = [];
+  const displays: (ArrayBuffer | null)[] = [];
   let finish: (r: JobResult | null) => void = () => {};
   const engine = {
     state: () => document(layer("A", width, height)),
@@ -35,14 +37,15 @@ function install(width: number, height: number, onInstall?: () => void) {
     // Task 5's jobs API: a job's input carries its selection's points as a separate buffer (null
     // here -- these fixtures have no selection), beside the JSON and the pixel/mask buffers.
     jobInput: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },
-    installJob: (_doc: string, layerId: string, input: string, output: string) => { log.push(`install ${layerId} ${output}`); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
+    jobInputAsync: () => { log.push("job input"); return { input: '{"stamp":{"pixelsRevision":1}}', pixels: new ArrayBuffer(4), mask: null, points: null }; },
+    installJobAsync: (_doc: string, layerId: string, input: string, output: string, _pixels: ArrayBuffer | null, _mask: ArrayBuffer | null, display: ArrayBuffer | null) => { log.push(`install ${layerId} ${output}`); displays.push(display); onInstall?.(); expect(input).toContain("stamp"); return { structure: true, canvas: false, layers: [] }; },
     undo: () => { log.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     adjustmentIsIdentity: (a: LayerAdjustment) => JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind)),
   } as unknown as EngineClient;
-  const jobs = { run: (_channel: string, request: JobRequest) => { requests.push(request); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
+  const jobs = { prepareInteractive: () => () => {}, run: (_channel: string, request: JobRequest) => { requests.push(request); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: document(layer("A", width, height)) }, order: ["D"], selectedLayerIds: ["A"],
-    maskSelected: false, transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, working: false });
-  return { log, previews, requests, finish: (r: JobResult | null) => finish(r) };
+    maskSelected: false, transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, working: false, viewports: {} });
+  return { log, previews, requests, displays, finish: (r: JobResult | null) => finish(r) };
 }
 /** Opens Levels on layer A and moves a slider, so OK has something to apply. */
 function levelsChanged() {
@@ -73,6 +76,21 @@ describe("destructive commits on large layers go to the job worker", () => {
     expect(log.at(-1)).toBe("install A OUT");
     expect(useEditor.getState().working).toBe(false);
     expect(previews.length, "the engine cleared its own preview as it put the result back").toBe(shown);
+  });
+
+  it("an edit job carries the scale the canvas draws at, and the result's halving goes back with it (F1)", async () => {
+    const { requests, displays, finish } = install(2001, 2000);
+    // An eighth of a CSS pixel per document pixel; the node test has no devicePixelRatio, so 1.
+    useEditor.setState({ viewports: { D: { pointsPerPixel: 0.125 } as unknown as Viewport } });
+    levelsChanged();
+    useEditor.getState().commitAdjust();
+    const request = requests.at(-1)!;
+    expect(request.kind === "edit" && request.outPerDoc).toBe(0.125);
+    const display = new ArrayBuffer(8);
+    finish({ header: "OUT", pixels: new ArrayBuffer(4), mask: null, display });
+    await flush();
+    expect(displays).toEqual([display]);
+    expect(displays[0], "the very buffer the worker sent").toBe(display);
   });
 
   it("a layer at the threshold is edited on the UI thread as before", () => {
@@ -156,12 +174,115 @@ describe("destructive commits on large layers go to the job worker", () => {
 
   it("a histogram whose copy out fails closes the panel and says why, rather than reading forever (final review minor 5)", () => {
     const { previews, requests } = install(2001, 2000);
-    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInput: () => { throw new RangeError("Array buffer allocation failed"); } } as never });
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => { throw new RangeError("Array buffer allocation failed"); } } as never });
     let opened: boolean | undefined;
     expect(() => { opened = useEditor.getState().beginAdjust({ kind: "Levels" }); }, "nothing thrown out of the key handler").not.toThrow();
     expect(opened).toBe(false);
     expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
     expect(previews.at(-1), "its preview taken away").toBeNull();
+  });
+
+  it("opens and edits the panel while its histogram input is copied asynchronously", async () => {
+    const { requests, finish } = install(2001, 2000);
+    let prepared!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise(resolve => { prepared = resolve; }) } as never });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    expect(requests).toEqual([]);
+    const adjustment = defaultAdjustment("Levels"); adjustment.levels.ranges[0].gamma = 1.2;
+    useEditor.getState().updateAdjust({ adjustment });
+    prepared({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush(); expect(requests.at(-1)?.kind).toBe("histogram");
+    finish({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+    expect(useEditor.getState().adjustEdit!.adjustment!.levels.ranges[0].gamma).toBe(1.2);
+  });
+
+  it("rejects old input and old worker results after closing and reopening the same histogram panel", async () => {
+    install(2001, 2000);
+    const inputs: ((copy: ReturnType<EngineClient["jobInput"]>) => void)[] = [], results: ((result: JobResult) => void)[] = [];
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise(resolve => inputs.push(resolve)) } as never,
+      jobs: { prepareInteractive: () => () => {}, run: () => new Promise(resolve => results.push(resolve)) } as never,
+    });
+    const open = () => expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    const copy = () => ({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    open(); useEditor.getState().cancelAdjust(); open();
+    inputs[0](copy()); await flush(); expect(results).toHaveLength(0);
+    inputs[1](copy()); await flush(); expect(results).toHaveLength(1);
+    useEditor.getState().cancelAdjust(); open(); inputs[2](copy()); await flush();
+    results[0]({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toBeNull();
+    results[1]({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+  });
+
+  it("reports an asynchronous input allocation failure and clears the waiting histogram panel", async () => {
+    const { previews, requests } = install(2001, 2000);
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => Promise.reject(new RangeError("Array buffer allocation failed")) } as never });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    await flush();
+    expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
+    expect(previews.at(-1)).toBeNull();
+  });
+
+  it("reserves interactive priority before copying and submits the histogram before releasing it", async () => {
+    const { requests, finish } = install(2001, 2000);
+    const events: string[] = [];
+    let copied!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    const release = vi.fn(() => { events.push("release"); });
+    const jobs = useEditor.getState().jobs!;
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => { events.push("copy"); return new Promise(resolve => { copied = resolve; }); } } as never,
+      jobs: { prepareInteractive: () => { events.push("reserve"); return release; }, run: (...args: Parameters<JobClient["run"]>) => { events.push("submit"); return jobs.run(...args); } } as never,
+    });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    expect(events).toEqual(["reserve", "copy"]);
+    expect(release).not.toHaveBeenCalled();
+    copied({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush();
+    expect(events).toEqual(["reserve", "copy", "submit", "release"]);
+    expect(requests.at(-1)?.kind).toBe("histogram");
+    expect(useEditor.getState().adjustEdit!.histogram).toBeNull();
+    finish({ header: JSON.stringify(bins()), pixels: null, mask: null });
+    await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("releases a cancelled histogram preparation when copying settles (failure: %s)", async (failure) => {
+    const { requests } = install(2001, 2000);
+    let copied!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    let failed!: (error: Error) => void;
+    const release = vi.fn();
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise((resolve, reject) => { copied = resolve; failed = reject; }) } as never,
+      jobs: { ...useEditor.getState().jobs!, prepareInteractive: () => release } as never,
+    });
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    useEditor.getState().cancelAdjust();
+    if (failure) failed(new Error("copy failed after cancel"));
+    else copied({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([]);
+    expect(useEditor.getState().adjustEdit).toBeNull();
+    expect(useEditor.getState().error).toBeNull();
+    expect(useEditor.getState().working).toBe(false);
+  });
+
+  it("releases edit preparation when asynchronous input copying fails", async () => {
+    const { requests, previews } = install(2001, 2000);
+    const release = vi.fn();
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => Promise.reject(new Error("edit input unavailable")) } as never,
+      jobs: { ...useEditor.getState().jobs!, prepareInteractive: () => release } as never,
+    });
+    expect(await useEditor.getState().runEditJob({ type: "InvertPixels", id: "A", mask: false }, "A")).toBe(false);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([]);
+    expect(previews.at(-1)).toBeNull();
+    expect(useEditor.getState().working).toBe(false);
+    expect(useEditor.getState().error).toBe("edit input unavailable");
   });
 
   it("Save and the close prompt's OK say why they wait while working, and the document stays open (final review minor 4)", async () => {

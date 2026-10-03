@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EFFECTS_JOB_DISPLACED, JobClient, WORKER_MEMORY_LIMIT, type FromWorker, type JobRequest, type ToWorker } from "../../src/engine/jobs";
+import {clearJobBuffers,releaseJobBuffer,takeJobBuffer,takeSpareJobBuffer} from "../../src/engine/job-buffers";
 
 /** A worker that records what it is sent and answers when told to. */
 class FakeWorker {
@@ -28,6 +29,31 @@ function client() {
 }
 
 describe("JobClient", () => {
+  it("retires a canceled edit's returned large buffer without exposing it to the caller",async()=>{
+    clearJobBuffers();
+    try{
+      const {jobs,workers}=client();
+      const pending=jobs.run("edit",{kind:"edit",input:"edit",pixels:new ArrayBuffer(8),mask:null,points:null,command:"",outPerDoc:1});
+      await settle();workers[0].reply({type:"ready"});await settle();jobs.cancel("edit");
+      const buffer=new ArrayBuffer(4*1024*1024);new Uint8Array(buffer)[19]=99;
+      workers[0].reply({type:"done",id:1,result:{header:"discarded",pixels:buffer,mask:null},memory:1});
+      expect(await pending).toBeNull();expect(buffer.byteLength).toBe(0);
+      expect(new Uint8Array(takeJobBuffer(4*1024*1024))[19]).toBe(99);
+      jobs.dispose();
+    }finally{clearJobBuffers();}
+  });
+  it("reclaims histogram input before its caller prepares the next job, including a canceled histogram",async()=>{
+    clearJobBuffers();
+    try{
+      const {jobs,workers}=client(),pending=jobs.run("hist",histogram("one"));
+      await settle();workers[0].reply({type:"ready"});await settle();jobs.cancel("hist");
+      const buffer=new ArrayBuffer(4*1024*1024);new Uint8Array(buffer)[19]=77;
+      workers[0].reply({...done(1,"bins"),recycled:[buffer]} as FromWorker);
+      expect(await pending).toBeNull();expect(buffer.byteLength).toBe(0);
+      expect(new Uint8Array(takeJobBuffer(4*1024*1024))[19]).toBe(77);
+      jobs.dispose();
+    }finally{clearJobBuffers();}
+  });
   it("starts the worker with the compiled module, then runs one job at a time in order, transferring its buffers", async () => {
     const { jobs, workers } = client();
     const first = jobs.run("a", histogram("one"));
@@ -177,4 +203,97 @@ describe("JobClient", () => {
     workers[1].reply(done(2, "edit-done"));
     expect((await edit)?.header).toBe("edit-done");
   });
+});
+
+it("transfers a blank canvas edit's exact-size spare as output capacity, never as pixel input",async()=>{
+  clearJobBuffers();const {jobs,workers}=client();
+  try{
+    const bytes=new ArrayBuffer(4*1024*1024);new Uint8Array(bytes)[31]=61;releaseJobBuffer(bytes);
+    const request:JobRequest={kind:"edit",input:JSON.stringify({width:1024,height:1024}),pixels:null,mask:null,points:null,command:JSON.stringify({type:"Gradient",mask:false}),outPerDoc:1};
+    const pending=jobs.run("blank",request);await settle();
+    const waitingSpare=takeSpareJobBuffer(4*1024*1024);
+    expect(waitingSpare, "a waiting job does not take the spare before posting").not.toBeNull();
+    releaseJobBuffer(waitingSpare!);
+    workers[0].reply({type:"ready"});await settle();
+    const sent=workers[0].sent[1];expect(request.pixels).toBeNull();
+    expect(request.outputPixels?.byteLength).toBe(4*1024*1024);
+    expect(sent.transfer).toEqual([request.outputPixels]);
+    expect(takeSpareJobBuffer(4*1024*1024)).toBeNull();
+    jobs.cancel("blank");workers[0].reply({type:"done",id:1,result:{header:"cancelled",pixels:request.outputPixels!,mask:null},memory:1});
+    expect(await pending).toBeNull();expect(request.outputPixels!.byteLength).toBe(0);
+    expect(new Uint8Array(takeJobBuffer(4*1024*1024))[31]).toBe(61);
+  }finally{jobs.dispose();clearJobBuffers();}
+});
+
+it("does not loan a canvas pixel spare to a mask edit or a histogram",async()=>{
+  clearJobBuffers();const {jobs,workers}=client();
+  try{
+    releaseJobBuffer(new ArrayBuffer(4*1024*1024));
+    const request:JobRequest={kind:"edit",input:JSON.stringify({width:1024,height:1024}),pixels:null,mask:null,points:null,command:JSON.stringify({type:"Fill",mask:true}),outPerDoc:1};
+    const pending=jobs.run("mask",request);await settle();workers[0].reply({type:"ready"});await settle();
+    expect(request.outputPixels).toBeUndefined();expect(workers[0].sent[1].transfer).toEqual([]);
+    workers[0].reply(done(1,"mask"));await pending;
+    const hist=jobs.run("hist",histogram("bins"));await settle();
+    expect(workers[0].sent.at(-1)!.transfer).toHaveLength(1);
+    expect(takeSpareJobBuffer(4*1024*1024)?.byteLength).toBe(4*1024*1024);
+    workers[0].reply(done(2,"bins"));await hist;
+  }finally{jobs.dispose();clearJobBuffers();}
+});
+
+it("reclaims a completed 100 MP edit's idle scratch heap while preserving its result and queued job",async()=>{
+  const {jobs,workers}=client();const resultPixels=new ArrayBuffer(8);new Uint8Array(resultPixels).set([0,11,22,33,44,55,66,77]);
+  try{
+    const request:JobRequest={kind:"edit",input:"{}",pixels:new ArrayBuffer(4),mask:null,points:null,command:JSON.stringify({type:"ApplyAdjustment"}),outPerDoc:1};
+    const edit=jobs.run("edit",request);await settle();workers[0].reply({type:"ready"});await settle();
+    const next=jobs.run("queued",histogram("queued"));
+    // The measured 100 MP Levels heap fits the absolute 1 GiB safety cap,
+    // but its no-longer-used workspace must not overlap main-thread installation.
+    const measuredHeap=960626688;expect(measuredHeap).toBeLessThan(WORKER_MEMORY_LIMIT);
+    workers[0].reply({type:"done",id:1,result:{header:"pixels",pixels:resultPixels,mask:null},memory:measuredHeap});
+    const installed=await edit;expect(installed?.pixels).toBe(resultPixels);expect(Array.from(new Uint8Array(installed!.pixels!))).toEqual([0,11,22,33,44,55,66,77]);
+    expect(workers[0].terminated).toBe(true);await settle();expect(jobs.spawned).toBe(2);
+    workers[1].reply({type:"ready"});await settle();expect(workers[1].jobs()).toEqual([2]);
+    workers[1].reply(done(2,"queued-result"));expect((await next)?.header).toBe("queued-result");
+  }finally{jobs.dispose();}
+});
+
+it("prepares a replacement while interactive input is copied and holds reasked effects behind its request", async () => {
+  const { jobs, workers } = client();
+  try {
+    const old = jobs.run("fx:old", effects("old"));
+    await settle(); workers[0].reply({ type: "ready" }); await settle();
+    const release = jobs.prepareInteractive();
+    await expect(old).rejects.toThrow(EFFECTS_JOB_DISPLACED);
+    expect(workers[0].terminated).toBe(true);
+    expect(jobs.spawned, "replacement starts before an input/request exists").toBe(2);
+    const reasked = jobs.run("fx:new", effects("fresh"));
+    workers[1].reply({ type: "ready" }); await settle();
+    expect(workers[1].jobs(), "ready worker waits for the interactive copy").toEqual([]);
+    expect(jobs.busy).toBe(true);
+    const histogramJob = jobs.run("hist", histogram("pixels"));
+    release(); release(); await settle();
+    expect(workers[1].jobs()).toEqual([3]);
+    workers[1].reply(done(3, "bins")); expect((await histogramJob)?.header).toBe("bins");
+    await settle(); expect(workers[1].jobs()).toEqual([3, 2]);
+    workers[1].reply(done(2, "image")); expect((await reasked)?.header).toBe("image");
+    expect(jobs.busy).toBe(false);
+  } finally { jobs.dispose(); }
+});
+
+it("holds effects for overlapping preparations and late releases do not restart a disposed client", async () => {
+  const { jobs, workers } = client();
+  const first = jobs.prepareInteractive(), second = jobs.prepareInteractive();
+  const waiting = jobs.run("fx", effects("image"));
+  workers[0].reply({ type: "ready" }); first(); await settle();
+  expect(workers[0].jobs()).toEqual([]);
+  jobs.dispose(); expect(await waiting).toBeNull();
+  second(); second(); await settle();
+  expect(jobs.spawned).toBe(1); expect(jobs.busy).toBe(false);
+  expect(workers[0].terminated).toBe(true);
+});
+
+it("a replacement creation failure releases its preparation instead of leaving effects blocked", () => {
+  const jobs = new JobClient(module, () => { throw Error("worker unavailable"); });
+  expect(() => jobs.prepareInteractive()).toThrow("worker unavailable");
+  expect(jobs.busy).toBe(false); jobs.dispose();
 });

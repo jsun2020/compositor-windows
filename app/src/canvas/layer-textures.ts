@@ -4,6 +4,12 @@ export const CHUNK = 2048;
 /** A 30000-pixel side reaches 1 pixel in 15 halvings; mirrors MAX_PREFILTER_LEVEL in the engine. */
 export const MAX_PREFILTER_LEVEL = 16;
 
+/** Mac 1.4.5 LayerRenderer.interpolation copies upright pixels when its final
+ * prefilter level lands at 1:1. Drawing never changes the saved sampling mode. */
+export function pixelCopyAtScale(rotation: number, width: number, drawnWidth: number, outPerDoc: number, level: number, distorted: boolean): boolean {
+  return !distorted && rotation % 360 === 0 && width > 0 && Math.abs(drawnWidth * outPerDoc / width * 2 ** level - 1) < 0.001;
+}
+
 /**
  * Sharp halvings before the final resample, mirroring `compositor::prefilter_level` in the
  * engine exactly: halve until one output pixel covers at most 2 source pixels, stopping when
@@ -78,7 +84,12 @@ export class LayerTextures {
     const existing = this.layers.get(k);
     if (!pixels || size.width === 0 || size.height === 0) { if (existing) this.remove(docId, id); return; }
     if (existing && existing.key === bytesKey && existing.level === level && existing.nearest === nearest) return;
-    if (existing) this.remove(docId, id);
+    // A whole upload still replaces every texel, but a same-sized result need
+    // not destroy/recreate its GL objects. The source prefilter level can change
+    // when a reduced preview becomes the full result without changing this grid.
+    // Keep the chunk objects, replace every texel and update their filters/metadata.
+    const reuse = existing && existing.width === size.width && existing.height === size.height ? existing : undefined;
+    if (existing && !reuse) this.remove(docId, id);
     const gl = this.gl;
     const chunks: Chunk[] = [];
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, size.width);
@@ -86,7 +97,7 @@ export class LayerTextures {
     for (let y = 0; y < size.height; y += CHUNK) {
       for (let x = 0; x < size.width; x += CHUNK) {
         const width = Math.min(CHUNK, size.width - x), height = Math.min(CHUNK, size.height - y);
-        const texture = gl.createTexture()!;
+        const texture = reuse?.chunks[chunks.length]?.texture ?? gl.createTexture()!;
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
         gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y);

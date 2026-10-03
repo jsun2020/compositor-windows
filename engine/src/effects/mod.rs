@@ -53,7 +53,7 @@ fn fnv1a(text: &str) -> u64 {
 pub fn effects_draw(layer: &Layer, edit: Option<&PreviewEdit>) -> Option<EffectsDraw> {
     if layer.is_group || layer.is_adjustment() { return None; }
     let pixels = layer.pixels.as_ref()?;
-    let effects = layer.extra.effects.as_ref()?.drawn()?;
+    let effects = match edit {Some(PreviewEdit::Effects{id,effects}) if *id==layer.id=>effects.as_ref(),_=>layer.extra.effects.as_ref()}?.drawn()?;
     if !effects.fits(pixels.width, pixels.height) { return None; }
     let inset = effects.margin();
     let (transform, corners) = displayed_transform(layer, edit);

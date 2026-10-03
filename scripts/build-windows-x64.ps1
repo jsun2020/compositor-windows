@@ -52,6 +52,7 @@ try {
   $stage = Join-Path $outDir "Compositor-portable-$version-$stamp"
   New-Item -ItemType Directory -Force $stage | Out-Null
   Copy-Item $exe (Join-Path $stage 'Compositor.exe')
+  Copy-Item (Join-Path $root 'engine/native/LICENSE-Compositor.txt') (Join-Path $stage 'LICENSE-Compositor.txt')
   @(
     "Compositor for Windows $version ($marker)",
     'Portable build: run Compositor.exe. Requires the Microsoft Edge WebView2 Runtime (preinstalled on Windows 10 19045 and later).',

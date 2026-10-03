@@ -83,6 +83,34 @@ pub fn group_layers(doc: &mut Document, ids: &[Uuid]) -> Result<Uuid, CommandErr
     Ok(gid)
 }
 
+/// Ungroup Layers (`ungroupLayers`, LayerGroups.swift:214-239 at v1.4.5): the folder's direct children
+/// take its place among its own siblings, in the order they had inside it, and the folder goes, its own
+/// opacity, blend mode, mask and effects with it, as Photoshop's Ungroup does. A clipped layer no longer
+/// next to its base stops clipping (`releaseDetachedClipping`). The first child becomes the active
+/// layer (`selectLayers(childIDs, primary: children.first?.id)`); the children, bottom first, are
+/// returned for the app to select.
+pub fn ungroup_layers(doc: &mut Document, id: Uuid) -> Result<Vec<Uuid>, CommandError> {
+    let group = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    if !group.is_group { return Err(CommandError::Argument("only a folder can be ungrouped".into())); }
+    let parent = group.parent_id;
+    let child_ids: HashSet<Uuid> = doc.layers.iter().filter(|l| l.parent_id == Some(id)).map(|l| l.id).collect();
+    let children: Vec<Layer> = doc.layers.iter().filter(|l| child_ids.contains(&l.id)).cloned()
+        .map(|mut l| { l.parent_id = parent; l }).collect();
+    // Spliced in at the folder's own spot, so they land exactly where it sat among its siblings.
+    let mut layers: Vec<Layer> = Vec::with_capacity(doc.layers.len());
+    for layer in &doc.layers {
+        if layer.id == id { layers.extend(children.iter().cloned()); }
+        else if !child_ids.contains(&layer.id) { layers.push(layer.clone()); }
+    }
+    release_detached_clipping(&mut layers);
+    let ordered: Vec<Uuid> = children.iter().map(|l| l.id).collect();
+    // The folder may be the active layer; it is gone, so the active layer moves before the check.
+    let previous = (std::mem::replace(&mut doc.layers, layers), doc.active_layer_id);
+    doc.active_layer_id = ordered.first().copied();
+    if let Err(e) = validate(doc) { (doc.layers, doc.active_layer_id) = previous; return Err(e); }
+    Ok(ordered)
+}
+
 pub fn can_place(doc: &Document, id: Uuid, parent: Option<Uuid>) -> bool {
     if doc.layer(id).is_none() { return false; }
     let Some(parent) = parent else { return true; };

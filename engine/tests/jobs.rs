@@ -65,8 +65,8 @@ fn an_edit_made_by_a_job_and_put_back_equals_the_edit_made_in_place() {
         let depth = there.state(tid).unwrap().undo_depth;
         run(&mut here, id, commands(layer)[i].clone());
         let (input, pixels, mask, points) = crossed(&there, tid, tlayer);
-        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), commands(tlayer)[i].clone()).unwrap();
-        there.install_job(tid, tlayer, input.stamp, output, new_pixels, new_mask).unwrap();
+        let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), commands(tlayer)[i].clone(), 0.0).unwrap();
+        there.install_job(tid, tlayer, input.stamp, output, new_pixels, new_mask, None).unwrap();
         let (a, b) = (&here.document(id).unwrap().layers[0], &there.document(tid).unwrap().layers[0]);
         assert_eq!(a.pixels.as_ref().unwrap().bytes(), b.pixels.as_ref().unwrap().bytes(), "command {i}: pixels");
         assert_eq!(a.transform, b.transform, "command {i}: transform");
@@ -80,11 +80,26 @@ fn a_job_inside_a_selection_brings_its_changed_rectangle_back() {
     let (mut e, id, layer) = document();
     let before = e.state(id).unwrap().layers[0].pixels_revision;
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }, 0.0).unwrap();
     assert!(new_mask.is_none(), "the mask was not touched, so it does not travel back");
     assert_eq!(output.regions.len(), 1);
-    e.install_job(id, layer, input.stamp, output.clone(), new_pixels, new_mask).unwrap();
+    e.install_job(id, layer, input.stamp, output.clone(), new_pixels, new_mask, None).unwrap();
     assert_eq!(e.pixels_delta(id, layer, before).unwrap(), Some(output.regions[0].1));
+}
+
+#[test]
+fn a_large_partial_job_brings_an_independently_correct_display_level_back() {
+    let mut doc=Document::new(4001,1000);
+    let layer=Layer::with_pixels("Pattern",pattern(4001,1000),p(0.0,0.0));let id=layer.id;
+    doc.active_layer_id=Some(id);doc.layers.push(layer);let mut e=Engine::new();let handle=e.insert_document(doc);
+    run(&mut e,handle,Command::SelectShape{kind:SelectionShape::Rectangle,points:vec![p(20.0,20.0),p(36.0,20.0),p(36.0,28.0),p(20.0,28.0)],mode:SelectionMode::Replace,antialiased:false});
+    let (input,pixels,mask,points)=crossed(&e,handle,id);
+    let (output,new_pixels,new_mask,display)=run_edit_job(&input,pixels,mask,points.as_deref(),Command::InvertPixels{id,mask:false},0.1).unwrap();
+    assert_eq!(output.regions.len(),1);let spec=output.display.expect("large partial edit supplies a display level");let image=new_pixels.unwrap();
+    let truth=Raster::from_premultiplied(image.width,image.height,image.bytes().to_vec()).reduced(spec.level);
+    assert_eq!(display.as_ref().unwrap().bytes(),truth.bytes());
+    e.install_job(handle,id,input.stamp,output,Some(image),new_mask,display).unwrap();
+    assert_eq!(e.document(handle).unwrap().layer(id).unwrap().pixels.as_ref().unwrap().reduced(spec.level).bytes(),truth.bytes());
 }
 
 #[test]
@@ -92,14 +107,14 @@ fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
     for change in ["pixels", "transform", "mask"] {
         let (mut e, id, layer) = document();
         let (input, pixels, mask, points) = crossed(&e, id, layer);
-        let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+        let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }, 0.0).unwrap();
         match change {
             "pixels" => run(&mut e, id, Command::InvertPixels { id: layer, mask: false }),
             "transform" => run(&mut e, id, Command::NudgeLayers { ids: vec![layer], dx: 1.0, dy: 0.0 }),
             _ => run(&mut e, id, Command::FillMask { id: layer, white: true }),
         }
         let (doc, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
-        let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask);
+        let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None);
         assert_eq!(refused, Err(CommandError::Refused(LAYER_CHANGED.into())), "{change}");
         assert!(e.document(id).unwrap().same_content(&doc), "{change}: untouched");
         assert_eq!(e.state(id).unwrap().undo_depth, depth, "{change}: nothing recorded");
@@ -107,9 +122,9 @@ fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
     // A change that leaves the layer's pixels, mask and place alone does not stop it.
     let (mut e, id, layer) = document();
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }, 0.0).unwrap();
     run(&mut e, id, Command::RenameLayer { id: layer, name: "Renamed".into() });
-    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None).unwrap();
     assert_eq!(e.state(id).unwrap().layers[0].name, "Renamed");
 }
 
@@ -120,11 +135,11 @@ fn a_job_is_not_put_back_onto_a_layer_that_changed_meanwhile() {
 fn a_selection_change_between_job_input_and_install_refuses_the_result() {
     let (mut e, id, layer) = document();
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }, 0.0).unwrap();
     // Nothing about the layer itself changes: only the selection a clipped job was computed against.
     run(&mut e, id, Command::Deselect);
     let (doc, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
-    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask);
+    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None);
     assert_eq!(refused, Err(CommandError::Refused(LAYER_CHANGED.into())));
     assert!(e.document(id).unwrap().same_content(&doc), "untouched");
     assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
@@ -138,14 +153,14 @@ fn a_top_left_canvas_size_between_job_input_and_install_refuses_the_result() {
     let (mut e, id, layer) = document();
     run(&mut e, id, Command::Deselect); // isolate the canvas size: no selection change either
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::ApplyAdjustment { id: layer, adjustment: levels() }, 0.0).unwrap();
     let before = e.document(id).unwrap().layers[0].clone();
     run(&mut e, id, Command::CanvasSize { width: 200, height: 150, anchor: 0, fill: None });
     let after = e.document(id).unwrap().layers[0].clone();
     assert_eq!(before.transform, after.transform, "a top-left anchor leaves this layer's transform alone");
     assert_eq!(before.pixels_revision, after.pixels_revision, "and its pixels");
     let (doc, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
-    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask);
+    let refused = e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None);
     assert_eq!(refused, Err(CommandError::Refused(LAYER_CHANGED.into())));
     assert!(e.document(id).unwrap().same_content(&doc), "untouched");
     assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
@@ -177,13 +192,13 @@ fn a_fractional_transform_survives_the_json_the_wasm_bridge_uses_for_install() {
     assert_eq!(input.stamp.transform.origin, origin, "the stamp survives prepare_job's JSON round trip");
 
     // The worker's edit (one that does not move the layer) and its own JSON (JobOutput).
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::InvertPixels { id: layer, mask: false }, 0.0).unwrap();
     let output: JobOutput = serde_json::from_str(&serde_json::to_string(&output).unwrap()).unwrap();
     assert_eq!(output.transform.origin, origin, "an edit that does not move the layer reports the same origin, exactly");
 
     // `install_job`'s own JSON of the stamp it is handed back (`stamp_json`).
     let stamp: LayerStamp = serde_json::from_str(&serde_json::to_string(&input.stamp).unwrap()).unwrap();
-    e.install_job(id, layer, stamp, output, new_pixels, new_mask).unwrap();
+    e.install_job(id, layer, stamp, output, new_pixels, new_mask, None).unwrap();
     assert_eq!(e.document(id).unwrap().layers[0].transform.origin, origin, "install keeps the exact origin");
 }
 
@@ -237,10 +252,10 @@ fn a_job_whose_result_passes_the_mask_budget_is_not_put_back() {
     assert_eq!(e.execute(id, fill.clone()), Err(CommandError::Project(ProjectError::TooLarge)), "in place");
     // Through a job: the worker sees one layer and makes the result...
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), fill).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), fill, 0.0).unwrap();
     assert_eq!(output.mask.map(|(w, h)| w as u64 * h as u64), Some(grown), "the worker grew the mask with its layer");
     // ...and the install refuses it.
-    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask), Err(CommandError::Project(ProjectError::TooLarge)));
+    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None), Err(CommandError::Project(ProjectError::TooLarge)));
     assert!(e.document(id).unwrap().same_content(&before), "untouched");
     assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
     assert_eq!(e.document(id).unwrap().used_mask_pixels(), held + own, "the budget as it was");
@@ -260,17 +275,17 @@ fn a_job_whose_result_passes_the_pixel_budget_is_not_put_back() {
     let (before, depth) = (e.document(id).unwrap().clone(), e.state(id).unwrap().undo_depth);
     assert_eq!(e.execute(id, fill.clone()), Err(CommandError::Project(ProjectError::TooLarge)), "in place");
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), fill).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), fill, 0.0).unwrap();
     assert_eq!(output.pixels.map(|(w, h)| w as u64 * h as u64), Some(grown), "the worker grew the layer");
-    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask), Err(CommandError::Project(ProjectError::TooLarge)));
+    assert_eq!(e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None), Err(CommandError::Project(ProjectError::TooLarge)));
     assert!(e.document(id).unwrap().same_content(&before), "untouched");
     assert_eq!(e.state(id).unwrap().undo_depth, depth, "nothing recorded");
     assert_eq!(e.document(id).unwrap().used_pixels(), held + own, "the budget as it was");
     // With room for it (one hog fewer), the same job's result goes back as one step.
     let (mut e, id, layer) = crowded(None, false, hogs - 1, hog);
     let (input, pixels, mask, points) = crossed(&e, id, layer);
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }).unwrap();
-    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }, 0.0).unwrap();
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None).unwrap();
     assert_eq!(e.document(id).unwrap().used_pixels(), held - hog.0 as u64 * hog.1 as u64 + grown);
 }
 

@@ -1,13 +1,14 @@
-//! Probe `.comp` projects for the user to open in Compositor for Mac (1.2.10 or later) (Task 7).
-//! Each one is built and saved through this build's own `save_package`, so it is a real, valid v9
-//! project; the ignored test below re-opens every one with `open_package` as a sanity floor,
-//! then writes it (and a README telling the user what to do with it) to
-//! `build-artifacts/mac-probes/`, which is git-ignored.
+//! Probe `.comp` projects for the user to open in Compositor for Mac 1.4.5 (Task 7; the Mac the
+//! user runs since 2026-09-30). Each one is built and saved through this build's own
+//! `save_package`, so it is a real, valid project; the ignored test below re-opens every one with
+//! `open_package` as a sanity floor, then writes it (and a README telling the user what to do with
+//! it) to `build-artifacts/mac-probes/`, which is git-ignored.
 //!
-//! The Mac's renders of the first seven are committed under tests/fixtures/mac-1.2.10-probes
-//! and compared in mac_1_2_10.rs. The rest settle what those could not (the light blend modes,
-//! Color Balance, the blurs, Add Noise, the cgMode path of adjustment layers and clipped groups)
-//! and join mac_1_2_10.rs when their renders come back.
+//! The Mac 1.2.10 renders of the earlier sets are committed under tests/fixtures/mac-1.2.10-probes
+//! and compared in mac_1_2_10.rs; the Phase 4b-1 renders under tests/fixtures/mac-4b1-probes
+//! (mac_4b1_probes.rs). The Phase 4.5 set settles what Compositor 1.4.5 changed: Soft Light, the
+//! modes of adjustment layers and clipping stacks, positive saturation, the upright 1:1 copy and
+//! Add Mask with a selection (docs/superpowers/research/mac-1.4.5-delta.md, section 5).
 
 use compositor_engine::*;
 use std::fs;
@@ -398,7 +399,7 @@ This folder holds test projects for Compositor on the Mac.
 
 For each project listed below:
 
-1. Open it in Compositor for Mac (1.2.10 or later).
+1. Open it in Compositor for Mac 1.4.5.
 2. Confirm it opens without an error.
 3. File > Export > PNG, at 100%, into a folder named mac-exports, using the file name given below.
 4. Send the mac-exports folder back.
@@ -494,6 +495,70 @@ above, and send the .comp folder with it.
   Click the foreground colour swatch, type 0000FF in the # field, click OK. Press G. Choose Linear
   and Foreground to Transparent, Reverse off, and type 37 in Opacity. Press Cmd-1. Hold Shift and
   drag from the canvas's left edge to its right edge, then press Return. Save and export.
+
+Phase 4.5: everything below is for Compositor for Mac 1.4.5. Where a step says to save, send the
+saved .comp folder back too (zipped), beside the PNG.
+
+Export these six again from 1.4.5, with the same file names as before (1.4.5 draws them
+differently from 1.2.10):
+
+- blend-greys.comp             -> blend-greys.png
+- new-blend-modes.comp         -> new-blend-modes.png
+- cgmode-blur-linear-burn.comp -> cgmode-blur-linear-burn.png
+- cgmode-levels-divide.comp    -> cgmode-levels-divide.png
+- color-dodge-adjustment.comp  -> color-dodge-adjustment.png
+- cgmode-stack-bases.comp      -> cgmode-stack-bases.png
+
+New in this set (blend modes, saturation, layers drawn one pixel for one pixel):
+
+- soft-light-dark.comp               -> soft-light-dark.png
+- stack-modes.comp                   -> stack-modes.png
+- adjustment-modes-soft-light.comp   -> adjustment-modes-soft-light.png
+- adjustment-modes-linear-dodge.comp -> adjustment-modes-linear-dodge.png
+- adjustment-modes-vivid-light.comp  -> adjustment-modes-vivid-light.png
+- adjustment-modes-hard-mix.comp     -> adjustment-modes-hard-mix.png
+- hsv-sat-plus-25.comp               -> hsv-sat-plus-25.png
+- hsv-sat-plus-50.comp               -> hsv-sat-plus-50.png
+- hsv-sat-plus-62.comp               -> hsv-sat-plus-62.png
+- hsv-sat-plus-100.comp              -> hsv-sat-plus-100.png
+- hsv-sat-minus-50.comp              -> hsv-sat-minus-50.png
+- hsv-reds-plus-50.comp              -> hsv-reds-plus-50.png
+- sampling-upright-1to1.comp         -> sampling-upright-1to1.png
+
+New in this set, finished by hand on the Mac, then saved (File > Save) and exported:
+
+- mask-reveal-selection.comp -> mask-reveal-selection.png
+  View > Snap To: turn Guides on. Choose the Marquee (press M), then press Tab (or click Ellipse in
+  the Shape control of the tool options bar) until the elliptical marquee is selected. Leave
+  Anti-alias on and do not use Feather (a freshly dragged marquee is not feathered). In the Layers
+  panel click Reveal. Drag from where the upper guides cross at the top left (x 50, y 35) to where
+  they cross at the bottom right (x 190, y 105). Click the Add Mask button at the foot of the
+  Layers panel. Then click Hide, drag the same ellipse from (50, 145) to (190, 215), and
+  Option-click the Add Mask button. Save, then export.
+
+Made on the Mac from nothing in this folder (the first two) or from edited-rich-file.comp:
+
+- text-runs.comp -> text-runs.png
+  File > New Canvas, 480 x 200. With the Type tool (T) click near the top left and type
+  Hello World. Select the word World and colour it red (FF0000). Select the word Hello and choose
+  another installed face for it, for example Helvetica Bold or Times New Roman. Click outside the
+  text to finish it. With the Type tool click lower down and type Plain, and finish it. Save as
+  text-runs.comp, then export.
+
+- text-colour-only.comp -> text-colour-only.png
+  File > New Canvas, 300 x 120. With the Type tool type Colour Only. Select the word Only and
+  colour it blue (0000FF); leave the face as it is. Finish the text. Save as
+  text-colour-only.comp, then export.
+
+- resaved-edited-rich-file.comp -> resaved-edited-rich-file.png
+  Open edited-rich-file.comp from this folder and change nothing. File > Save As,
+  resaved-edited-rich-file.comp. Then export.
+
+Written by Compositor for Windows at project format 11 (0.6.0 and later):
+
+- port-v11-roundtrip.comp -> port-v11-roundtrip.png
+  It must open without an error. Export it, then File > Save As port-v11-roundtrip.resaved.comp
+  and send that back too.
 ";
 
 /// 7. RULING (F5, replacing the M9 tautological final-existence loop): the Mac acceptance probe.
@@ -710,6 +775,153 @@ fn phase_4b1_probes() -> Vec<(&'static str, Document)> {
     ]
 }
 
+/// Every blend mode in the Mac's own order (`LayerBlendMode.allCases`, LayerAppearance.swift:4-13 at
+/// v1.4.5): the order of `stack-modes.comp`'s cells.
+const MAC_MODES: [BlendMode; 24] = [
+    BlendMode::Normal, BlendMode::Darken, BlendMode::Multiply, BlendMode::ColorBurn, BlendMode::LinearBurn,
+    BlendMode::Lighten, BlendMode::Screen, BlendMode::ColorDodge, BlendMode::LinearDodge,
+    BlendMode::Overlay, BlendMode::SoftLight, BlendMode::HardLight, BlendMode::VividLight, BlendMode::LinearLight,
+    BlendMode::PinLight, BlendMode::HardMix, BlendMode::Difference, BlendMode::Exclusion, BlendMode::Subtract,
+    BlendMode::Divide, BlendMode::Hue, BlendMode::Saturation, BlendMode::Color, BlendMode::Luminosity,
+];
+
+/// A mode's name as the manifest spells it.
+fn mode_name(mode: BlendMode) -> String { serde_json::to_value(mode).unwrap().as_str().unwrap().to_string() }
+
+/// The dark backdrop greys of `soft-light-dark.comp`: 0 to 64, one per 4-px column.
+const DARK_STEPS: u32 = 65;
+/// The source greys and alphas of `soft-light-dark.comp`'s ten bands: 0.5 to 1.0, opaque, then the
+/// same at half alpha.
+const LIGHT_SOURCES: [(u32, u32); 10] = [(128, 255), (160, 255), (192, 255), (224, 255), (255, 255), (128, 128), (160, 128), (192, 128), (224, 128), (255, 128)];
+
+/// `soft-light-dark.comp` (B2): a grey backdrop running 0 to 64 (cb <= 0.25, where the W3C formula's
+/// D(cb) is not Photoshop's square root) under ten 12-row Soft Light bands of light greys, opaque and
+/// at half alpha (mac-1.4.5-delta.md, 2.1).
+fn soft_light_dark_doc() -> Document {
+    let (width, height) = (DARK_STEPS * 4, 12 * LIGHT_SOURCES.len() as u32);
+    let mut doc = Document::new(width, height);
+    let ramp: Vec<u8> = (0..height).flat_map(|_| (0..width).flat_map(|x| { let v = (x / 4) as u8; [v, v, v, 255] })).collect();
+    let mut layers = vec![Layer::with_pixels("Dark ramp", Raster::from_premultiplied(width, height, ramp), Point { x: 0.0, y: 0.0 })];
+    for (band, (grey, alpha)) in LIGHT_SOURCES.iter().enumerate() {
+        let v = ((grey * alpha + 127) / 255) as u8;
+        let mut l = solid_rect(&format!("Soft Light {grey} at {alpha}"), [v, v, v, *alpha as u8], width, 12, 0.0, band as f64 * 12.0);
+        l.blend_mode = BlendMode::SoftLight;
+        layers.push(l);
+    }
+    doc.layers = layers;
+    doc
+}
+
+/// `stack-modes.comp` (B3): 24 clipping stacks over the hue sweep, six across and four down in 40-px
+/// cells, in `MAC_MODES` order: an opaque 30 x 30 base in that mode and a half-alpha 20 x 30 child
+/// clipped to it (mac-1.4.5-delta.md, 2.2).
+fn stack_modes_doc() -> Document {
+    let mut doc = Document::new(240, 160);
+    let mut layers = vec![Layer::with_pixels("Hue sweep", colourful_gradient(240, 160), Point { x: 0.0, y: 0.0 })];
+    for (i, mode) in MAC_MODES.iter().enumerate() {
+        let (x, y) = ((i % 6) as f64 * 40.0 + 5.0, (i / 6) as f64 * 40.0 + 5.0);
+        let mut base = solid_rect(&format!("{} base", mode_name(*mode)), [60, 150, 110, 255], 30, 30, x, y);
+        base.blend_mode = *mode;
+        let mut child = solid_rect(&format!("{} child", mode_name(*mode)), [40, 20, 90, 128], 20, 30, x + 10.0, y);
+        child.mask_source_id = Some(base.id);
+        layers.push(base);
+        layers.push(child);
+    }
+    doc.layers = layers;
+    doc
+}
+
+/// A Hue/Saturation adjustment layer's settings: `saturation` on `range` (the Master scalars too, as
+/// the Mac keeps them for Master).
+fn hue_saturation(range: ColorRange, saturation: f64) -> LayerAdjustment {
+    let mut a = LayerAdjustment::new(AdjustmentKind::Hsv);
+    a.hsv_settings = Some(HueSaturationSettings::new(0.0, saturation, 0.0, false, range));
+    if range == ColorRange::Master { a.saturation = saturation; }
+    a
+}
+
+/// The Master saturations of the `hsv-sat-*` probes (B5), with their names.
+const MASTER_SATURATIONS: [(&str, f64); 5] = [("hsv-sat-plus-25.comp", 25.0), ("hsv-sat-plus-50.comp", 50.0), ("hsv-sat-plus-62.comp", 62.0),
+    ("hsv-sat-plus-100.comp", 100.0), ("hsv-sat-minus-50.comp", -50.0)];
+
+/// `sampling-upright-1to1.comp` (B6): the sampling pattern drawn one pixel for one pixel, upright, at a
+/// fractional origin: at (10.5, 20.25), and flipped at (10.25, 44). Compositor 1.4.5 copies such a
+/// layer straight across (LayerRenderer.swift:39-47); 1.2.10 filtered it (mac-1.4.5-delta.md, 2.9).
+fn sampling_upright_doc() -> Document {
+    let mut doc = Document::new(96, 72);
+    let first = Layer::with_pixels("Upright", sampling_pattern(), Point { x: 10.5, y: 20.25 });
+    let mut second = Layer::with_pixels("Upright flipped", sampling_pattern(), Point { x: 10.25, y: 44.0 });
+    second.transform.flip_x = true;
+    doc.layers = vec![first, second];
+    doc
+}
+
+/// The guides `mask-reveal-selection.comp` (A6) aims the ellipses at: x 50 and 190, and y 35, 105,
+/// 145 and 215 (an ellipse from (50, 35) to (190, 105) over Reveal, and from (50, 145) to (190, 215)
+/// over Hide).
+const MASK_GUIDES: [(GuideAxis, f64); 6] = [(GuideAxis::Vertical, 50.0), (GuideAxis::Vertical, 190.0), (GuideAxis::Horizontal, 35.0),
+    (GuideAxis::Horizontal, 105.0), (GuideAxis::Horizontal, 145.0), (GuideAxis::Horizontal, 215.0)];
+
+/// `mask-reveal-selection.comp` (A6): two 200 x 100 layers on a 240 x 250 canvas, Reveal at (20, 20)
+/// and Hide at (20, 130), and the guides the user drags an antialiased elliptical marquee between on
+/// the Mac before Add Mask (Reveal) and Option-click Add Mask (Hide) (mac-1.4.5-delta.md, 2.4).
+fn mask_reveal_doc() -> Document {
+    let mut doc = Document::new(240, 250);
+    doc.layers = vec![
+        solid_rect("Reveal", [200, 60, 40, 255], 200, 100, 20.0, 20.0),
+        solid_rect("Hide", [40, 90, 200, 255], 200, 100, 20.0, 130.0),
+    ];
+    doc.guides = MASK_GUIDES.iter().map(|(axis, position)| Guide { id: uuid::Uuid::new_v4(), axis: *axis, position: *position }).collect();
+    doc
+}
+
+/// The Phase 4.5 probes the port can write (B2-B6, and A6's canvas); the hand-made ones (A1-A3) are
+/// only in the README.
+fn phase_4_5_probes() -> Vec<(&'static str, Document)> {
+    let mut probes = vec![("soft-light-dark.comp", soft_light_dark_doc()), ("stack-modes.comp", stack_modes_doc())];
+    for (name, mode) in [("adjustment-modes-soft-light.comp", BlendMode::SoftLight), ("adjustment-modes-linear-dodge.comp", BlendMode::LinearDodge),
+        ("adjustment-modes-vivid-light.comp", BlendMode::VividLight), ("adjustment-modes-hard-mix.comp", BlendMode::HardMix)] {
+        probes.push((name, over_sweep(levels_to_mid_grey(), mode, 0.6)));
+    }
+    for (name, saturation) in MASTER_SATURATIONS { probes.push((name, over_sweep(hue_saturation(ColorRange::Master, saturation), BlendMode::Normal, 1.0))); }
+    probes.push(("hsv-reds-plus-50.comp", over_sweep(hue_saturation(ColorRange::Reds, 50.0), BlendMode::Normal, 1.0)));
+    probes.push(("sampling-upright-1to1.comp", sampling_upright_doc()));
+    probes.push(("mask-reveal-selection.comp", mask_reveal_doc()));
+    probes
+}
+
+/// A5 `port-v11-roundtrip.comp` (Phase 4.5 Task 5): what this build writes at format 11, for the Mac
+/// to open (without an error), export and save again: a text layer in a folder carrying both kinds of
+/// run (TypeTool.swift:190-202 at v1.4.5), its mask, a Levels adjustment layer and a guide. Opened
+/// here through `open_package`, as a Mac file would be, so the runs are the verbatim values the port
+/// keeps.
+fn port_v11_roundtrip_doc() -> Document {
+    let (folder, text, adj) = ("5A1B2C3D-4E5F-4A6B-8C7D-111111111111", "5A1B2C3D-4E5F-4A6B-8C7D-222222222222", "5A1B2C3D-4E5F-4A6B-8C7D-333333333333");
+    let transform = |x: i64, y: i64, w: i64, h: i64| serde_json::json!({ "origin": [x, y], "size": [w, h], "rotation": 0, "flipX": false, "flipY": false, "sampling": "High quality" });
+    let manifest = serde_json::json!({
+        "format": "com.compositor.project", "version": 11, "colorSpace": "sRGB", "resolution": 72,
+        "documentID": "5A1B2C3D-4E5F-4A6B-8C7D-000000000000", "width": 240, "height": 120, "activeLayerID": text,
+        "guides": [ { "axis": "horizontal", "id": "5A1B2C3D-4E5F-4A6B-8C7D-444444444444", "position": 60 } ],
+        "layers": [
+            { "id": folder, "name": "Folder", "isVisible": true, "isGroup": true, "opacity": 0.8, "transform": transform(0, 0, 240, 120) },
+            { "id": text, "name": "Hello World", "isVisible": true, "parentID": folder, "imageFile": format!("{text}.png"),
+              "maskFile": format!("{text}.mask.png"), "maskEnabled": true, "transform": transform(20, 30, 200, 60),
+              "text": { "alignment": "Left", "blue": 0, "content": "Hello World", "fontName": "Helvetica", "fontSize": 40, "green": 0,
+                        "leading": 0, "red": 0, "tracking": 0,
+                        "colorRuns": [ { "location": 6, "length": 5, "red": 1, "green": 0, "blue": 0 } ],
+                        "fontRuns": [ { "location": 0, "length": 5, "fontName": "Helvetica-Bold" } ] } },
+            { "id": adj, "name": "Levels", "isVisible": true, "transform": transform(0, 0, 240, 120),
+              "adjustment": serde_json::to_value(LayerAdjustment::new(AdjustmentKind::Levels)).unwrap() }
+        ]
+    });
+    let ramp: Vec<u8> = (0..60u32).flat_map(|y| (0..200u32).map(move |x| ((x + y) * 255 / 258) as u8)).collect();
+    let package = Package { manifest_json: manifest.to_string(), images: vec![
+        (format!("{text}.png"), encode_png(&colourful_gradient(200, 60), 72.0).unwrap()),
+        (format!("{text}.mask.png"), encode_gray_png(&GrayRaster::from_bytes(200, 60, ramp)).unwrap()),
+    ] };
+    open_package(&package).unwrap_or_else(|e| panic!("port-v11-roundtrip.comp: does not open: {e:?}"))
+}
+
 /// Saves `doc` as `<dir>/<filename>/manifest.json` plus its `images/`, then re-opens the saved
 /// package with `open_package` -- every probe must be openable by this build's own reader before
 /// it is ever sent to a Mac.
@@ -764,6 +976,8 @@ fn write_mac_probes() {
     for (name, doc) in sampling_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in step_probes() { write_probe(&dir, name, &doc); }
     for (name, doc) in phase_4b1_probes() { write_probe(&dir, name, &doc); }
+    for (name, doc) in phase_4_5_probes() { write_probe(&dir, name, &doc); }
+    write_probe(&dir, "port-v11-roundtrip.comp", &port_v11_roundtrip_doc());
 
     fs::write(dir.join("README.txt"), README_TXT).unwrap_or_else(|e| panic!("failed to write README.txt: {e}"));
     assert!(README_TXT.is_ascii(), "README.txt must be ASCII only");
@@ -860,6 +1074,74 @@ fn every_4b1_probe_is_listed_and_every_shape_is_one_the_mac_will_redraw() {
 }
 
 #[test]
+fn every_4_5_probe_is_listed_and_holds_what_it_is_named_for() {
+    let probes = phase_4_5_probes();
+    assert_eq!(probes.len(), 14);
+    for (name, _) in &probes { assert!(README_TXT.contains(&format!("- {name}")), "{name} is in the README"); }
+    let get = |n: &str| &probes.iter().find(|(name, _)| *name == n).unwrap_or_else(|| panic!("{n}")).1;
+    // B2: a backdrop from 0 to 64 (cb <= 0.25) under ten Soft Light bands of greys from 0.5 up.
+    let dark = get("soft-light-dark.comp");
+    let ramp = dark.layers[0].pixels.as_ref().unwrap();
+    assert_eq!((ramp.pixel(0, 0), ramp.pixel(ramp.width - 1, 0)), ([0, 0, 0, 255], [64, 64, 64, 255]));
+    assert_eq!(dark.layers.len(), 1 + LIGHT_SOURCES.len());
+    for (layer, (grey, alpha)) in dark.layers[1..].iter().zip(LIGHT_SOURCES) {
+        let p = layer.pixels.as_ref().unwrap().pixel(0, 0);
+        assert_eq!(layer.blend_mode, BlendMode::SoftLight, "{}", layer.name);
+        assert!(grey >= 128 && p[3] as u32 == alpha && (p[0] as f64 / p[3] as f64 - grey as f64 / 255.0).abs() < 0.005, "{}: {p:?}", layer.name);
+    }
+    // B3: 24 stacks with their bases in the Mac's order, each child clipped to the base just below it.
+    let stacks = get("stack-modes.comp");
+    let bases: Vec<BlendMode> = stacks.layers.iter().filter(|l| l.name.ends_with(" base")).map(|l| l.blend_mode).collect();
+    assert_eq!(bases, MAC_MODES.to_vec());
+    for pair in stacks.layers[1..].chunks(2) { assert_eq!(pair[1].mask_source_id, Some(pair[0].id), "{}", pair[1].name); }
+    // B4: Levels to mid grey at 60 % in the mode each is named for.
+    for (name, mode) in [("adjustment-modes-soft-light.comp", BlendMode::SoftLight), ("adjustment-modes-linear-dodge.comp", BlendMode::LinearDodge),
+        ("adjustment-modes-vivid-light.comp", BlendMode::VividLight), ("adjustment-modes-hard-mix.comp", BlendMode::HardMix)] {
+        let layer = &get(name).layers[1];
+        assert_eq!((layer.blend_mode, layer.opacity, layer.extra.adjustment.as_ref().unwrap().kind), (mode, 0.6, AdjustmentKind::Levels), "{name}");
+    }
+    // B5: the saturation each is named for, on Master or on Reds alone.
+    for (name, saturation) in MASTER_SATURATIONS {
+        let hsv = get(name).layers[1].extra.adjustment.as_ref().unwrap().resolved_hsv();
+        assert_eq!(hsv.adjustment(ColorRange::Master).saturation, saturation, "{name}");
+    }
+    let reds = get("hsv-reds-plus-50.comp").layers[1].extra.adjustment.as_ref().unwrap().resolved_hsv();
+    assert_eq!((reds.adjustment(ColorRange::Reds).saturation, reds.adjustment(ColorRange::Master)), (50.0, RangeAdjustment::default()));
+    // B6: upright layers drawn one pixel for one pixel, at fractional origins, one of them flipped.
+    let upright = get("sampling-upright-1to1.comp");
+    for layer in &upright.layers {
+        let (p, t) = (layer.pixels.as_ref().unwrap(), layer.transform);
+        assert_eq!((t.size.width, t.size.height, t.rotation), (p.width as f64, p.height as f64, 0.0), "{}", layer.name);
+        assert!(t.origin.x.fract() != 0.0, "{}: a fractional origin", layer.name);
+    }
+    assert_eq!(upright.layers.iter().filter(|l| l.transform.flip_x).count(), 1);
+    // A6: each guided ellipse lies inside the layer it is drawn over.
+    let masks = get("mask-reveal-selection.comp");
+    assert_eq!(masks.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Reveal", "Hide"]);
+    for (layer, (top, bottom)) in masks.layers.iter().zip([(35.0, 105.0), (145.0, 215.0)]) {
+        let t = layer.transform;
+        assert!(t.origin.x < 50.0 && t.origin.x + t.size.width > 190.0 && t.origin.y < top && t.origin.y + t.size.height > bottom, "{}", layer.name);
+        assert!(masks.guides.iter().any(|g| g.axis == GuideAxis::Horizontal && g.position == top) && masks.guides.iter().any(|g| g.axis == GuideAxis::Horizontal && g.position == bottom));
+    }
+    // The hand-made projects and the six re-exports are in the README, after the Phase 4.5 heading.
+    let section = &README_TXT[README_TXT.find("Phase 4.5").expect("a Phase 4.5 section")..];
+    for name in ["text-runs.comp", "text-colour-only.comp", "resaved-edited-rich-file.comp", "blend-greys.comp", "new-blend-modes.comp",
+        "cgmode-blur-linear-burn.comp", "cgmode-levels-divide.comp", "color-dodge-adjustment.comp", "cgmode-stack-bases.comp"] {
+        assert!(section.contains(&format!("- {name}")), "{name} is in the Phase 4.5 section");
+    }
+}
+
+#[test]
+fn the_round_trip_probe_is_listed_and_written_at_format_11_with_its_runs() {
+    assert!(README_TXT.contains("- port-v11-roundtrip.comp"));
+    let saved: serde_json::Value = serde_json::from_str(&save_package(&port_v11_roundtrip_doc()).unwrap().manifest_json).unwrap();
+    assert_eq!(saved["version"], 11);
+    let text = saved["layers"].as_array().unwrap().iter().find(|l| l["name"] == "Hello World").unwrap();
+    assert_eq!((text["text"]["colorRuns"][0]["location"].as_i64(), text["text"]["fontRuns"][0]["fontName"].as_str()), (Some(6), Some("Helvetica-Bold")));
+    assert!(text["maskFile"].is_string() && text["parentID"].is_string());
+}
+
+#[test]
 fn the_readme_names_the_mac_version_the_probes_are_for() {
-    assert!(README_TXT.contains("Compositor for Mac (1.2.10 or later)") && !README_TXT.contains("1.2.6"));
+    assert!(README_TXT.contains("Compositor for Mac 1.4.5") && !README_TXT.contains("1.2.10 or later") && !README_TXT.contains("1.2.6"));
 }

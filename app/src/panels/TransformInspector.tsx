@@ -3,7 +3,7 @@ import { useEditor } from "../state/store";
 import type { TransformEdit } from "../state/store";
 import type { DocumentState, LayerTransform, Sampling } from "../engine/types";
 import { activeLayer, canTransform, editedShape, groupBox, transformsAsGroup } from "../state/selection";
-import { scalePercent, scaledToPercent } from "../tools/transform-geometry";
+import { resizedTo, scalePercent, scaledToPercent } from "../tools/transform-geometry";
 
 interface PixelSize { width: number; height: number; }
 
@@ -48,8 +48,22 @@ function NumberField({ label, value, onCommit }: { label: string; value: number;
   );
 }
 
+/** Whether Shift is held: the aspect lock shows turned the other way while it is, as the Mac's button does
+ * (TransformInspector.swift:26-29 at v1.4.5, `HeldModifiers`). */
+function useHeldShift(): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => setHeld(e.shiftKey);
+    const blur = () => setHeld(false);
+    window.addEventListener("keydown", key); window.addEventListener("keyup", key); window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
+  }, []);
+  return held;
+}
+
 export function TransformInspector() {
   const s = useEditor();
+  const held = useHeldShift();
   const doc = s.activeId ? s.documents[s.activeId] : null;
   if (!doc || s.tool !== "move" || s.sheet !== null) return null;
   if (!s.transformEdit && !canTransform(doc, s.selectedLayerIds, s.maskSelected)) return null;
@@ -73,11 +87,17 @@ export function TransformInspector() {
     <NumberField key={label} label={label} value={value} onCommit={(v) => apply((t) => set(v, t))} />
   );
   const t = shape.transform;
+  const locked = s.locksTransformRatio !== held;
   return (
-    <div className="tool-options" data-testid="transform-inspector">
+    <div className="tool-options one-row" data-testid="transform-inspector">
       <span>{isMaskEdit ? "Transform Mask" : "Transform"}</span>
       {field("X", t.origin[0], (v, t) => ({ ...t, origin: [v, t.origin[1]] }))}
       {field("Y", t.origin[1], (v, t) => ({ ...t, origin: [t.origin[0], v] }))}
+      {field("W", t.size[0], (v, t) => resizedTo(t, v, true, useEditor.getState().locksTransformRatio))}
+      {field("H", t.size[1], (v, t) => resizedTo(t, v, false, useEditor.getState().locksTransformRatio))}
+      {/* Shift turns the lock the other way while dragging a handle, and the button shows it turned. */}
+      <button data-testid="transform-lock" aria-pressed={locked} title="Lock aspect ratio. Hold Shift while dragging a handle to turn it the other way."
+        onClick={() => s.setLocksTransformRatio(!locked !== held)}>Lock</button>
       {pixel && field("Scale", scalePercent(t, pixel), (v, t) => scaledToPercent(t, v, pixel))}
       {field("Angle", t.rotation, (v, t) => ({ ...t, rotation: v % 360 }))}
       <label>Sampling
@@ -85,10 +105,11 @@ export function TransformInspector() {
           <option>Nearest</option><option>Smooth</option><option>High quality</option>
         </select>
       </label>
-      {s.transformEdit?.corners && <>
+      {/* Keep the bar stable, and show explicit actions for Free Transform and floating selections. */}
+      <span style={{ visibility: s.transformEdit?.corners || s.transformEdit?.floating || s.transformEdit?.persistent ? "visible" : "hidden" }}>
         <button data-testid="transform-cancel" onClick={() => s.cancelTransform()}>Cancel</button>
         <button data-testid="transform-apply" className="primary" onClick={() => s.commitTransform()}>Apply</button>
-      </>}
+      </span>
     </div>
   );
 }

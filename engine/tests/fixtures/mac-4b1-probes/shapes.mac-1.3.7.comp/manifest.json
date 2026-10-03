@@ -1,0 +1,242 @@
+{
+  "activeLayerID" : "6427AA43-2675-4C7E-B098-8D5CAD374738",
+  "colorSpace" : "sRGB",
+  "documentID" : "1D78B4A5-A599-4B67-88DD-5A098248C248",
+  "format" : "com.compositor.project",
+  "height" : 280,
+  "layers" : [
+    {
+      "blendMode" : "Normal",
+      "id" : "016CBB2F-0CB1-4848-9381-F7E5C7461B47",
+      "imageFile" : "016CBB2F-0CB1-4848-9381-F7E5C7461B47.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Background",
+      "opacity" : 1,
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          0,
+          0
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          440,
+          280
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "A21F95DC-A5BE-4568-BDBA-E78CA9B88D1A",
+      "imageFile" : "A21F95DC-A5BE-4568-BDBA-E78CA9B88D1A.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Ellipse 1",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 0,
+        "cornerRadius" : 0,
+        "green" : 0,
+        "kind" : "Ellipse",
+        "red" : 1
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          10,
+          10
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          101,
+          61
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "35387244-DAA3-4D0A-BEE3-F87EDCDE4BF9",
+      "imageFile" : "35387244-DAA3-4D0A-BEE3-F87EDCDE4BF9.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Rectangle 1",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 1,
+        "cornerRadius" : 20,
+        "green" : 0,
+        "kind" : "Rectangle",
+        "red" : 0
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          130,
+          10
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          120,
+          80
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "A4BAE129-945F-4604-B6D0-A454678D727A",
+      "imageFile" : "A4BAE129-945F-4604-B6D0-A454678D727A.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Rectangle 2",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 0,
+        "cornerRadius" : 5000,
+        "green" : 0,
+        "kind" : "Rectangle",
+        "red" : 0
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          270,
+          10
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          150,
+          40
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "43CB9B0A-53FF-4DC9-9DEE-0414CCE52524",
+      "imageFile" : "43CB9B0A-53FF-4DC9-9DEE-0414CCE52524.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Line 1",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 0,
+        "cornerRadius" : 0,
+        "end" : [
+          0.9958677685950413,
+          0.5
+        ],
+        "green" : 0,
+        "kind" : "Line",
+        "lineWidth" : 1,
+        "red" : 1,
+        "start" : [
+          0.004132231404958678,
+          0.5
+        ]
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          20,
+          120
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          121,
+          1
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "D29D46C9-4127-4FFD-AEBB-41108292AE7B",
+      "imageFile" : "D29D46C9-4127-4FFD-AEBB-41108292AE7B.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Line 2",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 1,
+        "cornerRadius" : 0,
+        "end" : [
+          0.972972972972973,
+          0.972972972972973
+        ],
+        "green" : 0,
+        "kind" : "Line",
+        "lineWidth" : 4,
+        "red" : 0,
+        "start" : [
+          0.02702702702702703,
+          0.02702702702702703
+        ]
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          158,
+          108
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          74,
+          74
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "6427AA43-2675-4C7E-B098-8D5CAD374738",
+      "imageFile" : "6427AA43-2675-4C7E-B098-8D5CAD374738.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Line 3",
+      "opacity" : 1,
+      "shape" : {
+        "blue" : 0,
+        "cornerRadius" : 0,
+        "end" : [
+          0.9516129032258065,
+          0.9210526315789473
+        ],
+        "green" : 0,
+        "kind" : "Line",
+        "lineWidth" : 15,
+        "red" : 0,
+        "start" : [
+          0.04838709677419355,
+          0.07894736842105263
+        ]
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          255,
+          120
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          155,
+          95
+        ]
+      }
+    }
+  ],
+  "resolution" : 72,
+  "version" : 11,
+  "width" : 440
+}

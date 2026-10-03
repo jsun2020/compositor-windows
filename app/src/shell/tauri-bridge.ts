@@ -6,6 +6,18 @@ import { baseName, type ShellBridge } from "./bridge";
 
 export class TauriBridge implements ShellBridge {
   readonly positionIsPhysical = true;
+  async readClipboardImage(): Promise<{ bytes: Uint8Array; origin: [number, number] | null; layerToken: string | null }> {
+    const buffer = await invoke<ArrayBuffer>("read_clipboard_image");
+    if (buffer.byteLength <= 53) throw new Error("The clipboard does not contain an image");
+    const view = new DataView(buffer);
+    const origin: [number, number] | null = view.getUint8(0) ? [view.getFloat64(1, true), view.getFloat64(9, true)] : null;
+    const token=new TextDecoder().decode(new Uint8Array(buffer,17,36));
+    return { bytes: new Uint8Array(buffer, 53), origin, layerToken:token.includes("\0")?null:token };
+  }
+  async writeClipboardImage(bytes: Uint8Array, origin: [number, number], layerToken?:string): Promise<void> {
+    // Origin is a browser-controlled HTTP header on Tauri's fetch IPC path.
+    await invoke("write_clipboard_image", bytes, { headers: { "compositor-pixel-origin": JSON.stringify(origin),...(layerToken?{"layer-token":layerToken}:{}) } });
+  }
   async pickOpenPackage(): Promise<string | null> {
     const picked = await open({ directory: true, multiple: false, title: "Open Compositor Project (.comp folder)" });
     return typeof picked === "string" ? picked : null;

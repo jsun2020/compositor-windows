@@ -10,10 +10,20 @@ pub const HARD_MIX_MARGIN: f32 = 0.5 / 255.0;
 fn color_dodge(cb: f32, cs: f32) -> f32 { if cb <= 0.0 { 0.0 } else if cs >= 1.0 { 1.0 } else { (cb / (1.0 - cs)).min(1.0) } }
 fn color_burn(cb: f32, cs: f32) -> f32 { if cb >= 1.0 { 1.0 } else if cs <= 0.0 { 0.0 } else { 1.0 - ((1.0 - cb) / cs).min(1.0) } }
 
-/// Pegtop's Soft Light, `(1 - 2 cs) cb^2 + 2 cs cb`: what Compositor for Mac 1.2.10 draws. The
-/// blend-greys probe fits it within 1 level at every grey and alpha, where the W3C / PDF formula is
-/// 14 levels off at a 75% grey source (probe results, "Phase 3.5b follow-up probes").
-fn soft_light(cb: f32, cs: f32) -> f32 { (1.0 - 2.0 * cs) * cb * cb + 2.0 * cs * cb }
+/// Soft Light as Compositor for Mac 1.4.5 draws it everywhere: Core Image's `CISoftLightBlendMode`
+/// (LayerAppearance.swift:51-58, commit 5a8f6ce), the W3C / PDF formula. A source under half grey
+/// darkens the backdrop by `(1 - 2 cs) cb (1 - cb)`; one over it lightens the backdrop toward `D(cb)`,
+/// which is `sqrt(cb)` except over a dark backdrop (`cb <= 0.25`), where it is
+/// `((16 cb - 12) cb + 4) cb` (awaiting B2 `soft-light-dark`: the Mac's own comment calls Core Image's
+/// Soft Light "within 5" of Photoshop's, whose D is the square root everywhere; the two formulas can
+/// differ by up to about 17 levels near cb = 0.02). The Mac's own test: a 0.5 backdrop under 0.9
+/// exports 170 (GPUCanvasTests.swift:522-545). Compositor 1.2.10 drew Pegtop's formula through Core
+/// Graphics.
+fn soft_light(cb: f32, cs: f32) -> f32 {
+    if cs <= 0.5 { return cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb); }
+    let d = if cb <= 0.25 { ((16.0 * cb - 12.0) * cb + 4.0) * cb } else { cb.sqrt() };
+    cb + (2.0 * cs - 1.0) * (d - cb)
+}
 
 /// PDF separable blend function B(cb, cs) on straight (unpremultiplied) channel values.
 pub fn separable(mode: BlendMode, cb: f32, cs: f32) -> f32 {

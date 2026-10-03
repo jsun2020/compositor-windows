@@ -8,6 +8,8 @@ export type BlendMode = "Normal" | "Multiply" | "Screen" | "Overlay" | "Darken" 
 export interface LayerTransform { origin: [number, number]; size: [number, number]; rotation: number; flipX: boolean; flipY: boolean; sampling: Sampling; }
 
 export type PointTuple = [number, number];
+export type HealingMode="Content-Aware"|"Create Texture"|"Proximity Match";
+export type BrushOperation={kind:"Paint"}|{kind:"Blur";radius:number}|{kind:"Clone";offset:PointTuple;allLayers:boolean}|{kind:"Heal";mode:HealingMode;seed:number};
 export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
 export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain"
@@ -88,6 +90,7 @@ export type ShapeSpec =
   | { kind: "Line"; start: PointTuple; end: PointTuple; width: number };
 
 export type PreviewRequest =
+  | { preview:"Shape"; layer:string; draft:LayerTransform }
   | { preview: "Adjustment"; layer: string; adjustment: LayerAdjustment }
   /** The same while a slider moves: previewed from a smaller copy until input settles. */
   | { preview: "DragAdjustment"; layer: string; adjustment: LayerAdjustment }
@@ -97,6 +100,7 @@ export type PreviewRequest =
   | { preview: "Gradient"; layer: string; mask: boolean; gradient: GradientSpec; dragging: boolean };
 
 export interface LayerState {
+  text?: import("../tools/text-style").TextStyle; shape?: Record<string,unknown>; effects?: LayerEffects;
   id: string; name: string; visible: boolean; isGroup: boolean; parentId: string | null; opacity: number;
   blendMode: BlendMode; transform: LayerTransform; pixelsWidth: number; pixelsHeight: number; pixelsRevision: number; hasMask: boolean;
   hasPixels: boolean; maskWidth: number; maskHeight: number; maskRevision: number; maskEnabled: boolean; maskLinked: boolean;
@@ -125,10 +129,16 @@ export interface SpatialBlur { level: number; sigma: number; distance: number; a
 /** The halving lattice's cell and the render's pad, in output px (engine `SpatialGrid`). */
 export interface SpatialGrid { cell: number; pad: number; }
 export type PreviewEdit =
+  | {kind:"effects";id:string;effects:LayerEffects|null}
   | { kind: "layer"; id: string; draft: LayerTransform; corners?: Corners | null }
   | { kind: "group"; ids: string[]; box: LayerTransform; draft: LayerTransform; corners?: Corners | null }
   | { kind: "mask"; id: string; draft: LayerTransform }
   | { kind: "adjustment"; id: string; adjustment: LayerAdjustment };
+
+export interface EffectColor {red:number;green:number;blue:number;opacity:number;enabled?:boolean;[key:string]:unknown;}
+export interface StrokeEffect extends EffectColor {size:number;inside:boolean;}
+export interface ShadowEffect extends EffectColor {angle:number;distance:number;blur:number;}
+export interface LayerEffects {stroke?:StrokeEffect;shadow?:ShadowEffect;[key:string]:unknown;}
 
 export interface DocumentState {
   id: string; documentId: string; width: number; height: number; resolution: number; activeLayerId: string | null;
@@ -162,6 +172,7 @@ export interface SelectionState {
 }
 
 export type Command =
+  | {type:"SetLayerEffects";id:string;effects:LayerEffects|null}
   | { type: "AddBlankLayer" }
   | { type: "RenameLayer"; id: string; name: string }
   | { type: "SetLayerVisible"; id: string; visible: boolean }
@@ -176,9 +187,14 @@ export type Command =
   | { type: "SetLayerBlendMode"; id: string; mode: BlendMode }
   | { type: "AddGroup" }
   | { type: "GroupLayers"; ids: string[] }
+  | { type: "UngroupLayers"; id: string }
   | { type: "PlaceLayer"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "MoveLayerBy"; id: string; offset: number }
   | { type: "DuplicateLayer"; id: string }
+  | { type: "LayerViaCopy"; id: string; mask: boolean }
+  | { type: "CutPixels"; id: string; mask: boolean }
+  | { type: "BrushStroke"; id: string; mask: boolean; brush: { diameter: number; hardness: number; opacity: number; points: PointTuple[]; color: [number,number,number,number]; erasing: boolean; operation?:BrushOperation } }
+  | { type:"ContentAwareFill";id:string }
   | { type: "DuplicateLayerTo"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "DuplicateLayerTransformed"; id: string; transform: LayerTransform }
   | { type: "DeleteLayers"; ids: string[]; bake: boolean }

@@ -124,3 +124,58 @@ test("a blur on a large layer grows it through the worker exactly as it does in 
   // Ruling I5: the blur's commit ran in the worker, not silently on the UI thread.
   expect(await jobKinds(page), "the commit ran in the job worker").toEqual(["edit"]);
 });
+
+test("F1: on a zoomed-out canvas a worker's result comes back halved to the canvas's level, and draws as the CPU draws it", async ({ page }) => {
+  // The layer covers its canvas exactly, as zoom-render.spec.ts's layers do, so every output pixel comes
+  // from the layer alone. The ground truth is composited from an INDEPENDENT copy of the result (a fresh
+  // document, imported from an export of it) that never adopted anything of its own: `Engine::composite`
+  // on `doc` itself would read the very same adopted halving the GPU draws (`compositor::prefiltered` ->
+  // `Raster::reduced`, F1), so comparing against `doc`'s own composite cannot catch a wrong halving --
+  // both sides would show the identical bug (fix round 1, minor a).
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const b64 = await page.evaluate(noisePngBase64);
+  const doc = await page.evaluate(async (data) => {
+    const api = (window as any).__compositor;
+    const png = Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0));
+    const doc = api.engine.newDocument(64, 64, false);
+    api.engine.importImage(doc, png, "noise", { x: 32, y: 32 });
+    api.store.setState({ jobPixels: 0 });
+    api.store.getState().openDocument(doc);
+    // What each install was handed as the result halved to the canvas's level (engine JobOutput.display).
+    const install = api.engine.installJob.bind(api.engine);
+    (window as any).__displays = [];
+    api.engine.installJob = (...a: unknown[]) => { (window as any).__displays.push((a[6] as ArrayBuffer | null)?.byteLength ?? 0); return install(...a); };
+    await api.setZoom(0.25);
+    api.setCheckerboard(false);
+    return doc;
+  }, b64);
+  await page.evaluate(() => (window as any).__compositor.store.getState().beginAdjust({ kind: "Levels" }));
+  await page.waitForFunction(() => (window as any).__compositor.store.getState().adjustEdit?.histogram !== null);
+  await page.getByLabel("Output white").fill("190");
+  await page.getByRole("button", { name: "OK" }).click();
+  await idle(page);
+  // A quarter of a device pixel per document pixel: the 64 x 64 layer is drawn after one halving, 32 x 32,
+  // which the worker made and sent back with the result.
+  expect(await page.evaluate(() => (window as any).__displays)).toEqual([32 * 32 * 4]);
+  const r = await page.evaluate(async (doc) => {
+    const api = (window as any).__compositor;
+    const s = api.store.getState(); const d = s.documents[doc]; const vp = s.viewports[doc]; const dpr = window.devicePixelRatio || 1;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const gl = Array.from(api.readDocumentPixels()) as number[];
+    const rect = vp.documentRect({ width: d.width, height: d.height });
+    const w = Math.round((rect.x + rect.width) * dpr) - Math.round(rect.x * dpr);
+    const h = Math.round((rect.y + rect.height) * dpr) - Math.round(rect.y * dpr);
+    // An independent copy of the Levels-adjusted result: exported (the stored, full-resolution pixels,
+    // untouched by any adopted halving) and reimported into a fresh document, so its raster has never had
+    // `adopt` called on it and this composite halves the CPU way from scratch.
+    const png = api.engine.exportPng(doc);
+    const truth = api.engine.newDocument(d.width, d.height, false);
+    api.engine.importImage(truth, png, "truth", { x: d.width / 2, y: d.height / 2 });
+    const cpu = Array.from(api.engine.composite(truth, { x: 0, y: 0, width: d.width, height: d.height }, w, h)) as number[];
+    return { gl, cpu };
+  }, doc);
+  expect(r.gl.length).toBe(r.cpu.length);
+  expect(r.gl.reduce((m, v, i) => Math.max(m, Math.abs(v - r.cpu[i])), 0), "the GPU draws the worker's halving as the CPU halves an independent copy of the same result").toBeLessThanOrEqual(2);
+});

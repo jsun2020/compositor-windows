@@ -54,6 +54,18 @@ pub fn shifted_hue(hue: f64, settings: &HueSaturationSettings) -> f64 {
     if shifted < 0.0 { shifted + 360.0 } else { shifted }
 }
 
+/// Photoshop's Saturation, as Compositor 1.4.5 computes it (`adjustedSaturation`,
+/// HueSaturation.swift:342-348, commit fe7a83d): `amount` (-100 to 100) below 0 scales toward grey
+/// (-100 is grey); above 0 it divides by what is left, so +50 doubles it and +100 takes any colour all
+/// the way. Multiplicative both ways, so neutral greys stay neutral. Compositor 1.2.10 multiplied by
+/// `1 + amount / 100` both ways.
+pub fn adjusted_saturation(saturation: f64, amount: f64) -> f64 {
+    let a = (amount / 100.0).clamp(-1.0, 1.0);
+    if a <= 0.0 { return (saturation * (1.0 + a)).max(0.0); }
+    if a >= 1.0 { return if saturation > 0.0 { 1.0 } else { 0.0 }; }
+    (saturation / (1.0 - a)).min(1.0)
+}
+
 /// One straight colour through the settings. `response` is `hue_response`, passed in so a whole
 /// raster shares it.
 pub fn adjust_rgb(rgb: [f64; 3], settings: &HueSaturationSettings, response: &[[f64; 3]]) -> [f64; 3] {
@@ -69,8 +81,7 @@ pub fn adjust_rgb(rgb: [f64; 3], settings: &HueSaturationSettings, response: &[[
         lightness_amount = sampled[2] / 100.0;
         hue = (hue + sampled[0]) % 360.0;
         if hue < 0.0 { hue += 360.0; }
-        // Multiplicative, so neutral grays stay neutral.
-        saturation = (saturation * (1.0 + sampled[1] / 100.0)).clamp(0.0, 1.0);
+        saturation = adjusted_saturation(saturation, sampled[1]);
     }
     // Lightness pulls toward white above 0 and toward black below, reaching either at +/-100.
     let amount = lightness_amount.clamp(-1.0, 1.0);

@@ -28,10 +28,8 @@ pub struct LayerDraw {
     pub opacity: f64,
     pub blend: BlendMode,
     /// An adjustment layer whose own mode is not Normal: the Mac blends its result over the
-    /// original at full coverage, both made opaque, in `blend` (its Core Graphics mode), then puts
-    /// the ORIGINAL alpha back (LiveMaskRenderer.swift:24-46; BrushPixels.c:23-45). `blend` alone
-    /// cannot say this: the eight Core-Image-only modes arrive there as Normal. False for every
-    /// other draw.
+    /// original at full coverage, both made opaque, in `blend`, then puts the ORIGINAL alpha back
+    /// (LiveMaskRenderer.swift:36-61 at v1.4.5; BrushPixels.c:23-45). False for every other draw.
     pub keeps_alpha: bool,
     pub coverages: Vec<Coverage>,
     #[serde(with = "ids::upper_opt")] pub clip: Option<Uuid>,
@@ -65,6 +63,7 @@ pub enum PreviewEdit {
     Group { #[serde(deserialize_with = "deserialize_ids")] ids: Vec<Uuid>, #[serde(rename = "box")] bounds: LayerTransform, draft: LayerTransform, #[serde(default)] corners: Option<[Point; 4]> },
     Mask { #[serde(with = "ids::upper")] id: Uuid, draft: LayerTransform },
     Adjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    Effects { #[serde(with = "ids::upper")] id: Uuid, effects: Option<LayerEffects> },
 }
 
 fn deserialize_ids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Uuid>, D::Error> {
@@ -181,8 +180,10 @@ pub(crate) fn draw_for(_doc: &Document, by_id: &HashMap<Uuid, &Layer>, layer: &L
     LayerDraw {
         id: layer.id, transform, corners, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
         opacity: effective_opacity(by_id, layer),
-        // An adjustment layer blends through Core Graphics (BlendMode::cg_mode).
-        blend: if layer.is_adjustment() { layer.blend_mode.cg_mode() } else { layer.blend_mode },
+        // Every draw in its own mode: an adjustment layer too, since Compositor 1.4.5 blends it through
+        // Core Image for the modes Core Graphics lacks or gets wrong (LiveMaskRenderer.swift:52-57), where
+        // 1.2.10 drew those as Normal.
+        blend: layer.blend_mode,
         keeps_alpha: layer.is_adjustment() && layer.blend_mode != BlendMode::Normal,
         coverages, clip: layer.mask_source_id,
         adjustment: displayed_adjustment(layer, edit),
@@ -217,10 +218,10 @@ pub fn render_plan(doc: &Document, edit: Option<&PreviewEdit>) -> RenderPlan {
         // out of reach there is nothing beneath it to adjust, as macOS's drawComposite does.
         if layer.is_adjustment() && layer.mask_source_id.is_some() { continue; }
         if let Some(children) = stacks.get(id) {
-            let mut base = draw_for(doc, &by_id, layer, edit, false);
-            // The group composites in the base's Core Graphics mode (BlendMode::cg_mode). The base
-            // itself is drawn into the group as Normal by both renderers, so nothing else reads it.
-            base.blend = base.blend.cg_mode();
+            // The group composites in the base's own mode, through Core Image where Core Graphics has
+            // none (LiveMaskRenderer.swift:89, :126-134 at v1.4.5; 1.2.10 drew those as Normal). The base
+            // itself is drawn into the group as Normal by both renderers.
+            let base = draw_for(doc, &by_id, layer, edit, false);
             let folder = folder_coverages(&by_id, layer, edit);
             let kids: Vec<LayerDraw> = children.iter().map(|c| { let mut d = draw_for(doc, &by_id, by_id[c], edit, false); d.clip = None; d }).collect();
             note_source(&base, &mut needed_sources);

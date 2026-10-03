@@ -1,3 +1,4 @@
+use crate::compositor::MAX_PREFILTER_LEVEL;
 use std::sync::{Arc, Mutex};
 
 pub const TILE: u32 = 256;
@@ -67,8 +68,10 @@ fn halve_into(src: &[u8], sw: u32, sh: u32, out: &mut [u8], region: PixelRect) {
 /// Backing storage for a `Raster`: the pixels, plus a memoized single-step box-reduction so
 /// `halved()` computed once for a given pixel buffer is shared by every clone of it (and by
 /// every clone of the halved result in turn), instead of being recomputed on every frame.
+/// `adopted` is one deeper halving made elsewhere (the job worker, Phase 4.5 F1): the raster after
+/// that many halvings, handed over with the pixels so the UI thread never halves them itself.
 /// `std::sync::Mutex` is fine here: the engine runs single-threaded on wasm32.
-struct RasterInner { data: Vec<u8>, half: Mutex<Option<Raster>> }
+struct RasterInner { data: Vec<u8>, half: Mutex<Option<Raster>>, adopted: Mutex<Option<(u32, Raster)>> }
 
 impl std::fmt::Debug for RasterInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -91,7 +94,7 @@ impl PartialEq for Raster {
 
 impl Raster {
     fn wrap(width: u32, height: u32, data: Vec<u8>) -> Raster {
-        Raster { width, height, inner: Arc::new(RasterInner { data, half: Mutex::new(None) }) }
+        Raster { width, height, inner: Arc::new(RasterInner { data, half: Mutex::new(None), adopted: Mutex::new(None) }) }
     }
     pub fn new_transparent(width: u32, height: u32) -> Raster {
         Raster::wrap(width, height, vec![0; (width as usize) * (height as usize) * 4])
@@ -138,9 +141,13 @@ impl Raster {
     pub fn same_pixels(&self, other: &Raster) -> bool { Arc::ptr_eq(&self.inner, &other.inner) }
     /// The pixel buffer's identity: equal for every clone sharing it (history counts buffers by it).
     pub fn buffer_id(&self) -> usize { Arc::as_ptr(&self.inner) as *const u8 as usize }
-    /// Drops the memoized halving of this buffer, for every clone that shares it (history lets go of
-    /// the halvings of buffers only it holds: they are not counted against its limit).
-    pub fn forget_halvings(&self) { *self.inner.half.lock().unwrap() = None; }
+    /// Drops the memoized halving of this buffer, and a halving it adopted, for every clone that shares
+    /// it (history lets go of the halvings of buffers only it holds: they are not counted against its
+    /// limit).
+    pub fn forget_halvings(&self) {
+        *self.inner.half.lock().unwrap() = None;
+        *self.inner.adopted.lock().unwrap() = None;
+    }
     /// Whether another clone of this raster holds the same pixel buffer.
     pub fn shared(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
     /// How many handles hold these pixels, this one included.
@@ -178,6 +185,42 @@ impl Raster {
     pub fn half_size(&self) -> (u32, u32) { ((self.width / 2).max(1), (self.height / 2).max(1)) }
     /// The memoized halving, if it has been made (and not let go).
     pub fn memoized_half(&self) -> Option<Raster> { self.inner.half.lock().unwrap().clone() }
+    /// The size after `level` halvings: half of each side each time, at least 1, stopping once a side
+    /// is 1 (the rule `reduced` and both renderers' prefilter follow).
+    pub fn size_at_level(&self, level: u32) -> (u32, u32) {
+        let (mut w, mut h) = (self.width, self.height);
+        for _ in 0..level.min(MAX_PREFILTER_LEVEL) {
+            if w <= 1 || h <= 1 { break; }
+            w = (w / 2).max(1);
+            h = (h / 2).max(1);
+        }
+        (w, h)
+    }
+    /// The raster after `level` halvings, stopping once a side is 1: from the halving this buffer
+    /// adopted when that is `level` or fewer halvings, else from the pixels; each step is memoized.
+    pub fn reduced(&self, level: u32) -> Raster {
+        let level = level.min(MAX_PREFILTER_LEVEL);
+        let (mut current, mut at) = match self.adopted() { Some((l, r)) if l <= level => (r, l), _ => (self.clone(), 0) };
+        while at < level && current.width > 1 && current.height > 1 {
+            current = current.halved();
+            at += 1;
+        }
+        current
+    }
+    /// Keeps `reduced`, this raster after `level` halvings made elsewhere (the job worker), for every
+    /// clone of it: `reduced(level)` then returns it without halving anything. Refused (false) at level
+    /// 0, when it is not the size `level` halvings make, or when `level` is past the point where a side
+    /// already reached 1 (fix round 1, minor b): `size_at_level` freezes there, so a later level would
+    /// report the very same size as an earlier, genuine one, and `seed_adopted`'s own arithmetic (which
+    /// does not freeze the same way) would divide a frozen side to 0 and panic on the length mismatch.
+    pub fn adopt(&self, level: u32, reduced: Raster) -> bool {
+        if level == 0 || level > MAX_PREFILTER_LEVEL || (reduced.width, reduced.height) != self.size_at_level(level) { return false; }
+        if (self.width >> (level - 1)) < 2 || (self.height >> (level - 1)) < 2 { return false; }
+        *self.inner.adopted.lock().unwrap() = Some((level, reduced));
+        true
+    }
+    /// The halving this buffer adopted, and after how many halvings it is.
+    pub fn adopted(&self) -> Option<(u32, Raster)> { self.inner.adopted.lock().unwrap().clone() }
     /// Gives this raster the halvings `parent` has already made, for a raster that equals `parent`
     /// outside `rect` (a changed rectangle: an edit that kept the grid). Each kept level is copied and
     /// only the part `rect` reaches is halved again, so the result is bit-identical to halving from
@@ -190,7 +233,11 @@ impl Raster {
     /// only calling this when the grid itself -- not just its size -- is unchanged (`engine.rs`'s
     /// `seed_halvings`, Task 3 fix round 1, bug 1).
     pub fn seed_halvings(&self, parent: &Raster, rect: PixelRect) {
-        if self.width != parent.width || self.height != parent.height || self.same_pixels(parent) { return; }
+        // A worker already supplied the displayed level. Rebuilding the parent's
+        // entire cached ladder would copy up to a third of the full raster here.
+        if self.adopted().is_some(){return;}
+        if self.width != parent.width || self.height != parent.height || self.buffer_id()==parent.buffer_id() { return; }
+        self.seed_adopted(parent, rect);
         let Some(parent_half) = parent.memoized_half() else { return };
         let (w, h) = self.half_size();
         // Every output pixel whose 2 x 2 block meets `rect`.
@@ -200,6 +247,33 @@ impl Raster {
         let half = Raster::from_premultiplied(w, h, data);
         half.seed_halvings(&parent_half, reach);
         *self.inner.half.lock().unwrap() = Some(half);
+    }
+    /// `seed_halvings` for a halving `parent` adopted (F1): the same halving for this raster, with the
+    /// part `rect` reaches made again from this raster's pixels, so an edit inside a selection after a
+    /// job's result still halves only its rectangle. Only while every step halves whole 2 x 2 blocks
+    /// (both sides at least 2 before the last step), where a block-aligned part halves exactly as the
+    /// whole raster does.
+    fn seed_adopted(&self, parent: &Raster, rect: PixelRect) {
+        let Some((level, parent_reduced)) = parent.adopted() else { return };
+        if (self.width >> (level - 1)) < 2 || (self.height >> (level - 1)) < 2 { return; }
+        let (mut reach, mut w, mut h) = (rect, self.width, self.height);
+        for _ in 0..level {
+            w /= 2;
+            h /= 2;
+            reach = reach.halved(w, h);
+        }
+        let mut data = parent_reduced.bytes().to_vec();
+        if !reach.is_empty() {
+            let f = 1u32 << level;
+            let mut part = self.cropped(reach.x * f, reach.y * f, reach.width * f, reach.height * f);
+            for _ in 0..level { part = part.halved(); }
+            let row = reach.width as usize * 4;
+            for y in 0..reach.height as usize {
+                let at = ((reach.y as usize + y) * w as usize + reach.x as usize) * 4;
+                data[at..at + row].copy_from_slice(&part.bytes()[y * row..(y + 1) * row]);
+            }
+        }
+        *self.inner.adopted.lock().unwrap() = Some((level, Raster::from_premultiplied(w, h, data)));
     }
     /// A copy of the `w` x `h` rectangle at (x, y); clamped to the raster.
     pub fn cropped(&self, x: u32, y: u32, w: u32, h: u32) -> Raster {

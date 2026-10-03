@@ -6,8 +6,10 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteKeyPressed, duplicateSelected, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive } from "../actions/layers";
+import { addFolder, cycleBlendMode, deleteKeyPressed, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive, ungroupActive } from "../actions/layers";
 import { isSelectionTool } from "../tools/selection-draft";
+import { copyPixels, pastePixels, layerViaCopy } from "../actions/clipboard";
+import { cancelBrush, finishBrush,isBrushTool } from "../tools/brush";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
@@ -36,7 +38,7 @@ export function runAction(id: ActionId, shift = false): void {
     } else if (s.selectedLayerIds.length) {
       const layer = activeLayer(doc);
       const maskAlone = s.maskSelected && !!layer && layer.hasMask && !layer.maskLinked;
-      if (maskAlone) {
+      if (maskAlone || doc.selection && !s.maskSelected && s.selectedLayerIds.length === 1) {
         // Nudge the mask's own placement, not the layer: one SetMaskPlacement per key press.
         if (s.beginTransform({ persistent: false })) {
           const e = useEditor.getState().transformEdit!;
@@ -51,6 +53,17 @@ export function runAction(id: ActionId, shift = false): void {
     return;
   }
   switch (id) {
+    case "tool-text":s.setTool("text");break;
+    case "tool-brush": s.setTool("brush"); break;
+    case "tool-eraser": s.setTool("eraser"); break;
+    case "tool-blur": s.setTool("blur"); break;
+    case "tool-clone": s.setTool("clone"); break;
+    case "tool-healing": s.setTool("healing"); break;
+    case "transform": if (doc) { s.setTool("move"); s.beginTransform({ persistent: true }); } break;
+    case "copy": void copyPixels(); break;
+    case "copy-merged": void copyPixels(true); break;
+    case "cut": void copyPixels(false, true); break;
+    case "paste": void pastePixels(); break;
     case "new": s.openSheet({ kind: "new" }); break;
     case "open": void openProject(); break;
     case "save": void saveProject(); break;
@@ -93,6 +106,7 @@ export function runAction(id: ActionId, shift = false): void {
     // An open panel answers Enter and Escape itself (AdjustPanel.tsx); neither may also reach the
     // crop tool or a transform. An outline being drawn takes them first (EditorCanvas.swift:1772-1777).
     case "apply":
+      if (s.brushDraft) { finishBrush(); break; }
       if (s.panelOwnsDocument()) break;
       if (s.selectionDraft) s.finishSelectionDraft();
       else if (s.gradientEdit) s.commitGradient();
@@ -100,6 +114,7 @@ export function runAction(id: ActionId, shift = false): void {
       else if (s.transformEdit) s.commitTransform();
       break;
     case "cancel":
+      if (s.brushDraft) { cancelBrush(); break; }
       if (s.panelOwnsDocument()) break;
       if (s.selectionDraft) s.setSelectionDraft(null);
       else if (s.gradientEdit) s.cancelGradient();
@@ -108,8 +123,9 @@ export function runAction(id: ActionId, shift = false): void {
       else if (s.transformEdit) s.cancelTransform();
       break;
     case "new-folder": addFolder(); break;
-    case "duplicate": duplicateSelected(); break;
+    case "duplicate": void layerViaCopy(); break;
     case "group": groupSelected(); break;
+    case "ungroup": ungroupActive(); break;
     case "merge": mergeSelected(); break;
     case "clip": toggleClippingOfActive(); break;
     case "layer-up": moveActiveBy(1); break;
@@ -132,6 +148,7 @@ export function runAction(id: ActionId, shift = false): void {
         if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8)));
         // With the Gradient tool the digits set its opacity, at least 1 % (`typeOpacityDigit`, EditorSession+Brush.swift:193-211).
         else if (s.tool === "gradient" && !s.working) typeOpacityDigit(Number(id.slice(8)), Date.now(), (v) => s.setGradientOptions({ opacity: Math.max(0.01, v) }));
+        else if (isBrushTool(s.tool) && !s.working) typeOpacityDigit(Number(id.slice(8)),Date.now(),v=>s.setBrushOptions({opacity:Math.max(0.01,v)}));
       }
   }
 }

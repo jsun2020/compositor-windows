@@ -48,7 +48,7 @@ fn corrupt_future_and_unsafe_manifests_are_rejected() {
     doc.layers.push(Layer::blank("Layer 1", doc.size()));
     let pkg = save_package(&doc).unwrap();
     let mut future = pkg.clone();
-    future.manifest_json = pkg.manifest_json.replace("\"version\": 9", "\"version\": 42");
+    future.manifest_json = pkg.manifest_json.replace(&format!("\"version\": {CURRENT_VERSION}"), "\"version\": 42");
     assert_eq!(open_package(&future).unwrap_err(), ProjectError::Version(42));
     let mut unsafe_pkg = pkg.clone();
     unsafe_pkg.manifest_json = pkg.manifest_json.replace("\"name\": \"Layer 1\"", "\"imageFile\": \"../../outside.png\", \"name\": \"Layer 1\"");

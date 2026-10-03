@@ -4,7 +4,10 @@ use thiserror::Error;
 pub enum ProjectError {
     #[error("This is not a valid Compositor project, or its metadata is damaged.")]
     Invalid,
-    #[error("This project uses format version {0}. This app supports versions 1-9.")]
+    /// The Mac's words (ProjectStore.swift:69 at v1.4.5), the upper bound read from the version this
+    /// build writes so the two cannot drift apart, and which Mac saves them: a project from a newer
+    /// Mac needs a newer build of this app.
+    #[error("This project uses format version {0}. This app supports versions 1-{max}, which Compositor for Mac saves up to version 1.4.5.", max = crate::manifest::CURRENT_VERSION)]
     Version(u32),
     #[error("An image inside the project is missing or damaged. The current document has not been replaced.")]
     MissingImage,

@@ -4,7 +4,10 @@ import { PaletteSwatches } from "./PaletteSwatches";
 
 const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: "move", label: "Move", key: "V" }, { id: "marquee", label: "Marquee", key: "M" },
+  {id:"text",label:"Type",key:"T"},
   { id: "lasso", label: "Lasso", key: "L" }, { id: "wand", label: "Magic Wand", key: "W" },
+  { id: "brush", label: "Brush", key: "B" }, { id: "eraser", label: "Eraser", key: "E" },
+  { id:"blur",label:"Blur",key:"R" },{id:"clone",label:"Clone Stamp",key:"S"},{id:"healing",label:"Spot Healing",key:"J"},
   { id: "crop", label: "Crop", key: "C" }, { id: "gradient", label: "Gradient", key: "G" }, { id: "shape", label: "Shape", key: "U" }, { id: "eyedropper", label: "Eyedropper", key: "I" },
   { id: "hand", label: "Hand", key: "H" }, { id: "zoom", label: "Zoom", key: "Z" },
 ];

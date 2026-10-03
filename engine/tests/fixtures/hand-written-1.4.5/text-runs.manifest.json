@@ -1,0 +1,119 @@
+{
+  "activeLayerID" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B61",
+  "colorSpace" : "sRGB",
+  "documentID" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B60",
+  "format" : "com.compositor.project",
+  "height" : 200,
+  "layers" : [
+    {
+      "blendMode" : "Normal",
+      "id" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B62",
+      "imageFile" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B62.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Background",
+      "opacity" : 1,
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          0,
+          0
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          480,
+          200
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B61",
+      "imageFile" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B61.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Hello World",
+      "opacity" : 1,
+      "text" : {
+        "alignment" : "Left",
+        "blue" : 0,
+        "colorRuns" : [
+          {
+            "blue" : 0,
+            "green" : 0,
+            "length" : 5,
+            "location" : 6,
+            "red" : 1
+          }
+        ],
+        "content" : "Hello World",
+        "fontName" : "Helvetica",
+        "fontRuns" : [
+          {
+            "fontName" : "Helvetica-Bold",
+            "length" : 5,
+            "location" : 0
+          }
+        ],
+        "fontSize" : 72,
+        "green" : 0,
+        "leading" : 0,
+        "red" : 0,
+        "tracking" : 0
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          20,
+          20
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          420,
+          110
+        ]
+      }
+    },
+    {
+      "blendMode" : "Normal",
+      "id" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B63",
+      "imageFile" : "6D0C1B7A-5E2F-4C3D-9A8B-1F2E3D4C5B63.png",
+      "isGroup" : false,
+      "isVisible" : true,
+      "name" : "Plain",
+      "opacity" : 1,
+      "text" : {
+        "alignment" : "Left",
+        "blue" : 0,
+        "content" : "Plain",
+        "fontName" : "Helvetica",
+        "fontSize" : 36,
+        "green" : 0,
+        "leading" : 0,
+        "red" : 0,
+        "tracking" : 0
+      },
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          20,
+          140
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          120,
+          50
+        ]
+      }
+    }
+  ],
+  "resolution" : 72,
+  "version" : 11,
+  "width" : 480
+}

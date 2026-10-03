@@ -117,10 +117,11 @@ test("jobs: the Levels histogram and commit through the worker at 24 and 100 MP,
       // the store's state is brought up to date and one frame drawn at once, timed too.
       let installedAt = Infinity;
       const timed = (name: string, after?: () => void) => {
-        const f = api.engine[name].bind(api.engine);
-        api.engine[name] = (...a: unknown[]) => {
-          const t0 = performance.now();
-          try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); }
+        // Measure the cooperative APIs the store actually calls. Frame gaps
+        // below still charge every yield; the copy budgets retain CPU work.
+        const method = `${name}Async`, f = api.engine[method].bind(api.engine);
+        api.engine[method] = async (...a: unknown[]) => {
+          try { return await f(...a); } finally { result[`${name} ms`] = Math.round(api.engine[name === "jobInput" ? "lastJobInputCpuMs" : "lastInstallCpuMs"]); after?.(); }
         };
       };
       timed("jobInput");
@@ -966,8 +967,8 @@ test("a fill on a small layer's mask: the mask grows to the canvas through the w
         }
         let installedAt = Infinity, jobs = 0, pass = "first fill";
         const timed = (name: string, after?: () => void) => {
-          const f = api.engine[name].bind(api.engine);
-          api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${pass}: ${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+          const method = `${name}Async`, f = api.engine[method].bind(api.engine);
+          api.engine[method] = async (...a: unknown[]) => { try { return await f(...a); } finally { result[`${pass}: ${name} ms`] = Math.round(api.engine[name === "jobInput" ? "lastJobInputCpuMs" : "lastInstallCpuMs"]); after?.(); } };
         };
         timed("jobInput");
         // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
@@ -1121,8 +1122,8 @@ test("gradient tool: drag ticks through the store and the commit through the wor
       const result: Record<string, number> = {};
       let installedAt = Infinity;
       const timed = (name: string, after?: () => void) => {
-        const f = api.engine[name].bind(api.engine);
-        api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+        const method = `${name}Async`, f = api.engine[method].bind(api.engine);
+        api.engine[method] = async (...a: unknown[]) => { try { return await f(...a); } finally { result[`${name} ms`] = Math.round(api.engine[name === "jobInput" ? "lastJobInputCpuMs" : "lastInstallCpuMs"]); after?.(); } };
       };
       timed("jobInput");
       // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
@@ -1272,9 +1273,9 @@ test("shapes and fills: a shape over the canvas on the UI thread, the Shape tool
       s().closeDocument(blank);
       // A fill of a whole layer, through the worker.
       let installedAt = Infinity;
-      const f = api.engine.installJob.bind(api.engine);
+      const f = api.engine.installJobAsync.bind(api.engine);
       // The frame that draws the result, timed where it lands, as the "jobs" case does (pre-flight audit I-7).
-      api.engine.installJob = (...a: unknown[]) => { try { return f(...a); } finally { installedAt = performance.now(); s().refresh(s().activeId); result["fill: frame after the result is put back ms"] = Math.round(frame()); result["fill: that frame's whole uploads"] = (window as any).__uploads.image; } };
+      api.engine.installJobAsync = async (...a: unknown[]) => { try { return await f(...a); } finally { installedAt = performance.now(); s().refresh(s().activeId); result["fill: frame after the result is put back ms"] = Math.round(frame()); result["fill: that frame's whole uploads"] = (window as any).__uploads.image; } };
       const doc = api.engine.newDocument(10, 10, false);
       api.engine.execute(doc, { type: "CanvasSize", width: w, height: h, anchor: 4, fill: [0.5, 0.4, 0.3] });
       api.engine.execute(doc, { type: "SetActiveLayer", id: api.engine.state(doc).layers[0].id });
@@ -1334,8 +1335,8 @@ test("gradient tool on a small layer's mask: the mask grows to the canvas and th
       const result: Record<string, number> = {};
       let installedAt = Infinity, jobs = 0;
       const timed = (name: string, after?: () => void) => {
-        const f = api.engine[name].bind(api.engine);
-        api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
+        const method = `${name}Async`, f = api.engine[method].bind(api.engine);
+        api.engine[method] = async (...a: unknown[]) => { try { return await f(...a); } finally { result[`${name} ms`] = Math.round(api.engine[name === "jobInput" ? "lastJobInputCpuMs" : "lastInstallCpuMs"]); after?.(); } };
       };
       timed("jobInput");
       // The frame that draws the result, timed where it lands, as the "jobs" case does: no interval
@@ -1512,6 +1513,11 @@ test("ruling C1: a fill and a gradient on a blank layer paint the canvas, so the
         }
         let installedAt = Infinity, jobs = 0;
         const timed = (name: string, after?: () => void) => {
+          if (name === "jobInput" || name === "installJob") {
+            const method = `${name}Async`, f = api.engine[method].bind(api.engine);
+            api.engine[method] = async (...a: unknown[]) => { try { return await f(...a); } finally { result[`${name} ms`] = Math.round(api.engine[name === "jobInput" ? "lastJobInputCpuMs" : "lastInstallCpuMs"]); after?.(); } };
+            return;
+          }
           const f = api.engine[name].bind(api.engine);
           api.engine[name] = (...a: unknown[]) => { const t0 = performance.now(); try { return f(...a); } finally { result[`${name} ms`] = Math.round(performance.now() - t0); after?.(); } };
         };

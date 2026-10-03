@@ -36,6 +36,53 @@ describe("loading the engine", () => {
   });
 });
 
+describe("a slow staged allocation leaves time for the next UI frame", () => {
+  function setup() {
+    const clock = { value: 0 }, calls: string[] = [], frames: FrameRequestCallback[] = [];
+    let bytes = new Uint8Array(0), offset = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock.value);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const client = Object.create(EngineClient.prototype) as Record<string, unknown>;
+    client.installQueue = Promise.resolve();
+    client.wasm = {
+      begin_staged_install: (length: number) => { bytes = new Uint8Array(length); calls.push("begin"); clock.value += 40; },
+      append_staged_install: (_plane: number, part: Uint8Array) => { bytes.set(part, offset); offset += part.length; calls.push("append"); clock.value++; },
+      finish_staged_install: () => { calls.push("finish"); return "{}"; },
+      cancel_staged_install: () => { calls.push("cancel"); },
+    };
+    const pixels = new ArrayBuffer(4 * 1024 * 1024 + 4);
+    new Uint8Array(pixels)[0] = 41; new Uint8Array(pixels)[pixels.byteLength - 1] = 13;
+    return { client: client as unknown as EngineClient, clock, calls, frames, pixels, bytes: () => bytes };
+  }
+
+  it("lets the UI run after a long reservation, then preserves every byte and counts only CPU work", async () => {
+    const state = setup();
+    try {
+      const result = state.client.installJobAsync("D", "A", '{"stamp":{}}', "{}", state.pixels, null, null, true);
+      await vi.waitFor(() => expect(state.frames).toHaveLength(1));
+      expect(state.calls).toEqual(["begin"]);
+      state.clock.value += 16; state.frames.shift()!(state.clock.value);
+      await result;
+      expect(state.calls).toEqual(["begin", "append", "append", "finish", "cancel"]);
+      const expected = new Uint8Array(state.pixels), actual = state.bytes();
+      expect(actual.byteLength).toBe(expected.byteLength);
+      expect(actual.every((value, index) => value === expected[index]), "the complete staged plane is preserved").toBe(true);
+      expect(state.client.lastInstallCpuMs).toBe(42);
+    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
+
+  it("accepts cancellation during that frame without copying or committing the reserved result", async () => {
+    const state = setup(); let valid = true;
+    try {
+      const result = state.client.installJobAsync("D", "A", '{"stamp":{}}', "{}", state.pixels, null, null, true, () => valid);
+      await vi.waitFor(() => expect(state.frames).toHaveLength(1));
+      valid = false; state.clock.value += 16; state.frames.shift()!(state.clock.value);
+      await expect(result).rejects.toThrow("The preview was cancelled");
+      expect(state.calls).toEqual(["begin", "cancel"]);
+    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
+});
+
 describe("pixel views survive a wasm memory growth", () => {
   it("maskPixels reads the buffer after the pointer call, not before", () => {
     const client = growingClient();

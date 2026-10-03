@@ -10,6 +10,7 @@ pub fn run() {
             commands::package::write_package_begin, commands::package::write_package_manifest,
             commands::package::write_package_image, commands::package::write_package_commit, commands::package::write_package_abort,
             commands::files::read_file, commands::files::write_file,
+            commands::clipboard::read_clipboard_image, commands::clipboard::write_clipboard_image,
             commands::recent::recent_packages, commands::recent::add_recent_package,
         ])
         .run(tauri::generate_context!())

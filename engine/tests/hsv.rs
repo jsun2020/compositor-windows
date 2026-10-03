@@ -103,3 +103,32 @@ fn colorize_matches_the_macs_raw_negative_hue_wrap() {
     let px = straight(&out, 0);
     assert!(near(px, expected_bytes([-30.0_f64 % 360.0, 1.0, 0.5])), "{px:?}");
 }
+
+#[test]
+fn positive_saturation_divides_by_what_is_left_as_compositor_1_4_5_does() {
+    // HueSaturationTests.swift:275-282 (v1.4.5), number for number.
+    assert!((adjusted_saturation(0.2, 50.0) - 0.4).abs() < 1e-9);
+    assert!((adjusted_saturation(0.3, 62.0) - 0.3 / 0.38).abs() < 1e-9);
+    assert_eq!(adjusted_saturation(0.1, 100.0), 1.0);
+    assert_eq!(adjusted_saturation(0.8, 50.0), 1.0);
+    assert_eq!(adjusted_saturation(0.0, 100.0), 0.0);
+    assert!((adjusted_saturation(0.6, -50.0) - 0.3).abs() < 1e-9);
+}
+
+#[test]
+fn a_pale_red_at_plus_50_doubles_its_saturation() {
+    // (153, 102, 102) is hue 0, saturation 0.2, lightness 0.5. +50 makes it 0.4, which is
+    // (178.5, 76.5, 76.5); Compositor 1.2.10's 1 + amount / 100 made it 0.3, 12 levels short.
+    let pale = Raster::from_premultiplied(2, 1, vec![153, 102, 102, 255, 128, 128, 128, 255]);
+    let hsl = rgb_to_hsl([0.6, 0.4, 0.4]);
+    assert!((hsl[1] - 0.2).abs() < 1e-9 && (hsl[2] - 0.5).abs() < 1e-9, "{hsl:?}");
+    let out = apply_hsv(&pale, &HueSaturationSettings::new(0.0, 50.0, 0.0, false, ColorRange::Master));
+    let px = straight(&out, 0);
+    let expected = expected_bytes([0.0, 0.4, 0.5]);
+    for c in 0..3 { assert!((px[c] - expected[c]).abs() <= 1, "{px:?} vs {expected:?}"); }
+    let old = expected_bytes([0.0, 0.3, 0.5]);
+    assert!((px[0] - old[0]).abs() >= 10, "1.2.10's multiply would give {old:?}; got {px:?}");
+    assert_eq!(straight(&out, 1), [128, 128, 128, 255], "grey stays grey");
+    let full = apply_hsv(&pale, &HueSaturationSettings::new(0.0, 100.0, 0.0, false, ColorRange::Master));
+    assert!(near(straight(&full, 0), expected_bytes([0.0, 1.0, 0.5])), "+100 takes any colour all the way: {:?}", straight(&full, 0));
+}

@@ -290,9 +290,9 @@ fn a_fill_or_gradient_whose_selection_is_off_the_canvas_changes_nothing_and_reco
     }
     // Through a job, likewise: nothing comes back, and the install records nothing.
     let (input, pixels, mask, points) = e.job_input(id, layer).unwrap();
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), Command::Fill { id: layer, mask: false, color: [1.0, 0.0, 0.0] }, 0.0).unwrap();
     assert_eq!((output.pixels, output.mask), (None, None));
-    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None).unwrap();
     assert_eq!(depth(&e, id), count, "job: nothing recorded");
 }
 

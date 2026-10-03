@@ -73,6 +73,24 @@ mod tests {
     }
 
     #[test]
+    fn saving_over_a_mac_save_drops_its_quick_look_preview() {
+        // Compositor for Mac asks other writers to delete QuickLook/ when they change a project, and
+        // writes it again on its next save (docs/writing-comp-files.md:86 at v1.4.5): a save here
+        // stages manifest.json and images/ only, so the stale preview goes with the old package.
+        let root = temp();
+        let final_path = root.join("Mac.comp");
+        fs::create_dir_all(final_path.join("QuickLook")).unwrap();
+        fs::write(final_path.join("QuickLook").join("Preview.jpg"), b"jpeg").unwrap();
+        fs::write(final_path.join("manifest.json"), b"old").unwrap();
+        let stage = stage_dir(&final_path).unwrap();
+        fs::create_dir_all(stage.join("images")).unwrap();
+        fs::write(stage.join("manifest.json"), b"new").unwrap();
+        commit(&stage, &final_path).unwrap();
+        assert_eq!(fs::read(final_path.join("manifest.json")).unwrap(), b"new");
+        assert!(!final_path.join("QuickLook").exists(), "no out-of-date preview is left behind");
+    }
+
+    #[test]
     fn commit_into_a_file_path_fails_and_keeps_the_original() {
         let root = temp();
         let blocker = root.join("not-a-directory");

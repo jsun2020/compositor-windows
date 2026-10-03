@@ -25,11 +25,11 @@ function install(l: LayerState = layer(), selection: SelectionState | null = nul
     state: () => state,
     execute: (_id: string, c: Command) => { log.push(JSON.stringify(c)); return { structure: true, canvas: false, layers: [] }; },
     storedPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
-    jobInput: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
+    jobInputAsync: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
     setPreview: () => ({ structure: true, canvas: false, layers: [] }),
     editPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
   } as unknown as EngineClient;
-  const jobs = { run: () => new Promise(() => {}) } as unknown as JobClient;
+  const jobs = { prepareInteractive: () => () => {}, run: () => new Promise(() => {}) } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [l.id], maskSelected: false,
     working: false, palette: { ...DEFAULT_PALETTE, foreground: { red: 1, green: 0.5, blue: 0 }, background: { red: 0, green: 0, blue: 1 } },
     adjustEdit: null, transformEdit: null, error: null, tool: "move", cropRect: null, sheet: null, colorPicker: null });

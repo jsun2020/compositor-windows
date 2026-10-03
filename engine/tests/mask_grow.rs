@@ -299,10 +299,10 @@ fn a_mask_gradient_through_a_job_leaves_what_it_leaves_in_place() {
     let (mut e, id, layer) = document((100, 40), (20, 10), at((30.0, 15.0), (20.0, 10.0)), half, None);
     let command = Command::Gradient { id: layer, mask: true, gradient: linear(p(0.5, 20.0), p(100.5, 20.0), BLACK, CLEAR) };
     let (input, pixels, mask, points) = e.job_input(id, layer).unwrap();
-    let (output, new_pixels, new_mask) = run_edit_job(&input, pixels, mask, points.as_deref(), command.clone()).unwrap();
+    let (output, new_pixels, new_mask, _) = run_edit_job(&input, pixels, mask, points.as_deref(), command.clone(), 0.0).unwrap();
     assert_eq!(output.mask, Some((100, 40)));
     assert_eq!(output.mask_placement.map(|t| (t.origin, t.size)), Some((p(0.0, 0.0), Size { width: 100.0, height: 40.0 })));
-    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask).unwrap();
+    e.install_job(id, layer, input.stamp, output, new_pixels, new_mask, None).unwrap();
     let through_job = mask_of(&e, id);
     e.undo(id).unwrap();
     run(&mut e, id, command);

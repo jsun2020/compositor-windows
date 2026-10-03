@@ -31,11 +31,21 @@ describe("keymap", () => {
     expect(matchShortcut(ev("Backspace", { altKey: true }))).toBe("fill-foreground");
     expect(matchShortcut(ev("Delete", { ctrlKey: true }))).toBe("fill-background");
     expect(matchShortcut(ev("Backspace"))).toBe("delete-layer");
-    expect(matchShortcut(ev("x", { ctrlKey: true }))).toBeNull();
+    expect(matchShortcut(ev("x", { ctrlKey: true }))).toBe("cut");
+    expect(matchShortcut(ev("c", { ctrlKey: true }))).toBe("copy");
+    expect(matchShortcut(ev("c", { ctrlKey: true, shiftKey: true }))).toBe("copy-merged");
+    expect(matchShortcut(ev("v", { ctrlKey: true }))).toBe("paste");
+    expect(matchShortcut(ev("t", { ctrlKey: true }))).toBe("transform");
     expect(matchShortcut(ev("ArrowLeft"))).toBe("nudge-left");
     expect(matchShortcut(ev("ArrowRight", { shiftKey: true }))).toBe("nudge-right");
     expect(matchShortcut(ev("ArrowUp"))).toBe("nudge-up");
     expect(matchShortcut(ev("ArrowDown", { shiftKey: true }))).toBe("nudge-down");
+  });
+
+  it("groups with Ctrl+G and ungroups with Shift+Ctrl+G (KeyboardShortcuts.swift:92-93 at v1.4.5)", () => {
+    expect(matchShortcut(ev("g", { ctrlKey: true }))).toBe("group");
+    expect(matchShortcut(ev("G", { ctrlKey: true, shiftKey: true }))).toBe("ungroup");
+    expect(matchShortcut(ev("g", { ctrlKey: true, altKey: true }))).toBe("clip");
   });
 
   it("maps layer shortcuts", () => {

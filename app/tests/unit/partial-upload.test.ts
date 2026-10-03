@@ -134,3 +134,49 @@ describe("syncMask", () => {
     expect(calls.at(-1)).toMatchObject({ kind: "image", width: 60, height: 40 });
   });
 });
+
+it("a complete same-grid upload keeps chunk objects, updates every chunk and still reports new bytes",()=>{
+  const {gl,calls,pixelsLengths}=stubGl();const textures=new LayerTextures(gl),size={width:3000,height:2};
+  textures.sync("D","A","px:1",false,new Uint8Array(3000*2*4),0,size,1);
+  const before=textures.get("D","A")!.chunks.map(c=>c.texture);calls.length=0;pixelsLengths.length=0;
+  textures.sync("D","A","px:2",true,new Uint8Array(3000*2*4).fill(93),0,size,2);
+  const after=textures.get("D","A")!;
+  expect(after.chunks.map(c=>c.texture)).toEqual(before);
+  expect([after.key,after.revision,after.nearest]).toEqual(["px:2",2,true]);
+  expect(calls).toEqual([
+    {kind:"image",x:0,y:0,width:2048,height:2,skipX:0,skipY:0,rowLength:3000},
+    {kind:"image",x:0,y:0,width:952,height:2,skipX:2048,skipY:0,rowLength:3000},
+  ]);
+  expect(pixelsLengths).toEqual([24000,24000]);
+  textures.sync("D","A","px:3",true,new Uint8Array(3001*2*4),0,{width:3001,height:2},3);
+  expect(textures.get("D","A")!.chunks.map(c=>c.texture)).not.toEqual(before);
+  textures.sync("other","A","px:3",true,new Uint8Array(3001*2*4),0,{width:3001,height:2},3);
+  expect(textures.get("other","A")!.chunks.map(c=>c.texture)).not.toEqual(textures.get("D","A")!.chunks.map(c=>c.texture));
+});
+
+
+it("a same-sized preview-to-result upload reuses GL objects across source prefilter levels and replaces all bytes", () => {
+  const { gl, calls } = stubGl(), textures = new LayerTextures(gl), size = { width: 3000, height: 2 };
+  const uploaded: Uint8Array[] = [], filters: [number, number][] = [];
+  const image = gl.texImage2D.bind(gl), parameter = gl.texParameteri.bind(gl);
+  gl.texImage2D = ((...args: any[]) => { uploaded.push(new Uint8Array(args[8])); return (image as any)(...args); }) as typeof gl.texImage2D;
+  gl.texParameteri = (target, name, value) => { filters.push([name, value]); parameter(target, name, value); };
+  textures.sync("D", "A", "preview", true, new Uint8Array(24000).fill(7), 1, size, null);
+  const before = textures.get("D", "A")!.chunks.map(c => c.texture);
+  const pixels = Uint8Array.from({ length: 24000 }, (_, i) => i % 251);
+  calls.length = 0; uploaded.length = 0; filters.length = 0;
+  textures.sync("D", "A", "result", false, pixels, 3, size, 8);
+  const result = textures.get("D", "A")!;
+  expect(result.chunks.map(c => c.texture)).toEqual(before);
+  expect([result.key, result.level, result.revision, result.nearest]).toEqual(["result", 3, 8, false]);
+  expect(calls).toEqual([
+    { kind: "image", x: 0, y: 0, width: 2048, height: 2, skipX: 0, skipY: 0, rowLength: 3000 },
+    { kind: "image", x: 0, y: 0, width: 952, height: 2, skipX: 2048, skipY: 0, rowLength: 3000 },
+  ]);
+  expect(uploaded).toHaveLength(2);
+  for (const bytes of uploaded) expect(bytes).toEqual(pixels);
+  expect(filters.filter(([name]) => name === gl.TEXTURE_MAG_FILTER || name === gl.TEXTURE_MIN_FILTER))
+    .toEqual([[gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_MIN_FILTER, gl.LINEAR]]);
+  expect(textures.needsUpload("D", "A", "result", 3, false)).toBe(false);
+  expect(textures.needsUpload("D", "A", "result", 1, false)).toBe(true);
+});

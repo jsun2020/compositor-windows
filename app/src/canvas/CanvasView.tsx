@@ -8,6 +8,7 @@ import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-
 import { TransformSession, startMode } from "../tools/transform-session";
 import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
 import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
+import { beginBrush, moveBrush, finishBrush, cancelBrush,isBrushTool } from "../tools/brush";
 import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
 import { installSampling } from "./sampling";
@@ -15,6 +16,7 @@ import { gradientLine, installGradientTool } from "./gradient-tool";
 import { installShapeTool } from "./shape-tool";
 import { beginShape, dragShape } from "../tools/shape-draft";
 import { gradientStops } from "../state/gradient-edit";
+import {beginText} from "../actions/text";
 
 export const HIT_HANDLE_PX = 6;
 
@@ -44,6 +46,7 @@ export function CanvasView() {
   const outlineCacheRef = useRef(new OutlineCache());
   const antsPathRef = useRef(new AntsPathCache(() => new Path2D()));
   const antsPhaseRef = useRef(0);
+  const brushHoverRef=useRef<{x:number;y:number}|null>(null);
 
   /** Draws the overlay from the store as it is now: the pixel grid, guides, the crop frame, the
    * transform handles, the marching ants and an outline being drawn. The ants' timer and an outline
@@ -54,7 +57,10 @@ export function CanvasView() {
     const doc = s.documents[s.activeId], vp = s.viewports[s.activeId];
     if (!doc || !vp) return;
     const dpr = window.devicePixelRatio || 1;
-    overlay.width = gl.width; overlay.height = gl.height;
+    // Assigning even an unchanged canvas size resets its backing store. Ants and
+    // pointer overlays repaint often; clear their pixels without reallocating it.
+    if (overlay.width !== gl.width) overlay.width = gl.width;
+    if (overlay.height !== gl.height) overlay.height = gl.height;
     let transformGeometry: OverlayGeometry | null = null;
     if (s.tool === "move" && (s.transformEdit || canTransform(doc, s.selectedLayerIds, s.maskSelected))) {
       const shape = editedShape(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
@@ -86,12 +92,43 @@ export function CanvasView() {
       shapeDraft: s.shapeDraft ? { kind: s.shapeDraft.kind, rect: s.shapeDraft.rect, start: s.shapeDraft.anchor, end: s.shapeDraft.end,
         cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
     });
+    const text=s.textEdit;
+    if(text?.document===id&&!text.layer&&text.preview&&text.bitmap){
+      const ctx=overlay.getContext("2d")!,canvas=vp.documentRect(doc),p=vp.viewPoint({x:text.origin[0],y:text.origin[1]},doc);
+      ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.beginPath();ctx.rect(canvas.x,canvas.y,canvas.width,canvas.height);ctx.clip();
+      ctx.drawImage(text.bitmap,p.x,p.y,text.bitmap.width*vp.pointsPerPixel,text.bitmap.height*vp.pointsPerPixel);ctx.restore();
+    }
+    if (s.brushDraft?.document===id) {
+      const ctx=overlay.getContext("2d")!, b=s.brushDraft, canvas=vp.documentRect({width:doc.width,height:doc.height});
+      ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.beginPath();ctx.rect(canvas.x,canvas.y,canvas.width,canvas.height);ctx.clip();
+      const c=b.operation.kind!=="Paint"?[0,0,0,0.45]:b.erasing ? [1,1,1,1] : b.color;
+      ctx.strokeStyle=ctx.fillStyle=`rgba(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)},${b.operation.kind!=="Paint"?0.45:s.brushOptions.opacity})`;
+      ctx.lineWidth=s.brushOptions.diameter*vp.pointsPerPixel;ctx.lineCap="round";ctx.lineJoin="round";
+      const points=b.points.map(([x,y])=>vp.viewPoint({x,y},{width:doc.width,height:doc.height}));
+      ctx.beginPath();
+      if(points.length===1){ctx.arc(points[0].x,points[0].y,ctx.lineWidth/2,0,Math.PI*2);ctx.fill();}
+      else{ctx.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))ctx.lineTo(p.x,p.y);ctx.stroke();}
+      ctx.restore();
+    }
+    const hover=brushHoverRef.current;
+    if(isBrushTool(s.tool)&&hover&&!s.colorPicker){
+      const ctx=overlay.getContext("2d")!;ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.beginPath();ctx.arc(hover.x,hover.y,Math.max(2,s.brushOptions.diameter*vp.pointsPerPixel/2),0,Math.PI*2);
+      ctx.lineWidth=2;ctx.strokeStyle="rgba(0,0,0,.7)";ctx.stroke();ctx.lineWidth=1;ctx.strokeStyle="white";ctx.stroke();
+      if(s.tool==="clone"&&s.cloneSource?.document===id){
+        const q=vp.documentPoint(hover,doc),offset=s.brushDraft?.operation.kind==="Clone"?s.brushDraft.operation.offset:s.brushOptions.aligned?s.cloneOffset:null;
+        const source=offset?{x:q.x+offset[0],y:q.y+offset[1]}:{x:s.cloneSource.point[0],y:s.cloneSource.point[1]};
+        const v=vp.viewPoint(source,doc);ctx.beginPath();ctx.moveTo(v.x-6,v.y);ctx.lineTo(v.x+6,v.y);ctx.moveTo(v.x,v.y-6);ctx.lineTo(v.x,v.y+6);ctx.stroke();
+      }
+      ctx.restore();
+    }
   };
 
   // Renderer lifetime follows the canvas element.
   useEffect(() => {
     if (!engine || !glRef.current) return;
-    const renderer = createRenderer(glRef.current, { jobs: () => useEditor.getState().jobs, landed: () => useEditor.getState().invalidate() });
+    const renderer = createRenderer(glRef.current, { jobs: () => useEditor.getState().jobs, landed: () => useEditor.getState().invalidate(),
+      failed: (message) => useEditor.getState().setError(message) });
     rendererRef.current = renderer;
     useEditor.getState().setRendererKind(renderer.kind);
     installTestApi({
@@ -139,11 +176,15 @@ export function CanvasView() {
   // Size the viewport to the element.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    const observer = new ResizeObserver(() => {
+    const resize = () => {
       const s = useEditor.getState();
       for (const id of s.order) { const d = s.documents[id]; s.viewports[id].resize({ width: el.clientWidth, height: el.clientHeight }, window.devicePixelRatio || 1, { width: d.width, height: d.height }); }
       s.invalidate();
-    });
+    };
+    // Fit a newly opened document before the draw effect below. Waiting for the
+    // observer would first upload the entire large raster at the default 1:1 zoom.
+    resize();
+    const observer = new ResizeObserver(resize);
     observer.observe(el);
     return () => observer.disconnect();
   }, [activeId]);
@@ -250,7 +291,7 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
+    el.style.cursor = tool==="text"?"text":sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
   }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.
@@ -286,6 +327,15 @@ export function CanvasView() {
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointerup", up); };
   }, []);
 
+  useEffect(()=>{
+    const el=glRef.current?.parentElement;if(!el)return;let start:{point:[number,number];document:string;pointer:number}|null=null;
+    const point=(e:PointerEvent):[number,number]=>{const s=useEditor.getState(),id=s.activeId!,d=s.documents[id],r=el.getBoundingClientRect(),p=s.viewports[id].documentPoint({x:e.clientX-r.left,y:e.clientY-r.top},d);return[p.x,p.y];};
+    const down=(e:PointerEvent)=>{const s=useEditor.getState();if(s.tool!=="text"||!s.activeId||s.working||s.panelOwnsDocument()||spaceRef.current||e.button!==0)return;start={point:point(e),document:s.activeId,pointer:e.pointerId};el.setPointerCapture(e.pointerId);e.preventDefault();};
+    const up=(e:PointerEvent)=>{if(!start||e.pointerId!==start.pointer)return;const a=start;start=null;if(useEditor.getState().activeId!==a.document)return;const p=point(e),w=Math.abs(p[0]-a.point[0]),h=Math.abs(p[1]-a.point[1]);beginText(w>=16&&h>=16?[Math.min(a.point[0],p[0]),Math.min(a.point[1],p[1])]:a.point,w>=16&&h>=16?[Math.round(w),Math.round(h)]:undefined);};
+    const cancel=()=>{start=null;};el.addEventListener("pointerdown",down);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",cancel);
+    return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",cancel);};
+  },[]);
+
   // Crop tool: drag to create, move or resize the crop rect, snapping to canvas and layer edges.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
@@ -318,6 +368,25 @@ export function CanvasView() {
     el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
     return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
   }, []);
+
+  useEffect(()=>{
+    const el=glRef.current?.parentElement;if(!el)return;
+    let pointer: number|null=null;
+    const point=(e:PointerEvent):[number,number]=>{
+      const s=useEditor.getState(),id=s.activeId!,vp=s.viewports[id],d=s.documents[id],r=el.getBoundingClientRect();
+      const p=vp.documentPoint({x:e.clientX-r.left,y:e.clientY-r.top},{width:d.width,height:d.height});return[p.x,p.y];
+    };
+    const down=(e:PointerEvent)=>{const s=useEditor.getState();if(e.button!==0||spaceRef.current||!s.activeId||!isBrushTool(s.tool))return;
+      if(e.altKey){const [x,y]=point(e);if(s.tool==="clone"){useEditor.setState({cloneSource:{document:s.activeId,point:[x,y]},cloneOffset:null});s.invalidateOverlay();}else s.sampleForeground({x,y});return;}
+      if(beginBrush(point(e),e.shiftKey)){pointer=e.pointerId;el.setPointerCapture(e.pointerId);e.preventDefault();}
+    };
+    const move=(e:PointerEvent)=>{const s=useEditor.getState();if(isBrushTool(s.tool)){const r=el.getBoundingClientRect();brushHoverRef.current={x:e.clientX-r.left,y:e.clientY-r.top};s.invalidateOverlay();}if(pointer===e.pointerId&&s.brushDraft)moveBrush(point(e));};
+    const leave=()=>{brushHoverRef.current=null;useEditor.getState().invalidateOverlay();};
+    const up=(e:PointerEvent)=>{if(pointer!==e.pointerId)return;pointer=null;finishBrush();};
+    const cancel=()=>{pointer=null;cancelBrush();};
+    el.addEventListener("pointerdown",down);el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",cancel);el.addEventListener("pointerleave",leave);
+    return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",cancel);el.removeEventListener("pointerleave",leave);};
+  },[]);
 
   // Move tool: drag to move (a press outside the shape still moves it, as macOS does),
   // drag a handle to resize or rotate, Ctrl-drag a corner to distort, Alt-drag to
@@ -357,7 +426,7 @@ export function CanvasView() {
       // Re-read the document: beginTransform may have just duplicated the layer, adding it
       // to the layers array snapTargets scans (and excludes by movingIds).
       const targets = snapTargets(useEditor.getState().documents[s0.activeId!], after.ids);
-      session = new TransformSession({ mode, startDoc: docPoint(e), original: after.draft, originalCorners: after.corners ? after.corners.map(fromTuple) : null, snap: mode.kind === "move" ? { ...targets, tolerance } : null });
+      session = new TransformSession({ mode, startDoc: docPoint(e), original: after.draft, originalCorners: after.corners ? after.corners.map(fromTuple) : null, snap: mode.kind === "move" || mode.kind === "resize" ? { ...targets, tolerance } : null, lockRatio: useEditor.getState().locksTransformRatio });
       el.setPointerCapture(e.pointerId);
     };
     const move = (e: PointerEvent) => {
