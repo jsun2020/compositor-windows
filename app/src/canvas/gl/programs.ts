@@ -111,11 +111,13 @@ void main() {
   if (edgePadding.x > 0.0 || edgePadding.y > 0.0) {
     vec2 f = uvRect.xy + uv * uvRect.zw;
     vec2 edge = clamp(min(f, vec2(1.0) - f) / max(fwidth(f), vec2(1e-8)) + 0.5, 0.0, 1.0);
-    k *= floor(edge.x * edge.y * 255.0) / 255.0;
+    float edgeCoverage = floor(edge.x * edge.y * 255.0) / 255.0;
     // Interpolated UVs can land one float below a texel boundary at a half-pixel
     // origin. Derive copy coordinates from device pixels to keep those ties exact.
     vec2 pixel = (vec2(gl_FragCoord.x, copyHeight - gl_FragCoord.y) - copyGrid.xy) / copyGrid.zw;
     sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
+    // Covered source bytes are rounded before blending with the backdrop.
+    sampled = floor(sampled * edgeCoverage * 255.0 + 0.5) / 255.0;
   } else sampled = texture(tex, uv);
   vec4 s = sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.

@@ -162,7 +162,12 @@ fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: 
         ((px.x * scale).clamp(0.0, source.width as f64 - 0.0001), (px.y * scale).clamp(0.0, source.height as f64 - 0.0001))
     } else { (px.x * scale, px.y * scale) };
     let mut color = sample(source, x, y, nearest);
-    if antialiased_copy { for v in &mut color { *v *= coverage; } }
+    if antialiased_copy && coverage < 1.0 {
+        // Core Graphics materializes the covered premultiplied source as bytes
+        // before source-over. Keeping fractional bytes until after blending
+        // changes overlapping edges by a channel (Mac-created return oracle).
+        for v in &mut color { *v = (*v * coverage * 255.0).round() / 255.0; }
+    }
     color
 }
 

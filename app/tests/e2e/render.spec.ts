@@ -1,6 +1,32 @@
 import { test, expect, type Page } from "@playwright/test";
 import { grayRampMaskPngBase64, redSquarePngBase64, solidPngBase64 } from "./helpers";
 
+test("a covered pixel-copy source rounds before blending with its opaque backdrop", async ({ page }) => {
+  await page.goto("/"); await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const api = (window as any).__compositor, id = "A66C3B15-160E-41C5-8E7F-1AAB95F51D79", bg = "A66C3B15-160E-41C5-8E7F-1AAB95F51D78";
+    const png = (w: number, h: number, color: number[]) => {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray(Array.from({ length: w * h }, () => color).flat()), w, h), 0, 0);
+      return Uint8Array.from(atob(c.toDataURL().split(",")[1]), char => char.charCodeAt(0));
+    };
+    const transform = (x: number, y: number, w: number, h: number) => ({ origin: [x, y], size: [w, h], rotation: 0, flipX: false, flipY: false, sampling: "High quality" });
+    const manifest = { format: "com.compositor.project", version: 11, colorSpace: "sRGB", documentID: id, width: 5, height: 4,
+      layers: [{ id: bg, name: "Background", isVisible: true, imageFile: `${bg}.png`, transform: transform(0, 0, 5, 4) },
+        { id, name: "Edge", isVisible: true, imageFile: `${id}.png`, transform: transform(1.5, 1, 1, 1) }] };
+    const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${id}.png`, bytes: png(1, 1, [228, 228, 241, 56]) }, { name: `${bg}.png`, bytes: png(5, 4, [3, 4, 24, 255]) }] }, null);
+    api.store.getState().openDocument(doc); await api.setZoom(1); api.setCheckerboard(false);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const state = api.store.getState(), vp = state.viewports[doc], dpr = window.devicePixelRatio || 1, rect = vp.documentRect({ width: 5, height: 4 });
+    vp.translate({ width: (Math.round(rect.x * dpr) - rect.x * dpr) / dpr, height: (Math.round(rect.y * dpr) - rect.y * dpr) / dpr });
+    api.renderer.render(api.engine, state.documents[doc], vp, dpr, { checkerboard: false }, null);
+    const cpu = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: 5, height: 4 }, 5, 4)) as number[], gpu = Array.from(api.readDocumentPixels()) as number[];
+    const record = { kind: state.rendererKind, pixel: cpu.slice(24, 28), worst: gpu.reduce((max, value, index) => Math.max(max, Math.abs(value - cpu[index])), 0) };
+    api.store.getState().closeDocument(doc); return record;
+  });
+  expect(result.kind).toBe("gl"); expect(result.pixel).toEqual([28, 29, 47, 255]); expect(result.worst).toBeLessThanOrEqual(2);
+});
+
 test("fractional pixel-copy edges use Mac's 8-bit coverage with either axis flipped", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();

@@ -43,29 +43,32 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Native workspace tests: 620 passed, zero failures, 10 existing ignored.
+- [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
 - [x] Vitest: 269 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Full fixed-asset browser suite: 192 passed, 29 existing opt-in perf skips.
+- [x] Full fixed-asset browser suite: 193 passed, 29 existing opt-in perf skips.
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
   protocol groups and four exact image comparisons; the original clipboard is restored.
-- [ ] Repeat clipboard verification for production 1455: OS denies access before
-  any mutation; Windows manual confirmation is requested.
+- [x] Current production 1556 clipboard verification: six native protocol groups,
+  four exact image comparisons, editable UTF-16 text and original formats restored.
+  The historical 1455 access-denied preflight is retained.
 - [ ] All large-image performance budgets: repeated failures retained in report.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.
 - [x] Current release-WASM exports match Mac-no-edit, Mac-edited and the
   fractional/flipped upright 1:1 probe exactly, with transforms unchanged.
 - [ ] Mac undo/redo and effect preview/cancel/apply confirmation, and exact
-  Mac-created enlarged-text/overlapping-edge export fidelity.
+  Mac-created enlarged-text export fidelity. Covered overlap edges are now exact.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-620 native tests, 269 unit tests, 192 functional browser tests. Production 1455
-passes seven native UI groups and four native Mac package reads/writes; its
-clipboard repeat is pending OS access/manual confirmation. The 29 performance
-cases have 22 applicable passes / seven remaining
-failures. All 100 assertions in the legacy performance file remain identical while
+621 native tests, 269 unit tests, 193 functional browser tests. Production 1556
+passes seven native UI groups, four native Mac package reads/writes and six
+clipboard groups with four exact image checks and restoration. The 29 performance
+cases now have a complete single-run result of 27 passes / two failures (24 MP
+histogram frame gap 151 / <150 ms; 100 MP blank-gradient gap 102 / <100 ms).
+Earlier intermittent failures remain unclosed by one passing observation.
+All 100 assertions in the legacy performance file remain identical while
 its measurements follow the real async APIs. Implementation and these passing
 layers do not establish full acceptance.

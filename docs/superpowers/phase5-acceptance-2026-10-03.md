@@ -319,6 +319,87 @@ Production remains on the original hardware D3D11 path. Alternative-backend
 passes do not supersede the official 22/7 result or establish acceptance.
 Evidence: `angle-backend-inventory.json` and `angle-budget-diagnostic.json`.
 
+## Covered source-byte rounding checkpoint
+
+The CPU compositor and GL layer shader now round covered premultiplied source
+channels to bytes before blending them over the backdrop. A regression derived
+from the Mac-created return checks `[28,29,47,255]` for its partially transparent
+edge over `[3,4,24,255]`. The source fix removes all 24 remaining rectangle-overlap
+differences without changing the saved transforms or sampling settings.
+
+Release WASM SHA-256 is
+`A2083E169200D98D85728AC2F4C1977EA8AA870F14D29C4E77C882682727B919`;
+the fixed test assets contain the same bytes. Workspace tests pass 621 with zero
+failures and the same 10 ignored. All three TypeScript checks pass. The complete
+functional browser run passes 193 with the same 29 opt-in performance skips;
+the separate rendering run passes all 14 render/adjust/zoom cases. An earlier
+render runner encountered an overlapping preview server and connection-refused
+errors; its log is preserved and does not represent a pixel assertion failure.
+
+Actual exports of all three Mac returns and 11 sampling probes preserve every
+transform. Mac-no-edit, Mac-edited, explicit Nearest enlargement and the upright
+fractional/flipped 1:1 probe are exact. Mac-created now has 13,065 changed pixels,
+maximum difference 51, confined to the enlarged text at `[137,267,1280,339]`.
+Its overlap edges are exact; enlarged-text, scaled and rotated probe differences
+remain open. Evidence: `copied-overlap-mac-checks/checks.json`, `comparison.json`,
+`copied-overlap-workspace-final.log`, `copied-overlap-render-cmd.log` and
+`copied-overlap-functional.log`.
+
+A diagnostic-only viewport-mask prototype reduces a 6000 x 4000 nonuniform mask
+upload to 1136 x 798 samples. After correcting its cache transition, the actual
+frame differs by at most one channel level, with zero samples above the existing
+GPU tolerance of two. The original Add Mask case passes for both the baseline
+and prototype in the subsequent isolated diagnostic. This does not establish a
+fix for its intermittent performance failures, so the prototype is not adopted.
+The original failing cache-transition log remains. Evidence:
+`mask-viewport-pixels-cache-fix.log` and `mask-viewport-diagnostic.json`.
+
+Fitting the Mac-created text's alpha by sampling phase still leaves residuals;
+77 of 81 phase groups cannot be matched by any four-tap linear coefficients
+followed by a single nearest-byte rounding within that grouping. This is a
+diagnostic constraint on the model, not a general claim about Core Graphics.
+Neither fitted coefficients nor the approximate eighth-phase filter is adopted
+as an exact Mac renderer. Evidence: `text-phase-fit-diagnostic.json`.
+
+## Production 1556 covered-source checkpoint
+
+`COMPOSITOR_BUILD_0.8.0_20261003-1556` contains the covered-source fix and the
+release WASM above. Its portable ZIP is 4,743,691 bytes, SHA-256
+`CAB371029BE5FBE2FE41CA84F8912C7876974437B0FC691198CE217ED312AA3A`.
+The 11,976,704-byte executable has SHA-256
+`8E6B2456BF31519B498DD95A07A1E503D715ABB52C181CB137A207AB9E739954`.
+Archive CRCs pass and the archived executable matches the one actually tested.
+The build-info source bytes are restored after packaging.
+
+The real production window passes all seven UI groups with zero page errors and
+no development test API. Four native Mac package reads and four atomic save
+commits pass, including continued editable text, shape width 150, Stroke 7 and
+Drop Shadow Distance 14 after save/close/reopen. All three native open exports
+are byte-identical to the fixed release-WASM exports; the remaining Mac-created
+text differences above therefore also apply to this production package.
+Evidence: `native-ui-copied-overlap.log`, `native-mac-copied-overlap.log`,
+`native-copied-overlap-mac/` and `copied-overlap-package-integrity.json`.
+
+Clipboard access has returned: production 1556 passes all six native clipboard
+groups through the real bridge and an independent Windows Forms consumer.
+All four saved/consumed PNG and bitmap checks have maximum channel difference
+zero, including alpha and row ordering; two editable UTF-16 text records persist.
+The original format set is restored. The previous access-denied preflights are
+retained as historical failures, not a current 1556 clipboard failure. Evidence:
+`native-clipboard-copied-overlap.log` and `clipboard-20261003-161117/`.
+
+The subsequent single complete performance run uses the same release WASM and
+fixed assets, after compilation and native GUI checks have finished. All 29
+original cases run with one worker and no retries: **27 pass / two fail** in
+8.3 minutes. The failures are the 24 MP Levels histogram frame gap (151 ms,
+budget strictly below 150 ms) and the 100 MP blank-layer gradient frame gap
+(102 ms, budget strictly below 100 ms). Neither limit is changed. The earlier
+seven failure groups do not all reproduce in this run, but a single passing
+observation does not establish a fix or stable acceptance for intermittent
+failures. This current full-run result supersedes the earlier 22/7 aggregation
+as the latest observation, not as full acceptance. Evidence:
+`copied-overlap-performance.log`.
+
 ## Mac confirmation still required
 
 Compositor 1.4.5 return files already prove live opening, saving and text/shape
@@ -343,13 +424,15 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The seven performance failures above need
-fixes and repeatable evidence under their original budgets. Production 1206
-clipboard protocol and exact synthetic-image pixel checks pass; the 1455 repeat
-is pending Windows access/manual confirmation. Earlier
+Full acceptance remains incomplete. The two current performance failures and
+earlier intermittent failures need fixes and repeatable evidence under their
+original budgets. Production 1206
+clipboard protocol and exact synthetic-image pixel checks pass; production 1556
+also passes six native groups and four exact image comparisons, with the original
+clipboard restored. Earlier
 protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
 confirmation remains pending. Current Mac-edited export is exact; Mac-created
-enlarged text and overlapping edges remain quantified and open. No assertion,
+enlarged text remains quantified and open; covered overlap edges now match. No assertion,
 budget, warm-up policy, skip, retry, or image tolerance
 has been weakened to close those gates.
 

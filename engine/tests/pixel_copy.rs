@@ -63,3 +63,14 @@ fn automatic_copies_antialias_the_rectangle_edge_but_explicit_nearest_does_not()
     let nearest = render_full(&doc).unwrap();
     assert_eq!((0..5).map(|x| nearest.pixel(x, 1)[3]).collect::<Vec<_>>(), [0, 255, 255, 0, 0]);
 }
+
+#[test]
+fn covered_source_is_rounded_before_blending_over_an_opaque_backdrop() {
+    let mut doc = Document::new(5, 4);
+    let foreground = Layer::with_pixels("Edge", Raster::from_premultiplied(1, 1, vec![50, 50, 53, 56]), Point { x: 1.5, y: 1.0 });
+    let background = Layer::with_pixels("Background", Raster::from_premultiplied(5, 4, [3, 4, 24, 255].repeat(20)), Point { x: 0.0, y: 0.0 });
+    doc.layers = vec![background, foreground];
+    // The covered source is [25,25,26,28]; blending it over [3,4,24,255]
+    // gives the Mac's byte result, rather than rounding the fractional sum.
+    assert_eq!(render_full(&doc).unwrap().pixel(1, 1), [28, 29, 47, 255]);
+}
