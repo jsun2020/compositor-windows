@@ -39,11 +39,23 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Native workspace tests: 613 passed, zero failures, 10 existing ignored.
-- [x] Vitest: 259 passed. Production TypeScript/UI build passes.
-- [x] Full fixed-asset browser suite: 188 passed, 29 existing opt-in perf skips.
+- [x] Native workspace tests: 616 passed, zero failures, 10 existing ignored.
+- [x] Vitest: 268 passed. Production TypeScript/UI build passes.
+- [x] Full fixed-asset browser suite: 190 passed, 29 existing opt-in perf skips.
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
-- [ ] Live Windows clipboard interoperability: session access denied.
+- [ ] Live Windows clipboard interoperability: origin/DIB fixes are implemented;
+  final native access is currently denied (error 5), so pixel acceptance is open.
 - [ ] All large-image performance budgets: repeated failures retained in report.
-- [ ] Live Mac round-trip of newly authored text, shapes and effects.
+- [x] Live Mac return files open/save/reopen and continued text/shape/effect
+  editing in the production Windows package.
+- [ ] Mac undo/redo and effect preview/cancel/apply confirmation, and exact
+  edited/created export fidelity.
+
+
+Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
+616 native tests, 268 unit tests, 190 functional browser tests, production marker
+1206, and 29 performance cases covered with 22 applicable passes / seven remaining
+failures. All 100 assertions in the legacy performance file remain identical while
+its measurements follow the real async APIs. Implementation and these passing
+layers do not establish full acceptance.

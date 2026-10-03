@@ -15,7 +15,8 @@ export class TauriBridge implements ShellBridge {
     return { bytes: new Uint8Array(buffer, 53), origin, layerToken:token.includes("\0")?null:token };
   }
   async writeClipboardImage(bytes: Uint8Array, origin: [number, number], layerToken?:string): Promise<void> {
-    await invoke("write_clipboard_image", bytes, { headers: { origin: JSON.stringify(origin),...(layerToken?{"layer-token":layerToken}:{}) } });
+    // Origin is a browser-controlled HTTP header on Tauri's fetch IPC path.
+    await invoke("write_clipboard_image", bytes, { headers: { "compositor-pixel-origin": JSON.stringify(origin),...(layerToken?{"layer-token":layerToken}:{}) } });
   }
   async pickOpenPackage(): Promise<string | null> {
     const picked = await open({ directory: true, multiple: false, title: "Open Compositor Project (.comp folder)" });

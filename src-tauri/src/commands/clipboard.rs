@@ -5,6 +5,13 @@ use tauri::ipc::{InvokeBody, Request, Response};
 
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 
+fn pixel_origin(headers: &tauri::http::HeaderMap) -> Result<[f64; 2], String> {
+    // HTTP Origin belongs to the browser, which supplies the WebView origin.
+    let origin: [f64; 2] = serde_json::from_str(headers.get("compositor-pixel-origin").and_then(|v| v.to_str().ok()).ok_or("missing clipboard origin")?).map_err(|_| "Invalid clipboard origin")?;
+    if origin.iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) { return Err("Invalid clipboard origin".into()); }
+    Ok(origin)
+}
+
 #[cfg(windows)]
 mod win {
     use super::MAX_BYTES;
@@ -140,8 +147,19 @@ fn dib_to_bmp(dib: &[u8]) -> Result<Vec<u8>, String> {
     if ![24, 32].contains(&bits) || ![0, 3, 6].contains(&compression) { return Err("Unsupported clipboard bitmap format".into()); }
     let masks = if header == 40 { match compression { 3 => 12, 6 => 16, _ => 0 } } else { 0 };
     let palette = (u32_at(dib, 32) as usize).checked_mul(4).ok_or("Invalid bitmap palette")?;
-    let offset = header.checked_add(masks).and_then(|n| n.checked_add(palette)).ok_or("Invalid bitmap offset")?;
+    let mut offset = header.checked_add(masks).and_then(|n| n.checked_add(palette)).ok_or("Invalid bitmap offset")?;
     if offset > dib.len() { return Err("Truncated clipboard bitmap".into()); }
+    // Windows can synthesize CF_DIBV5 from CF_BITMAP with an additional RGB
+    // mask table in bmiColors, even though the same masks are in the V5 header.
+    // A BMP file instead identifies its pixel start explicitly. Recognize that
+    // table by its exact masks and the complete uncompressed pixel span; do not
+    // skip bytes in ordinary V4/V5 bitmaps with only embedded masks.
+    if header >= 108 && compression == 3 && palette == 0 {
+        let width = u32_at(dib, 4) as usize;
+        let height = (u32_at(dib, 8) as i32).unsigned_abs() as usize;
+        let span = width.checked_mul(bits as usize).and_then(|n|n.checked_add(31)).map(|n|n/32*4).and_then(|stride|stride.checked_mul(height)).ok_or("Invalid bitmap size")?;
+        if span > 0 && offset.checked_add(12).and_then(|n|n.checked_add(span)) == Some(dib.len()) && dib[offset..offset+12] == dib[40..52] { offset += 12; }
+    }
     let mut out = Vec::with_capacity(dib.len() + 14);
     out.extend_from_slice(b"BM"); out.extend_from_slice(&((dib.len() + 14) as u32).to_le_bytes());
     out.extend_from_slice(&[0; 4]); out.extend_from_slice(&((offset + 14) as u32).to_le_bytes()); out.extend_from_slice(dib);
@@ -151,8 +169,7 @@ fn dib_to_bmp(dib: &[u8]) -> Result<Vec<u8>, String> {
 #[tauri::command]
 pub async fn write_clipboard_image(window: tauri::WebviewWindow, request: Request<'_>) -> Result<(), String> {
     let bytes = match request.body() { InvokeBody::Raw(b) if b.len() <= MAX_BYTES => b.clone(), _ => return Err("Invalid clipboard image payload".into()) };
-    let origin: [f64; 2] = serde_json::from_str(request.headers().get("origin").and_then(|v| v.to_str().ok()).ok_or("missing clipboard origin")?).map_err(|_| "Invalid clipboard origin")?;
-    if origin.iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) { return Err("Invalid clipboard origin".into()); }
+    let origin = pixel_origin(request.headers())?;
     let token=request.headers().get("layer-token").and_then(|v|v.to_str().ok()).map(str::to_owned);
     if token.as_ref().is_some_and(|t|t.len()!=36||!t.bytes().all(|c|c.is_ascii_hexdigit()||c==b'-')){return Err("Invalid clipboard token".into());}
     #[cfg(windows)] {
@@ -176,6 +193,18 @@ pub async fn read_clipboard_image(window: tauri::WebviewWindow) -> Result<Respon
 mod tests {
     use super::*;
     #[test]
+    fn pixel_coordinates_do_not_use_the_browser_origin_header() {
+        let mut headers = tauri::http::HeaderMap::new();
+        headers.insert("origin", "http://tauri.localhost".parse().unwrap());
+        assert!(pixel_origin(&headers).is_err());
+        headers.insert("compositor-pixel-origin", "[318,239]".parse().unwrap());
+        assert_eq!(pixel_origin(&headers).unwrap(), [318.0, 239.0]);
+        for value in ["[1000001,0]", "[1]", "[null,0]", "http://tauri.localhost"] {
+            headers.insert("compositor-pixel-origin", value.parse().unwrap());
+            assert!(pixel_origin(&headers).is_err());
+        }
+    }
+    #[test]
     fn dib_preserves_alpha_and_channel_order() {
         let r = compositor_engine::Raster::from_straight(2, 1, &[255, 0, 0, 128, 0, 40, 255, 255]);
         let dib = dib_v5(&r);
@@ -183,6 +212,24 @@ mod tests {
         let bmp = dib_to_bmp(&dib).unwrap();
         let decoded = compositor_engine::decode_image(&bmp).unwrap().raster;
         assert_eq!(decoded.bytes(), r.bytes());
+    }
+    #[test]
+    fn dib_v5_preserves_both_row_directions_and_alpha() {
+        let r = compositor_engine::Raster::from_straight(2, 2, &[255,0,0,128, 0,255,0,255, 0,0,255,255, 255,255,255,64]);
+        let mut dib = dib_v5(&r);
+        assert_eq!(compositor_engine::decode_image(&dib_to_bmp(&dib).unwrap()).unwrap().raster.bytes(),r.bytes());
+        dib[8..12].copy_from_slice(&2i32.to_le_bytes());
+        let rows=dib[124..].to_vec();dib[124..132].copy_from_slice(&rows[8..]);dib[132..].copy_from_slice(&rows[..8]);
+        assert_eq!(compositor_engine::decode_image(&dib_to_bmp(&dib).unwrap()).unwrap().raster.bytes(),r.bytes());
+    }
+    #[test]
+    fn windows_synthesized_v5_mask_table_is_not_read_as_a_pixel_row() {
+        let r = compositor_engine::Raster::from_straight(3,2,&[255,0,0,255, 0,255,0,255, 0,0,255,255, 255,255,255,255, 128,0,128,255, 0,0,0,255]);
+        let mut dib=dib_v5(&r);dib[8..12].copy_from_slice(&2i32.to_le_bytes());dib[52..56].fill(0);
+        let rows=dib[124..].to_vec();dib.truncate(124);let masks=dib[40..52].to_vec();
+        dib.extend_from_slice(&masks);dib.extend_from_slice(&rows[12..]);dib.extend_from_slice(&rows[..12]);
+        let bmp=dib_to_bmp(&dib).unwrap();assert_eq!(u32::from_le_bytes(bmp[10..14].try_into().unwrap()),150);
+        assert_eq!(compositor_engine::decode_image(&bmp).unwrap().raster.bytes(),r.bytes());
     }
     #[test]
     fn rejects_truncated_and_unsupported_headers() {

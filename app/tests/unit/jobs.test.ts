@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EFFECTS_JOB_DISPLACED, JobClient, WORKER_MEMORY_LIMIT, type FromWorker, type JobRequest, type ToWorker } from "../../src/engine/jobs";
+import {clearJobBuffers,takeJobBuffer} from "../../src/engine/job-buffers";
 
 /** A worker that records what it is sent and answers when told to. */
 class FakeWorker {
@@ -28,6 +29,31 @@ function client() {
 }
 
 describe("JobClient", () => {
+  it("retires a canceled edit's returned large buffer without exposing it to the caller",async()=>{
+    clearJobBuffers();
+    try{
+      const {jobs,workers}=client();
+      const pending=jobs.run("edit",{kind:"edit",input:"edit",pixels:new ArrayBuffer(8),mask:null,points:null,command:"",outPerDoc:1});
+      await settle();workers[0].reply({type:"ready"});await settle();jobs.cancel("edit");
+      const buffer=new ArrayBuffer(4*1024*1024);new Uint8Array(buffer)[19]=99;
+      workers[0].reply({type:"done",id:1,result:{header:"discarded",pixels:buffer,mask:null},memory:1});
+      expect(await pending).toBeNull();expect(buffer.byteLength).toBe(0);
+      expect(new Uint8Array(takeJobBuffer(4*1024*1024))[19]).toBe(99);
+      jobs.dispose();
+    }finally{clearJobBuffers();}
+  });
+  it("reclaims histogram input before its caller prepares the next job, including a canceled histogram",async()=>{
+    clearJobBuffers();
+    try{
+      const {jobs,workers}=client(),pending=jobs.run("hist",histogram("one"));
+      await settle();workers[0].reply({type:"ready"});await settle();jobs.cancel("hist");
+      const buffer=new ArrayBuffer(4*1024*1024);new Uint8Array(buffer)[19]=77;
+      workers[0].reply({...done(1,"bins"),recycled:[buffer]} as FromWorker);
+      expect(await pending).toBeNull();expect(buffer.byteLength).toBe(0);
+      expect(new Uint8Array(takeJobBuffer(4*1024*1024))[19]).toBe(77);
+      jobs.dispose();
+    }finally{clearJobBuffers();}
+  });
   it("starts the worker with the compiled module, then runs one job at a time in order, transferring its buffers", async () => {
     const { jobs, workers } = client();
     const first = jobs.run("a", histogram("one"));

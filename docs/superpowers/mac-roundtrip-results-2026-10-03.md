@@ -121,3 +121,18 @@ File and editable-record interoperability has live Mac return evidence. The
 quantified composite differences above remain open. Windows external-image
 clipboard interoperability and the previously failing 100 MP Content-Aware Fill
 frame budget also remain open; this return-file validation does not close them.
+
+## Production 1206 acceptance follow-up
+
+The latest portable repeats four native reads and four atomic saves with zero
+page errors and no development API. It additionally checks Windows text-size and
+shape-width undo/redo, effect preview/cancel, Apply and saved/reopened parameters.
+All three native PNGs and 34 saved/continued package files match the prior checked
+Windows outputs. This preserves the exact no-edit composite match and the
+quantified edited/created export differences; it does not resolve those differences
+or establish the Mac gestures left blank in the return sheet.
+
+See [the full acceptance record](phase5-acceptance-2026-10-03.md) for package hashes,
+new performance coverage, clipboard origin/DIB fixes and the current native access
+failure. Clipboard and stable performance acceptance remain open, rather than
+being inferred from the Mac file interoperability checks.

@@ -177,10 +177,18 @@ impl WasmEngine {
         let make=|n:usize|{let mut b=Vec::new();b.try_reserve_exact(n).map_err(|_|JsError::new("Not enough memory for the edit"))?;Ok::<_,JsError>(b)};
         self.staged=Some((make(pixels)?,make(mask)?,make(display)?,[pixels,mask,display]));Ok(())
     }
-    pub fn append_staged_install(&mut self,plane:u8,bytes:Vec<u8>)->Result<(),JsError>{
+    pub fn append_staged_install(&mut self,plane:u8,bytes:Uint8Array)->Result<(),JsError>{
         let Some((p,m,d,sizes))=&mut self.staged else{return Err(JsError::new("no staged edit"));};
         let target=match plane{0=>p,1=>m,2=>d,_=>return Err(JsError::new("invalid staged plane"))};
-        if target.len()+bytes.len()>sizes[plane as usize]{return Err(JsError::new("staged buffer overflow"));}target.extend_from_slice(&bytes);Ok(())
+        let length=bytes.length() as usize;
+        let next=target.len().checked_add(length).filter(|&n|n<=sizes[plane as usize]).ok_or_else(||JsError::new("staged buffer overflow"))?;
+        // Copy JS bytes directly into the reserved destination. Accepting Vec<u8>
+        // first made wasm-bindgen allocate/copy each chunk, then copied it again.
+        bytes.copy_to_uninit(&mut target.spare_capacity_mut()[..length]);
+        // SAFETY: copy_to_uninit initialized exactly `length` bytes above; the
+        // reserved capacity and advertised plane size were checked beforehand.
+        unsafe{target.set_len(next);}
+        Ok(())
     }
     pub fn cancel_staged_install(&mut self){self.staged=None;}
     pub fn finish_staged_install(&mut self,doc:&str,layer:&str,stamp:&str,output:&str,preview:bool)->Result<String,JsError>{

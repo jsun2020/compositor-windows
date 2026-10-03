@@ -9,6 +9,8 @@
 // selection at all (None) only by whether a buffer was passed, not by its length.
 
 /** What a job is asked to do. `input` is the engine's JobInput JSON; the buffers travel beside it. */
+import {releaseJobBuffer} from "./job-buffers";
+
 export type JobRequest =
   | {kind:"text";input:string;pixels:null;mask:null}
   | { kind: "documentEdit"; input: string; layer: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; pixels: null; mask: null; points: ArrayBuffer | null; command: string; outPerDoc: number }
@@ -24,13 +26,12 @@ export type JobRequest =
  * the level the canvas draws them at (`display`, engine `JobOutput.display`; F1). */
 export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null; }
 
-/** Retire large transferred buffers after installation. Current WebView2/Edge
- * can detach/release them immediately, avoiding a large GC on the next edit.
- * Older runtimes retain normal GC behavior. Prepared previews keep their buffers
- * until Apply/Cancel. Small results remain available to callers as before. */
+/** Retire large transferred buffers after installation. The bounded buffer pool
+ * detaches callers while keeping a spare for the next edit; previews keep their
+ * buffers until Apply/Cancel. Small results remain available as before. */
 export function releaseJobResult(result:JobResult|null):void {
   if(!result)return;for(const b of [result.pixels,result.mask,result.display]){
-    if(b&&b.byteLength>=4*1024*1024){const transferable=b as ArrayBuffer&{transfer?:(length:number)=>ArrayBuffer};transferable.transfer?.(0);}
+    if(b)releaseJobBuffer(b);
   }
 }
 
@@ -40,7 +41,7 @@ export function releaseJobResult(result:JobResult|null):void {
  * re-entrancy guard set on that instance, so every later call throws "recursive use of an object..."
  * -- the worker itself is unusable from here on, not just the one job, unlike a clean refusal. */
 export type ToWorker = { type: "init"; module: WebAssembly.Module } | { type: "job"; id: number; request: JobRequest };
-export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number } | { type: "failed"; id: number; error: string; memory: number; fatal: boolean };
+export type FromWorker = { type: "ready" } | { type: "done"; id: number; result: JobResult; memory: number; recycled?: ArrayBuffer[] } | { type: "failed"; id: number; error: string; memory: number; fatal: boolean };
 
 /** A worker that has grown its wasm memory past this is replaced after its job: wasm memory never
  * shrinks, and a second heap of gigabytes would crowd the app's own. */
@@ -179,7 +180,8 @@ export class JobClient {
 
   private finish(message: Exclude<FromWorker, { type: "ready" }>): void {
     const job = this.running;
-    if (!job || job.id !== message.id) return;
+    if(message.type==="done")for(const buffer of message.recycled??[])releaseJobBuffer(buffer);
+    if (!job || job.id !== message.id) {if(message.type==="done")releaseJobResult(message.result);return;}
     this.running = null;
     // A wasm trap poisons the whole instance (see `FromWorker`'s doc on `fatal`), so the worker is
     // replaced outright, the same as one that grew past the memory limit; a clean JsError refusal
@@ -187,7 +189,8 @@ export class JobClient {
     const fatal = message.type === "failed" && message.fatal;
     if (fatal || message.memory > WORKER_MEMORY_LIMIT) { this.worker?.terminate(); this.worker = null; this.ready = null; }
     if (message.type === "failed") job.reject(new Error(fatal ? trapMessage(message.error) : message.error));
-    else job.resolve(this.newest.get(job.channel) === job.id ? message.result : null);
+    else if(this.newest.get(job.channel) === job.id)job.resolve(message.result);
+    else{releaseJobResult(message.result);job.resolve(null);}
     void this.pump();
   }
 

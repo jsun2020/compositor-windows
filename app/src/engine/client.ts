@@ -1,5 +1,6 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
 import {releaseJobResult} from "./jobs";
+import {takeJobBuffer} from "./job-buffers";
 import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PixelRect, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
 
 /** `[x, y, width, height]` from the engine as a rectangle; an empty array as null (take it whole). */
@@ -156,7 +157,7 @@ export class EngineClient {
   }
   private async copyStored(doc:string,layer:string,mask:boolean,size:number,cpu?:{value:number}):Promise<ArrayBuffer|null>{
     if(!size)return null;
-    const allocated=performance.now(),out=new Uint8Array(size);let start=performance.now();if(cpu)cpu.value+=start-allocated;
+    const allocated=performance.now(),out=new Uint8Array(takeJobBuffer(size));let start=performance.now();if(cpu)cpu.value+=start-allocated;
     for(let at=0;at<size;at+=4*1024*1024){
       const t=performance.now(),length=Math.min(4*1024*1024,size-at),ptr=this.wasm.stored_buffer_ptr(doc,layer,mask);
       out.set(new Uint8Array(this.memory.buffer,ptr+at,length),at);

@@ -262,3 +262,27 @@ alone are substituted through a dialog-only IPC response; filesystem operations,
 editing, rendering and saving remain native. See the linked Mac report for the
 artifact checks and exact limits of this evidence. No performance budgets changed
 and no new performance acceptance is inferred from this font-only change.
+
+## Full-acceptance checkpoint, 2026-10-03
+
+The explicit full-acceptance goal remains active. [The acceptance record](phase5-acceptance-2026-10-03.md)
+is the authoritative latest snapshot; the historical logs and packages above
+remain retained. Production marker `COMPOSITOR_BUILD_0.8.0_20261003-1206` includes
+native clipboard origin/DIB fixes, worker-buffer reuse and retirement, and direct
+staged WASM chunk copies. It passes 616 native tests, 268 unit tests and 190
+functional browser checks. The 29 unchanged opt-in skips are measured separately:
+latest applicable performance coverage is 22 passed / seven failed. Six legacy
+cases now monitor the async APIs actually used, with every original assertion,
+timeout and budget preserved.
+
+The real portable passes the native UI groups (including effect preview/cancel
+and undo/redo) and four native Mac package reads/four atomic writes, continued
+text/shape undo/redo and saved effect parameters. Its three native PNGs and 34
+saved package files match the prior validated Windows outputs. The exact no-edit
+Mac match and edited/created export edge differences retain their earlier limits.
+
+The final clipboard preflight cannot open the system clipboard and aborts before
+any mutation; an independent Win32 probe and production read also return error 5.
+A manual Windows result and the missing Mac gesture confirmations are requested.
+These gates and the recorded performance overruns remain open. No full acceptance
+is claimed, and only reviewed source/tests/docs are published.
