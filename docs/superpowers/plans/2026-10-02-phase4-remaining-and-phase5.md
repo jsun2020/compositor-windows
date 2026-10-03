@@ -45,9 +45,8 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
 - [x] Vitest: 280 passed. Current TypeScript and fixed-asset UI build pass.
-- [ ] Latest first-fit source full fixed-asset browser suite is in progress.
-  The preceding worker-reclamation source passes 194 functional cases,
-  29 unchanged opt-in skips, one worker and zero retries (6.1 minutes).
+- [x] Latest first-fit source full fixed-asset browser suite: 195 passed,
+  29 unchanged opt-in skips, one worker and zero retries (6.0 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
@@ -65,7 +64,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-621 native tests, 279 unit tests and 194 current functional browser passes
+621 native tests, 280 unit tests and 195 current functional browser passes
 with 29 original skips. Production 1654 passes eight native
 UI groups and four native Mac package reads/writes; production 1901 packages the newer
 output-capacity and texture reuse changes and also passes those native UI/Mac
@@ -109,5 +108,10 @@ The first draw now fits a new large canvas before uploading its textures,
 avoiding the unnecessary full-resolution initial upload. All 280 unit tests,
 three TypeScript checks and fixed-asset build pass; both original partial-upload
 cases and the new exact pixel/initial upload regression pass. A complete
-original 29-case performance run followed by the full 224-case functional
-collection is in progress, one worker and zero retries.
+original 29-case performance run finishes 21 passes / eight failures (8.7m);
+all 195 functional cases pass with 29 unchanged skips (6.0m), one worker and
+zero retries. Production 2041 builds after those sequential runs; ZIP CRC,
+archived executable identity, unchanged WASM, eight native UI groups, four
+Mac package reads and four atomic saves pass. Its clipboard read remains
+Windows access denied; user interactive verification and Mac confirmations
+remain pending. No performance failure is waived.

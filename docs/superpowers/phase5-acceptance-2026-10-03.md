@@ -691,11 +691,67 @@ Windows separators fixes shell launch. An anchored selector matches no full
 Playwright title; the corrected selector runs the new case. These attempts
 remain logged separately and are not application acceptance failures.
 
-One complete original 29-case performance run followed by the full 224-case
-functional collection is in progress, with one worker, zero retries, no tracing
-flags and unchanged budgets. Logs use `first-fit-*`. Production 1901 evidence
-still applies to the preceding source revision; latest first-fit package and
-native verification are pending.
+The complete original performance run finishes 21 passes / eight failures
+in 8.7 minutes. All 195 functional cases pass in 6.0 minutes, with the unchanged
+29 opt-in performance skips. Both runs use one worker, zero retries, no tracing
+flags and unchanged budgets. 24/100 MP Levels result frames pass at 7/60 ms;
+100 MP installation is 295 ms / <450 ms. The remaining failed observations are:
+
+| Gate | Measured ms | Original upper bound ms |
+| --- | ---: | ---: |
+| F1 100 MP blank Fill result frame | 256 | <100 |
+| Add Mask 24 MP Reveal Selection frame | 433 | <150 |
+| Tab drag initial frame gap | 359 | <100 |
+| Effects preemption replacement dispatch | 734 | <400 |
+| Growing-mask gradient result frame | 350 | <150 |
+| Small-layer mask Fill worker frame gap | 455 | <100 |
+| Eyedropper sample and ring | 17.1 | <16 |
+| C1 24 MP blank-layer result frame | 501 | <350 |
+
+All previous failures are retained; changing which cases pass in a new run does
+not close their intermittent failures. Logs: `first-fit-performance.log`,
+`first-fit-functional.log` and `first-fit-regression-summary.json`.
+The first-fit checkpoint is published as
+`b0f2222d832d7e453b44ac8e10fa3a5b36523f38`, verified against the authorized
+GitHub branch. Production 1901 evidence still applies to the preceding revision;
+production 2041 builds sequentially after functional success and passes the
+package/native checks recorded below.
+
+## Production 2041 checkpoint
+
+`COMPOSITOR_BUILD_0.8.0_20261003-2041` packages source checkpoint
+`b0f2222d832d7e453b44ac8e10fa3a5b36523f38`. Its 4,743,715-byte ZIP has SHA-256
+`8C9C95C65A937BA00E5124EB0B18FF1784BCEA73DEB42F48FC6B065ABF80CD4B`.
+The 11,976,704-byte executable SHA-256 is
+`FE59FCA1784D9FA1D6B6F1856002E509538ABE7A0FCD54831AE6889AA99F1688`.
+All three ZIP entries pass CRC checks and the archived executable equals the
+tested portable. Bundled production/test WASM remains the unchanged release
+SHA recorded above. Build-info source bytes are restored; the build completes
+after all functional tests, so it does not load the performance run. Evidence:
+`first-fit-package-build.log` and `first-fit-package-integrity.json`.
+
+Eight real native UI groups pass with no development API, the actual native
+bridge and zero page errors, including painting/retouch, text/effects and 24 MP
+fill plus asynchronous histogram cancel/reopen. Four native package reads and
+four atomic save commits pass for the returned Mac projects and a continued
+Windows edit. The continued manifest records font size 38; reopen confirms
+shape width 150, Stroke 7 and Shadow Distance 14. All three open PNGs are
+byte-identical to production 1901, preserving the exact no-edit/edited matches
+and the open enlarged-text discrepancy. Evidence: `first-fit-native-ui.log`,
+`first-fit-native-mac.log`, `native-first-fit-0.8.0-result.json`,
+`native-first-fit-mac/` and `first-fit-native-mac-export-comparison.json`.
+
+The native read-only clipboard probe again reports Windows access denied.
+No current clipboard protocol write is attempted or counted as passed. The
+existing successful production 1556 proof remains historical. A hash-guarded
+local handoff, `verify-2041-clipboard-interactive.ps1`, can run the existing
+unaltered protocol suite on the user interactive desktop, retaining its full
+snapshot-before-mutation and finally-restoration rules. Its syntax passes; it
+has not been run by the user and provides no clipboard acceptance evidence yet.
+The asynchronous question whether ordinary Windows Notepad copy/paste works
+is pending. No permissions, desktop state or clipboard contents are changed
+to bypass this gate. All eight current performance failures and pending Mac
+oracle/gesture confirmations remain open.
 
 ## Additional Mac alpha sampling handoff
 
@@ -741,12 +797,13 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The nine current performance failures and
+Full acceptance remains incomplete. The eight current performance failures and
 earlier intermittent failures need fixes and repeatable evidence under their
 original budgets. Production 1206
 clipboard protocol and exact synthetic-image pixel checks pass; production 1556
 also passes six native groups and four exact image comparisons, with the original
-clipboard restored. Current production 1901 OLE snapshot preflight fails before mutation. Earlier
+clipboard restored. Production 1901 OLE snapshot preflight fails before mutation, and current
+production 2041 read-only clipboard access remains denied. Earlier
 protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
 confirmation remains pending. Current Mac-edited export is exact; Mac-created
 enlarged text remains quantified and open; covered overlap edges now match. No assertion,
