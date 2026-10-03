@@ -216,7 +216,8 @@ export class GlRenderer implements Renderer {
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void {
     const gl = this.gl;
     const W = Math.max(1, Math.round(viewport.viewSize.width * dpr)), H = Math.max(1, Math.round(viewport.viewSize.height * dpr));
-    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
+    if (this.canvas.width !== W) this.canvas.width = W;
+    if (this.canvas.height !== H) this.canvas.height = H;
     this.W = W; this.H = H; this.dpr = dpr;
     const plan = engine.renderPlan(state.id, edit);
     this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);

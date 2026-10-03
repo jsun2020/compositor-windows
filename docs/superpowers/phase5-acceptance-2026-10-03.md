@@ -993,6 +993,15 @@ including 401.84 ms inside the GPU command service; WASM installation measures
 allocation-only explanation. Evidence: `solid-rectangle-c1-gpu-wait.log` and
 `solid-rectangle-c1-gpu-wait-blank-gradient-baseline-trace.json`.
 
+A closer read of the retained trace records thread CPU time as well: the
+410.461 ms client ReadPixels has 0.828 ms thread CPU, and the nested
+401.840 ms GPU command-service event has 1.228 ms thread CPU. The trace
+contains no finer long-running child in that service event. This supports
+wait/synchronization time in that observation, not a 400 ms CPU loop; it
+does not identify the particular driver/GPU wait or establish a performance
+pass. Evidence: `solid-rectangle-gpu-wait-thread-time-summary.json` and
+`solid-rectangle-gpu-wait-nested-time-summary.json`.
+
 A diagnostic first-use probe draws all twelve existing GL programs into a
 separate 1x1 framebuffer, restores GL state, and checks errors in all four C1
 contexts. Per-context total execution is 0.4-1.6 ms with zero GL errors. The
@@ -1011,6 +1020,131 @@ snapshot has 15.1 GiB free physical memory and no remaining task-native profile;
 it is not evidence of the machine state during the performance run and does not
 waive a failed budget. Mac alpha returns and gesture confirmations are still
 missing. Full acceptance remains open.
+
+## Framebuffer allocation candidate, 2026-10-04
+
+An unchanged-source texture trace identifies a concrete allocation churn: the
+tool options row changes the plain view from 1136 x 819 to 1136 x 795, recreating
+all its framebuffer targets because that path uses one-pixel allocation steps.
+The gradient source also changes from a 1250 x 1250 preview to a 1123 x 1250
+result; that real size change cannot use a same-size texture-storage shortcut.
+Evidence: `solid-rectangle-c1-texture-sizes.log` and its job-trace-results file.
+The same-size full-upload proxy still fails original C1 gaps (333/115 ms against
+<100 ms), so that proxy is not adopted as product source.
+
+The framebuffer candidate uses the existing bounded 256-pixel allocation steps
+for plain views as well as spatial-margin passes. Allocations retain at most
+255 unused pixels per axis; the logical viewport and draw bounds stay unchanged.
+Plain-view whole-buffer composition maps that padding above and right of the
+view, preserving its bottom texture row. No shader, pixel format, upload bytes,
+engine source, test budget or warm-up policy changes.
+
+A new independent regression changes the actual tool options row and verifies
+that the canvas height changes and returns, the allocation and all GPU texture
+objects are retained, and clipped/group-opacity output keeps the original CPU
+reference tolerance at all three sizes. The immutable old renderer fails its
+resource-retention assertion; the candidate passes. The 18 targeted original
+render/blend/adjustment/zoom cases and this new regression (19 cases total)
+pass in 50.1 seconds.
+All 287 units, three TypeScript checks and the fixed-asset build pass; the new
+test also passes the current TypeScript checks. The unchanged release WASM SHA
+remains `1223942C74CB77E04FC1606921DA5BC5943E54A9D9E83DDE55F6AD1532ED9B3B`.
+Evidence: `framebuffer-buckets-original-reference.log`,
+`framebuffer-buckets-source-check.log`, `framebuffer-buckets-current-ts.log`
+and `framebuffer-buckets-exact-render.log`.
+
+The four selected original performance cases finish one passed / three failed.
+Partial uploads record a 24 MP first fit frame of 511.5 ms / <33 ms while
+retaining the required upload counters. Levels records a 24 MP histogram gap
+of 294 ms / <150 ms. C1 records 24/100 MP gradient gaps of 107/495 ms / <100 ms;
+its 100 MP result frame is 536 ms / <600 ms and installation is 387 ms / <450 ms.
+Pixel and resource-retention proof does not establish performance acceptance.
+Evidence: `framebuffer-buckets-targeted-performance.log`.
+
+The first broad launch mistakenly lists only two performance files, collecting
+23 cases. It is intentionally interrupted and retained as incomplete evidence.
+The owned root process and every recorded descendant are subsequently absent,
+and port 1423 has no listener, before the corrected runner starts. Its five
+performance files collect all 29 original cases using one worker and zero
+retries. That complete performance run finishes 17 passed / 12 failed in
+10.3 minutes; the 256-pixel candidate is not adopted. Its F1 100 MP result frame
+is 211 ms / <100 ms, the 24 MP partial-edit fit frame is 457.2 ms / <33 ms,
+the grown-mask 24 MP result frame is 157 ms / <150 ms, C1 100 MP fill gap is
+435 ms / <100 ms, and 100 MP ContentFill gap is 123.4 ms / <100 ms. All
+original failures and measurements are preserved. At the traced 1136 x 819
+view, the 1280 x 1024 allocation has 40.9 percent more area than the logical
+view. That is a bounded extra cost, not proof that it causes every failure.
+The sequential full functional suite finishes 197 passed / 29 unchanged
+opt-in skips in 7.3 minutes, one worker and zero retries. This establishes
+functional correctness for the 256-pixel candidate, not performance acceptance.
+The three-case immutable-baseline comparison starts only after this runner
+closes, so performance work does not overlap. Evidence:
+`framebuffer-buckets-incomplete-owned-tree.json`,
+`framebuffer-buckets-incomplete-cleanup-verification.json` and
+`framebuffer-buckets-complete-performance.log`,
+`framebuffer-buckets-complete-functional.log` and
+`framebuffer-buckets-complete-regression-summary.json`. Production 2328 contains the
+preceding renderer; it is not native acceptance evidence for this candidate.
+
+
+The same-environment immutable-baseline comparison finishes one passed / two
+failed in 1.6 minutes. Its partial-upload case passes all original counters and
+frame budgets: 24/100 MP fit frames are 6.9/4.8 ms and 1:1 frames are
+10.9/10.2 ms. Its F1 24 MP Levels result frame is 465 ms / <100 ms, and C1
+24 MP gradient gap is 382 ms / <100 ms. This gives evidence against adopting
+the 256-pixel candidate, but does not attribute every failure to allocation
+size or waive the original baseline failures. Evidence:
+`framebuffer-buckets-baseline-comparison.log` and its identity/summary files.
+
+A smaller candidate is now under evaluation. Plain views use 64-pixel buckets
+(the traced view allocates 1152 x 832, 3.0 percent extra area); spatial-margin
+passes retain their existing 256-pixel steps. Each canvas dimension is reset
+only when that dimension actually changes, avoiding a same-width reset when
+only the tool row changes the height. The regression additionally records
+actual DOM width/height setter calls. Against the immutable old renderer, it
+fails exactly at two width writes versus the required zero, as expected;
+that independent reference is not counted as a passing product test. Evidence:
+`framebuffer-buckets-small-baseline-reference.log`. The smaller candidate passes all 287 units, three TypeScript checks and the
+fixed-asset build, then all 19 exact rendering/resource cases in 50.3 seconds.
+The setter regression now passes with zero width writes and exactly two
+required height writes, with clipped-group pixels and GPU objects preserved.
+Its six selected original performance cases finish three passed / three failed
+in 2.8 minutes: F1 100 MP Levels result frame is 235 ms / <100 ms,
+100 MP partial-edit fit frame is 121.8 ms / <33 ms and C1 100 MP gradient
+gap is 505 ms / <100 ms. This smaller allocation policy is also rejected.
+The previous
+197 full functional passes belong to the archived 256-pixel candidate.
+Evidence: `framebuffer-buckets-small-source-check.log`,
+`framebuffer-buckets-small-exact-render.log` and
+`framebuffer-buckets-small-identity.json`. Both framebuffer candidates and tests are archived locally; the original
+allocation policy, view-corner mapping and framebuffer helper source are
+restored exactly. No native package or full acceptance is claimed from
+either candidate. Evidence: `framebuffer-buckets-small-targeted-performance.log`.
+
+Only the independent canvas-dimension fix is retained: height-only
+changes assign height once and leave width untouched, and conversely for width.
+A separate `canvas-resize.spec.ts` preserves the actual tool-options transition,
+setter counts and clipped-group CPU pixel references without requiring either
+rejected allocation policy. All 287 units, three TypeScript checks, fixed assets
+and 19 exact render cases (51.2 seconds) pass. Six original performance cases
+finish two passed / four failed in 2.6 minutes: F1 result frame 476 / <100 ms,
+partial-edit frame 160.2 / <33 ms, a Levels ready assertion fails its original
+5-second timeout before a new body measurement, and C1 first exceeded gap
+103 / <100 ms. All later measurements remain retained too. The complete
+current-source functional suite finishes 197 passed / 29 original opt-in skips
+in 7.0 minutes, one worker and zero retries. Those skips do not establish
+performance acceptance.
+Evidence: `canvas-resize-source-check.log`, `canvas-resize-exact-render.log`
+`canvas-resize-targeted-performance.log`,
+`canvas-resize-complete-functional.log` and
+`canvas-resize-verification-summary.json`. The engine and WASM remain unchanged.
+
+A read-only clipboard ownership query identifies no window for either the open
+holder or the data owner (both handles/PIDs zero). A null handle can also occur
+for a caller opening without a window, so this does not establish access or
+exclude every possible lock. No clipboard contents are read or changed and
+no process is selected for termination. Current native clipboard acceptance
+remains open. Evidence: `clipboard-owner-readonly-20261004.json`.
 
 ## Additional Mac alpha sampling handoff
 
@@ -1056,7 +1190,13 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The solid-rectangle full performance suite
+Full acceptance remains incomplete. The retained canvas-dimension fix passes
+287 units, three TypeScript checks, 19 exact render cases and all 197
+functional cases with 29 original opt-in skips. Its six selected original
+performance cases finish two passed / four failed; no complete current-source
+performance pass or new native package is claimed. Both framebuffer allocation
+candidates are rejected and the original allocation/view mapping are restored.
+The solid-rectangle full performance suite
 has three original page-fixture failures and C1's 134 ms / <100 ms gradient
 frame gap; earlier intermittent failures still need repeatable evidence.
 Production 2139 is the latest completed native clipboard checkpoint: six

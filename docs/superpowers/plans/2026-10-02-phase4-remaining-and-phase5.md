@@ -45,7 +45,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 622 passed, zero failures, 10 existing ignored.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Latest solid-rectangle source full fixed-asset browser suite: 195 passed,
+- [x] Solid-rectangle source full fixed-asset browser suite: 195 passed,
   29 unchanged opt-in skips, one worker and zero retries (8.7 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
@@ -67,7 +67,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-621 native tests, 287 unit tests and 195 current functional browser passes
+622 native tests, 287 unit tests and 195 current functional browser passes
 with 29 original skips. Production 1654 passes eight native
 UI groups and four native Mac package reads/writes; production 1901 packages the newer
 output-capacity and texture reuse changes and also passes those native UI/Mac
@@ -166,3 +166,36 @@ performance cases (including C1 gaps 107/160 ms against <100 ms). It is rejected
 the checked baseline source and WASM are restored exactly. Only the safety test
 is retained, with three current TypeScript checks passing. The latest read-only
 clipboard probe still returns Windows error 5. No original budget is waived.
+
+
+The framebuffer 256-pixel candidate completes the full original performance
+suite at 17 passed / 12 failed (10.3 minutes), followed by all 197 functional
+cases passing with 29 original opt-in skips (7.3 minutes). It is not adopted.
+The same-environment immutable-baseline comparison passes partial uploads
+(24/100 MP fit 6.9/4.8 ms) but fails F1 result frames and C1 gradient gap,
+so neither baseline failures nor candidate regressions are waived.
+A smaller 64-pixel plain-view candidate retains the existing 256-pixel
+spatial-margin policy and resets only changed canvas dimensions. All 287 units,
+three TypeScript checks, fixed assets and 19 rendering/resource cases pass.
+An independent old-renderer run confirms its new setter regression fails
+exactly at two unnecessary width writes. Six original performance cases finish three passed / three failed (2.8 minutes):
+F1 result frame 235 / <100 ms, partial-edit fit frame 121.8 / <33 ms and C1
+gradient gap 505 / <100 ms, all at 100 MP. This smaller allocation candidate is
+also rejected; the original framebuffer allocation and view mapping are restored
+exactly. Only the independent canvas-dimension setter fix and its separate
+regression remain under verification. The previous full functional result
+belongs to the archived 256-pixel candidate, not this new source. Production 2328 remains the verified
+portable; no newer native or full-acceptance result is claimed.
+
+
+The retained canvas-dimension fix leaves the original framebuffer allocation,
+view mapping, engine and WASM unchanged. All 287 units, three TypeScript
+checks, fixed assets and 19 exact rendering cases pass. The complete current
+functional suite passes all 197 cases with 29 original opt-in skips (7.0 minutes).
+Six selected original performance cases finish two passed / four failed
+(2.6 minutes), including a ready assertion before any new Levels body values.
+These functional passes do not establish full performance or new native-package
+acceptance. GPU trace thread times identify a 410.461 ms client wait with
+0.828 ms thread CPU and a 401.840 ms service wait with 1.228 ms thread CPU;
+the particular synchronization/driver cause is still unidentified. Mac alpha
+returns/gestures and current-package clipboard acceptance remain open.
