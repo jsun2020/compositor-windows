@@ -461,8 +461,9 @@ failure of 517 ms against its 350 ms budget. The 100 MP blank-gradient reservati
 contains a 64 ms V8 sweeping completion. This identifies a remaining allocation
 cost, not a complete root cause or stable fix. Evidence:
 `async-histogram-job-trace-results.json` and `async-histogram-*-trace.json`.
-A diagnostic mask-storage reuse prototype also passes its isolated original case;
-the baseline already passed there, so it is not adopted as a proved fix.
+A diagnostic mask-storage reuse prototype fails the original 24 MP post-apply
+frame budget (423 ms / <150 ms), while the isolated baseline passed. It is not
+adopted; evidence: `mask-storage-job-trace-results.json`.
 
 ## Mac confirmation still required
 
