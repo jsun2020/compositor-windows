@@ -120,6 +120,13 @@ fn capsule(a: Point, b: Point, width: f64) -> Contour {
 pub fn shape_raster(spec: &ShapeSpec, color: [f64; 3]) -> Raster {
     let bounds = spec.bounds();
     let (w, h) = (bounds.width as u32, bounds.height as u32);
+    // An unrounded rectangle covers every stored pixel. Any fractional remainder
+    // of its bounds lies beyond this truncated raster, so no coverage plane is needed.
+    if matches!(spec, ShapeSpec::Rectangle { corner_radius, .. } if *corner_radius <= 0.0) {
+        let c = color.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
+        let pixel = [c[0], c[1], c[2], 255];
+        return Raster::from_premultiplied(w, h, pixel.repeat(w as usize * h as usize));
+    }
     let local = Rect { x: 0.0, y: 0.0, width: bounds.width, height: bounds.height };
     let contour = match spec {
         ShapeSpec::Rectangle { corner_radius, .. } => {

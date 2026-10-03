@@ -48,6 +48,34 @@ fn a_rectangle_fills_a_new_layer_with_the_colour_as_one_undo_step_and_keeps_the_
 }
 
 #[test]
+fn unrounded_rectangle_bytes_match_general_antialiased_rasterization() {
+    // Keep the general coverage rasterizer as the reference, including fractional
+    // bounds, clamped radii and channel rounding, independently of shape_raster.
+    let mut colors: Vec<[f64; 3]> = (0..=255).map(|k| [
+        k as f64 / 255.0, (255 - k) as f64 / 255.0, ((k * 73) % 256) as f64 / 255.0,
+    ]).collect();
+    colors.extend([[0.5 / 255.0, 0.5, 254.5 / 255.0], [-0.2, 1.2, 0.125]]);
+    for (width, height) in [(1.0, 1.0), (3.875, 2.125), (7.25, 5.875), (23.0, 17.0)] {
+        let (w, h) = (width as u32, height as u32);
+        let coverage = rasterize(&[selection::geometry::rectangle(rect(0.0, 0.0, width, height))], 0.0, 0.0, w, h, true);
+        for color in &colors {
+            let channels = color.map(|v| v.clamp(0.0, 1.0) * 255.0);
+            let expected: Vec<u8> = coverage.bytes().iter().flat_map(|&alpha| {
+                let fraction = alpha as f64 / 255.0;
+                [(channels[0] * fraction + 0.5) as u8, (channels[1] * fraction + 0.5) as u8,
+                    (channels[2] * fraction + 0.5) as u8, alpha]
+            }).collect();
+            for corner_radius in [-7.0, 0.0] {
+                let spec = ShapeSpec::Rectangle { rect: rect(0.25, -0.5, width, height), corner_radius };
+                let actual = ops::shape::shape_raster(&spec, *color);
+                assert_eq!((actual.width, actual.height), (w, h));
+                assert_eq!(actual.bytes(), expected, "{spec:?}, color {color:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn an_ellipse_leaves_its_corners_clear() {
     // ShapeToolTests.ellipseLeavesItsCornersClearWithShiftCircleAndOptionFromCenter: the drag from
     // (50, 40) to (60, 45) with Shift and Option is the box (40, 30, 20, 20) (the app's DragBox).
