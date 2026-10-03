@@ -41,7 +41,7 @@ and then into the destination. Overflow, invalid planes and incomplete results
 remain rejected before installation. A real-worker browser check verifies exact
 pixels, repeated edits and undo/redo for a chunked layer.
 
-## Evidence in progress
+## Production 1206 baseline
 
 Evidence is retained in `build-artifacts/phase5-acceptance/`. Interrupted runs and
 failed diagnostic attempts remain retained separately. Builds, performance,
@@ -249,7 +249,50 @@ Evidence: `pixel-copy-coverage-mac-checks/comparison.json`, `checks.json`,
 `pixel-copy-coverage-workspace.log`, `pixel-copy-coverage-render-e2e.log` and
 `coverage-quantization-model.json`. The quantized full browser suite passes
 **192 cases**, with the same 29 opt-in performance skips. The new production
-package still needs its own final results; performance remains open.
+package results are recorded below; performance remains open.
+
+## Production 1455 pixel-copy checkpoint
+
+Commit `051d23bf488bfdf2822e7f414a8d214b0abf4bc1` is pushed and matches
+`origin/codex/phase4-and-phase5`. The portable package is
+`build-artifacts/windows-x64/Compositor-portable-0.8.0-20261003-1455.zip`,
+4,743,423 bytes, SHA-256
+`48E83A21F5A0ECDBF5E381D082E80763F952C498459D3A9D9C5CA8E9BCD7FCD6`.
+Its EXE is 11,976,704 bytes, SHA-256
+`F97BC821E15CB0A09064D14C067EC2E8AD8FFDEC32FD07D3F2E2FB35191F53C4`.
+Bundled production WASM matches the quantized test WASM above. The build wrapper
+preserves and restores the original build-info bytes; the historical portable
+packages and validation outputs remain retained.
+
+Real production Tauri checks pass all seven UI groups with no page errors and no
+development API. Real package I/O checks also pass: four reads, four atomic write
+commits, preserved editable text and continued Mac-edited text/shape/effects
+edits reopened with width 150, stroke 7 and shadow 14. All three native opening
+exports are byte-identical to their current WASM exports. Mac-no-edit and
+Mac-edited remain exact against the returned Mac PNGs; Mac-created retains the
+same 13,089 changed pixels / max 51. Evidence: `native-ui-pixel-copy.log`,
+`native-pixel-copy-0.8.0-result.json`, `native-mac-pixel-copy.log`, and
+`native-pixel-copy-mac/native-pixel-comparison.json`.
+
+The 1455 clipboard rerun fails **before mutation**: the helper cannot snapshot
+the original clipboard. A separate read-only Windows probe verifies no open
+clipboard window, WinSta0/Default, and `OpenClipboard` error 5. This is current
+OS access rejection, not proof of an application bitmap regression or a
+successful current-package protocol check. Earlier 1206 six-group/four-image
+proof remains retained. A Windows manual confirmation is requested; current
+clipboard contents were not changed. Evidence: `native-clipboard-pixel-copy.log`,
+`clipboard-20261003-150934/helper-error.txt` and
+`clipboard-pixel-copy-readonly-preflight.json`.
+
+The uniform-mask prototype does not apply to the failing Add Mask fixture,
+which is an antialiased ellipse and hence nonuniform. It records **zero**
+uniform-upload substitutions. The baseline fails at 519/150 ms, one no-op variant
+passes, and the other fails at 371/150 ms. No optimization is adopted and that
+isolated pass does not establish stable performance. Evidence:
+`mask-uniform-diagnostic.json` and its retained log. The 24 remaining overlapping
+shape-edge pixels have an exact independent model after rounding covered source
+bytes before blending; this model is not yet a production fix. Evidence:
+`copied-overlap-rounding-diagnostic.json`.
 
 ## Further GPU diagnostics
 
@@ -301,11 +344,13 @@ is inferred from metadata preservation or the font-face correction.
 ## Outstanding gates and publication scope
 
 Full acceptance remains incomplete. The seven performance failures above need
-fixes and repeatable evidence under their original budgets. Final production
-clipboard protocol and exact synthetic-image pixel checks now pass. Earlier
+fixes and repeatable evidence under their original budgets. Production 1206
+clipboard protocol and exact synthetic-image pixel checks pass; the 1455 repeat
+is pending Windows access/manual confirmation. Earlier
 protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
-confirmation remains pending, and the edited/created Mac-export edge differences remain quantified
-and open. No assertion, budget, warm-up policy, skip, retry, or image tolerance
+confirmation remains pending. Current Mac-edited export is exact; Mac-created
+enlarged text and overlapping edges remain quantified and open. No assertion,
+budget, warm-up policy, skip, retry, or image tolerance
 has been weakened to close those gates.
 
 The checkpoint stages only reviewed source, regression tests and these reports.

@@ -50,6 +50,8 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
   protocol groups and four exact image comparisons; the original clipboard is restored.
+- [ ] Repeat clipboard verification for production 1455: OS denies access before
+  any mutation; Windows manual confirmation is requested.
 - [ ] All large-image performance budgets: repeated failures retained in report.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.
@@ -60,9 +62,10 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-620 native tests, 269 unit tests, 192 functional browser tests. The latest verified
-production marker remains 1206 until the pixel-copy package passes its native
-checks. The 29 performance cases have 22 applicable passes / seven remaining
+620 native tests, 269 unit tests, 192 functional browser tests. Production 1455
+passes seven native UI groups and four native Mac package reads/writes; its
+clipboard repeat is pending OS access/manual confirmation. The 29 performance
+cases have 22 applicable passes / seven remaining
 failures. All 100 assertions in the legacy performance file remain identical while
 its measurements follow the real async APIs. Implementation and these passing
 layers do not establish full acceptance.
