@@ -9,7 +9,10 @@ The prior confirmation gate before Phase 5 was superseded.
 The existing 0.6.0 work was published as commit
 `e1be481b83b3209f200c10eb0ba7ab954397ba14` on `origin/phase4.5`. The remote ref
 was verified after publication. New implementation is on
-`codex/phase4-and-phase5`; it is not included in that earlier push.
+`codex/phase4-and-phase5`; it is not included in that earlier push. At the user's
+next publication request, implementation commit
+`04902eb80b5f4087baed50ec8ba994b6c8847e03` was pushed to that branch and its exact
+remote SHA was verified. Only the reviewed source allowlist was published.
 
 The implementation below is delivered in 0.8.0. Final validation is recorded
 separately from feature implementation. Phase 3.5d sampling remains outside this
@@ -156,12 +159,75 @@ Its executable SHA-256 is
 `D6141A688850B6F0B0E68F4CECF89E5964DDBE28DD2325F8BA26A2EF6044E82A`.
 This package predates the large-buffer fixes and Phase 5.
 
+## Follow-up after publication: overlay and Mac handoff
+
+The user offered to perform the Mac half of the round trip. The generated
+`build-artifacts/Mac-roundtrip-0.8.0.zip` contains a Windows-authored project,
+reference PNG, layer state, Chinese instructions and a result template. The
+project was saved and reopened in the release-WASM app: seven layers, two
+editable text records, four live shape records, a grayscale mask, UTF-16
+color/font runs, stroke and shadow. All referenced layer and mask assets are
+present in the verified 20-entry archive. SHA-256:
+`C95E1718036DC90371951383360DE6E0FF86BF36F38B05541790056C6780D179`.
+The no-edit and editing return protocol is in
+`mac-roundtrip-acceptance.md`. Live Mac acceptance remains pending returned files.
+
+A traced 100 MP Content-Aware Fill run recorded a 166 ms frame gap and a
+165 ms browser `HitTest` task on the canvas while the kernel was running on the
+dedicated worker. Overlay painting reset the canvas's width and height on every
+ants/cursor tick, even when unchanged. It now resizes only when the viewport size
+actually changes; the existing overlay drawing clears old pixels as before.
+
+Production TypeScript/Vite builds pass. The follow-up passed 259 unit tests and
+40 focused browser tests covering selections, brush/retouch, text/effects,
+crop, transform, gradients and shapes. No performance assertion or budget changed.
+
+Two isolated follow-up runs both passed F1 result-frame and UI-copy budgets at
+24 and 100 MP. The measured first frames were 8-13 ms; the largest worker-edit
+gap in those runs was 62 ms. Both 24 MP brush/retouch runs passed, including
+Content-Aware Fill at 22 and 20 ms maximum gaps. The second run also passed
+the original Add Mask and tab-drag tests: 100 MP mask upload frames were 72-73 ms,
+and tab-drag start gaps were 21 ms at both sizes. These last two tests have one
+post-change pass, so they do not yet establish repeated acceptance.
+
+100 MP Content-Aware Fill still failed both runs at 125 and 140 ms against the
+unchanged 100 ms limit. A diagnostic experiment forcing the 2D overlay onto a
+CPU-oriented context also exceeded the limit (106 ms), with a 95 ms incremental
+browser GC task in its trace; that experiment overlapped the end of unit-test
+execution and is diagnostic only. The context change was not adopted. The
+trace does not establish a single cause for every intermittent stall.
+
+Logs: `build-overlay.log`, `unit-overlay.log`, `e2e-overlay.log`,
+`perf-overlay-first.log`, `perf-overlay-repeat.log`, `profile-f1.log`,
+`trace-content-fill.log` and `trace-overlay-cpu-experiment.log` in the validation
+directory. The failed runs remain retained. The prior performance failures above
+are historical measurements, superseded only to the extent shown here.
+
+The updated portable is
+`build-artifacts/windows-x64/Compositor-portable-0.8.0-20261003-0811.zip`
+(4,741,921 bytes), SHA-256:
+`5DFDE8512360E8DEC9372E5E31BA7AA492598C75CD2032712E0C6589DB4106D3`.
+Its executable SHA-256 is
+`B646911E65FA5D18289138456EC1D4F31C89FD7FE551EC1A70A2A7ACD4DBC43F`.
+It passed the same seven native UI checks with marker
+`COMPOSITOR_BUILD_0.8.0_20261003-0811`, a production Tauri bridge, no development
+test API and zero page errors. Evidence is `package-overlay.log`,
+`native-runtime-overlay.log`, `native-overlay-0.8.0-result.json` and
+`native-overlay-0.8.0.png`. The earlier portable and evidence remain retained.
+
+This native run's read-only clipboard probe reached the clipboard and correctly
+reported that it contained no image, rather than the earlier error 5. A format-only
+inventory identified a shell/file-drop clipboard. Its data was not read, replaced
+or published. Full external-image copy/paste remains unverified; the earlier
+access-denied result does not describe this latest read-only preflight.
+
 ## Acceptance still requiring evidence
 
-- Native Windows image clipboard interoperability: the read-only clipboard
-  preflight returned Windows error 5 in this session. The user's clipboard was
-  not overwritten. Mock clipboard and bitmap conversion checks do not establish
-  live external-application copy/paste.
+- Native Windows image clipboard interoperability: earlier probes returned
+  error 5; the latest probe can open the clipboard and reports no image for its
+  current shell/file-drop formats. The user's clipboard was not overwritten.
+  Mock clipboard and bitmap conversion checks do not establish live
+  external-application copy/paste.
 - Stable large-image performance for the failed gates above.
 - Opening and editing a Windows-created text/shape/effects project in the macOS
   application. Local manifest/raster round-trips and original-kernel compilation

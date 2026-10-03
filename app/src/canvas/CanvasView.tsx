@@ -57,7 +57,10 @@ export function CanvasView() {
     const doc = s.documents[s.activeId], vp = s.viewports[s.activeId];
     if (!doc || !vp) return;
     const dpr = window.devicePixelRatio || 1;
-    overlay.width = gl.width; overlay.height = gl.height;
+    // Assigning even an unchanged canvas size resets its backing store. Ants and
+    // pointer overlays repaint often; clear their pixels without reallocating it.
+    if (overlay.width !== gl.width) overlay.width = gl.width;
+    if (overlay.height !== gl.height) overlay.height = gl.height;
     let transformGeometry: OverlayGeometry | null = null;
     if (s.tool === "move" && (s.transformEdit || canTransform(doc, s.selectedLayerIds, s.maskSelected))) {
       const shape = editedShape(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
