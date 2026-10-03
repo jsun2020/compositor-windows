@@ -753,6 +753,108 @@ is pending. No permissions, desktop state or clipboard contents are changed
 to bypass this gate. All eight current performance failures and pending Mac
 oracle/gesture confirmations remain open.
 
+## Interactive priority starts before input preparation
+
+The effects-preemption timing diagnostic shows a 218 ms input preparation before
+worker replacement begins, followed by about 143 ms startup; dispatch takes
+367 ms in that observed run. The original uninstrumented full run previously
+failed at 734 ms / <400 ms. WASM is already compiled once and shared with workers;
+no compilation cache or test warm-up is added. Evidence:
+`effects-preemption-order-job-trace-results.json`.
+
+JobClient now reserves interactive priority before the store copies histogram
+or edit input. A running effects worker is displaced immediately and its
+replacement starts during input copying. Queued effects wait until preparations
+submit their request or release, including asynchronous cancellation/failure.
+Reservations overlap safely and release once; disposing clears outstanding
+reservations without a late release restarting the client. Transfer ownership,
+worker memory caps, command semantics and all original budgets remain unchanged.
+Seven additional regression cases cover dispatch order, pending effects,
+overlapping/disposed reservations, creation failure, cancelled histogram copies
+that resolve/reject, and failed edit input copying. Existing fixture mocks add
+the new method without changing their original assertions.
+
+All 287 unit tests, three TypeScript checks and the fixed-asset build pass. The
+unchanged preemption case passes all three internal rounds, dispatching in
+300/312/299 ms; frame gaps are 158/118/114 ms under the original <300 ms gate
+and effects are requested again in every round. Six real-worker regression
+cases pass, including exact pixels, undo/redo and incomplete staged-plane
+rejection. Source checkpoint is
+`8f5c9d0cc385184f6cf8a18a71603b5c30a46a51`. Evidence:
+`interactive-priority-source-check.log`, `interactive-priority-preemption.log`
+and `interactive-priority-jobs.log`. These targeted passes do not close prior
+intermittent failures. The complete original performance run finishes
+25 passes / four failed cases in 11.0 minutes, with one worker, zero retries and
+unchanged budgets. Effects-preemption dispatch is 258/232/228 ms in its three
+internal rounds, with frame gaps 105/111/116 ms and successful effects re-asks.
+24/100 MP Levels result frames are both 8 ms; 100 MP installation is 335 ms.
+F1 blank Fill result frames are 10 ms at both sizes. Brush/Blur/Heal/ContentFill
+100 MP frame gaps are 31.7/34/26/36.4 ms. Previous intermittent failures remain
+open despite passing in this run. Remaining exceeded observations are:
+
+| Gate | Measured ms | Original upper bound ms |
+| --- | ---: | ---: |
+| 24 MP full uniform mask gradient drag at fit | 50 | <50 |
+| 100 MP pixel gradient drag at 1:1 (same failed preview case) | 53 | <50 |
+| 100 MP eyedropper sample and ring | 21.9 | <16 |
+| 100 MP full-canvas rectangle creation | 2004 | <2000 |
+| C1 100 MP blank-layer gradient worker frame gap | 127 | <100 |
+
+The second preview observation is also over its original assertion threshold,
+although the case stops at the first failing assertion. The log preserves all
+measured values. Evidence: `interactive-priority-performance.log` and
+`interactive-priority-regression-summary.json`. All 195 functional cases pass in 7.9 minutes with the 29 unchanged opt-in
+performance skips, one worker and zero retries. Evidence:
+`interactive-priority-functional.log`. Production package checks complete after
+these sequential runs, as recorded below.
+
+## Production 2139 interactive-priority checkpoint
+
+`COMPOSITOR_BUILD_0.8.0_20261003-2139` packages source checkpoint
+`8f5c9d0cc385184f6cf8a18a71603b5c30a46a51`. Its 4,743,915-byte ZIP SHA-256 is
+`C36D8173FE693A7955E5EEEFAA37056E55F3648E6011B7AF4B291E02FC12EA8E`.
+The 11,977,216-byte executable SHA-256 is
+`C0C1B99378C48DA999E2F49B7A9FCEDB780D94AD1804D9CB2BF390D052834641`.
+All three ZIP entries pass CRC checks, the archived EXE matches the tested
+portable, and bundled production/test WASM retain the release SHA above.
+Build-info source bytes are restored. The optimized native build reports
+8m 18s; it begins after functional regression, keeping all timing runs separate.
+Evidence: `interactive-priority-package-build.log` and
+`interactive-priority-package-integrity.json`.
+
+All eight real native UI groups pass with the actual native bridge, no
+development API and zero page errors, including 24 MP Fill and asynchronous
+histogram cancel/reopen. Four native Mac reads and four atomic save commits
+pass; continued Windows edits reopen at width 150, Stroke 7 and Shadow
+Distance 14. All three Mac open PNGs are byte-identical to production 2041,
+preserving the exact no-edit/edited matches and the still-open enlarged-text
+discrepancy. Evidence: `interactive-priority-native-ui.log`,
+`native-interactive-priority-0.8.0-result.json`,
+`native-interactive-priority-mac/native-mac-roundtrip.json` and
+`interactive-priority-native-mac-export-comparison.json`.
+
+The native read-only clipboard probe now returns no-image rather than access
+denied. Because this is changed access evidence, the original guarded protocol
+suite runs once, first taking its complete restorable-format snapshot before
+any clipboard writes. All six native groups pass, including external PNG and
+Windows Forms bitmap paste, independent consumers of Copy/Cut, Cut/Paste
+Undo/Redo and editable private-token text. Four strict RGBA comparisons pass:
+two 3 x 2 pasted layer rasters and two complete 640 x 480 copied/cut canvases
+with their known 318,239 placement. The initial supplemental comparator
+incorrectly expected layer-sized Copy output; its fixture error is retained
+separately, and no product assertion or tolerance changes. Two editable
+16-unit UTF-16 text records retain identical text/style. The independent
+helper confirms the original Text/UnicodeText formats are restored.
+Evidence: `interactive-priority-native-clipboard.log`,
+`clipboard-20261003-215052/native-clipboard.json` and
+`interactive-priority-clipboard-exact-comparison.json`.
+
+Current production clipboard acceptance is established; the Windows Notepad
+question and interactive handoff are no longer required. Historical access
+failures remain preserved. The four current performance case failures, earlier
+intermittent failures, Mac alpha oracle returns and Mac gesture confirmations
+remain open; full acceptance is not claimed.
+
 ## Additional Mac alpha sampling handoff
 
 Four generated projects isolate white-pixel alpha filtering from text rendering:
@@ -792,23 +894,21 @@ On a copy of `Mac-edited.comp`, confirm the following:
 
 The existing exact no-edit composite match and quantified edited/created edge
 differences are recorded in [the Mac return report](mac-roundtrip-results-2026-10-03.md).
-Pixel-identical edited/created export acceptance remains open; no sampling fix
+Mac-created enlarged-text export acceptance remains open; no sampling fix
 is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The eight current performance failures and
-earlier intermittent failures need fixes and repeatable evidence under their
-original budgets. Production 1206
-clipboard protocol and exact synthetic-image pixel checks pass; production 1556
-also passes six native groups and four exact image comparisons, with the original
-clipboard restored. Production 1901 OLE snapshot preflight fails before mutation, and current
-production 2041 read-only clipboard access remains denied. Earlier
-protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
-confirmation remains pending. Current Mac-edited export is exact; Mac-created
-enlarged text remains quantified and open; covered overlap edges now match. No assertion,
-budget, warm-up policy, skip, retry, or image tolerance
-has been weakened to close those gates.
+Full acceptance remains incomplete. The four current performance case failures
+and earlier intermittent failures need fixes and repeatable evidence under
+their original budgets. Production 2139 passes the full guarded native
+clipboard protocol with four exact image comparisons, two editable UTF-16
+records and original clipboard restoration. Earlier production 1206/1556
+successes and 1901/2041 access failures remain preserved. Mac gesture
+confirmation and alpha oracle returns remain pending. Current Mac-no-edit and
+Mac-edited exports are exact; Mac-created enlarged text remains quantified
+and open; covered overlap edges now match. No assertion, budget, warm-up
+policy, skip, retry or image tolerance is weakened to close those gates.
 
 The checkpoint stages only reviewed source, regression tests and these reports.
 Mac return data, clipboard data, test traces, packages, `.workbuddy` and the user's
