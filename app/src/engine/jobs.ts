@@ -9,14 +9,14 @@
 // selection at all (None) only by whether a buffer was passed, not by its length.
 
 /** What a job is asked to do. `input` is the engine's JobInput JSON; the buffers travel beside it. */
-import {releaseJobBuffer} from "./job-buffers";
+import {releaseJobBuffer,takeSpareJobBuffer} from "./job-buffers";
 
 export type JobRequest =
   | {kind:"text";input:string;pixels:null;mask:null}
   | { kind: "documentEdit"; input: string; layer: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; pixels: null; mask: null; points: ArrayBuffer | null; command: string; outPerDoc: number }
   | { kind: "clipboard"; input: string; pixels: null; mask: null; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; points: ArrayBuffer | null; png: boolean }
   | { kind: "decodeClipboard"; input: string; pixels: ArrayBuffer; mask: null }
-  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string; outPerDoc: number }
+  | { kind: "edit"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null; command: string; outPerDoc: number; outputPixels?: ArrayBuffer | null }
   | { kind: "histogram"; input: string; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; points: ArrayBuffer | null }
   | { kind: "effects"; input: string; pixels: ArrayBuffer; mask: ArrayBuffer | null; factor: number; edit: string | null };
 
@@ -66,7 +66,7 @@ export function trapMessage(error: string): string {
 export function transferables(request: JobRequest): ArrayBuffer[] {
   if (request.kind === "clipboard" || request.kind === "documentEdit") return [...request.layers.flatMap((l) => [l.pixels, l.mask]), request.points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
   const points = "points" in request ? request.points : null;
-  return [request.pixels, request.mask, points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
+  return [request.pixels, request.mask, points, request.kind === "edit" ? request.outputPixels ?? null : null].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
 }
 
 interface Pending { id: number; channel: string; request: JobRequest; resolve: (r: JobResult | null) => void; reject: (e: Error) => void; }
@@ -174,6 +174,17 @@ export class JobClient {
     // run a job the client already told its caller was dropped, and confuse the fresh worker's own
     // pending job with an extra reply it never asked for (fix round 2, minor finding).
     if (this.running !== job) return;
+    // A blank layer has no pixel input to reuse. Give canvas-painting edits an
+    // existing output-sized spare instead of retaining it while the worker
+    // allocates another full raster. It is never an input to the WASM kernel.
+    if (job.request.kind === "edit" && !job.request.pixels && !job.request.outputPixels) {
+      try {
+        const command = JSON.parse(job.request.command) as { type: string; mask?: boolean };
+        const input = JSON.parse(job.request.input) as { width: number; height: number };
+        if ((command.type === "Fill" || command.type === "Gradient") && !command.mask)
+          job.request.outputPixels = takeSpareJobBuffer(input.width * input.height * 4);
+      } catch { /* The worker keeps ownership of invalid-request errors. */ }
+    }
     const message: ToWorker = { type: "job", id: job.id, request: job.request };
     this.worker!.postMessage(message, transferables(job.request));
   }

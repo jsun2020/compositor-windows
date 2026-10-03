@@ -84,7 +84,10 @@ export class LayerTextures {
     const existing = this.layers.get(k);
     if (!pixels || size.width === 0 || size.height === 0) { if (existing) this.remove(docId, id); return; }
     if (existing && existing.key === bytesKey && existing.level === level && existing.nearest === nearest) return;
-    if (existing) this.remove(docId, id);
+    // A whole upload still replaces every texel, but a same-sized result need
+    // not destroy/recreate its GL objects. Keep the chunk objects and update their filters.
+    const reuse = existing && existing.level === level && existing.width === size.width && existing.height === size.height ? existing : undefined;
+    if (existing && !reuse) this.remove(docId, id);
     const gl = this.gl;
     const chunks: Chunk[] = [];
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, size.width);
@@ -92,7 +95,7 @@ export class LayerTextures {
     for (let y = 0; y < size.height; y += CHUNK) {
       for (let x = 0; x < size.width; x += CHUNK) {
         const width = Math.min(CHUNK, size.width - x), height = Math.min(CHUNK, size.height - y);
-        const texture = gl.createTexture()!;
+        const texture = reuse?.chunks[chunks.length]?.texture ?? gl.createTexture()!;
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
         gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y);

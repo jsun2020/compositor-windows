@@ -47,7 +47,7 @@ function run(request: JobRequest): JobResult {
     }
     case "edit": {
       const header = engine!.run_edit_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points), request.command, request.outPerDoc);
-      const result = { header, pixels: kept(false, request.pixels), mask: kept(true, request.mask), display: keptDisplay() };
+      const result = { header, pixels: kept(false, request.pixels ?? request.outputPixels ?? null), mask: kept(true, request.mask), display: keptDisplay() };
       engine!.release_job();
       return result;
     }
@@ -75,7 +75,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     const result = run(message.request);
     // Return inputs that were not reused for the result, including no-op edits.
     // They are already copied into WASM and no longer borrowed by the kernel.
-    const recycled=message.request.kind==="histogram"||message.request.kind==="edit"?[message.request.pixels,message.request.mask,message.request.points].filter((b):b is ArrayBuffer=>b!==null&&b.byteLength>=4*1024*1024&&b!==result.pixels&&b!==result.mask&&b!==result.display):[];
+    const recycled=message.request.kind==="histogram"||message.request.kind==="edit"?[message.request.pixels,message.request.mask,message.request.points,message.request.kind==="edit"?message.request.outputPixels??null:null].filter((b):b is ArrayBuffer=>b!==null&&b.byteLength>=4*1024*1024&&b!==result.pixels&&b!==result.mask&&b!==result.display):[];
     post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength, recycled }, [...[result.pixels, result.mask, result.display ?? null].filter((b): b is ArrayBuffer => b !== null),...recycled]);
   } catch (err) {
     // A wasm trap (an `unreachable` panic, an allocation abort) throws a `WebAssembly.RuntimeError`,

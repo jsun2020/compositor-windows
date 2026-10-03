@@ -465,6 +465,71 @@ A diagnostic mask-storage reuse prototype fails the original 24 MP post-apply
 frame budget (423 ms / <150 ms), while the isolated baseline passed. It is not
 adopted; evidence: `mask-storage-job-trace-results.json`.
 
+## Output capacity and texture-object work in progress
+
+Blank pixel Fill/Gradient jobs can now borrow an existing exact-size canvas RGBA
+spare immediately before worker posting. It is a separate output-capacity buffer,
+never a WASM input raster. The worker copies its complete output into that buffer;
+unused capacity is returned with the normal recycled inputs. Mask edits and
+histograms do not borrow it. This avoids simultaneously retaining the old spare
+on the main thread while allocating the same-sized blank-layer result.
+
+The real-worker regression verifies complete-byte equality against the direct
+engine for both Fill and Gradient, exactly one undo step, blank undo, exact redo
+and real transfer detachment. The initial fixture had no layer and failed before
+any edit; adding its explicit blank layer corrects the fixture. Original assertions
+and timeouts are preserved. Evidence: `blank-output-pool-staging-final.log`.
+The output-only source checkpoint passes 277 unit tests and 194 functional cases
+with 29 unchanged opt-in skips (`blank-output-pool-unit-full.log`,
+`blank-output-pool-functional.log`). Its targeted performance run passes C1 and
+growing-mask gradients, but F1 fails with a 24 MP Levels result frame of 511 ms;
+100 MP fill also logs a 104 ms worker-edit frame gap. Those failures are retained
+in `blank-output-pool-performance-targeted.log`.
+
+A GPU trace of the original F1 body fails at a 101 ms timed 24 MP Fill result frame:
+95 ms is `readPixels`, overlapping a 94.5 ms GPU WebGL command flush. A separate
+325 ms cold warm-up readback overlaps about 304 ms of Chromium raster-worker
+flushing; it is not a timed acceptance failure. This establishes GPU command waits,
+not a complete explanation for the unprofiled 511 ms observation. Evidence:
+`blank-output-gpu-trace-summary.json` and `blank-output-gpu-job-trace-results.json`.
+The host has about 18 GiB free physical RAM at the subsequent snapshot; low free
+system RAM is not inferred as the cause.
+
+A diagnostic same-sized texture-object reuse variant passes the original F1
+assertions, retaining all required `texImage2D` whole uploads. The source now keeps
+existing chunk GL objects for matching dimensions and prefilter levels, replaces
+every texel and updates filters; different dimensions or levels still rebuild.
+No upload assertion is changed. A chunk-boundary unit regression covers the new
+bytes/revision, filter mode, both full chunk uploads, resized replacement and
+separate document ownership. Current 278 unit tests and all three TypeScript
+checks pass; the rebuilt fixed assets pass. Complete performance and functional
+results are pending in this work-in-progress section.
+
+An independent host PInvoke probe confirms current `OpenClipboard` access denied
+(error 5) on WinSta0 / Default in active console session 1, with no clipboard
+owner process returned. It reads no clipboard contents and performs no mutation
+or permission bypass. Evidence: `windows-clipboard-host-access-probe.json`.
+
+## Additional Mac alpha sampling handoff
+
+Four generated projects isolate white-pixel alpha filtering from text rendering:
+horizontal/vertical High-quality strips at 1600 percent and a 32 x 32 alpha grid
+scaled to 34 x 34 with High quality or Smooth. All four open/export in the Windows
+release WASM, preserve their exact transforms, and draw within the unchanged GPU
+pixel tolerance (strip maximum zero, grid maximum one channel level).
+The first validation compared JSON property order and falsely reported a transform
+change; the corrected structural comparison preserves every numeric field.
+Evidence: `mac-alpha-probe-validation-final.log` and
+`alpha-probe-validation-mac-checks/checks.json`. No Mac oracle is claimed yet.
+
+The local handoff is `mac-alpha-probes-20261003.zip`, 7,241 bytes, SHA-256
+`616edb17d97adf8980f5a086c1489e18e6a173afb59fb771d4c409fc97eb0455`;
+archive CRC verification passes. README requests unedited transparent PNG exports
+in Mac Compositor 1.4.5. RESULT also lists the still-unconfirmed text/shape undo-redo
+and effects preview/cancel/apply/reopen gestures. The Mac return report still leaves
+those fields blank. The original return files and older user sampling probes are
+unchanged.
+
 ## Mac confirmation still required
 
 Compositor 1.4.5 return files already prove live opening, saving and text/shape

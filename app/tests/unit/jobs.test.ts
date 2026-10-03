@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EFFECTS_JOB_DISPLACED, JobClient, WORKER_MEMORY_LIMIT, type FromWorker, type JobRequest, type ToWorker } from "../../src/engine/jobs";
-import {clearJobBuffers,takeJobBuffer} from "../../src/engine/job-buffers";
+import {clearJobBuffers,releaseJobBuffer,takeJobBuffer,takeSpareJobBuffer} from "../../src/engine/job-buffers";
 
 /** A worker that records what it is sent and answers when told to. */
 class FakeWorker {
@@ -203,4 +203,39 @@ describe("JobClient", () => {
     workers[1].reply(done(2, "edit-done"));
     expect((await edit)?.header).toBe("edit-done");
   });
+});
+
+it("transfers a blank canvas edit's exact-size spare as output capacity, never as pixel input",async()=>{
+  clearJobBuffers();const {jobs,workers}=client();
+  try{
+    const bytes=new ArrayBuffer(4*1024*1024);new Uint8Array(bytes)[31]=61;releaseJobBuffer(bytes);
+    const request:JobRequest={kind:"edit",input:JSON.stringify({width:1024,height:1024}),pixels:null,mask:null,points:null,command:JSON.stringify({type:"Gradient",mask:false}),outPerDoc:1};
+    const pending=jobs.run("blank",request);await settle();
+    const waitingSpare=takeSpareJobBuffer(4*1024*1024);
+    expect(waitingSpare, "a waiting job does not take the spare before posting").not.toBeNull();
+    releaseJobBuffer(waitingSpare!);
+    workers[0].reply({type:"ready"});await settle();
+    const sent=workers[0].sent[1];expect(request.pixels).toBeNull();
+    expect(request.outputPixels?.byteLength).toBe(4*1024*1024);
+    expect(sent.transfer).toEqual([request.outputPixels]);
+    expect(takeSpareJobBuffer(4*1024*1024)).toBeNull();
+    jobs.cancel("blank");workers[0].reply({type:"done",id:1,result:{header:"cancelled",pixels:request.outputPixels!,mask:null},memory:1});
+    expect(await pending).toBeNull();expect(request.outputPixels!.byteLength).toBe(0);
+    expect(new Uint8Array(takeJobBuffer(4*1024*1024))[31]).toBe(61);
+  }finally{jobs.dispose();clearJobBuffers();}
+});
+
+it("does not loan a canvas pixel spare to a mask edit or a histogram",async()=>{
+  clearJobBuffers();const {jobs,workers}=client();
+  try{
+    releaseJobBuffer(new ArrayBuffer(4*1024*1024));
+    const request:JobRequest={kind:"edit",input:JSON.stringify({width:1024,height:1024}),pixels:null,mask:null,points:null,command:JSON.stringify({type:"Fill",mask:true}),outPerDoc:1};
+    const pending=jobs.run("mask",request);await settle();workers[0].reply({type:"ready"});await settle();
+    expect(request.outputPixels).toBeUndefined();expect(workers[0].sent[1].transfer).toEqual([]);
+    workers[0].reply(done(1,"mask"));await pending;
+    const hist=jobs.run("hist",histogram("bins"));await settle();
+    expect(workers[0].sent.at(-1)!.transfer).toHaveLength(1);
+    expect(takeSpareJobBuffer(4*1024*1024)?.byteLength).toBe(4*1024*1024);
+    workers[0].reply(done(2,"bins"));await hist;
+  }finally{jobs.dispose();clearJobBuffers();}
 });

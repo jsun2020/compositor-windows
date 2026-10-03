@@ -134,3 +134,22 @@ describe("syncMask", () => {
     expect(calls.at(-1)).toMatchObject({ kind: "image", width: 60, height: 40 });
   });
 });
+
+it("a complete same-grid upload keeps chunk objects, updates every chunk and still reports new bytes",()=>{
+  const {gl,calls,pixelsLengths}=stubGl();const textures=new LayerTextures(gl),size={width:3000,height:2};
+  textures.sync("D","A","px:1",false,new Uint8Array(3000*2*4),0,size,1);
+  const before=textures.get("D","A")!.chunks.map(c=>c.texture);calls.length=0;pixelsLengths.length=0;
+  textures.sync("D","A","px:2",true,new Uint8Array(3000*2*4).fill(93),0,size,2);
+  const after=textures.get("D","A")!;
+  expect(after.chunks.map(c=>c.texture)).toEqual(before);
+  expect([after.key,after.revision,after.nearest]).toEqual(["px:2",2,true]);
+  expect(calls).toEqual([
+    {kind:"image",x:0,y:0,width:2048,height:2,skipX:0,skipY:0,rowLength:3000},
+    {kind:"image",x:0,y:0,width:952,height:2,skipX:2048,skipY:0,rowLength:3000},
+  ]);
+  expect(pixelsLengths).toEqual([24000,24000]);
+  textures.sync("D","A","px:3",true,new Uint8Array(3001*2*4),0,{width:3001,height:2},3);
+  expect(textures.get("D","A")!.chunks.map(c=>c.texture)).not.toEqual(before);
+  textures.sync("other","A","px:3",true,new Uint8Array(3001*2*4),0,{width:3001,height:2},3);
+  expect(textures.get("other","A")!.chunks.map(c=>c.texture)).not.toEqual(textures.get("D","A")!.chunks.map(c=>c.texture));
+});

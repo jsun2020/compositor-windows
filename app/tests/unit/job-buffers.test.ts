@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import {afterEach,expect,it,vi} from "vitest";
-import {clearJobBuffers,releaseJobBuffer,takeJobBuffer} from "../../src/engine/job-buffers";
+import {clearJobBuffers,releaseJobBuffer,takeJobBuffer,takeSpareJobBuffer} from "../../src/engine/job-buffers";
 const SIZE=4*1024*1024;
 afterEach(()=>{clearJobBuffers();vi.useRealTimers();});
 
@@ -30,4 +30,13 @@ it("releases its spare when the page is hidden or discarded",()=>{
   const original=new ArrayBuffer(SIZE);new Uint8Array(original)[0]=55;
   releaseJobBuffer(original);window.dispatchEvent(new Event("pagehide"));
   expect(new Uint8Array(takeJobBuffer(SIZE))[0]).toBe(0);
+});
+
+it("loans an existing exact-size spare without allocating or consuming a different size",()=>{
+  expect(takeSpareJobBuffer(SIZE)).toBeNull();
+  const bytes=new ArrayBuffer(SIZE);new Uint8Array(bytes)[31]=61;releaseJobBuffer(bytes);
+  expect(takeSpareJobBuffer(SIZE*2)).toBeNull();
+  const loan=takeSpareJobBuffer(SIZE)!;
+  expect(new Uint8Array(loan)[31]).toBe(61);
+  expect(takeSpareJobBuffer(SIZE)).toBeNull();
 });

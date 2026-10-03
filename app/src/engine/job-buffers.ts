@@ -16,13 +16,18 @@ export function clearJobBuffers(): void {
 // timer that the browser may suspend. Resuming can allocate a fresh spare.
 if(typeof window!=="undefined")window.addEventListener("pagehide",clearJobBuffers);
 
-export function takeJobBuffer(size: number): ArrayBuffer {
+/** Borrows only an existing exact-size spare; output reuse must never allocate. */
+export function takeSpareJobBuffer(size: number): ArrayBuffer | null {
   if (spare?.byteLength === size) {
     const buffer = spare; spare = null;
     clearTimeout(timer); timer = undefined;
     return buffer;
   }
-  return new ArrayBuffer(size);
+  return null;
+}
+
+export function takeJobBuffer(size: number): ArrayBuffer {
+  return takeSpareJobBuffer(size) ?? new ArrayBuffer(size);
 }
 
 export function releaseJobBuffer(buffer: ArrayBuffer): void {

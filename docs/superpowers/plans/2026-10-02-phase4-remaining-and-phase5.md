@@ -44,8 +44,10 @@ gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
-- [x] Vitest: 274 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Full fixed-asset browser suite: 193 passed, 29 existing opt-in perf skips.
+- [x] Vitest: 278 passed. Current TypeScript and fixed-asset UI build pass.
+- [ ] Current full fixed-asset browser suite: 193 passed, one page-setup timeout,
+  29 existing opt-in perf skips. The previous source revision passed all 194
+  functional cases; the current revision requires completion of this gate.
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
@@ -63,13 +65,19 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-621 native tests, 274 unit tests, 193 functional browser tests. Production 1654
-passes eight native UI groups and four native Mac package reads/writes. Production
-1556 passes six clipboard groups with four exact image checks and restoration;
-1654 clipboard access is denied at read-only preflight, so its protocol suite
-remains unverified. The latest single full run of all 29 performance cases is
-26 passes / three failures: 100 MP Levels gap 109 / <100 ms, 24 MP growing-mask
-fit drag 64 / <50 ms, 100 MP blank-gradient gap 114 / <100 ms. The asynchronous
-histogram case passes; earlier intermittent failures remain unclosed by one
-passing observation. All original budgets and assertions remain unchanged.
-Implementation and these passing layers do not establish full acceptance.
+621 native tests, 278 unit tests, 193 current functional browser passes, one
+page-setup timeout and 29 original skips. Production 1654 passes eight native
+UI groups and four native Mac package reads/writes; packaging the newer output
+capacity and texture reuse changes is in progress. Production 1556 passes six
+clipboard groups with four exact image checks and restoration; 1654 clipboard
+access was denied at read-only preflight. The latest full run of all 29 performance
+cases is 26 passes / three failures: 100 MP Levels installation CPU 476 / <450 ms,
+100 MP blank-gradient frame gap 160 / <100 ms, and a selection-Levels page-setup
+timeout before its test body. All four result-frame budgets pass in that run.
+A separate diagnostic proves the original F1 body can pass with texture object
+reuse, but it does not close the remaining performance failures. All original
+budgets and assertions remain unchanged. Four synthetic alpha projects are
+ready for Mac 1.4.5 export to identify the remaining enlarged-text sampling
+difference; returned Mac exports and the pending gesture confirmations are
+still required. Implementation and these passing layers do not establish full
+acceptance.
