@@ -57,6 +57,10 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 - [x] Historical production 1556 clipboard verification: six native protocol groups,
   four exact image comparisons, editable UTF-16 text and original formats restored.
   The historical 1455 access-denied preflight is retained.
+- [x] Current production 0244: ZIP/EXE/WASM identity, eight native UI groups,
+  four Mac reads and four atomic saves; all three opened PNGs match 2328 bytes.
+- [ ] Current production 0244 native clipboard interoperability: original
+  snapshot refused with CLIPBRD_E_CANT_OPEN before any test mutation.
 - [ ] All large-image performance budgets: repeated failures retained in report.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.
@@ -199,3 +203,20 @@ acceptance. GPU trace thread times identify a 410.461 ms client wait with
 0.828 ms thread CPU and a 401.840 ms service wait with 1.228 ms thread CPU;
 the particular synchronization/driver cause is still unidentified. Mac alpha
 returns/gestures and current-package clipboard acceptance remain open.
+
+
+Production 0244 packages dbb4d81 after all sequential source/timing/function
+checks, builds in 8m 23s and passes archive CRC, EXE and WASM identity. All
+eight native UI groups, four Mac reads and four atomic saves pass; font size
+38 and shape width 150 / Stroke 7 / Shadow 14 persist. All three opened PNGs
+are byte-identical to production 2328, preserving the Mac-created discrepancy
+(13,065 pixels, maximum channel delta 51). Clipboard stops before any write
+at the original OleGetClipboard snapshot with CLIPBRD_E_CANT_OPEN.
+The hash-bound interactive handoff runs all 29 original performance cases
+then the unchanged guarded clipboard protocol and strict RGBA/text/restoration
+comparison. Its final read-only preflight passes; its actual interactive run
+is still required. The strict comparator passes the historical 2139 corpus
+and rejects a one-channel error in an isolated copy. None of these reader
+checks is current-package clipboard acceptance. Mac alpha PNGs/RESULT and
+gesture confirmation remain missing. The full objective and original budgets
+remain unchanged; completion requires these external evidence gates.

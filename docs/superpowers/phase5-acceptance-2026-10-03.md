@@ -1146,6 +1146,77 @@ exclude every possible lock. No clipboard contents are read or changed and
 no process is selected for termination. Current native clipboard acceptance
 remains open. Evidence: `clipboard-owner-readonly-20261004.json`.
 
+## Production 0244 canvas-dimension checkpoint, 2026-10-04
+
+`COMPOSITOR_BUILD_0.8.0_20261004-0244` packages source
+`dbb4d812558ad13db509e83bae89345e216456ad`. The optimized native build
+finishes in 8m 23s after all source/functional/timing runs have ended.
+The ZIP has 4,743,533 bytes and SHA-256
+`E31F6EFC248677BF6ED65F0EE56E134AAD240AD5AEE6DE2E09DA99CB8A8BF55D`;
+the 11,977,216-byte EXE SHA-256 is
+`F58612EDC2708EC0128C1D2DDE24810272758D67BC847B32592F7319898C37FB`.
+All three ZIP entries pass CRC checks, the archived EXE matches the tested
+portable, and release/test WASM retain
+`1223942C74CB77E04FC1606921DA5BC5943E54A9D9E83DDE55F6AD1532ED9B3B`.
+The build-info source bytes are restored. Evidence:
+`canvas-resize-package-build.log` and `canvas-resize-package-integrity.json`.
+
+The real production package passes all eight native UI groups, four native
+Mac reads and four atomic saves with the native bridge, no development API and
+zero page errors. Continued text is saved at font size 38; the reopened shape
+retains width 150, Stroke 7 and Shadow Distance 14. All three opened Mac PNGs
+are byte-identical to production 2328. Mac-no-edit and Mac-edited remain exact
+against the Mac exports; Mac-created remains 13,065 different pixels / 28,222
+different channels, maximum difference 51, at 1920 x 1080. This preserves the
+known enlarged-text discrepancy and does not close it. Evidence:
+`canvas-resize-native-ui.log`, `native-canvas-resize-0.8.0-result.json`,
+`canvas-resize-native-mac.log`, `native-canvas-resize-mac/` and
+`canvas-resize-native-mac-export-comparison.json`.
+
+The current native clipboard protocol stops at OleGetClipboard's read-only
+original snapshot with `CLIPBRD_E_CANT_OPEN` (0x800401D0), before any mutation.
+The case has no ready record and zero request files. The UI read-only probe
+also reports Windows denied clipboard access and requests an interactive
+desktop session. All owned delivery processes have ended; this is not an
+ongoing native test. Evidence: `canvas-resize-native-clipboard.log`,
+`clipboard-20261004-025545/helper-error.txt` and
+`canvas-resize-delivery-summary.json`. Production 2139 remains the completed
+historical clipboard checkpoint, not the current package's acceptance.
+
+The local handoff `verify-0244-interactive-acceptance.ps1` binds twenty input
+hashes: the actual EXE, fixed assets, both configs, all five original performance
+files, existing guarded native clipboard fixtures/helper, and the strict
+comparison reader. Its default run executes all 29 original performance cases
+with one worker and zero retries, then the guarded clipboard protocol and exact
+comparison. It records separate result/log files and restores PERF and the
+original clipboard through the existing helper. A clipboard-only run explicitly
+records performance as not run; it cannot establish the performance gate.
+The final read-only preflight passes; no interactive desktop run is claimed.
+Evidence: `interactive-0244-frozen-inputs.json` and
+`interactive-0244-readonly-preflight-final.log`.
+
+The reusable local clipboard comparator independently requires all six protocol
+groups, four strict full-length RGBA comparisons, two distinct editable UTF-16
+text records with identical style, and original format restoration. It passes
+against the retained production-2139 evidence. An isolated copy with one red
+channel changed from 255 to 254 is refused at the actual native PNG-copy byte
+comparison, proving that no image tolerance hides an incorrect result. The
+initial standalone attempt could not resolve pngjs; it is retained as a
+checker-dependency error, not a product failure or a valid negative control.
+The corrected reader uses the already-installed Playwright PNG module. Evidence:
+`clipboard-exact-comparator-historical-fixed.log` and
+`clipboard-exact-comparator-negative-fixed.log`. Neither is a new 0244
+clipboard protocol pass.
+
+The four requested Mac alpha PNGs remain absent and RESULT.txt remains blank;
+the older return report still leaves Mac undo/redo and effect preview/cancel/
+apply gestures unconfirmed. Windows interactive performance/clipboard results
+and the requested Mac oracle/gesture evidence are required before full
+acceptance can be completed. Those same external conditions appear in the
+last three goal turns; no available automated Mac app or permitted clipboard
+snapshot can supply them in this environment. Original budgets, retries,
+warm-ups, skips, pixel tolerances and all user return files remain preserved.
+
 ## Additional Mac alpha sampling handoff
 
 Four generated projects isolate white-pixel alpha filtering from text rendering:
@@ -1194,7 +1265,9 @@ Full acceptance remains incomplete. The retained canvas-dimension fix passes
 287 units, three TypeScript checks, 19 exact render cases and all 197
 functional cases with 29 original opt-in skips. Its six selected original
 performance cases finish two passed / four failed; no complete current-source
-performance pass or new native package is claimed. Both framebuffer allocation
+performance pass is claimed. Production 0244 passes package integrity, all
+eight native UI groups and the native Mac read/save gates, but its clipboard
+protocol stops before any mutation at the refused original snapshot. Both framebuffer allocation
 candidates are rejected and the original allocation/view mapping are restored.
 The solid-rectangle full performance suite
 has three original page-fixture failures and C1's 134 ms / <100 ms gradient
@@ -1212,4 +1285,4 @@ policy, skip, retry or image tolerance is weakened to close those gates.
 
 The checkpoint stages only reviewed source, regression tests and these reports.
 Mac return data, clipboard data, test traces, packages, `.workbuddy` and the user's
-untracked sampling probes remain local and untouched. The goal remains active.
+untracked sampling probes remain local and untouched. Full acceptance awaits the required Windows interactive and Mac evidence.
