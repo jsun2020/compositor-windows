@@ -139,15 +139,53 @@ Only file-picker choices are substituted; reads, edits, rendering and writes
 use the production bridge. Evidence: `native-mac-bitmap-final.log` and
 `native-final/native-mac-return/`. This proves the Windows half of those gestures.
 
-The final external clipboard run aborts at its read-only snapshot:
+The first final external clipboard run aborts at its read-only snapshot:
 `CLIPBRD_E_CANT_OPEN` (0x800401D0). No clipboard mutation occurs. The production
 read-only probe also reports Windows error 5, and an independent Win32 probe
 cannot open the clipboard (error 5, no locking window). The process is on
 `WinSta0`, and the readable input desktop is `Default`; a locked desktop is not
 established as the cause. Earlier intermediate builds completed native clipboard
 protocol checks but failed bitmap pixel comparison, exposing the DIB bug fixed
-here. Until the final package can complete native pixel comparison, this gate
-remains open. A manual Windows copy/paste result has been requested, not assumed.
+here. At 12:46 the independent Win32 probe confirms access has returned. The exact
+1206 portable then passes six native protocol groups with zero page errors and
+no development API: external PNG paste, independent PNG consumption of native
+Copy, synthesized Windows bitmap paste, independent bitmap consumption of Cut,
+Cut/Paste with Undo/Redo, and private-token editable text paste. All four saved
+and consumed PNG/bitmap comparisons have maximum channel difference **zero**,
+including alpha and row ordering; two editable UTF-16 text records persist.
+The original clipboard is restored with its original format set. This closes
+the final native clipboard gate; the denied preflight above remains historical.
+Evidence: `native-clipboard-restored-access.log`,
+`clipboard-20261003-124643/clipboard-image-checks.json` and the native result.
+
+## Rejected performance experiments
+
+Three controlled browser experiments used the original case bodies and assertions,
+with diagnostic wrappers outside the official runner. They are diagnostic
+evidence only and do not replace the original acceptance runs above.
+
+- Repeating a known uniform fill's first 4 MiB source chunk did not improve
+  100 MP installation CPU time: 260 ms baseline versus 272 ms with the experiment.
+  The experimental run also failed the unchanged gradient frame-gap assertion.
+  No corresponding application change was adopted.
+- Requesting a CPU-backed overlay context did not give stable performance:
+  F1 failed at 182 ms baseline and 392 ms experimentally against 100 ms;
+  24 MP Content-Aware Fill failed at 232.3 and 195.8 ms; the 100 MP case passed
+  baseline but failed experimentally at 111.1 ms against 100 ms.
+  No overlay context change was adopted.
+- Reusing same-size GL texture objects did not close the failing frame budgets.
+  The experimental F1 result failed at 283 ms against 100 ms; its effects-image
+  case failed at 158 ms against 100 ms (baseline effects: 162 ms). Partial uploads
+  passed experimentally but failed at 284.5 ms against 33 ms in the baseline.
+  This mixed result is insufficient evidence of stable improvement, so no
+  texture-cache change was adopted. The staged WASM destination already reserves
+  its complete plane capacity before copying; chunk-by-chunk vector growth is
+  not an outstanding allocation issue in this implementation.
+
+Evidence: `uniform-copy-diagnostic-2.json`,
+`overlay-context-diagnostic.json` and `texture-reuse-diagnostic.json`, with their
+retained logs.
+
 ## Mac confirmation still required
 
 Compositor 1.4.5 return files already prove live opening, saving and text/shape
@@ -174,9 +212,9 @@ is inferred from metadata preservation or the font-face correction.
 
 Full acceptance remains incomplete. The seven performance failures above need
 fixes and repeatable evidence under their original budgets. Final production
-clipboard pixel comparison needs successful native access; prior protocol-only
-checks and bitmap unit tests do not close it. Mac gesture confirmation remains
-pending, and the edited/created Mac-export edge differences remain quantified
+clipboard protocol and exact synthetic-image pixel checks now pass. Earlier
+protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
+confirmation remains pending, and the edited/created Mac-export edge differences remain quantified
 and open. No assertion, budget, warm-up policy, skip, retry, or image tolerance
 has been weakened to close those gates.
 

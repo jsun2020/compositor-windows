@@ -44,8 +44,8 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 - [x] Full fixed-asset browser suite: 190 passed, 29 existing opt-in perf skips.
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
-- [ ] Live Windows clipboard interoperability: origin/DIB fixes are implemented;
-  final native access is currently denied (error 5), so pixel acceptance is open.
+- [x] Live Windows clipboard interoperability: production 1206 passes six native
+  protocol groups and four exact image comparisons; the original clipboard is restored.
 - [ ] All large-image performance budgets: repeated failures retained in report.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.

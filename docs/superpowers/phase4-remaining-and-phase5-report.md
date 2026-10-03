@@ -281,8 +281,13 @@ text/shape undo/redo and saved effect parameters. Its three native PNGs and 34
 saved package files match the prior validated Windows outputs. The exact no-edit
 Mac match and edited/created export edge differences retain their earlier limits.
 
-The final clipboard preflight cannot open the system clipboard and aborts before
-any mutation; an independent Win32 probe and production read also return error 5.
-A manual Windows result and the missing Mac gesture confirmations are requested.
-These gates and the recorded performance overruns remain open. No full acceptance
+The first final clipboard preflight could not open the system clipboard and
+aborted before mutation. At 12:46 access returned, and the same production 1206
+package passed six native clipboard protocol groups with zero page errors.
+Independent PNG/bitmap consumption and external-image paste produced four exact
+pixel comparisons, including alpha and row ordering (maximum channel difference
+zero). Cut/Paste Undo/Redo and private-token editable UTF-16 text paste also pass;
+the original clipboard and its format set are restored. The Windows clipboard
+gate is closed. The missing Mac gesture confirmations, edited/created export
+differences and recorded performance overruns remain open. No full acceptance
 is claimed, and only reviewed source/tests/docs are published.

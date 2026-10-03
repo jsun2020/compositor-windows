@@ -133,6 +133,8 @@ quantified edited/created export differences; it does not resolve those differen
 or establish the Mac gestures left blank in the return sheet.
 
 See [the full acceptance record](phase5-acceptance-2026-10-03.md) for package hashes,
-new performance coverage, clipboard origin/DIB fixes and the current native access
-failure. Clipboard and stable performance acceptance remain open, rather than
-being inferred from the Mac file interoperability checks.
+new performance coverage and clipboard origin/DIB fixes. At 12:46 the production
+1206 package independently passed six native clipboard protocol groups and four
+exact PNG/bitmap pixel comparisons after native access returned. The original
+clipboard was restored. Clipboard acceptance is now closed by that separate
+Windows evidence; stable performance and the Mac gates above remain open.
