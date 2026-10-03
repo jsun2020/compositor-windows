@@ -45,7 +45,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
 - [x] Vitest: 280 passed. Current TypeScript and fixed-asset UI build pass.
-- [ ] Latest texture-level source full fixed-asset browser suite is in progress.
+- [ ] Latest first-fit source full fixed-asset browser suite is in progress.
   The preceding worker-reclamation source passes 194 functional cases,
   29 unchanged opt-in skips, one worker and zero retries (6.1 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
@@ -102,4 +102,12 @@ The corrected F1 diagnostic identifies same-size preview/result grids with
 changed source prefilter levels. Texture object reuse now covers this transition
 while preserving complete uploads, bytes, filters, cache metadata and document
 ownership. All 280 unit tests, three TypeScript checks and fixed-asset build
-pass; the latest original full performance and functional runs are in progress.
+pass; the texture-level full performance run was interrupted by a tool session
+reset and is retained separately. No terminal performance result is claimed.
+
+The first draw now fits a new large canvas before uploading its textures,
+avoiding the unnecessary full-resolution initial upload. All 280 unit tests,
+three TypeScript checks and fixed-asset build pass; both original partial-upload
+cases and the new exact pixel/initial upload regression pass. A complete
+original 29-case performance run followed by the full 224-case functional
+collection is in progress, one worker and zero retries.

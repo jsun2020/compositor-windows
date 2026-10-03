@@ -654,9 +654,48 @@ level-sensitive upload cache. The initial source replacement did not match
 CRLF line endings; the new regression failed against the unchanged guard, and
 its failed log is retained. After applying and verifying the actual source diff,
 all 280 unit tests, all three TypeScript checks and fixed-asset build pass.
-Complete regressions are in progress with separate output paths and all original
-acceptance budgets unchanged. Evidence: `texture-level-source-check.log`,
-`texture-level-source-check-final.log` and `texture-level-regression-summary.json`.
+Six real-worker regressions pass. The subsequent complete performance run is
+interrupted by a publication tool timeout resetting its execution session, before
+any case reaches a terminal result. It is not counted as an application failure
+or a passing run; logs and summary remain under `texture-level-interrupted-*`.
+The checkpoint is published as `5ea7db4438d9cd98e984319058d367e3766ceff4`,
+verified against the authorized remote branch. Evidence:
+`texture-level-source-check-final.log`, `texture-level-jobs-e2e.log` and
+`texture-level-source-remote-verify.log`.
+
+## First draw fits a newly opened large canvas
+
+The F1 texture inspection records an unnecessary initial full-resolution
+upload: a new 6000 x 4000 or 10000 x 10000 canvas draws the default 1:1
+viewport before ResizeObserver fits it. The next draw drops those textures
+and uploads the reduced fit grid. This is separate from the timed GPU stalls;
+no claim that it explains all of them is made.
+
+CanvasView now applies its existing resize/fit synchronously in the size effect
+before the draw effect. ResizeObserver retains its later behavior, including
+manually zoomed/panned viewports. All 280 unit tests, three TypeScript checks
+and the fixed-asset build pass (`first-fit-source-check.log`). Both original
+partial-upload cases pass. The new regression verifies actual initial upload
+sizes and exact RGBA bytes after opening a 24 MP canvas under the unchanged
+default timeout, passing in 8.4 seconds. The initial colour sample landed on
+the retained 10 x 10 white centre of CanvasSize; moving it into the newly
+filled region fixes the fixture without loosening the exact comparison.
+Evidence: `first-fit-targeted-final.log` and
+`first-fit-targeted-pixels-simple.log`.
+
+The first launcher stops before tests because the interrupted preview retains
+port 1423. Its PID, creation time and command line establish ownership before
+terminating only that test preview. A subsequent launcher fails before tests
+because the reconstructed COMSPEC path uses forward slashes; restoring normal
+Windows separators fixes shell launch. An anchored selector matches no full
+Playwright title; the corrected selector runs the new case. These attempts
+remain logged separately and are not application acceptance failures.
+
+One complete original 29-case performance run followed by the full 224-case
+functional collection is in progress, with one worker, zero retries, no tracing
+flags and unchanged budgets. Logs use `first-fit-*`. Production 1901 evidence
+still applies to the preceding source revision; latest first-fit package and
+native verification are pending.
 
 ## Additional Mac alpha sampling handoff
 

@@ -77,3 +77,33 @@ for (const zoom of ["1:1", "fit"] as const) {
     expect(await worstAgainstKept(page), "a partial upload draws exactly what a whole one does").toBe(0);
   });
 }
+
+
+test("opening a large canvas fits before its first texture upload and draws its pixels", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await countUploads(page);
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await page.evaluate(() => {
+    const api = (window as any).__compositor, doc = api.engine.newDocument(10, 10, false);
+    api.engine.execute(doc, { type: "CanvasSize", width: 6000, height: 4000, anchor: 4, fill: [0.5, 0.4, 0.3] });
+    api.store.getState().openDocument(doc);
+  });
+  await frames(page);
+  const first = await uploads(page);
+  expect(first.image).toBeGreaterThan(0);
+  // At this viewport fit is at least two halvings; an accidental initial 1:1
+  // upload makes a 2048 x 2048 chunk even though none of it is needed on screen.
+  expect(first.imageMax).toBeLessThanOrEqual(1500 * 1000);
+  const sample = await page.evaluate(() => {
+    const api = (window as any).__compositor, s = api.store.getState(), doc = s.documents[s.activeId];
+    const size = s.viewports[s.activeId].documentRect(doc), pixels = api.readDocumentPixels() as Uint8Array;
+    const width = Math.round(size.x + size.width) - Math.round(size.x);
+    const height = Math.round(size.y + size.height) - Math.round(size.y);
+    // CanvasSize retains the original 10 x 10 white centre; sample the
+    // newly filled area, well clear of that retained source and the canvas edge.
+    const offset = (Math.floor(height / 4) * width + Math.floor(width / 4)) * 4;
+    return Array.from(pixels.subarray(offset, offset + 4));
+  });
+  expect(sample).toEqual([128, 102, 77, 255]);
+});

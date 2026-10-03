@@ -176,11 +176,15 @@ export function CanvasView() {
   // Size the viewport to the element.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    const observer = new ResizeObserver(() => {
+    const resize = () => {
       const s = useEditor.getState();
       for (const id of s.order) { const d = s.documents[id]; s.viewports[id].resize({ width: el.clientWidth, height: el.clientHeight }, window.devicePixelRatio || 1, { width: d.width, height: d.height }); }
       s.invalidate();
-    });
+    };
+    // Fit a newly opened document before the draw effect below. Waiting for the
+    // observer would first upload the entire large raster at the default 1:1 zoom.
+    resize();
+    const observer = new ResizeObserver(resize);
     observer.observe(el);
     return () => observer.disconnect();
   }, [activeId]);
