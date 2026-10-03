@@ -994,8 +994,9 @@ has three original page-fixture failures and C1's 134 ms / <100 ms gradient
 frame gap; earlier intermittent failures still need repeatable evidence.
 Production 2139 is the latest completed native clipboard checkpoint: six
 guarded protocol groups, four exact image comparisons, two editable UTF-16
-records and original clipboard restoration. Production 2328 is building from
-the checked solid-rectangle source; its native gates are not yet claimed.
+records and original clipboard restoration. Production 2328 passes package
+integrity, eight native UI groups and the native Mac read/save gates. Its
+clipboard protocol stops at the read-only snapshot before any mutation.
 Earlier production successes and access failures remain preserved. Mac gesture
 confirmation and alpha oracle returns remain pending. Current Mac-no-edit and
 Mac-edited exports are exact; Mac-created enlarged text remains quantified
