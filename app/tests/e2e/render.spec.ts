@@ -1,6 +1,77 @@
 import { test, expect, type Page } from "@playwright/test";
 import { grayRampMaskPngBase64, redSquarePngBase64, solidPngBase64 } from "./helpers";
 
+test("fractional pixel-copy edges use Mac's 8-bit coverage with either axis flipped", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const records = await page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    const canvas = document.createElement("canvas"); canvas.width = 2; canvas.height = 2;
+    canvas.getContext("2d")!.putImageData(new ImageData(new Uint8ClampedArray([
+      230, 40, 30, 255, 20, 20, 20, 255,
+      30, 90, 220, 255, 40, 180, 90, 255,
+    ]), 2, 2), 0, 0);
+    const bytes = Uint8Array.from(atob(canvas.toDataURL().split(",")[1]), c => c.charCodeAt(0));
+    const id = "A66C3B15-160E-41C5-8E7F-1AAB95F51D79", result = [];
+    for (const [flipX, flipY] of [[false, false], [true, false], [false, true], [true, true]]) {
+      const manifest = { format: "com.compositor.project", version: 11, colorSpace: "sRGB", documentID: id, width: 6, height: 6,
+        layers: [{ id, name: "Edge", isVisible: true, imageFile: `${id}.png`, transform: { origin: [1.5, 1.25], size: [2, 2], rotation: 0, flipX, flipY, sampling: "High quality" } }] };
+      const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${id}.png`, bytes }] }, null);
+      api.store.getState().openDocument(doc); await api.setZoom(1); api.setCheckerboard(false);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const state = api.store.getState(), vp = state.viewports[doc], dpr = window.devicePixelRatio || 1;
+      const rect = vp.documentRect({ width: 6, height: 6 });
+      vp.translate({ width: (Math.round(rect.x * dpr) - rect.x * dpr) / dpr, height: (Math.round(rect.y * dpr) - rect.y * dpr) / dpr });
+      api.renderer.render(api.engine, state.documents[doc], vp, dpr, { checkerboard: false }, null);
+      const gpu = Array.from(api.readDocumentPixels()) as number[], cpu = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: 6, height: 6 }, 6, 6)) as number[];
+      result.push({ kind: state.rendererKind, worst: gpu.reduce((m, v, i) => Math.max(m, Math.abs(v - cpu[i])), 0), corner: cpu.slice(28, 32) });
+      api.store.getState().closeDocument(doc);
+    }
+    return result;
+  });
+  records.forEach(record => { expect(record.kind).toBe("gl"); expect(record.worst).toBeLessThanOrEqual(2); });
+  // Coverage 0.5 × 0.75 becomes 95/255 before multiplying premultiplied RGBA.
+  expect(records.map(record => record.corner)).toEqual([[86, 15, 11, 95], [7, 7, 7, 95], [11, 34, 82, 95], [15, 67, 34, 95]]);
+});
+
+test("an upright fractional 1:1 layer copies its pixels on the GPU and export without rewriting its transform", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const api = (window as any).__compositor;
+    const canvas = document.createElement("canvas"); canvas.width = 5; canvas.height = 4;
+    const ctx = canvas.getContext("2d")!;
+    ctx.putImageData(new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 64,
+      30, 20, 10, 255, 40, 50, 60, 255, 70, 80, 90, 255,
+    ]), 3, 2), 1, 1);
+    const bytes = Uint8Array.from(atob(canvas.toDataURL().split(",")[1]), c => c.charCodeAt(0));
+    const id = "A66C3B15-160E-41C5-8E7F-1AAB95F51D79", records = [];
+    for (const sampling of ["Smooth", "High quality"]) {
+      const transform = { origin: [10.5, 20.25], size: [5, 4], rotation: 0, flipX: false, flipY: false, sampling };
+      const manifest = { format: "com.compositor.project", version: 11, colorSpace: "sRGB", documentID: id, width: 20, height: 30,
+        layers: [{ id, name: "Pattern", isVisible: true, imageFile: `${id}.png`, transform }] };
+      const doc = api.engine.openPackage({ manifest: JSON.stringify(manifest), images: [{ name: `${id}.png`, bytes }] }, null);
+      api.store.getState().openDocument(doc); await api.setZoom(1); api.setCheckerboard(false);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const gpu = Array.from(api.readDocumentPixels()) as number[], cpu = Array.from(api.engine.composite(doc, { x: 0, y: 0, width: 20, height: 30 }, 20, 30)) as number[];
+      const crop = [];
+      for (let y = 21; y < 23; y++) for (let x = 11; x < 14; x++) crop.push(...cpu.slice((y * 20 + x) * 4, (y * 20 + x + 1) * 4));
+      const saved = JSON.parse(api.engine.savePackage(doc).manifest);
+      records.push({ kind: api.store.getState().rendererKind, crop, worst: gpu.reduce((m, v, i) => Math.max(m, Math.abs(v - cpu[i])), 0), mismatches: gpu.flatMap((v, i) => Math.abs(v - cpu[i]) > 2 ? [{ x: Math.floor(i / 4) % 20, y: Math.floor(i / 80), channel: i % 4, gpu: v, cpu: cpu[i] }] : []).slice(0, 8), transform: saved.layers[0].transform });
+      api.store.getState().closeDocument(doc);
+    }
+    return records;
+  });
+  for (const [index, record] of result.entries()) {
+    expect(record.kind).toBe("gl");
+    expect(record.worst, JSON.stringify(record.mismatches)).toBeLessThanOrEqual(2);
+    expect(record.crop).toEqual([255, 0, 0, 255, 0, 128, 0, 128, 0, 0, 64, 64, 30, 20, 10, 255, 40, 50, 60, 255, 70, 80, 90, 255]);
+    expect(record.transform.origin).toEqual([10.5, 20.25]);
+    expect(record.transform.sampling).toBe(["Smooth", "High quality"][index]);
+  }
+});
+
 /** Reads the on-screen document pixels and compares them with the CPU compositor within 2/255 per byte. */
 async function matchesCpu(page: Page, label: string): Promise<void> {
   const result = await page.evaluate(async () => {

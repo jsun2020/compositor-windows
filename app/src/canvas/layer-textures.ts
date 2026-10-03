@@ -4,6 +4,12 @@ export const CHUNK = 2048;
 /** A 30000-pixel side reaches 1 pixel in 15 halvings; mirrors MAX_PREFILTER_LEVEL in the engine. */
 export const MAX_PREFILTER_LEVEL = 16;
 
+/** Mac 1.4.5 LayerRenderer.interpolation copies upright pixels when its final
+ * prefilter level lands at 1:1. Drawing never changes the saved sampling mode. */
+export function pixelCopyAtScale(rotation: number, width: number, drawnWidth: number, outPerDoc: number, level: number, distorted: boolean): boolean {
+  return !distorted && rotation % 360 === 0 && width > 0 && Math.abs(drawnWidth * outPerDoc / width * 2 ** level - 1) < 0.001;
+}
+
 /**
  * Sharp halvings before the final resample, mirroring `compositor::prefilter_level` in the
  * engine exactly: halve until one output pixel covers at most 2 source pixels, stopping when

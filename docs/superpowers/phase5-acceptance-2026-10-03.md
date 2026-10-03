@@ -3,7 +3,8 @@
 This tracks acceptance against the Phase 4 remaining / Phase 5 plan, using the
 existing assertions and budgets. The user's explicit goal is full acceptance;
 implementation completion and individual passing checks are not a substitute.
-The unrelated Phase 3.5d sampling probes and `.workbuddy` remain untouched.
+The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
+full-acceptance goal now includes the pixel-copy compatibility work below.
 
 ## Changes found during acceptance
 
@@ -185,6 +186,95 @@ evidence only and do not replace the original acceptance runs above.
 Evidence: `uniform-copy-diagnostic-2.json`,
 `overlay-context-diagnostic.json` and `texture-reuse-diagnostic.json`, with their
 retained logs.
+
+## Pixel-copy source work in progress
+
+An in-memory-only placement diagnostic retains the returned files byte for byte.
+For `Mac-edited`, replacing only fractional layers' draw sampling with Nearest
+reduces the original 2,118 changed pixels / maximum 121 to **zero differences**.
+For `Mac-created`, it reduces 14,037 changed pixels to 13,117, but differences
+remain in scaled text and 52 rectangle-edge pixels. Changing the saved origin or
+sampling mode is not adopted as a fix. Evidence:
+`pixel-placement-diagnostic/comparison.json`, plus its variant PNGs and runner.
+
+The authoritative source is `git show v1.4.5:Compositor/Rendering/LayerRenderer.swift`
+in the adjacent `Compositor-1.2.10` repository, not that repository's older
+checkout or the unversioned adjacent `Compositor` directory. Lines 44–47 explicitly
+choose `.none` for upright final sampling within 0.001 of 1:1. Line 19 preserves
+antialiasing according to the layer's saved setting. The initial copy-only
+diagnostic's residual rectangle-edge differences therefore need edge coverage,
+not a saved-coordinate change.
+
+Current CPU and GL source work chooses that filter at the final prefilter/device
+scale, including clipping sources and reduced/full effects representations.
+Only outer rectangle edges receive coverage; internal texture-chunk edges retain
+their disjoint geometry. Explicit Nearest keeps its hard edge. Stored transforms,
+sampling settings and bitmap records remain unchanged. New regression coverage
+checks transparent texel preservation, clipping-source alpha, rectangle edges,
+rotation/enlargement exclusions and GPU/CPU agreement. Release WASM, original
+Mac return exports and the new production package must still verify this source
+before the pixel-copy gate can be closed. Scaled-text fidelity remains open.
+
+The first complete release-WASM checkpoint passes 620 native tests (0 failures,
+10 existing ignores), 269 UI unit tests and 191 functional browser cases (29
+unchanged opt-in performance skips). Its source/package WASM SHA-256 is
+`C801FCED79B12E62F39B4E83F531DB962603C19D3C0A34EB9ACC4EACA61EFCF4`.
+Against untouched Mac returns, `Mac-no-edit` and `Mac-edited` now export with
+**zero changed pixels**. `Mac-created` improves to 13,089 changed pixels / max 51;
+24 of these are shape-edge rounding, the remainder is enlarged text.
+Evidence: `pixel-copy-mac-checks/comparison.json` and the PNGs.
+
+The upright 1:1 probe initially retains 54 changed boundary pixels / max 8 in
+straight RGBA, but only 1 in premultiplied channels. Quantizing rectangle coverage
+to `floor(coverage * 255) / 255` before multiplying colour/alpha gives an exact
+scratch-model match to that Mac 1.4.5 PNG. The quantized CPU/GL source and a new
+four-flip regression are undergoing their own final WASM/build checks; earlier
+checkpoint results do not establish those newer checks.
+
+The first probe GPU comparison was captured before the viewport had settled;
+its apparent 150-level difference was not a proven application regression.
+After fixing the diagnostic to align the viewport on device pixels and draw
+synchronously, both the upright and flipped layer agree with CPU within 1/255.
+Evidence: `pixel-copy-upright-final-frame.log`; the earlier diagnostic logs remain
+retained. Export comparisons above do not depend on viewport alignment.
+
+The final quantized release-WASM checkpoint also passes 620 native tests with
+0 failures / 10 existing ignores, both TypeScript checks and all five rendering
+cases, including the four-flip edge test. Source and fixed test assets share
+SHA-256 `22665BCEDD97916CB4A88433039FA51A0123DD6435CBBEEECEFFAA3464E43607`.
+Actual exports now match `Mac-no-edit`, `Mac-edited` **and** the upright 1:1 probe
+exactly. The probe's GPU and CPU agree within 1/255. `Mac-created` retains
+13,089 changed pixels / max 51, including its 24 overlapping shape-edge pixels.
+Evidence: `pixel-copy-coverage-mac-checks/comparison.json`, `checks.json`,
+`pixel-copy-coverage-workspace.log`, `pixel-copy-coverage-render-e2e.log` and
+`coverage-quantization-model.json`. The quantized full browser suite passes
+**192 cases**, with the same 29 opt-in performance skips. The new production
+package still needs its own final results; performance remains open.
+
+## Further GPU diagnostics
+
+The partial-upload/Add Mask trace reproduces the 24 MP Add Mask result-frame
+failure (415 ms / 150 ms). Its marked `readPixels` call consumes 412.7 ms;
+overlapping trace events show `WaitForGetOffset` at 412.68 ms and the GPU WebGL
+command-buffer execution at 396.95 ms. The partial-upload case passes in this
+diagnostic. These measurements locate the reproduced wait, not every previous
+failure or a proven root cause. Evidence: `trace-partial-mask-summary.json`,
+the full trace and log.
+
+Serializing upload/draw commands with diagnostic-only `gl.finish()` still leaves
+100 MP Add Mask frames at 474/496 ms against 400 ms; no such synchronization is
+added to the application. Reusing one same-size retired mask with a full
+`texSubImage2D` also leaves failures (407/506 ms against 400 ms), so no spare-mask
+cache is adopted. Evidence: `mask-gpu-phases.json` and
+`mask-spare-diagnostic.json` and their logs.
+
+Backend inventory verifies Intel hardware Vulkan and D3D11on12 contexts. The GL
+request falls back to SwiftShader, which is rejected as hardware acceptance.
+Original case-body diagnostics still fail Add Mask under Vulkan (458 ms / 150 ms)
+and D3D11on12 (529 ms / 400 ms); Vulkan also fails partial uploads (401 ms / 33 ms).
+Production remains on the original hardware D3D11 path. Alternative-backend
+passes do not supersede the official 22/7 result or establish acceptance.
+Evidence: `angle-backend-inventory.json` and `angle-budget-diagnostic.json`.
 
 ## Mac confirmation still required
 

@@ -2,7 +2,7 @@ import type { Corners, Coverage, DocumentState, LayerDraw, LayerTransform, Previ
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, isSpatialKind, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
-import { LayerTextures, levelRect, prefilterLevel, sizeAtLevel } from "./layer-textures";
+import { LayerTextures, levelRect, pixelCopyAtScale, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderHooks, RenderOptions, Renderer } from "./renderer";
 import { EFFECTS_LIMITS, EffectsImages, placedLike } from "./effects-images";
 import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
@@ -96,6 +96,7 @@ export class GlRenderer implements Renderer {
   private syncTextures(engine: EngineClient, state: DocumentState, plan: RenderPlan, viewport: Viewport, dpr: number, edit: PreviewEdit | null): void {
     const outPerDoc = viewport.pointsPerPixel * dpr;
     const levels = new Map<string, number>();
+    const samplingDraws = new Map<string, LayerDraw>();
     // A layer the plan draws with its effects: its texture is the engine's padded effects image,
     // the very bytes compositor::draw_raster samples, at the draw's padded size.
     const padded = new Map<string, { width: number; height: number; inset: number; key: string; draw: LayerDraw }>();
@@ -110,6 +111,7 @@ export class GlRenderer implements Renderer {
       // full raster. Both match `compositor::prefilters` in the engine.
       const level = nearest || d.corners ? 0 : prefilterLevel(d.pixelsWidth, d.pixelsHeight, d.pixelsWidth / Math.max(1e-9, d.transform.size[0] * outPerDoc));
       const seen = levels.get(d.id);
+      if (seen === undefined || level < seen) samplingDraws.set(d.id, d);
       levels.set(d.id, seen === undefined ? level : Math.min(seen, level));
     };
     for (const n of plan.nodes) { if (n.kind === "layer") note(n.draw); else { note(n.base); n.children.forEach(note); } }
@@ -120,7 +122,11 @@ export class GlRenderer implements Renderer {
       keep.add(layer.id);
       const level = levels.get(layer.id) ?? 0;
       const fx = padded.get(layer.id);
-      const nearest = layer.transform.sampling === "Nearest";
+      const explicitNearest = layer.transform.sampling === "Nearest";
+      const sampled = samplingDraws.get(layer.id);
+      const nearest = explicitNearest || (sampled !== undefined && pixelCopyAtScale(
+        sampled.transform.rotation, sampled.pixelsWidth, sampled.transform.size[0], outPerDoc, level, !!sampled.corners,
+      ));
       // A revision names the bytes: the engine gives pixels or a mask an edit changed a revision it
       // never issued before (Engine::edit), a preview one of its own, and undo and redo bring back
       // the revisions their content had. So plain pixels are keyed by their revision, and an effects
@@ -137,7 +143,7 @@ export class GlRenderer implements Renderer {
       // itself changes (a pixel edit, an undo, a zoom past a prefilter boundary, ...).
       const already = fx && this.textures.get(state.id, layer.id);
       const stillFull = !!(fx && already && already.key === bytesKey && already.level === level && already.nearest === nearest);
-      if (!fx || fx.width * fx.height <= EFFECTS_LIMITS.sync || stillFull || this.largeEffects(engine, state, layer.id, bytesKey, fx.draw, nearest, outPerDoc, edit)) this.placements.delete(layer.id);
+      if (!fx || fx.width * fx.height <= EFFECTS_LIMITS.sync || stillFull || this.largeEffects(engine, state, layer.id, bytesKey, fx.draw, explicitNearest, outPerDoc, edit)) this.placements.delete(layer.id);
       else continue;
       if (!this.textures.needsUpload(state.id, layer.id, bytesKey, level, nearest)) continue;
       const [width, height] = fx ? [fx.width, fx.height] : [layer.pixelsWidth, layer.pixelsHeight];
@@ -183,9 +189,11 @@ export class GlRenderer implements Renderer {
     if (choice === "full") return true;
     if (choice) {
       const key = `rd:${choice.key}:${choice.width}`;
-      this.placements.set(id, placedLike(draw, choice.width - 2 * choice.inset, choice.height - 2 * choice.inset, choice.inset));
+      const placement = placedLike(draw, choice.width - 2 * choice.inset, choice.height - 2 * choice.inset, choice.inset);
+      this.placements.set(id, placement);
       this.shown.set(id, { width: choice.width - 2 * choice.inset, height: choice.height - 2 * choice.inset, inset: choice.inset });
-      if (this.textures.needsUpload(state.id, id, key, 0, nearest)) this.textures.sync(state.id, id, key, nearest, choice.bytes, 0, { width: choice.width, height: choice.height });
+      const copy = nearest || pixelCopyAtScale(placement.transform.rotation, choice.width, placement.transform.size[0], outPerDoc, 0, !!placement.corners);
+      if (this.textures.needsUpload(state.id, id, key, 0, copy)) this.textures.sync(state.id, id, key, copy, choice.bytes, 0, { width: choice.width, height: choice.height });
       return false;
     }
     // Nothing for these pixels yet: the image on the texture stays, where the layer is now.
@@ -198,8 +206,9 @@ export class GlRenderer implements Renderer {
     this.placements.set(id, plain);
     const plainLevel = nearest || plain.corners ? 0 : prefilterLevel(layer.pixelsWidth, layer.pixelsHeight, layer.pixelsWidth / Math.max(1e-9, plain.transform.size[0] * outPerDoc));
     const key = `px:${layer.pixelsRevision}`;
-    if (this.textures.needsUpload(state.id, id, key, plainLevel, nearest)) {
-      this.textures.sync(state.id, id, key, nearest, engine.layerPixels(state.id, id, plainLevel), plainLevel, sizeAtLevel(layer.pixelsWidth, layer.pixelsHeight, plainLevel), layer.pixelsRevision);
+    const copy = nearest || pixelCopyAtScale(plain.transform.rotation, layer.pixelsWidth, plain.transform.size[0], outPerDoc, plainLevel, !!plain.corners);
+    if (this.textures.needsUpload(state.id, id, key, plainLevel, copy)) {
+      this.textures.sync(state.id, id, key, copy, engine.layerPixels(state.id, id, plainLevel), plainLevel, sizeAtLevel(layer.pixelsWidth, layer.pixelsHeight, plainLevel), layer.pixelsRevision);
     }
     return false;
   }
@@ -499,20 +508,33 @@ export class GlRenderer implements Renderer {
     const d2v = this.docToView(ctx.viewport, ctx.state);
     const cornersDoc = draw.corners ? draw.corners.map(fromTuple) : cornersOf(draw.transform);
     const cornersView = cornersDoc.map((p) => ({ x: d2v[0] * p.x + d2v[1] * p.y + d2v[2], y: d2v[3] * p.x + d2v[4] * p.y + d2v[5] }));
+    const antialiasedCopy = t.nearest && ctx.state.layers.find(l => l.id === draw.id)?.transform.sampling !== "Nearest";
     for (const chunk of t.chunks) {
       const rect = { x: chunk.x / t.width, y: chunk.y / t.height, w: chunk.width / t.width, h: chunk.height / t.height };
-      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop);
+      const sx = (cornersView[1].x - cornersView[0].x) * ctx.dpr / t.width;
+      const sy = (cornersView[3].y - cornersView[0].y) * ctx.dpr / t.height;
+      const grid = antialiasedCopy ? {
+        x: cornersView[0].x * ctx.dpr - (this.frame?.x ?? 0) + (draw.transform.flipX ? t.width - chunk.x : chunk.x) * sx,
+        y: cornersView[0].y * ctx.dpr - (this.frame?.y ?? 0) + (draw.transform.flipY ? t.height - chunk.y : chunk.y) * sy,
+        sx: draw.transform.flipX ? -sx : sx, sy: draw.transform.flipY ? -sy : sy,
+      } : null;
+      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid);
     }
   }
 
   /** Composes `tex` into `target`, reading `backdrop`. Never blits or swaps -- the caller owns that. */
-  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null): void {
+  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
     const p = this.programs.layer; gl.useProgram(p.program);
     const unitToClip = mat3Mul(this.viewToClip(ctx.viewport), homographyUnitTo(cornersView));
     gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(unitToClip));
     gl.uniform4f(p.uniforms.uvRect, uvRect.x, uvRect.y, uvRect.w, uvRect.h);
+    gl.uniform2f(p.uniforms.edgePadding,
+      copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[1].x - cornersView[0].x) * ctx.dpr) : 0,
+      copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[3].y - cornersView[0].y) * ctx.dpr) : 0);
+    gl.uniform4f(p.uniforms.copyGrid, copyGrid?.x ?? 0, copyGrid?.y ?? 0, copyGrid?.sx ?? 1, copyGrid?.sy ?? 1);
+    gl.uniform1f(p.uniforms.copyHeight, this.fh());
     gl.uniform1i(p.uniforms.flipX, flipX ? 1 : 0); gl.uniform1i(p.uniforms.flipY, flipY ? 1 : 0);
     gl.uniform1f(p.uniforms.opacity, opacity); gl.uniform1i(p.uniforms.mode, mode);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms.tex, 0);

@@ -10,15 +10,18 @@ const VERT_UNIT = `#version 300 es
 in vec2 unit;
 uniform mat3 unitToClip;
 uniform vec4 uvRect;
+uniform vec2 edgePadding;
 uniform bool flipX;
 uniform bool flipY;
 out vec2 uv;
 void main() {
-  vec2 f = uvRect.xy + unit * uvRect.zw;
+  vec2 lo = edgePadding * vec2(uvRect.x <= 0.0 ? 1.0 : 0.0, uvRect.y <= 0.0 ? 1.0 : 0.0);
+  vec2 hi = edgePadding * vec2(uvRect.x + uvRect.z >= 1.0 ? 1.0 : 0.0, uvRect.y + uvRect.w >= 1.0 ? 1.0 : 0.0);
+  vec2 f = uvRect.xy - lo + unit * (uvRect.zw + lo + hi);
   vec2 lu = vec2(flipX ? 1.0 - f.x : f.x, flipY ? 1.0 - f.y : f.y);
   vec3 p = unitToClip * vec3(lu, 1.0);
   gl_Position = vec4(p.xy, 0.0, p.z);
-  uv = unit;
+  uv = unit + (-lo + unit * (lo + hi)) / uvRect.zw;
 }`;
 const VERT_SCREEN = `#version 300 es
 in vec2 unit;
@@ -88,6 +91,10 @@ vec4 compose(vec4 dst, vec4 src, int mode) {
 const FRAG_LAYER = `#version 300 es
 precision highp float;
 in vec2 uv;
+uniform vec4 uvRect;
+uniform vec2 edgePadding;
+uniform vec4 copyGrid;
+uniform float copyHeight;
 uniform sampler2D tex;
 uniform sampler2D backdrop;
 uniform sampler2D coverage;
@@ -100,7 +107,17 @@ ${BLEND_GLSL}
 void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
-  vec4 s = texture(tex, uv) * k;
+  vec4 sampled;
+  if (edgePadding.x > 0.0 || edgePadding.y > 0.0) {
+    vec2 f = uvRect.xy + uv * uvRect.zw;
+    vec2 edge = clamp(min(f, vec2(1.0) - f) / max(fwidth(f), vec2(1e-8)) + 0.5, 0.0, 1.0);
+    k *= floor(edge.x * edge.y * 255.0) / 255.0;
+    // Interpolated UVs can land one float below a texel boundary at a half-pixel
+    // origin. Derive copy coordinates from device pixels to keep those ties exact.
+    vec2 pixel = (vec2(gl_FragCoord.x, copyHeight - gl_FragCoord.y) - copyGrid.xy) / copyGrid.zw;
+    sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
+  } else sampled = texture(tex, uv);
+  vec4 s = sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
   // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
   // undefined; the value feeds compose() and would corrupt clipping coverage on any backend
@@ -496,7 +513,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
+    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
