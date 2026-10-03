@@ -157,3 +157,12 @@ three page-fixture-failed cases, but does not replace the full suite result.
 The early-allocation diagnostic still fails an original C1 result-frame budget
 and is not adopted. Mac alpha returns and gestures remain pending, so the
 full-acceptance goal stays active.
+
+A new staged-plane browser regression passes on the unchanged production-2328
+WASM: all three planes keep exact bytes, one undo step, cancellation and every
+size/overflow/incomplete-transfer guard. An incremental-reservation candidate
+passes 287 units and nine worker cases but fails all three selected original
+performance cases (including C1 gaps 107/160 ms against <100 ms). It is rejected;
+the checked baseline source and WASM are restored exactly. Only the safety test
+is retained, with three current TypeScript checks passing. The latest read-only
+clipboard probe still returns Windows error 5. No original budget is waived.

@@ -945,6 +945,73 @@ prototype source is adopted and no budget is relaxed. Evidence:
 `solid-rectangle-c1-early-reserve.log` and
 `solid-rectangle-c1-early-reserve-job-trace-results.json`.
 
+## Staged plane safety follow-up, 2026-10-04
+
+A new independent browser regression verifies all three staged planes (pixels,
+mask and prefiltered display): exact bytes across uneven seven-byte chunks,
+one history step, exact undo/redo, plane-specific budget and overflow refusal,
+invalid-plane refusal, incomplete transfers and cancellation with document and
+history unchanged. It first passes against the unchanged production-2328 WASM,
+then against the incremental-reservation candidate. The first test-preparation
+attempt omitted a layer and fails before any staging assertion; that failed
+fixture is retained separately. The corrected test creates a filled layer and
+its mask explicitly. No existing assertion or budget changes.
+
+Incremental reservation is evaluated in a release candidate, not adopted.
+`begin_staged_install` records plane lengths; each bounded append reserves its
+own additional bytes before the same direct copy. All 287 unit tests, three
+TypeScript checks and nine real-worker functional cases pass, including the new
+safety regression. The three selected original performance cases all fail:
+Levels records 24 MP histogram gap 489 ms / <150 ms, 24 MP installation
+162 ms / <150 ms, and 100 MP installation 461 ms / <450 ms; the growing-mask
+case records a 24 MP result frame 394 ms / <150 ms. C1 records 100 MP fill gap
+107 ms and gradient gap 160 ms, both against <100 ms. These measurements reject
+the candidate; passing pixels do not establish performance acceptance.
+
+The candidate source, package bindings and fixed assets are retained locally.
+The working implementation and canonical WASM are restored byte-for-byte to
+the checked baseline, SHA-256
+`1223942C74CB77E04FC1606921DA5BC5943E54A9D9E83DDE55F6AD1532ED9B3B`.
+Only the useful new safety regression is retained as source. Its final version
+also checks exact unchanged buffer lengths after cancellation, passes against
+the immutable baseline (14.6 seconds), and passes all three current TypeScript
+checks. Production 2328 remains the verified portable; no new
+package is claimed from the rejected implementation. Evidence:
+`incremental-reserve-baseline-guards-corrected.log`,
+`incremental-reserve-source-check.log`,
+`incremental-reserve-worker-functional.log`,
+`incremental-reserve-performance.log`,
+`incremental-reserve-targeted-summary.json`,
+`incremental-reserve-candidate-identity.json` and
+`staged-plane-guards-ts.log`, `staged-plane-guards-final-baseline.log` and
+`staged-plane-guards-final-ts.log`.
+
+A separate trace of the unchanged baseline C1 body fails the 24 MP gradient
+result frame at 415 ms / <350 ms. In that frame, GLES2 ReadPixels waits 410.461 ms,
+including 401.84 ms inside the GPU command service; WASM installation measures
+74 ms. This establishes a GPU-wait contribution in that run, not an
+allocation-only explanation. Evidence: `solid-rectangle-c1-gpu-wait.log` and
+`solid-rectangle-c1-gpu-wait-blank-gradient-baseline-trace.json`.
+
+A diagnostic first-use probe draws all twelve existing GL programs into a
+separate 1x1 framebuffer, restores GL state, and checks errors in all four C1
+contexts. Per-context total execution is 0.4-1.6 ms with zero GL errors. The
+original case still fails the 24 MP gradient gap at 263 ms / <100 ms. The first
+probe only captured one context because its readiness condition was too early;
+it is retained separately. The corrected all-context probe is diagnostic extra
+work, not performance acceptance and not a change to the formal test warm-up.
+No startup warm-up is adopted from it. Larger rendering/driver waits remain an
+open investigation. Evidence: `solid-rectangle-c1-program-all-contexts.log`
+and its retained job-trace-results/trace files.
+
+A new read-only host clipboard probe still reports Windows error 5, with no
+clipboard contents read and no mutation attempted
+(`solid-rectangle-current-clipboard-readonly.log`). A separate post-run host
+snapshot has 15.1 GiB free physical memory and no remaining task-native profile;
+it is not evidence of the machine state during the performance run and does not
+waive a failed budget. Mac alpha returns and gesture confirmations are still
+missing. Full acceptance remains open.
+
 ## Additional Mac alpha sampling handoff
 
 Four generated projects isolate white-pixel alpha filtering from text rendering:
