@@ -174,12 +174,55 @@ describe("destructive commits on large layers go to the job worker", () => {
 
   it("a histogram whose copy out fails closes the panel and says why, rather than reading forever (final review minor 5)", () => {
     const { previews, requests } = install(2001, 2000);
-    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInput: () => { throw new RangeError("Array buffer allocation failed"); } } as never });
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => { throw new RangeError("Array buffer allocation failed"); } } as never });
     let opened: boolean | undefined;
     expect(() => { opened = useEditor.getState().beginAdjust({ kind: "Levels" }); }, "nothing thrown out of the key handler").not.toThrow();
     expect(opened).toBe(false);
     expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
     expect(previews.at(-1), "its preview taken away").toBeNull();
+  });
+
+  it("opens and edits the panel while its histogram input is copied asynchronously", async () => {
+    const { requests, finish } = install(2001, 2000);
+    let prepared!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise(resolve => { prepared = resolve; }) } as never });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    expect(requests).toEqual([]);
+    const adjustment = defaultAdjustment("Levels"); adjustment.levels.ranges[0].gamma = 1.2;
+    useEditor.getState().updateAdjust({ adjustment });
+    prepared({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush(); expect(requests.at(-1)?.kind).toBe("histogram");
+    finish({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+    expect(useEditor.getState().adjustEdit!.adjustment!.levels.ranges[0].gamma).toBe(1.2);
+  });
+
+  it("rejects old input and old worker results after closing and reopening the same histogram panel", async () => {
+    install(2001, 2000);
+    const inputs: ((copy: ReturnType<EngineClient["jobInput"]>) => void)[] = [], results: ((result: JobResult) => void)[] = [];
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise(resolve => inputs.push(resolve)) } as never,
+      jobs: { run: () => new Promise(resolve => results.push(resolve)) } as never,
+    });
+    const open = () => expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    const copy = () => ({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    open(); useEditor.getState().cancelAdjust(); open();
+    inputs[0](copy()); await flush(); expect(results).toHaveLength(0);
+    inputs[1](copy()); await flush(); expect(results).toHaveLength(1);
+    useEditor.getState().cancelAdjust(); open(); inputs[2](copy()); await flush();
+    results[0]({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toBeNull();
+    results[1]({ header: JSON.stringify(bins()), pixels: null, mask: null }); await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+  });
+
+  it("reports an asynchronous input allocation failure and clears the waiting histogram panel", async () => {
+    const { previews, requests } = install(2001, 2000);
+    useEditor.setState({ engine: { ...useEditor.getState().engine!, jobInputAsync: () => Promise.reject(new RangeError("Array buffer allocation failed")) } as never });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    await flush();
+    expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
+    expect(previews.at(-1)).toBeNull();
   });
 
   it("Save and the close prompt's OK say why they wait while working, and the document stays open (final review minor 4)", async () => {

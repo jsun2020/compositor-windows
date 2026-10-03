@@ -400,6 +400,70 @@ failures. This current full-run result supersedes the earlier 22/7 aggregation
 as the latest observation, not as full acceptance. Evidence:
 `copied-overlap-performance.log`.
 
+## Production 1654 asynchronous histogram checkpoint
+
+Levels and Curves now prepare large histogram inputs with the existing cooperative
+copy path. The panel remains editable while the copy is pending; a request epoch
+rejects input/results from an older instance after close/reopen. Allocation failures
+close the waiting panel and report the error. Both stored-buffer copies and staged
+result installation yield before copying if their initial allocation already consumes
+the 8 ms quantum. CPU accounting includes allocation and excludes awaited frames.
+
+Validation: 274 unit tests across 42 files pass, all three TypeScript checks pass,
+and the fixed-asset build passes. The complete functional suite passes 193 cases
+with the same 29 opt-in performance skips. The engine is unchanged: the 621 native
+passes and 10 existing ignores above still apply. New tests cover waiting-panel
+editing, stale same-kind reopen results, asynchronous failure, exact staged bytes,
+and cancellation during the initial yielded frame. Evidence: `histogram-async-unit.log`,
+`histogram-async-test-build.log`, `histogram-async-functional.log` and
+`allocation-frame-client-final.log`.
+
+`COMPOSITOR_BUILD_0.8.0_20261003-1654` portable ZIP is 4,743,566 bytes, SHA-256
+`A8633356C737FCD34D98C1ABDCB2E7C2D9C547F2835369B07EACFC94F7530E9F`.
+Its 11,976,704-byte executable has SHA-256
+`5BF540A516F151FB8FBC2BC3CD4F26D1F64AC3F89026A82CBDFE9531937B00E4`.
+The archived executable matches the actual tested package and CRC checks pass;
+build-info source bytes are restored. Release WASM remains the same as 1556.
+
+The real production window passes eight UI groups with no development test API
+and zero page errors. The additional group fills a 24 MP canvas, opens Levels
+while the histogram is pending, cancels, reopens and waits for the new histogram.
+Four native Mac package reads and four atomic save commits pass; edited font 38,
+shape width 150, Stroke 7 and Shadow Distance 14 persist after reopening.
+All three native open exports are byte-identical to the fixed release-WASM
+exports. Evidence: `native-ui-histogram-async.log`,
+`native-async-jobs-0.8.0-result.json`, `native-mac-histogram-async.log`,
+`native-async-jobs-mac/` and `histogram-async-package-integrity.json`.
+
+The 1654 read-only clipboard preflight reports Windows access denied (OS error 5).
+The mutating protocol suite is not attempted against that preflight. The successful
+1556 six-group/four-exact-image evidence remains valid for 1556; it does not establish
+the same protocol result for 1654. No user clipboard data is changed by this denied
+preflight, and no desktop permissions are changed to bypass it.
+
+The two targeted original job performance cases pass, but the subsequent single
+complete 29-case run is **26 passes / three failures** in 8.5 minutes. This is the
+latest full-run observation, superseding the historical 27/2 above. The histogram
+case passes (24 MP gap 87 ms, 100 MP gap 23 ms). The failures are:
+
+- F1 100 MP Levels: worker-edit frame gap 109 ms, strictly below 100 ms required.
+  The actual result-display frame is 12 ms and installation CPU time is 363 ms.
+- Growing-mask 24 MP gradient at fit: drag total 64 ms, strictly below 50 ms
+  required (engine 12 ms, frame 53 ms).
+- C1 100 MP blank gradient: worker-edit frame gap 114 ms, strictly below 100 ms
+  required (result frame 17 ms, installation CPU time 355 ms).
+
+Evidence: `histogram-async-performance-targeted.log` and
+`histogram-async-performance.log`. Budgets, assertions, warm-ups, skips and retries
+are unchanged. Diagnostic traces execute the original case bodies and assertions,
+but do not reproduce those three failures; C1 instead has a 24 MP result-frame
+failure of 517 ms against its 350 ms budget. The 100 MP blank-gradient reservation
+contains a 64 ms V8 sweeping completion. This identifies a remaining allocation
+cost, not a complete root cause or stable fix. Evidence:
+`async-histogram-job-trace-results.json` and `async-histogram-*-trace.json`.
+A diagnostic mask-storage reuse prototype also passes its isolated original case;
+the baseline already passed there, so it is not adopted as a proved fix.
+
 ## Mac confirmation still required
 
 Compositor 1.4.5 return files already prove live opening, saving and text/shape
@@ -424,12 +488,12 @@ is inferred from metadata preservation or the font-face correction.
 
 ## Outstanding gates and publication scope
 
-Full acceptance remains incomplete. The two current performance failures and
+Full acceptance remains incomplete. The three current performance failures and
 earlier intermittent failures need fixes and repeatable evidence under their
 original budgets. Production 1206
 clipboard protocol and exact synthetic-image pixel checks pass; production 1556
 also passes six native groups and four exact image comparisons, with the original
-clipboard restored. Earlier
+clipboard restored. Current production 1654 clipboard access is denied at preflight. Earlier
 protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
 confirmation remains pending. Current Mac-edited export is exact; Mac-created
 enlarged text remains quantified and open; covered overlap edges now match. No assertion,

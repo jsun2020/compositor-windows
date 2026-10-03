@@ -297,6 +297,7 @@ const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]
  * the full-quality one (engine/src/preview.rs explains the two sizes). */
 export const SETTLE_MS = 150;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
+let histogramRequestId = 0;
 function cancelSettle(): void {
   if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
 }
@@ -932,6 +933,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!layer || get().panelOwnsDocument()) return false;
     const editing = target === "adjustmentLayer";
     if (editing ? !layer.adjustment : !get().canAdjust()) return false;
+    const requestId = ++histogramRequestId;
     const filter = isFilterKind(kind as string);
     const adjustment = filter ? null : (editing ? layer.adjustment! : defaultAdjustment(kind as AdjustmentKind));
     // A destructive Gradient Map starts from the image's foreground and background (Filters.swift:490).
@@ -956,23 +958,36 @@ export const useEditor = create<EditorStore>((set, get) => ({
     get().applyAdjustPreview();
     if ((kind === "Levels" || kind === "Curves") && !edit.histogram) {
       const doc = activeId, jobs = get().jobs!;
-      let copy: JobInputCopy;
+      let prepared: JobInputCopy | Promise<JobInputCopy>;
       // The copy out can fail (a RangeError allocating a 400 MB slice): the panel then closes and says
       // why, rather than wait on "Reading the histogram..." forever and throw out of the key handler
       // (final review minor 5).
-      try { copy = engine.jobInput(doc, layer.id); }
+      try { prepared = engine.jobInputAsync(doc, layer.id); }
       catch (e) {
         dropOpenPanel();
         set({ error: String(e instanceof Error ? e.message : e) });
         get().refresh(doc);
         return false;
       }
-      void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
+      const current = () => {
         const open = get().adjustEdit;
-        // Only into the panel it was read for.
-        if (!result?.header || get().activeId !== doc || open?.layerId !== layer.id || open.kind !== kind) return;
-        set({ adjustEdit: { ...open, histogram: JSON.parse(result.header) as number[][] } });
-      }).catch((e) => set({ error: String(e instanceof Error ? e.message : e) }));
+        return requestId === histogramRequestId && get().activeId === doc && open?.layerId === layer.id && open.kind === kind;
+      };
+      const failedPreparation = (e: unknown) => {
+        if (!current()) return;
+        dropOpenPanel(); set({ error: String(e instanceof Error ? e.message : e) }); get().refresh(doc);
+      };
+      const submit = (copy: JobInputCopy) => {
+        if (!current()) { releaseJobResult({ header: null, pixels: copy.pixels, mask: copy.mask, display: copy.points }); return; }
+        void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
+          const open = get().adjustEdit;
+          // A close/reopen of the same kind on the same layer is a new request.
+          if (!result?.header || !current() || !open) return;
+          set({ adjustEdit: { ...open, histogram: JSON.parse(result.header) as number[][] } });
+        }).catch((e) => { if (current()) set({ error: String(e instanceof Error ? e.message : e) }); });
+      };
+      if (prepared instanceof Promise) void prepared.then(submit).catch(failedPreparation);
+      else submit(prepared);
     }
     return true;
   },

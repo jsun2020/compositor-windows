@@ -158,6 +158,9 @@ export class EngineClient {
   private async copyStored(doc:string,layer:string,mask:boolean,size:number,cpu?:{value:number}):Promise<ArrayBuffer|null>{
     if(!size)return null;
     const allocated=performance.now(),out=new Uint8Array(takeJobBuffer(size));let start=performance.now();if(cpu)cpu.value+=start-allocated;
+    // A large allocation can wait for GC sweeping. Yield before adding a copy
+    // quantum to a frame whose budget the allocation already consumed.
+    if(start-allocated>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();}
     for(let at=0;at<size;at+=4*1024*1024){
       const t=performance.now(),length=Math.min(4*1024*1024,size-at),ptr=this.wasm.stored_buffer_ptr(doc,layer,mask);
       out.set(new Uint8Array(this.memory.buffer,ptr+at,length),at);
@@ -232,7 +235,8 @@ export class EngineClient {
     this.wasm.begin_staged_install(pixels?.byteLength??0,mask?.byteLength??0,display?.byteLength??0);
     this.lastInstallCpuMs=performance.now()-began;
     try{
-      let start=performance.now();
+      let start=began;
+      if(performance.now()-start>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();if(!valid())throw Error("The preview was cancelled");}
       for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane];if(!b)continue;
         for(let at=0;at<b.byteLength;at+=4*1024*1024){const t=performance.now(),length=Math.min(4*1024*1024,b.byteLength-at);this.wasm.append_staged_install(plane,new Uint8Array(b,at,length));this.lastInstallCpuMs+=performance.now()-t;
           if(!valid())throw Error("The preview was cancelled");

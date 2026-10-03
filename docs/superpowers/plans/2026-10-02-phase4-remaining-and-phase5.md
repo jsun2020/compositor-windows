@@ -44,7 +44,7 @@ gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
 - [x] Native workspace tests: 621 passed, zero failures, 10 existing ignored.
-- [x] Vitest: 269 passed. Current TypeScript and fixed-asset UI build pass.
+- [x] Vitest: 274 passed. Current TypeScript and fixed-asset UI build pass.
 - [x] Full fixed-asset browser suite: 193 passed, 29 existing opt-in perf skips.
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
@@ -63,12 +63,13 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 
 
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
-621 native tests, 269 unit tests, 193 functional browser tests. Production 1556
-passes seven native UI groups, four native Mac package reads/writes and six
-clipboard groups with four exact image checks and restoration. The 29 performance
-cases now have a complete single-run result of 27 passes / two failures (24 MP
-histogram frame gap 151 / <150 ms; 100 MP blank-gradient gap 102 / <100 ms).
-Earlier intermittent failures remain unclosed by one passing observation.
-All 100 assertions in the legacy performance file remain identical while
-its measurements follow the real async APIs. Implementation and these passing
-layers do not establish full acceptance.
+621 native tests, 274 unit tests, 193 functional browser tests. Production 1654
+passes eight native UI groups and four native Mac package reads/writes. Production
+1556 passes six clipboard groups with four exact image checks and restoration;
+1654 clipboard access is denied at read-only preflight, so its protocol suite
+remains unverified. The latest single full run of all 29 performance cases is
+26 passes / three failures: 100 MP Levels gap 109 / <100 ms, 24 MP growing-mask
+fit drag 64 / <50 ms, 100 MP blank-gradient gap 114 / <100 ms. The asynchronous
+histogram case passes; earlier intermittent failures remain unclosed by one
+passing observation. All original budgets and assertions remain unchanged.
+Implementation and these passing layers do not establish full acceptance.
