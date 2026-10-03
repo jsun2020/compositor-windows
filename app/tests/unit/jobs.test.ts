@@ -256,3 +256,44 @@ it("reclaims a completed 100 MP edit's idle scratch heap while preserving its re
     workers[1].reply(done(2,"queued-result"));expect((await next)?.header).toBe("queued-result");
   }finally{jobs.dispose();}
 });
+
+it("prepares a replacement while interactive input is copied and holds reasked effects behind its request", async () => {
+  const { jobs, workers } = client();
+  try {
+    const old = jobs.run("fx:old", effects("old"));
+    await settle(); workers[0].reply({ type: "ready" }); await settle();
+    const release = jobs.prepareInteractive();
+    await expect(old).rejects.toThrow(EFFECTS_JOB_DISPLACED);
+    expect(workers[0].terminated).toBe(true);
+    expect(jobs.spawned, "replacement starts before an input/request exists").toBe(2);
+    const reasked = jobs.run("fx:new", effects("fresh"));
+    workers[1].reply({ type: "ready" }); await settle();
+    expect(workers[1].jobs(), "ready worker waits for the interactive copy").toEqual([]);
+    expect(jobs.busy).toBe(true);
+    const histogramJob = jobs.run("hist", histogram("pixels"));
+    release(); release(); await settle();
+    expect(workers[1].jobs()).toEqual([3]);
+    workers[1].reply(done(3, "bins")); expect((await histogramJob)?.header).toBe("bins");
+    await settle(); expect(workers[1].jobs()).toEqual([3, 2]);
+    workers[1].reply(done(2, "image")); expect((await reasked)?.header).toBe("image");
+    expect(jobs.busy).toBe(false);
+  } finally { jobs.dispose(); }
+});
+
+it("holds effects for overlapping preparations and late releases do not restart a disposed client", async () => {
+  const { jobs, workers } = client();
+  const first = jobs.prepareInteractive(), second = jobs.prepareInteractive();
+  const waiting = jobs.run("fx", effects("image"));
+  workers[0].reply({ type: "ready" }); first(); await settle();
+  expect(workers[0].jobs()).toEqual([]);
+  jobs.dispose(); expect(await waiting).toBeNull();
+  second(); second(); await settle();
+  expect(jobs.spawned).toBe(1); expect(jobs.busy).toBe(false);
+  expect(workers[0].terminated).toBe(true);
+});
+
+it("a replacement creation failure releases its preparation instead of leaving effects blocked", () => {
+  const jobs = new JobClient(module, () => { throw Error("worker unavailable"); });
+  expect(() => jobs.prepareInteractive()).toThrow("worker unavailable");
+  expect(jobs.busy).toBe(false); jobs.dispose();
+});

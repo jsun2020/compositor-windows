@@ -546,9 +546,12 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const doc = activeId;
     const allLayers=command.type==="BrushStroke"&&command.brush.operation?.kind==="Clone"&&command.brush.operation.allLayers;
     let copy: JobInputCopy;
+    let preparation: (() => void) | null = null;
+    const releasePreparation = () => { const release = preparation; preparation = null; release?.(); };
     set({ working: true });
-    try { const prepared=allLayers ? {input:engine.jobHeader(doc,layerId),pixels:null,mask:null,points:null} : engine.jobInputAsync(doc, layerId);copy=prepared instanceof Promise?await prepared:prepared; }
+    try { preparation=jobs.prepareInteractive();const prepared=allLayers ? {input:engine.jobHeader(doc,layerId),pixels:null,mask:null,points:null} : engine.jobInputAsync(doc, layerId);copy=prepared instanceof Promise?await prepared:prepared; }
     catch (e) {
+      releasePreparation();
       set({ error: String(e instanceof Error ? e.message : e) });
       // Input preparation refused before the job's finally block: clear its preview and busy flag.
       engine.setPreview(doc, null); get().refresh(doc);
@@ -563,7 +566,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     try {
       const request=allLayers ? { kind:"documentEdit" as const,...await engine.clipboardInputAsync(doc,layerId,false,true),layer:layerId,pixels:null,mask:null,command:JSON.stringify(command),outPerDoc }
         : {kind:"edit" as const,input:copy.input,pixels:copy.pixels,mask:copy.mask,points:copy.points,command:JSON.stringify(command),outPerDoc};
-      result = await jobs.run(`edit:${doc}`,request);
+      const pending = jobs.run(`edit:${doc}`,request);
+      releasePreparation();
+      result = await pending;
       // Closed meanwhile: nothing to put back.
       if (!result || !get().documents[doc]) return false;
       await engine.installJobAsync(doc, layerId, copy.input, result.header!, result.pixels, result.mask, result.display ?? null);
@@ -573,6 +578,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
       set({ error: String(e instanceof Error ? e.message : e) });
       return false;
     } finally {
+      releasePreparation();
       releaseJobResult(result);
       set({ working: false });
       if (get().documents[doc]) {
@@ -959,11 +965,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if ((kind === "Levels" || kind === "Curves") && !edit.histogram) {
       const doc = activeId, jobs = get().jobs!;
       let prepared: JobInputCopy | Promise<JobInputCopy>;
+      let preparation: (() => void) | null = null;
+      const releasePreparation = () => { const release = preparation; preparation = null; release?.(); };
       // The copy out can fail (a RangeError allocating a 400 MB slice): the panel then closes and says
       // why, rather than wait on "Reading the histogram..." forever and throw out of the key handler
       // (final review minor 5).
-      try { prepared = engine.jobInputAsync(doc, layer.id); }
+      try { preparation = jobs.prepareInteractive(); prepared = engine.jobInputAsync(doc, layer.id); }
       catch (e) {
+        releasePreparation();
         dropOpenPanel();
         set({ error: String(e instanceof Error ? e.message : e) });
         get().refresh(doc);
@@ -974,17 +983,20 @@ export const useEditor = create<EditorStore>((set, get) => ({
         return requestId === histogramRequestId && get().activeId === doc && open?.layerId === layer.id && open.kind === kind;
       };
       const failedPreparation = (e: unknown) => {
+        releasePreparation();
         if (!current()) return;
         dropOpenPanel(); set({ error: String(e instanceof Error ? e.message : e) }); get().refresh(doc);
       };
       const submit = (copy: JobInputCopy) => {
-        if (!current()) { releaseJobResult({ header: null, pixels: copy.pixels, mask: copy.mask, display: copy.points }); return; }
-        void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
-          const open = get().adjustEdit;
-          // A close/reopen of the same kind on the same layer is a new request.
-          if (!result?.header || !current() || !open) return;
-          set({ adjustEdit: { ...open, histogram: JSON.parse(result.header) as number[][] } });
-        }).catch((e) => { if (current()) set({ error: String(e instanceof Error ? e.message : e) }); });
+        try {
+          if (!current()) { releaseJobResult({ header: null, pixels: copy.pixels, mask: copy.mask, display: copy.points }); return; }
+          void jobs.run(`histogram:${doc}`, { kind: "histogram", input: copy.input, pixels: copy.pixels, mask: copy.mask, points: copy.points }).then((result) => {
+            const open = get().adjustEdit;
+            // A close/reopen of the same kind on the same layer is a new request.
+            if (!result?.header || !current() || !open) return;
+            set({ adjustEdit: { ...open, histogram: JSON.parse(result.header) as number[][] } });
+          }).catch((e) => { if (current()) set({ error: String(e instanceof Error ? e.message : e) }); });
+        } finally { releasePreparation(); }
       };
       if (prepared instanceof Promise) void prepared.then(submit).catch(failedPreparation);
       else submit(prepared);

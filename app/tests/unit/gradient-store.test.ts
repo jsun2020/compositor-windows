@@ -56,7 +56,7 @@ function install(l: LayerState = layer()) {
     editPixels: () => useEditor.getState().documents.D.layers[0].pixelsWidth * useEditor.getState().documents.D.layers[0].pixelsHeight,
     jobInputAsync: () => { log.push("job input"); return { input: "{}", pixels: new ArrayBuffer(4), mask: null }; },
   } as unknown as EngineClient;
-  const jobs = { run: () => new Promise(() => {}) } as unknown as JobClient;
+  const jobs = { prepareInteractive: () => () => {}, run: () => new Promise(() => {}) } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: state }, order: ["D"], selectedLayerIds: [l.id], maskSelected: false,
     working: false, palette: { ...DEFAULT_PALETTE, foreground: RED, background: BLUE }, gradientOptions: DEFAULT_GRADIENT, gradientEdit: null,
     adjustEdit: null, transformEdit: null, error: null, tool: "gradient", cropRect: null, sheet: null, colorPicker: null });
@@ -89,7 +89,7 @@ describe("a layer click while a job's result is to come (final review minor 1)",
   it("a click that applies a pending gradient through the worker waits too: no SetActiveLayer to clear the preview the job keeps (re-review residual)", () => {
     draw([5, 6], [30, 6]);
     const sent: string[] = [];
-    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
+    const jobs = { prepareInteractive: () => () => {}, run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
     useEditor.setState({ jobPixels: 1, jobs });
     const shown = previews.length;
     s().selectLayers(["B"], "B");
@@ -208,7 +208,7 @@ describe("a pending gradient", () => {
   it("applies a pending gradient before a fill, refusing the fill while the gradient's own job runs (fix round 1, I-1)", () => {
     draw([5, 6], [30, 6]);
     const jobsSent: string[] = [];
-    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) jobsSent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
+    const jobs = { prepareInteractive: () => () => {}, run: (_channel: string, msg: { command?: string }) => { if (msg.command) jobsSent.push(JSON.parse(msg.command).type as string); return new Promise(() => {}); } } as unknown as JobClient;
     useEditor.setState({ jobPixels: 1, jobs });
     fillActive(false);
     expect(jobsSent).toEqual(["Gradient"]);
@@ -218,7 +218,7 @@ describe("a pending gradient", () => {
     draw([5, 6], [30, 6]);
     const sent: string[] = []; const installed: string[] = [];
     let finish: (r: JobResult | null) => void = () => {};
-    const jobs = { run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise<JobResult | null>((r) => { finish = r; }); } } as unknown as JobClient;
+    const jobs = { prepareInteractive: () => () => {}, run: (_channel: string, msg: { command?: string }) => { if (msg.command) sent.push(JSON.parse(msg.command).type as string); return new Promise<JobResult | null>((r) => { finish = r; }); } } as unknown as JobClient;
     const engine = { ...s().engine!, installJobAsync: (_d: string, layerId: string) => { installed.push(layerId); return { structure: true, canvas: false, layers: [] }; } } as unknown as EngineClient;
     useEditor.setState({ jobPixels: 1, jobs, engine });
     expect(s().run({ type: "Deselect" })).toBe(false);
@@ -234,7 +234,7 @@ describe("a pending gradient", () => {
   it("applies a pending gradient through the worker, then refuses an import while that job runs (final review I-1)", async () => {
     draw([5, 6], [30, 6]);
     const imported: string[] = [];
-    const jobs = { run: () => new Promise(() => {}) } as unknown as JobClient;
+    const jobs = { prepareInteractive: () => () => {}, run: () => new Promise(() => {}) } as unknown as JobClient;
     const engine = { ...s().engine!, importImage: (doc: string | null) => { imported.push(String(doc)); return "D"; } } as unknown as EngineClient;
     const bridge = { readFile: async () => new Uint8Array([1]), baseName: (p: string) => p, pickImportImages: async () => ["C:/b.png"] } as unknown as ShellBridge;
     useEditor.setState({ jobPixels: 1, jobs, engine, bridge, busy: false });

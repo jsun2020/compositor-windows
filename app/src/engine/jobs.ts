@@ -83,6 +83,8 @@ export class JobClient {
   private ready: Promise<void> | null = null;
   private queue: Pending[] = [];
   private running: Pending | null = null;
+  /** Interactive input copies may yield before their request can be queued. */
+  private preparations = new Set<symbol>();
   /** The newest job id asked for on each channel. */
   private newest = new Map<string, number>();
   private nextId = 1;
@@ -92,11 +94,34 @@ export class JobClient {
   constructor(private readonly module: WebAssembly.Module, private readonly spawn: () => Worker) {}
 
   /** Whether a job is running or waiting. */
-  get busy(): boolean { return this.running !== null || this.queue.length > 0; }
+  get busy(): boolean { return this.running !== null || this.queue.length > 0 || this.preparations.size > 0; }
 
   /** Starts the worker now, so its spawn and the module's instantiation are paid at startup rather
    * than by the first job (final review F2). Nothing when one is already started. */
   warm(): void { if (!this.worker) void this.start(); }
+
+  /** Reserve priority while an interactive caller copies its input. Replace an
+   * effects worker now, so startup overlaps that copy; queued effects wait until
+   * every caller submits or releases its reservation, including cancellation. */
+  prepareInteractive(): () => void {
+    const ticket = Symbol();
+    this.preparations.add(ticket);
+    try { this.displaceEffects(); this.warm(); }
+    catch (error) {
+      this.preparations.delete(ticket);
+      this.worker?.terminate(); this.worker = null; this.ready = null;
+      throw error;
+    }
+    return () => { if (this.preparations.delete(ticket)) void this.pump(); };
+  }
+
+  private displaceEffects(): void {
+    if (this.running?.request.kind !== "effects") return;
+    const displaced = this.running;
+    this.running = null;
+    this.worker?.terminate(); this.worker = null; this.ready = null;
+    displaced.reject(new Error(EFFECTS_JOB_DISPLACED));
+  }
 
   run(channel: string, request: JobRequest): Promise<JobResult | null> {
     const id = this.nextId++;
@@ -115,12 +140,7 @@ export class JobClient {
       // the old worker are detached by then, so the interrupted request itself can never safely run
       // again unchanged -- letting its own asker rebuild a fresh request is the only sound way to
       // let it "run again after" the job that displaced it, not a literal re-queue of this Pending.
-      if (request.kind !== "effects" && this.running && this.running.request.kind === "effects") {
-        const displaced = this.running;
-        this.running = null;
-        this.worker?.terminate(); this.worker = null; this.ready = null;
-        displaced.reject(new Error(EFFECTS_JOB_DISPLACED));
-      }
+      if (request.kind !== "effects") this.displaceEffects();
       void this.pump();
     });
   }
@@ -165,6 +185,7 @@ export class JobClient {
 
   private async pump(): Promise<void> {
     if (this.running || this.queue.length === 0) return;
+    if (this.preparations.size && !this.queue.some(p => p.request.kind !== "effects")) return;
     const job = this.next();
     // Superseded while it waited behind another job.
     if (this.newest.get(job.channel) !== job.id) { job.resolve(null); void this.pump(); return; }
@@ -213,6 +234,7 @@ export class JobClient {
     this.worker = null;
     for (const p of this.queue) p.resolve(null);
     this.queue = [];
+    this.preparations.clear();
     this.running?.resolve(null);
     this.running = null;
   }

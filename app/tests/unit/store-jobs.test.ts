@@ -42,7 +42,7 @@ function install(width: number, height: number, onInstall?: () => void) {
     undo: () => { log.push("undo"); return { structure: true, canvas: false, layers: [] }; },
     adjustmentIsIdentity: (a: LayerAdjustment) => JSON.stringify(a) === JSON.stringify(defaultAdjustment(a.kind)),
   } as unknown as EngineClient;
-  const jobs = { run: (_channel: string, request: JobRequest) => { requests.push(request); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
+  const jobs = { prepareInteractive: () => () => {}, run: (_channel: string, request: JobRequest) => { requests.push(request); return new Promise<JobResult | null>((resolve) => { finish = resolve; }); } } as unknown as JobClient;
   useEditor.setState({ engine, jobs, jobPixels: JOB_PIXELS, activeId: "D", documents: { D: document(layer("A", width, height)) }, order: ["D"], selectedLayerIds: ["A"],
     maskSelected: false, transformEdit: null, adjustEdit: null, error: null, tool: "move", cropRect: null, sheet: null, working: false, viewports: {} });
   return { log, previews, requests, displays, finish: (r: JobResult | null) => finish(r) };
@@ -202,7 +202,7 @@ describe("destructive commits on large layers go to the job worker", () => {
     const inputs: ((copy: ReturnType<EngineClient["jobInput"]>) => void)[] = [], results: ((result: JobResult) => void)[] = [];
     useEditor.setState({
       engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise(resolve => inputs.push(resolve)) } as never,
-      jobs: { run: () => new Promise(resolve => results.push(resolve)) } as never,
+      jobs: { prepareInteractive: () => () => {}, run: () => new Promise(resolve => results.push(resolve)) } as never,
     });
     const open = () => expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
     const copy = () => ({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
@@ -223,6 +223,66 @@ describe("destructive commits on large layers go to the job worker", () => {
     await flush();
     expect([useEditor.getState().adjustEdit, useEditor.getState().error, requests]).toEqual([null, "Array buffer allocation failed", []]);
     expect(previews.at(-1)).toBeNull();
+  });
+
+  it("reserves interactive priority before copying and submits the histogram before releasing it", async () => {
+    const { requests, finish } = install(2001, 2000);
+    const events: string[] = [];
+    let copied!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    const release = vi.fn(() => { events.push("release"); });
+    const jobs = useEditor.getState().jobs!;
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => { events.push("copy"); return new Promise(resolve => { copied = resolve; }); } } as never,
+      jobs: { prepareInteractive: () => { events.push("reserve"); return release; }, run: (...args: Parameters<JobClient["run"]>) => { events.push("submit"); return jobs.run(...args); } } as never,
+    });
+    expect(useEditor.getState().beginAdjust({ kind: "Levels" })).toBe(true);
+    expect(events).toEqual(["reserve", "copy"]);
+    expect(release).not.toHaveBeenCalled();
+    copied({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush();
+    expect(events).toEqual(["reserve", "copy", "submit", "release"]);
+    expect(requests.at(-1)?.kind).toBe("histogram");
+    expect(useEditor.getState().adjustEdit!.histogram).toBeNull();
+    finish({ header: JSON.stringify(bins()), pixels: null, mask: null });
+    await flush();
+    expect(useEditor.getState().adjustEdit!.histogram).toEqual(bins());
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("releases a cancelled histogram preparation when copying settles (failure: %s)", async (failure) => {
+    const { requests } = install(2001, 2000);
+    let copied!: (copy: ReturnType<EngineClient["jobInput"]>) => void;
+    let failed!: (error: Error) => void;
+    const release = vi.fn();
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => new Promise((resolve, reject) => { copied = resolve; failed = reject; }) } as never,
+      jobs: { ...useEditor.getState().jobs!, prepareInteractive: () => release } as never,
+    });
+    useEditor.getState().beginAdjust({ kind: "Levels" });
+    useEditor.getState().cancelAdjust();
+    if (failure) failed(new Error("copy failed after cancel"));
+    else copied({ input: "INPUT", pixels: new ArrayBuffer(4), mask: null, points: null });
+    await flush();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([]);
+    expect(useEditor.getState().adjustEdit).toBeNull();
+    expect(useEditor.getState().error).toBeNull();
+    expect(useEditor.getState().working).toBe(false);
+  });
+
+  it("releases edit preparation when asynchronous input copying fails", async () => {
+    const { requests, previews } = install(2001, 2000);
+    const release = vi.fn();
+    useEditor.setState({
+      engine: { ...useEditor.getState().engine!, jobInputAsync: () => Promise.reject(new Error("edit input unavailable")) } as never,
+      jobs: { ...useEditor.getState().jobs!, prepareInteractive: () => release } as never,
+    });
+    expect(await useEditor.getState().runEditJob({ type: "InvertPixels", id: "A", mask: false }, "A")).toBe(false);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([]);
+    expect(previews.at(-1)).toBeNull();
+    expect(useEditor.getState().working).toBe(false);
+    expect(useEditor.getState().error).toBe("edit input unavailable");
   });
 
   it("Save and the close prompt's OK say why they wait while working, and the document stays open (final review minor 4)", async () => {
