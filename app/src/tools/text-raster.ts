@@ -1,6 +1,6 @@
 import {validText,textFontAt,textColorAt,type TextStyle} from "./text-style";
+import {textFontCss} from "./text-font";
 const PADDING=12;
-function family(name:string){return JSON.stringify(name.replace(/[\r\n]/g,""))+", sans-serif";}
 type Glyph={text:string;index:number;font:string;color:[number,number,number];width:number;};
 export function renderText(style:TextStyle):{width:number;height:number;pixels:ArrayBuffer}{
   if(!validText(style))throw Error("Text settings are out of range");
@@ -12,7 +12,7 @@ export function renderText(style:TextStyle):{width:number;height:number;pixels:A
   const lines:Glyph[][]=[[]];let width=0;
   for(const segment of segments){
     if(/[\r\n]/.test(segment.segment)){lines.push([]);width=0;continue;}
-    const font=textFontAt(style,segment.index);ctx.font=`${style.fontSize}px ${family(font)}`;
+    const font=textFontAt(style,segment.index);ctx.font=textFontCss(font,style.fontSize);
     const text=segment.segment==="\t"?"    ":segment.segment,w=ctx.measureText(text).width+style.tracking;
     if(style.boxSize&&width+w>limit&&lines[lines.length-1].length){
       const line=lines[lines.length-1];let breakAt=line.length-1;while(breakAt>=0&&!/\s/.test(line[breakAt].text))breakAt--;
@@ -33,7 +33,7 @@ export function renderText(style:TextStyle):{width:number;height:number;pixels:A
     for(let i=0;i<line.length;){
       const first=line[i];let end=i+1;
       if(spacing)while(end<line.length&&line[end].font===first.font&&line[end].color.every((v,k)=>v===first.color[k]))end++;
-      const text=line.slice(i,end).map(g=>g.text).join("");ctx.font=`${style.fontSize}px ${family(first.font)}`;
+      const text=line.slice(i,end).map(g=>g.text).join("");ctx.font=textFontCss(first.font,style.fontSize);
       if(spacing)(ctx as any).letterSpacing=`${style.tracking}px`;
       ctx.fillStyle=`rgb(${first.color.map(v=>Math.round(v*255)).join(",")})`;
       const descent=ctx.measureText("Mg").fontBoundingBoxDescent||style.fontSize*.2;

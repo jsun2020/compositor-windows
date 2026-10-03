@@ -67,6 +67,9 @@ returns that ZIP in the current chat. Windows verification then checks:
 - Intentional edits against the user's notes and Mac exported composite.
 - Windows save/reopen and continued editing of the returned Mac project.
 
-Until these returned files are tested, live Mac round-trip acceptance remains
-open. Mac evidence also does not close the Windows native clipboard or Windows
-large-image responsiveness gates.
+The Compositor 1.4.5 return files were verified on 2026-10-03. See
+[the return-file results](mac-roundtrip-results-2026-10-03.md) for Windows native
+open/save/reopen and continued editing, retained records, and the exact no-edit
+composite match. The edited and Mac-created exports retain quantified edge
+differences. Mac evidence also does not close the Windows native clipboard or
+Windows large-image responsiveness gates.

@@ -229,12 +229,36 @@ access-denied result does not describe this latest read-only preflight.
   Mock clipboard and bitmap conversion checks do not establish live
   external-application copy/paste.
 - Stable large-image performance for the failed gates above.
-- Opening and editing a Windows-created text/shape/effects project in the macOS
-  application. Local manifest/raster round-trips and original-kernel compilation
-  are verified separately; they do not establish a live Mac round-trip.
+- Pixel fidelity for the Mac-edited and Mac-created exports: live Compositor
+  1.4.5 return files now pass Windows native open/save/reopen and continued
+  editing, with retained text/shape/effect/mask records and an exact no-edit
+  composite match. The other two exports have quantified edge differences;
+  see [the Mac return results](mac-roundtrip-results-2026-10-03.md).
 - During a brush gesture the overlay shows the path; the full soft brush,
   erasing, masking and retouch result is installed at mouse-up. Floating preview
   does not reproduce the final union of layer effects exactly. These preview
   limitations are distinct from final committed pixels and retained records.
 - Windows font fallback, shaping and kerning need not be pixel-identical to Mac
   font rendering. A missing font falls back through the browser font stack.
+
+## Mac 1.4.5 return follow-up, 2026-10-03
+
+The user's three Mac return projects were checked in the release engine and the
+production portable. A continued text edit exposed CSS fallback for PostScript
+face names such as `Verdana-Bold` and `TimesNewRomanPSMT`. Rasterization now maps
+known faces to their installed Windows family and weight/style, while saving the
+original font names and UTF-16 run ranges. The new real-worker regression requires
+the exact installed bold Verdana bitmap. All 261 unit tests and 13 focused browser
+file/format/text tests pass.
+
+Portable `Compositor-portable-0.8.0-20261003-0927.zip` is 4,742,141 bytes, SHA-256
+`05F4777A81408E788494B0EDDB0361CF6E411C56367346053A7EC99E690DCDDE`.
+The executable SHA-256 is
+`1D177B74314D5A799BE80E62DBE5036D1C1D5D33F0BB26283772F7B4DD49F42B`.
+Native checks use marker `COMPOSITOR_BUILD_0.8.0_20261003-0927`, the production
+Tauri bridge, and no development test API. They perform four actual native package
+reads and four atomic package commits with zero page errors. File-picker choices
+alone are substituted through a dialog-only IPC response; filesystem operations,
+editing, rendering and saving remain native. See the linked Mac report for the
+artifact checks and exact limits of this evidence. No performance budgets changed
+and no new performance acceptance is inferred from this font-only change.

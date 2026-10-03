@@ -34,3 +34,22 @@ test("A live rounded shape redraws at its new size; transform cancel restores so
   const preview=await state(page);expect(preview.undoDepth).toBe(1);await page.keyboard.press("Escape");let d=await state(page);expect(d.layers[1].transform.size).toEqual([30,20]);
   await page.evaluate(()=>{const s=(window as any).__compositor.store.getState();s.beginTransform({persistent:true});const e=(window as any).__compositor.store.getState().transformEdit;s.previewTransform({...e.draft,size:[90,60]});s.commitTransform();});d=await state(page);expect([d.layers[1].pixelsWidth,d.layers[1].pixelsHeight]).toEqual([90,60]);expect(d.layers[1].shape.cornerRadius).toBe(6);expect(await page.evaluate(()=>{const a=(window as any).__compositor,s=a.store.getState(),l=s.documents[s.activeId].layers[1],bytes=a.engine.layerPixels(s.activeId,l.id);return bytes[(6*4)+3];})).toBe(255);await page.keyboard.press("Control+z");expect((await state(page)).layers[1].transform.size).toEqual([30,20]);
 });
+
+test("a Mac Verdana-Bold record renders the installed bold face and keeps its saved name",async({page})=>{
+  await setup(page);
+  const result=await page.evaluate(async()=>{
+    const a=(window as any).__compositor,s=a.store.getState();
+    const style={content:"Bwm",fontName:"Verdana-Bold",fontSize:36,red:0,green:0,blue:0,alignment:"Left",tracking:0,leading:0};
+    const r=await s.jobs.run("font-face-regression",{kind:"text",input:JSON.stringify(style),pixels:null,mask:null});
+    const {width,height}=JSON.parse(r.header),canvas=new OffscreenCanvas(width,height),ctx=canvas.getContext("2d",{willReadFrequently:true})!;
+    ctx.font='bold 36px "Verdana"';ctx.textBaseline="alphabetic";
+    const descent=ctx.measureText("Mg").fontBoundingBoxDescent||36*.2;
+    ctx.fillText("Bwm",12,12+36*1.2-descent);
+    const expected=ctx.getImageData(0,0,width,height).data,actual=new Uint8Array(r.pixels);
+    const different=actual.reduce((n,v,i)=>n+(v!==expected[i]?1:0),0);
+    a.engine.installText(s.activeId,null,style,width,height,r.pixels,[40,40],null);
+    const saved=a.engine.savePackage(s.activeId),id=a.engine.openPackage(saved,null);
+    return {different,fontName:a.engine.state(id).layers.find((l:any)=>l.text)?.text.fontName,ink:actual.some(v=>v>0)};
+  });
+  expect(result.ink).toBe(true);expect(result.different).toBe(0);expect(result.fontName).toBe("Verdana-Bold");
+});
