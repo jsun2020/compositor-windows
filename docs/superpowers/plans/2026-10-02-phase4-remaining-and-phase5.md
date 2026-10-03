@@ -67,10 +67,13 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 Latest acceptance evidence is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
 621 native tests, 278 unit tests, 193 current functional browser passes, one
 page-setup timeout and 29 original skips. Production 1654 passes eight native
-UI groups and four native Mac package reads/writes; packaging the newer output
-capacity and texture reuse changes is in progress. Production 1556 passes six
+UI groups and four native Mac package reads/writes; production 1901 packages the newer
+output-capacity and texture reuse changes and also passes those native UI/Mac
+checks. Production 1556 passes six
 clipboard groups with four exact image checks and restoration; 1654 clipboard
-access was denied at read-only preflight. The latest full run of all 29 performance
+access was denied at read-only preflight. Production 1901 protocol validation
+stops before any mutation because the independent OLE snapshot cannot open
+the clipboard, despite a separate host Win32 open/close succeeding. The latest full run of all 29 performance
 cases is 26 passes / three failures: 100 MP Levels installation CPU 476 / <450 ms,
 100 MP blank-gradient frame gap 160 / <100 ms, and a selection-Levels page-setup
 timeout before its test body. All four result-frame budgets pass in that run.

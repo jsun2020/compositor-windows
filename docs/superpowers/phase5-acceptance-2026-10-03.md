@@ -510,6 +510,56 @@ An independent host PInvoke probe confirms current `OpenClipboard` access denied
 owner process returned. It reads no clipboard contents and performs no mutation
 or permission bypass. Evidence: `windows-clipboard-host-access-probe.json`.
 
+## Production 1901 output capacity and texture reuse checkpoint
+
+`COMPOSITOR_BUILD_0.8.0_20261003-1901` contains the reviewed output-capacity
+and texture reuse changes (source commit `ca361b7d0de45f2870cee142c1b413aa2193f3d8`,
+verified at the authorized GitHub branch). The portable ZIP is 4,743,463 bytes,
+SHA-256 `26D10B5F0038C64560278F1D11E1A01EC659DF130EC2B5261285CB8EF8B4D34F`.
+Its 11,976,704-byte executable has SHA-256
+`C61FE8B5BA54D3C514807CB8D96608E2E3FDCEA5CCC36C964A49F0A7554D63B1`.
+ZIP CRC checks pass and its executable exactly matches the tested portable file.
+The build-info source bytes are restored; the release and bundled WASM SHA
+remains unchanged. Evidence: `output-capacity-package-build-canonical-env.log`
+and `output-capacity-package-integrity.json`.
+
+Eight real native UI groups pass, including 24 MP fill and asynchronous histogram
+cancel/reopen, with the production native bridge, no development test API and
+zero page errors. Four Mac package reads and four atomic save commits also pass.
+Continued edits preserve the font size 38, shape width 150, Stroke 7 and Shadow
+Distance 14 after reopening. All three native Mac open PNGs are byte-identical
+to the prior 1654 exports, so the exact no-edit/edited matches and the remaining
+Mac-created enlarged-text discrepancy still apply. Evidence:
+`native-ui-output-capacity.log`, `native-output-capacity-0.8.0-result.json`,
+`native-mac-output-capacity.log` and `native-output-capacity-mac/`.
+
+A separate normal-user host PInvoke preflight now opens/closes the clipboard
+without reading contents. Its captured GetLastError is stale on success and is
+not treated as a failed call. This alone does not prove OLE snapshot or native
+HWND clipboard access: the 1901 native UI read still reports access denied, and
+the independent protocol helper fails at OleGetClipboard with
+`CLIPBRD_E_CANT_OPEN (0x800401D0)` before snapshot completion or any mutation.
+The protocol suite therefore never starts, and user clipboard contents are
+unchanged. No permission/desktop change, protocol retry or unsafe snapshot
+workaround is used. Evidence: `output-capacity-clipboard-preflight.json`,
+`native-clipboard-output-capacity.log` and
+`clipboard-20261003-191221/helper-error.txt`. The prior successful production
+1556 clipboard evidence is retained; it is not a 1901 acceptance result.
+
+The subsequent C1 diagnostic runs its unchanged original body and assertions.
+It does not reproduce the full-run 100 MP gradient gap failure (96 ms / <100 ms
+in the diagnostic), but fails the 24 MP gradient result-frame budget at
+366 ms / <350 ms and also records a 100 MP fill worker-edit gap of 463 ms
+against <100 ms. The failing 24 MP frame includes a 358.5 ms readPixels call
+that overlaps 357.0 ms of GPU command-buffer flushing. This identifies another
+synchronous GPU wait without proving the cause of the separate full-run
+160 ms gradient gap. These failures remain open; no untested scheduling or
+sampling change is adopted. The first diagnostic matched an incorrect case
+prefix and failed before executing a case; the corrected entry selects the
+original `ruling C1:` test. Evidence: `texture-c1-profile-job-trace-final.log`,
+`texture-c1-profile-job-trace-results.json`, `texture-c1-profile-summary.json`
+and `texture-c1-profile-blank-gradient-trace.json`.
+
 ## Additional Mac alpha sampling handoff
 
 Four generated projects isolate white-pixel alpha filtering from text rendering:
@@ -559,7 +609,7 @@ earlier intermittent failures need fixes and repeatable evidence under their
 original budgets. Production 1206
 clipboard protocol and exact synthetic-image pixel checks pass; production 1556
 also passes six native groups and four exact image comparisons, with the original
-clipboard restored. Current production 1654 clipboard access is denied at preflight. Earlier
+clipboard restored. Current production 1901 OLE snapshot preflight fails before mutation. Earlier
 protocol-only checks and bitmap unit tests alone were insufficient. Mac gesture
 confirmation remains pending. Current Mac-edited export is exact; Mac-created
 enlarged text remains quantified and open; covered overlap edges now match. No assertion,
