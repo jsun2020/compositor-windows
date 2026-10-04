@@ -331,3 +331,29 @@ hash-bound history-off environment comparison is prepared for user execution
 and passes CheckOnly without changing settings or acceptance rules. Full
 acceptance remains false until external-consumer stability is resolved. The older packages, user Mac returns,
 private backups, runtime profiles and failures remain local and preserved.
+
+
+## History-off receipt and captured remote clipboard lock, 2026-10-04 21:00
+
+With Clipboard history disabled, two independent original protocols and strict
+readers pass. The third completes native UI/data checks but fails original
+snapshot restoration and its existing finally fallback with 0x800401D0. All
+seven native clipboard IPC responses succeed; four exact RGBA comparisons
+and two editable text/style records independently pass as diagnostics only.
+The complete third protocol remains failed. No fourth session or retry runs.
+
+The read-only ownership probe captures GameViewer holding the clipboard
+through samples spanning 2,118 ms, overlapping both restoration failures.
+This identifies an external blocker for this receipt; it does not prove all
+historical failures share that cause or establish the responsible GameViewer
+feature. Neither GameViewer nor any remote connection/service is stopped.
+The original snapshot is not confirmed restored, but its private encrypted
+backup validates. A recovery entry is prepared that requires explicit execution,
+backs up current data first and verifies restored data; it is never acceptance
+evidence. A hash-bound GameViewer-sync-off control is prepared without changes
+to original assertions or budgets. User action is pending.
+
+Full Phase 5 remains incomplete. The unchanged product/source/package and
+previous native, Mac, functional and original timing results retain their
+applicable coverage; no further product patch or repeated performance run is
+justified by this restoration failure. See [the current acceptance record](phase5-acceptance-2026-10-03.md).

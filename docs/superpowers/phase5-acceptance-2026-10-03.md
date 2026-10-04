@@ -6,7 +6,68 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current clipboard-fix checkpoint, 2026-10-04 evening
+## Current history-off receipt and captured GameViewer lock, 2026-10-04 21:00
+
+The received `clipboard-history-off-control-20261004-205957-992` verifies
+all original frozen inputs and begins with Clipboard history disabled
+(EnableClipboardHistory=0). Its first two independent original protocols
+and strict readers pass. The third finishes all application UI/data steps,
+then fails at the original helper's final snapshot restoration, with
+0x800401D0. The existing finally restoration fails as well. No fourth
+protocol starts and no retry is added. History-off alone therefore does not
+establish stable clipboard interoperability.
+
+All four native reads and three native writes in the failed case return
+success. Final application state is five layers, no error and working=false.
+Independent artifact review confirms all four exact RGBA comparisons and
+two editable UTF-16 records with matching style. This data-only review
+explicitly reports nativeProtocolAccepted=false; restoration failure remains
+a failed complete protocol. The first two strict protocol readers and all
+three encrypted backups are independently verified again.
+
+The metadata-only ownership probe captures **GameViewer PID 24508** holding
+the open clipboard window during the restoration failures: the same window
+and thread appear at 13:01:05.952, 13:01:07.005 and 13:01:08.070 UTC, spanning
+2,118 ms. Main restore is requested at 13:01:05.861 and its error response is
+written at 13:01:07.230; the finally error is written at 13:01:08.308, before
+the next observed unlocked sample at 13:01:08.357. This supplies a named
+external lock overlapping both failure intervals, consistent with the prior
+controlled restoration experiment. It does not attribute every older failure
+to this process or prove which GameViewer feature acquired the lock. No user
+remote application, connection, Explorer or system service is stopped.
+
+**The original clipboard is not confirmed restored.** The original helper
+has exited, but its DPAPI CurrentUser backup decrypts and validates. It contains
+the pre-test text/locale formats and remains private locally. Recovery has not
+been attempted. The local `recover-phase5-clipboard-210049.ps1` defaults to
+verification only and requires explicit `-RestoreOriginal` to write. It first
+backs up the current clipboard into a fresh encrypted directory, performs one
+recovery operation, then reads a new encrypted snapshot and compares the
+complete saved formats/data in memory. Recovery can never turn the original
+protocol failure into a pass. Its verification-only entry and read-only backup
+comparison test pass, including rejection of a changed format.
+
+The next environment control requires the user to disable GameViewer clipboard
+synchronization while retaining the remote connection. This is an intervention
+to test the captured blocker, not a claimed proven feature-specific fix. The
+prepared `verify-phase5-clipboard-wait250-gameviewer-control.ps1` passes
+CheckOnly and preserves all 26 original inputs, both observer hashes, five
+protection inputs, the native executable/source hashes, original actions,
+assertions, budgets and zero retries. It changes no setting or running process;
+two independent pairs stop on the first failure. History and performance
+need not be changed or rerun for this comparison. User action is pending.
+
+Full Phase 5 acceptance remains false. Product commit `3299300`, its native
+250 ms acquisition control, 624 native tests, eight packaged UI groups, nine
+exact native Mac exports and the unchanged frontend's 29/29 original timing
+evidence remain valid. This receipt does not justify another product patch.
+Evidence remains local under `build-artifacts/phase5-acceptance`: the received
+control and case `clipboard-protected-20261004-210049`,
+`clipboard-history-off-205957-independent-review.json`,
+`clipboard-history-off-210049-gameviewer-failure-review.json` and
+`clipboard-history-off-205957-receipt-file-hashes.json`.
+
+## Earlier clipboard-fix checkpoint, 2026-10-04 evening
 
 The native candidate waits up to 250 ms to acquire a busy Windows clipboard
 on its existing blocking worker, before reading or clearing
