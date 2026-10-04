@@ -21,9 +21,12 @@ three TypeScript checks and nineteen render cases. The subsequently added
 half-column regression passes alongside the exact grid and five existing
 pixel-copy checks. All 198 functional browser cases pass, with the 29 original
 opt-in performance skips. The separate complete timing run finishes 23 passed /
-six failed (10.6 minutes), one worker and zero retries. Packaged native
-verification and an independent prior-version timing control are in progress.
-Publication remains at the previous checkpoint.
+six failed (10.6 minutes), one worker and zero retries. The independent
+preceding-version control also reproduces four responsiveness failures, plus
+a setup assertion failure. Production 1256 passes all eight native UI groups,
+nine native Mac reads/atomic saves, eight exact Mac PNG comparisons and the
+six-group clipboard protocol with independent exact RGBA/text/restoration
+checks. Source commit b452534 is published on the authorized branch.
 
 Mac gesture records report PASS, but the returned blue rounded rectangle
 contains Stroke 5 / Shadow Distance 12 instead of the reported applied 7/14.
@@ -1437,3 +1440,75 @@ V4 full-native/source-check/functional/render logs and terminal exit JSON,
 WASM full-return comparison, and the complete final performance failure log.
 The seven-pixel V3 negative control and initial invalid origin-placement
 regression attempt remain retained and are not counted as passes.
+
+
+The independent preceding-version fixed-assets control completes six selected
+original cases: one pass / five failures (4.0 minutes). Typed W stops at the
+original 5-second engine-ready assertion before entering its body; gradient
+preview is 553 / <150 ms, mask-fill has 126 / <100 ms, C1 has 127 / <100 ms,
+and ContentFill responsiveness is 108.1 / <100 ms. Mask-gradient passes. This
+shows that several observed responsiveness failures also exist without the
+new interpolation, but does not establish their cause or clear any final-source
+performance gate. Logs and terminal exit are retained as
+mac-alpha-original-performance-control.log / -exit.json.
+
+
+## Production 1256 package checkpoint, 2026-10-04
+
+Product source commit: `b4525346c4f2b3ceba5d3dddc935c17b2cc569df`, published
+to `codex/phase4-and-phase5`. Marker: `COMPOSITOR_BUILD_0.8.0_20261004-1256`.
+The diagnostic portable packages the validated byte-interpolation source,
+while preserving the incomplete performance gate. Its optimized native build
+finishes successfully in 12m 37s. ZIP size 4,744,791 bytes, SHA-256
+`377F39E2B5C2711BAA38BA2173AC7204B19902E5AB922927F1FE9245B67503B7`;
+EXE size 11,978,240 bytes, SHA-256
+`5F9A41F6E4116711D2AC2174A11E938F71EC3289544A46A85290FF2EBA719563`.
+The three ZIP entries pass independent CRC/size checks and its archived EXE
+is identical to the tested portable. Production and fixed-test-assets WASM
+match the final 933ce4a5 fingerprint. Build-info bytes are restored afterward.
+
+All eight native UI groups pass with the production Tauri bridge, hidden
+development API and zero page errors: painting/eraser/undo, blur/aligned clone,
+three healing modes, fill preview/cancel/apply, editable text, effects apply,
+and the 24 MP fill/Levels histogram/cancel path. The incidental UI clipboard
+read reports no image; dedicated clipboard evidence below establishes its
+actual interoperability separately.
+
+All eight original Mac projects open/export/save through native file commands.
+Nine native reads and nine atomic save commits include the Windows continuation:
+font size 38, shape width 150, Stroke 7 and Shadow Distance 14 persist after
+reopening the continued copy. Original transforms and manifests remain unchanged.
+An independent full-PNG reader requires the complete eight-project corpus and
+finds zero changed RGBA pixels/channels in every production-native export.
+The 30 newly received original return files and their immutable snapshot retain
+their receipt hashes after verification. This Windows continuation does not
+substitute for the missing Mac-applied 7/14 saved project.
+
+Original six-group native clipboard protocol passes in fresh case
+`clipboard-20261004-131231`. The independent strict reader confirms all four
+complete image payloads/placement, two editable 16-unit UTF-16 text records
+with identical styling, and restoration of the original restorable formats.
+Previous intermittent failures remain recorded; this pass does not claim that
+their unidentified cause is fixed. All native jobs run sequentially after
+source/browser/performance jobs finish; no timing run overlaps an owned build
+or native check.
+
+The new interactive verifier is ready at
+`build-artifacts/phase5-acceptance/verify-mac-alpha-final-interactive-acceptance.ps1`.
+Its read-only `-CheckOnly` preflight passes all 25 SHA-bound inputs: new EXE,
+fixed assets, original five timing files/config, six changed source/regression
+inputs, native clipboard protocol/helper and independent exact reader. It runs
+all original 29 timing cases with one worker and zero retries, then guarded
+clipboard checks, retaining timestamped logs and a terminal summary. New
+interactive execution has been requested; the preceding 0244 PASS does not
+validate new source/assets. Full Phase 5 acceptance remains incomplete pending
+current performance evidence and the actual Mac-applied-and-reopened 7/14
+project. No image tolerance, budget, assertion, warm-up or retry policy changes.
+
+Current local artifacts: mac-alpha-final-package-integrity.json,
+mac-alpha-final-delivery-summary.json, native-mac-alpha-final-0.8.0-result.json,
+native-mac-alpha-final-mac/native-mac-roundtrip.json,
+mac-alpha-final-native-return-comparison.json,
+mac-alpha-final-original-return-identity.json,
+mac-alpha-final-clipboard-exact.json and
+interactive-mac-alpha-final-frozen-inputs.json.

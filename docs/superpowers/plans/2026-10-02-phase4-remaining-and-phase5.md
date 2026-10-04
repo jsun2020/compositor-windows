@@ -36,16 +36,19 @@ honestly; passing source tests does not establish native or Mac interoperability
 The initial implementation excluded the separate Phase 3.5d sampling backlog.
 The subsequent explicit full-acceptance goal requires fixing the remaining Mac
 export differences. Its current source work includes the verified Mac 1.4.5
-upright 1:1 pixel-copy rule and its antialiased rectangle edge. Enlarged/rotated
-filter changes are not yet included; the user's sampling probes remain local.
+upright 1:1 pixel-copy rule and its antialiased rectangle edge, plus the measured
+Mac 1.4.5 byte interpolation for affine enlargement. Exact rotated-edge and
+distortion compatibility remain separate unproven scope; the user's earlier
+sampling probes remain local.
 
 Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Native workspace tests: 622 passed, zero failures, 10 existing ignored.
+- [x] Final native workspace: 623 passed, zero failures, 10 existing ignored;
+  the subsequently added exact-half regression passes separately.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Solid-rectangle source full fixed-asset browser suite: 195 passed,
+- [x] Final byte-interpolation full fixed-asset browser suite: 198 passed,
   29 unchanged opt-in skips, one worker and zero retries (8.7 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
@@ -59,15 +62,21 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   The historical 1455 access-denied preflight is retained.
 - [x] Current production 0244: ZIP/EXE/WASM identity, eight native UI groups,
   four Mac reads and four atomic saves; all three opened PNGs match 2328 bytes.
-- [ ] Current production 0244 native clipboard interoperability: original
-  snapshot refused with CLIPBRD_E_CANT_OPEN before any test mutation.
+- [x] Production 0244 native clipboard interoperability: a later unchanged
+  original protocol passes all six groups and the exact reader; initial OLE
+  snapshot refusal and intermittent paste failures remain recorded.
 - [ ] All large-image performance budgets: repeated failures retained in report.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.
 - [x] Current release-WASM exports match Mac-no-edit, Mac-edited and the
   fractional/flipped upright 1:1 probe exactly, with transforms unchanged.
-- [ ] Mac undo/redo and effect preview/cancel/apply confirmation, and exact
-  Mac-created enlarged-text export fidelity. Covered overlap edges are now exact.
+- [x] Mac gesture records for undo/redo and effect preview/cancel are received.
+  Mac-created enlarged-text export now matches every complete RGBA byte.
+- [ ] Mac effect Apply 7/14 persistence: returned project still contains 5/12;
+  the correct applied-and-reopened saved project is required.
+- [x] Production 1256 byte-interpolation package: ZIP/EXE/WASM identity,
+  eight native UI groups, nine native Mac reads/saves, eight exact full-PNG
+  comparisons and six clipboard groups with independent RGBA/text/restoration.
 
 
 Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
@@ -248,3 +257,14 @@ native acceptance are in progress. Mac gesture PASS records are received, but
 the actually saved blue rectangle still reports 5/12 rather than 7/14; the
 correct applied-and-reopened project is still required. Phase 5 full acceptance
 remains open. The acceptance record retains every historical failure.
+
+
+Production 1256 packages product commit b452534 after completed sequential
+checks. All eight native UI groups, nine native Mac reads/saves, eight exact
+full-PNG comparisons and six original clipboard protocol groups plus strict
+RGBA/UTF-16/style/restoration pass. The 30 received original files retain their
+receipt hashes. The new verifier passes read-only preflight for 25 SHA-bound
+inputs. Current performance remains 23/29 passed with six failures; the
+preceding-version six-case control is one pass / five failures. New interactive
+performance evidence and the Mac-applied 7/14 saved project are requested.
+These native/pixel successes do not complete Phase 5 or waive timing failures.

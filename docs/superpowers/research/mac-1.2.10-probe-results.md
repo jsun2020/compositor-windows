@@ -245,7 +245,9 @@ four alpha probes exactly and remains within the original two-byte allowance
 for three 800 x 600 projects (observed maximum one). The 1920 x 1080 full-image
 GPU case is not claimed. All 198 functional browser cases and nineteen targeted
 render cases pass. Original timing budgets remain a separate incomplete gate
-(23 passed / six failed), and new packaged native verification is pending.
+(23 passed / six failed). Production 1256 also passes all eight complete Mac
+PNG comparisons through native open/export/save, nine native reads/atomic saves,
+eight UI groups and six clipboard groups with independent exact payload checks.
 
 ## Generated tables
 
