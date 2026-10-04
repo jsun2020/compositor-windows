@@ -27,9 +27,14 @@ acceptance remains incomplete. Production 1527 passes archive identity, eight
 native UI groups and an independent nine-project native open/save/export run
 (11 reads / 10 atomic saves), with all nine complete PNGs exact. The initial
 native Save As timeout is retained and its cause is unproven. Current-package
-clipboard safely aborts before mutation at OLE snapshot; independent Win32
-OpenClipboard returns error 5. The hash-bound administrator trace/clipboard
-handoff is prepared and its CheckOnly passes.
+clipboard from the Codex host safely aborts at the OLE snapshot; independent
+Win32 OpenClipboard returns error 5. The subsequently received administrator
+run records a complete GPU/CPU ETL and passes original F1, but its native
+clipboard protocol never starts because the WebView debug endpoint is absent
+for 45 seconds. The snapshot succeeds and its original format set is restored.
+A non-elevated same-package endpoint control passes. The new hash-bound
+ordinary PowerShell verifier preserves the full 29 original timing cases and
+two independent guarded clipboard protocols; CheckOnly passes.
 Historical evidence below is retained.
 
 ## Earlier checkpoint, 2026-10-04 morning
@@ -1686,3 +1691,41 @@ The need for elevation and error 0xc5585011 are described in Microsoft's
 [Windows performance guidance](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/hub/apps/develop/performance/power.md).
 User execution is pending; traced diagnostics do not replace the 29 original
 performance budgets.
+
+## Received system trace and corrected interactive handoff, 2026-10-04
+
+The received `gpu-system-trace-20261004-161655-833` contains a successfully
+stopped 2,543,845,376-byte GPU/CPU ETL. Windows `tracerpt` processes 46,211,454
+events with zero reported lost events. All 26 frozen source, assets, package
+and helper inputs still match. The original F1 case passes in 1.4 minutes,
+with result frames of 8/11 ms at 24 MP and 9/12 ms at 100 MP. This is one
+original case; it does not replace the previous complete 20/29 result or
+prove the intermittent GPU stall fixed. The minimal control has a longest
+headless draw/read of 95.8 ms and no GL errors in this recording. The ETL
+summary alone does not identify a scheduling or driver cause.
+
+The administrator clipboard run gets past the original safe snapshot. It
+then fails before the six-group protocol: no native debug endpoint appears
+within the original 45-second readiness deadline. Its sole helper request
+is restoration; the successful response preserves the original format set.
+A fresh non-elevated launch of the same 1527 package reaches that endpoint
+in 4.15 seconds without accessing or writing clipboard contents. The Microsoft
+WebView2 [issue record](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640)
+describes the same elevated-host symptom. Elevation is a supported inference
+for this readiness failure, not a proven explanation for earlier clipboard
+access failures or product responsiveness failures.
+
+Combining interactive clipboard tests with an administrator-only WPR step
+was an unsuitable handoff. The recorded script and failure are retained.
+Use the new local `build-artifacts/phase5-acceptance/verify-phase5-interactive-1527.ps1`
+from an ordinary PowerShell window opened from Windows Start. It rejects an
+elevated launch before starting any test, verifies all 26 frozen inputs,
+uses a fresh evidence directory, runs the complete original 29-case timing
+suite with one worker and zero retries, then runs two independent original
+guarded native clipboard protocols and strict RGBA/UTF-16/style/restoration
+checks. It stops the clipboard sequence on failure and never adds a retry.
+A timing failure is retained while independent clipboard evidence proceeds.
+`-CheckOnly` passes. No GPU re-recording, driver change, system policy change
+or application assertion/budget change is needed for this handoff. Full
+Phase 5 acceptance remains false, including the retained initial Save As
+timeout whose cause is still unproven.

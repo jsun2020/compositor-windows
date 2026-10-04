@@ -313,3 +313,22 @@ unchanged. All 30 old and 11 new receipt hashes match. Current full performance
 is still 20/29 passed; no budget or failure is waived. Administrator GPU/CPU
 trace and current-package clipboard evidence are requested through one verified
 local script. Full Phase 5 remains incomplete.
+
+### System-trace receipt and ordinary interactive handoff, 2026-10-04
+
+The received administrator GPU/CPU ETL is complete: 46,211,454 processed
+events, zero reported lost events. All 26 frozen inputs match. Original F1
+passes with a maximum 12 ms result frame; this does not close the complete
+29-case performance gate. The original clipboard snapshot and restoration
+pass, but the elevated package has no debugging endpoint within 45 seconds
+and the six-group protocol never starts. A non-elevated same-package endpoint
+control passes without clipboard access. Earlier clipboard failures remain
+recorded separately.
+
+The prepared local `verify-phase5-interactive-1527.ps1` passes CheckOnly and
+requires ordinary PowerShell. It preserves all original assertions, budgets,
+one worker and zero retries; default execution collects the full 29 timing
+cases and two independent guarded native clipboard protocols plus strict
+image/text/style/restoration comparisons. No further GPU recording is needed
+for that run. Full acceptance remains open pending this evidence and resolution
+of the recorded intermittent failures.
