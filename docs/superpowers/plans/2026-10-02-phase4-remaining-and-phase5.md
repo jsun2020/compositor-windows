@@ -356,3 +356,28 @@ Its original body reconstructs byte for byte after removing observations;
 CheckOnly and a read-only real-package logger self-check pass. It needs
 ordinary interactive PowerShell, with no further timing or GPU recording
 required for this diagnostic step.
+
+### Corrected observer and isolated native instances, 2026-10-04 evening
+
+The latest observed first clipboard session passes six native groups and
+the independently rerun strict reader. Its second session fails before
+clipboard activity because the observer mishandles fetch(URL) during WASM
+startup. The observer defect is fixed; it does not establish a cause for the
+earlier actual Paste-after-Cut failure. Both original format sets restore.
+Product source and all 26 original frozen inputs remain unchanged.
+
+The corrected observer passes early initialization across two reloads, five
+fetch input forms, complete production-UI simulation and a controlled
+clipboard-read refusal with original layer assertion/error capture. These
+simulations access no system clipboard. Each revised session uses an
+independent port, with native parent PID and fresh-profile ownership checks,
+within the original 45-second readiness deadline. Two helper hashes are
+verified as well as the 26 original inputs. The original action/assertion
+body is exact after normalizing only observations and the connection adapter.
+
+A further independently owned real-native Mac run passes 11 reads, 10
+atomic saves and nine exact full-PNG comparisons; prior Save As failure
+remains recorded without an unproven fix claim. The corrected clipboard-only
+entry passes CheckOnly and is ready for the ordinary interactive desktop.
+Full Phase 5 acceptance remains incomplete; the already received 29/29
+original timing run does not need repeating for this diagnostic step.

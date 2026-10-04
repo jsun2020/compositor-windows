@@ -6,7 +6,7 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current checkpoint, 2026-10-04 afternoon
+## Current checkpoint, 2026-10-04 evening
 
 The actual Mac-applied 7/14 return now passes production-native open/export,
 save/reopen and editable text/shape checks. Its full PNG is byte-identical.
@@ -41,10 +41,16 @@ and a first six-group native clipboard pass, independently verified by four
 exact RGBA comparisons and UTF-16/style/restoration checks. Its second
 clipboard session fails when Ctrl+V after Cut leaves two layers instead of
 three within the unchanged five-second timeout. Both original clipboard
-format sets are restored. A new clipboard-only observer preserves the
-original body, assertions and timeouts exactly; its read-only runtime self-
-check and CheckOnly pass. The failing session has no error/IPC snapshot, so
-its cause remains unproven.
+format sets are restored. The later observed run passes its first protocol
+and strict reader; its second session instead fails before engine startup
+because the observer mishandles fetch(URL). That diagnostic-only bug is
+fixed, with startup/input compatibility and controlled full-UI/error-capture
+checks passing. Each revised session has its own debug port, and endpoint
+ownership must match the launched native PID and fresh profile. Original
+actions/assertions/timeouts stay unchanged. An independently owned native
+Mac rerun again passes 11 reads, 10 atomic saves and all nine full-PNG byte
+comparisons. The earlier actual Cut/Paste failure remains unexplained; full
+clipboard stability has not been accepted.
 Historical evidence below is retained.
 
 ## Earlier checkpoint, 2026-10-04 morning
@@ -1784,3 +1790,58 @@ field; those fields are now distinct and the corrected self-check passes.
 These diagnostic results establish the logger, not clipboard acceptance.
 Full Phase 5 acceptance remains false, and the prior native Save As timeout
 is still retained with its cause unproven.
+
+## Observer startup defect and isolated native instances, 2026-10-04 evening
+
+The received `clipboard-observed-1527-20261004-173705-570` passes its first
+six-group native clipboard protocol and strict RGBA/text/style/restoration
+reader. Independent re-execution of the strict reader confirms that result.
+Its second case stops before any clipboard test: the engine reports
+`TypeError: Failed to construct URL: Invalid URL`. The diagnostic fetch
+wrapper incorrectly treats a URL object as a Request and reads `input.url`;
+WASM initialization legitimately passes a URL object. This is a defect in
+the added observer, not evidence about the earlier Cut/Paste failure. Both
+original clipboard format sets restore. The exact failing observer version
+is preserved locally before correction. Product source and all 26 original
+frozen source/assets/package/helper inputs remain unchanged.
+
+The corrected observer supports strings, relative strings, URL and Request
+objects; unrecognized stringable inputs are forwarded to the original fetch.
+Key cancellation is recorded after event dispatch, rather than at a capture-
+phase microtask checkpoint before the application listener. A real 1527
+package self-check installs the observer before initialization, reloads twice,
+and confirms engine-ready, five fetch input forms, IPC error metadata, final
+key cancellation and zero page errors. It uses real bundled assets and makes
+no system clipboard access. A separate production-UI simulation completes
+all six original operation groups, then verifies a deliberately refused third
+clipboard read produces the original five-second layer-count failure and
+records the IPC error, two-layer state and accepted Ctrl+V. These simulations
+validate the observer, not system clipboard acceptance.
+
+During the controlled sequential check, the previous fixed port is still
+listening just after its host process is stopped; the next-port guard safely
+refuses to use it. The original launcher polls a fixed port without verifying
+which process owns it. This exposes an isolation risk; it does not prove
+that a stale endpoint caused either earlier user failure. Each revised
+clipboard session now allocates an independent loopback port. The endpoint
+must belong to a WebView process whose parent is the launched native PID
+and whose command line identifies that session's fresh profile. The original
+45-second readiness deadline is preserved. The two controlled UI sessions
+use distinct ports with verified matching owners and profiles. Only the
+connection endpoint is parameterized in the native JavaScript; after removing
+observations and normalizing that adapter, the original harness body is
+byte-identical. Actions, assertions, deadlines and retry count are unchanged.
+The updated entry script also verifies hashes of both observed helpers in
+addition to all 26 original frozen inputs.
+
+An independent real-native Mac run uses the same isolation guard and the
+original action/assertion body: production 1527 completes 11 reads and 10
+atomic saves, editable text and persisted 7/14 effects, zero page errors and
+all nine full PNG exports exactly matching independent Mac bytes. The
+original Save As failure is retained and is not claimed fixed from this pass.
+The corrected local `verify-phase5-clipboard-observed-1527.ps1` passes
+CheckOnly. Real system clipboard verification still needs the ordinary
+interactive desktop because the Codex execution host cannot open that
+clipboard. Full Phase 5 acceptance remains false until the outstanding
+Cut/Paste evidence is resolved; timing and GPU tracing need not be repeated
+for this corrected diagnostic run.
