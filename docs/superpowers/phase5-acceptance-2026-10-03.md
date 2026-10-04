@@ -23,7 +23,13 @@ aborts at OleGetClipboard. Two same-assets visible-window diagnostic cases
 finish one pass / one failure; a minimal no-application WebGL program also
 reproduces a 446.7 ms draw/read wait. The specific system cause remains unproven.
 These diagnostic passes do not waive any complete-suite failure. Full Phase 5
-acceptance remains incomplete; current-source native packaging is pending.
+acceptance remains incomplete. Production 1527 passes archive identity, eight
+native UI groups and an independent nine-project native open/save/export run
+(11 reads / 10 atomic saves), with all nine complete PNGs exact. The initial
+native Save As timeout is retained and its cause is unproven. Current-package
+clipboard safely aborts before mutation at OLE snapshot; independent Win32
+OpenClipboard returns error 5. The hash-bound administrator trace/clipboard
+handoff is prepared and its CheckOnly passes.
 Historical evidence below is retained.
 
 ## Earlier checkpoint, 2026-10-04 morning
@@ -1619,3 +1625,64 @@ virtual display adapters are present; their causal role is unproven, so they
 are left running. Read-only WPR status says no existing recording. GPU/CPU
 trace start fails with 0xc5585011 (performance profiling policy cannot be
 enabled); no existing trace or system setting is changed.
+
+
+## Production 1527, current native checkpoint
+
+Product commit 194296602087364b976b4c9b7a2d62687205da51 is published on
+codex/phase4-and-phase5 and verified against the remote ref. The sequential
+production build repeats all three type checks, embeds the new marker and
+finishes the Rust release build in 6m 10s. It preserves prior packages and
+restores the original build-info source bytes.
+
+- Marker: COMPOSITOR_BUILD_0.8.0_20261004-1527.
+- ZIP: 4,744,912 bytes; SHA-256
+  8DE25664B46EC6C8FFF13C0C1B5896BEBB16557815B84C9C8AADC6E97272F0AF.
+- EXE: 11,978,240 bytes; SHA-256
+  8BE769F06CDEF9CD752BAA13794CEF9F9177C26AC70A493F20ED12BA9CBF034F.
+- All three archive entries pass CRC; archived EXE equals the tested portable.
+  Release WASM equals the fixed-assets 933ce4a5... binary.
+- All eight native UI groups pass, with native bridge true, Test API undefined
+  and zero page errors. The read-only clipboard probe is denied; it is not
+  accepted as native clipboard interoperability.
+- The initial native Mac run times out after 30s waiting for the second
+  project's Save As manifest. Its earlier exports/first save and complete
+  failure log remain unchanged. A separate fresh output/profile diagnostic
+  retains the same assertions/timeouts and adds failure snapshots; all nine
+  opens/exports/saves and both continued/new 7/14 reopen checks pass. This
+  passing run does not prove the earlier intermittent timeout fixed.
+- This fresh native run records 11 native reads and 10 atomic saves; all nine
+  complete straight-RGBA PNGs exactly match independent Mac returns. Text,
+  shape and effect metadata remain editable and transforms are unchanged.
+- The original six-group clipboard protocol cannot begin: original helper
+  OleGetClipboard returns 0x800401D0 before any mutation. Case:
+  clipboard-20261004-154410. No exact comparison or second case is run.
+- A read-only Win32 context probe independently returns OpenClipboard false /
+  error 5, with sequence 2909 before and after, no data read and no writes.
+  Current process is in session 1 and a job; its queried UI limits are zero.
+  Twenty owner samples show no open window and stable Explorer ownership.
+  This does not identify the particular access restriction; nothing is reset
+  or overwritten.
+- All 30 original receipt files and 11 separately snapshotted new 7/14 files
+  retain their full hashes and lengths.
+
+Evidence: shader-isolation-package-integrity.json,
+shader-isolation-delivery-summary.json, shader-isolation-native-ui.log,
+native-shader-isolation-mac-investigation/native-mac-roundtrip.json,
+shader-isolation-native-investigation-return-comparison.json,
+shader-isolation-native-followup-summary.json,
+shader-isolation-clipboard-context-read-only.json,
+shader-isolation-original-mac-receipts-identity.json and
+shader-isolation-checkpoint.json. Full acceptance is explicitly false.
+
+The hash-bound capture-phase5-gpu-system-trace.ps1 now waits for the owned
+package/native workflow to finish, protects any existing WPR recording, checks
+free space and source/assets/package/helper identities, and requires an
+administrator terminal. It collects GPU/CPU ETL plus the no-application control
+and unchanged original F1 case, then two independent guarded clipboard cases
+only if each original snapshot/assertion succeeds. It changes no driver,
+display service or security policy and adds no retries. CheckOnly passes.
+The need for elevation and error 0xc5585011 are described in Microsoft's
+[Windows performance guidance](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/hub/apps/develop/performance/power.md).
+User execution is pending; traced diagnostics do not replace the 29 original
+performance budgets.

@@ -683,3 +683,11 @@ Current source packaging and original complete performance gates remain open.
 Local evidence: build-artifacts/phase5-acceptance/mac-applied-7-14-received-files.json,
 mac-applied714-1256-comparison.json, shader-isolation-mac-return-comparison.json
 and shader-isolation-mac-validation-mac-checks/checks.json.
+
+Production 1527 (source 1942966) subsequently passes an independent fresh-profile
+native nine-project open/export/save run with 11 reads / 10 atomic commits.
+All nine complete PNGs are exact, including the new Mac-applied 7/14; both new
+and Windows-continued effects persist on reopen. Thirty original plus eleven
+new snapshot receipt hashes remain unchanged. Its initial Save As timeout is
+retained and not declared fixed; current clipboard and complete performance
+gates remain open in the Phase 5 acceptance report.

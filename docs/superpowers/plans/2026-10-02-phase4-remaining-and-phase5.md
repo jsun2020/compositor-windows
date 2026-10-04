@@ -48,8 +48,8 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 - [x] Final native workspace: 623 passed, zero failures, 10 existing ignored;
   the subsequently added exact-half regression passes separately.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Final byte-interpolation full fixed-asset browser suite: 198 passed,
-  29 unchanged opt-in skips, one worker and zero retries (8.7 minutes).
+- [x] Current separated-shader full fixed-asset browser suite: 198 passed,
+  29 unchanged opt-in skips, one worker and zero retries (7.3 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
 - [x] Live Windows clipboard interoperability: production 1206 passes six native
@@ -60,7 +60,7 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 - [x] Historical production 1556 clipboard verification: six native protocol groups,
   four exact image comparisons, editable UTF-16 text and original formats restored.
   The historical 1455 access-denied preflight is retained.
-- [x] Current production 0244: ZIP/EXE/WASM identity, eight native UI groups,
+- [x] Historical production 0244: ZIP/EXE/WASM identity, eight native UI groups,
   four Mac reads and four atomic saves; all three opened PNGs match 2328 bytes.
 - [x] Production 0244 native clipboard interoperability: a later unchanged
   original protocol passes all six groups and the exact reader; initial OLE
@@ -79,6 +79,13 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   eight native UI groups, nine native Mac reads/saves, eight exact full-PNG
   comparisons and six clipboard groups with independent RGBA/text/restoration.
 
+- [x] Production 1527 package identity and eight native UI groups pass.
+  Independent fresh-profile native Mac checks pass 11 reads / 10 atomic saves
+  and all nine complete PNGs exactly; new Mac 7/14 persists on reopen.
+  An initial Save As timeout is retained and not declared fixed.
+- [ ] Production 1527 original clipboard protocol: OLE snapshot refused before
+  mutation; independent Win32 OpenClipboard returns error 5. The hash-bound
+  administrator system-trace/clipboard script is ready; CheckOnly passes.
 
 Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
 622 native tests, 287 unit tests and 195 current functional browser passes
@@ -294,3 +301,15 @@ failure is waived. A minimal WebGL control without application/WASM also
 reproduces a 446.7 ms GPU wait. The specific driver/scheduling cause remains
 unproven, and WPR GPU/CPU capture cannot enable profiling policy (0xc5585011).
 Existing display services and system settings remain unchanged.
+
+
+Production 1527 packages source 1942966, with archive/EXE/WASM identity and all
+eight native UI groups verified. The initial Mac Save As times out; a separate
+fresh-profile diagnostic completes all nine projects, 11 reads / 10 atomic
+saves and exact full-PNG comparison, retaining the failed original run. The
+original clipboard protocol safely aborts before any mutation at OleGetClipboard
+0x800401D0; read-only Win32 OpenClipboard also returns error 5 with its sequence
+unchanged. All 30 old and 11 new receipt hashes match. Current full performance
+is still 20/29 passed; no budget or failure is waived. Administrator GPU/CPU
+trace and current-package clipboard evidence are requested through one verified
+local script. Full Phase 5 remains incomplete.
