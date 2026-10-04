@@ -10,12 +10,12 @@ if(-not(Test-Path -LiteralPath $taskCompiler)){$taskCompiler=Join-Path $env:WIND
 if(-not(Test-Path -LiteralPath $taskCompiler)){throw '.NET Framework C# compiler not found'}
 New-Item -ItemType Directory -Path $taskOutput | Out-Null
 $taskManifest=@()
-foreach($taskName in @('ClipboardOwnershipProbe','ClipboardSnapshotGuard','ClipboardReadOnlyLocker')){
+foreach($taskName in @('ClipboardOwnershipProbe','ClipboardSnapshotGuard','ClipboardReadOnlyLocker','ClipboardTextNativeRecovery')){
  $taskSource=Join-Path $PSScriptRoot ($taskName+'.cs')
  $taskExe=Join-Path $taskOutput ($taskName+'.exe')
  $taskArguments=@('/nologo','/target:exe',('/out:'+$taskExe),'/reference:System.Web.Extensions.dll')
  if($taskName -ne 'ClipboardOwnershipProbe'){$taskArguments+=@('/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll')}
- if($taskName -eq 'ClipboardSnapshotGuard'){$taskArguments+='/reference:System.Security.dll'}
+ if($taskName -eq 'ClipboardSnapshotGuard' -or $taskName -eq 'ClipboardTextNativeRecovery'){$taskArguments+='/reference:System.Security.dll'}
  $taskArguments+=$taskSource
  & $taskCompiler @taskArguments
  if($LASTEXITCODE -ne 0){throw "Compiler failed: $taskName"}

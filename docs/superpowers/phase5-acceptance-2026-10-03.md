@@ -6,7 +6,74 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current history-off receipt and captured GameViewer lock, 2026-10-04 21:00
+## Current recovery and recognition-off control, 2026-10-04 21:51
+
+The user disabled GameViewer's **remote-assistance clipboard recognition**
+setting and explicitly authorized recovery. The screenshot describes invitation
+recognition; it does not establish that remote clipboard synchronization is off.
+The previously prepared sync-off control is retained as historical preparation,
+not executed or accepted as proof of synchronization being disabled.
+
+The first explicit recovery (`clipboard-recovery-210049-20261004-212826-449`)
+backs up current contents successfully, then fails Windows Forms restoration.
+That failure is retained; it does not start acceptance or repeat restoration.
+A separate narrow native recovery helper is then built and checked offline.
+It rehydrates the four standard text formats through local WinForms COM
+serialization, copies their HGLOBAL bytes exactly before mutation, and uses
+immediate Win32 publication with a hidden owner window. It rejects unsupported
+formats and duplicates, verifies Unicode and Locale, and never guesses ANSI
+or OEM encodings. All allocation and validation precede EmptyClipboard;
+successful SetClipboardData transfers ownership to Windows. See
+[Microsoft SetClipboardData documentation](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setclipboarddata).
+
+The separately authorized native recovery succeeds in
+`clipboard-native-recovery-210049-20261004-213943-372`. A fresh current-content
+backup is verified before writing. Afterwards a new encrypted snapshot is
+decrypted and compared in memory: **all four original formats and complete
+data entries match exactly**. Earlier recovery and protocol failures remain
+failed; recovery is explicitly not native acceptance.
+
+The recognition-off original control
+`clipboard-gameviewer-recognition-off-control-20261004-214032-773` stops at
+its first case (`clipboard-protected-20261004-214037`). All six original
+operation groups finish and original snapshot restoration succeeds. However,
+the unchanged independent strict reader fails parsing native-copy-consumed.png.
+That file is 7,057 bytes, **all zero**, with SHA256
+`fea2ddfd594ede58d1b04e9e5dbc0d0f896125d7c0f619a63e26bb26add36105`.
+The complete original gate remains failed. No second protocol or second pair
+runs, no retry is added, and original assertions/budgets are unchanged. The
+20 ms ownership probe does not identify an external locker for that read;
+the zero-file cause cannot be assigned to GameViewer or product publication.
+
+Two separate bounded diagnostics retain that uncertainty. In
+`clipboard-png-consumer-contention-20261004-214605`, a known native PNG is
+consumed byte-exactly without a lock; with a known 500 ms read-only lock,
+the original consumer reports no stream. This does **not** reproduce the
+all-zero file. In `clipboard-png-path-witness-20261004-214736`, two added
+native reads surround the original independent consumer. All three paths
+return the same valid 7,057-byte PNG with SHA256
+`2f6401dbdd850abe974449f43cf61b5543ca9a4d250b0dc8bf366be386ae67c1`.
+The strict four RGBA/two text/style/restoration reader passes, but these
+additional read observations make this a diagnostic, not an original passing
+acceptance session. Neither diagnostic justifies changing the product.
+
+After both diagnostics, `clipboard-after-diagnostics-readonly-20261004-215128-797`
+confirms the current clipboard still exactly matches the complete pre-test
+encrypted snapshot. All private backups, returns and profiles remain local.
+Product source and portable identity are unchanged. All 26 original frozen
+inputs, both observed helpers and five protection inputs remain verified.
+
+The new `verify-phase5-clipboard-gameviewer-absent-control.ps1` passes
+CheckOnly. It refuses to start while GameViewer is running and never stops
+a process, connection or service. Two original independent pairs retain
+zero retries and stop on first failure. Process absence is checked at pair
+boundaries; continuous absence is not falsely claimed. The current user
+operation mode must be established before arranging this comparison without
+interrupting their remote access. **Full Phase 5 acceptance remains false**;
+624 native tests, eight packaged UI groups, nine exact Mac exports and 29/29
+original performance coverage retain their applicable evidence.
+
+## Earlier history-off receipt and captured GameViewer lock, 2026-10-04 21:00
 
 The received `clipboard-history-off-control-20261004-205957-992` verifies
 all original frozen inputs and begins with Clipboard history disabled

@@ -357,3 +357,28 @@ Full Phase 5 remains incomplete. The unchanged product/source/package and
 previous native, Mac, functional and original timing results retain their
 applicable coverage; no further product patch or repeated performance run is
 justified by this restoration failure. See [the current acceptance record](phase5-acceptance-2026-10-03.md).
+
+## Verified recovery and recognition-off result, 2026-10-04 21:51
+
+The user's screenshot and action concern remote-assistance invitation
+recognition, not verified clipboard synchronization. The first authorized
+Windows Forms recovery fails after backing up current data. A separate native
+text recovery prepares the original four formats using local WinForms COM
+serialization, publishes immediate Win32 data, and verifies a new encrypted
+snapshot against the full original entries. Exact recovery passes; both
+pre-recovery backups and all failed evidence remain private and retained.
+
+The unchanged original recognition-off control completes its first native
+protocol and restores the snapshot, but its strict independent reader finds
+an all-zero 7,057-byte PNG from the external consumer. The sequence stops
+without retries. A known 500 ms lock instead produces no stream, so it does
+not explain this new failure. A separate path diagnostic finds identical valid
+PNG bytes in native reads before/after the independent consumer, and all strict
+pixel/text/style/restoration checks pass. Additional reads make that diagnostic
+separate from original acceptance; the failed original gate remains failed.
+
+The final read-only snapshot confirms exact pre-test clipboard contents still
+restored. The next control refuses to start while GameViewer is running and
+never disconnects remote access. User operation mode is pending; full Phase 5
+remains incomplete. No additional product patch, performance rerun or Mac
+verification is justified yet. See [the latest evidence and limits](phase5-acceptance-2026-10-03.md).

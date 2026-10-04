@@ -51,6 +51,25 @@ current clipboard is wanted. A recovery can never erase an earlier failed
 assertion or be counted as a passing original protocol. Do not print decrypted
 data or commit encrypted payloads, user returns or runtime profiles.
 
+`ClipboardTextNativeRecovery.exe prepare ORIGINAL_DPAPI` prepares the four
+standard Text, UnicodeText, OEMText and Locale formats in memory without
+accessing the system clipboard. It uses the local WinForms COM serializer
+and copies its HGLOBAL bytes exactly; it does not guess ANSI/OEM encodings.
+Unsupported formats, duplicate names, embedded NULs and invalid Locale data
+are refused before any mutation. `self-test` verifies synthetic local memory
+copies, Unicode and Locale preservation and invalid input rejection without
+accessing the system clipboard.
+
+Its explicit `restore ORIGINAL_DPAPI` operation publishes immediate Win32
+data using a hidden owner window, after all formats have been prepared.
+Clipboard acquisition is bounded to 250 ms. It does not repeat publication
+or use delayed OLE rendering. Before this recovery, separately back up and
+verify the current clipboard; afterwards snapshot it and compare the exact
+decrypted format/data entries in memory. Never claim success solely from
+the write exit code. Both backups must be retained if publication or the
+read-only comparison fails. This narrow recovery is separate from acceptance
+and cannot substitute for a passing original restoration assertion.
+
 `ClipboardReadOnlyLocker.exe EVIDENCE_DIRECTORY [MILLISECONDS]` holds the
 clipboard open using its own hidden window, then closes it. The default is
 five seconds; explicit intervals must be 50 through 5000 milliseconds. Create
