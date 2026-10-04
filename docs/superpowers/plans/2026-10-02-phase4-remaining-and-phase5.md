@@ -65,7 +65,10 @@ clipboard, large-image performance and Mac interoperability evidence separately.
 - [x] Production 0244 native clipboard interoperability: a later unchanged
   original protocol passes all six groups and the exact reader; initial OLE
   snapshot refusal and intermittent paste failures remain recorded.
-- [ ] All large-image performance budgets: repeated failures retained in report.
+- [x] Complete original 1527 large-image performance run: 29 passed, zero
+  failures/skips, one worker and zero retries (8.8 minutes) in the received
+  ordinary interactive run. Historical failures remain; their intermittent
+  cause is not claimed fixed.
 - [x] Live Mac return files open/save/reopen and continued text/shape/effect
   editing in the production Windows package.
 - [x] Current release-WASM exports match Mac-no-edit, Mac-edited and the
@@ -83,9 +86,12 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   Independent fresh-profile native Mac checks pass 11 reads / 10 atomic saves
   and all nine complete PNGs exactly; new Mac 7/14 persists on reopen.
   An initial Save As timeout is retained and not declared fixed.
-- [ ] Production 1527 original clipboard protocol: OLE snapshot refused before
-  mutation; independent Win32 OpenClipboard returns error 5. The hash-bound
-  administrator system-trace/clipboard script is ready; CheckOnly passes.
+- [ ] Production 1527 independent clipboard stability: first interactive
+  protocol passes all six groups and strict RGBA/text/style/restoration; the
+  second fails at Paste after Cut (two layers instead of three within the
+  original five seconds). Both original format sets restore. Clipboard-only
+  observation is prepared and passes CheckOnly; earlier host snapshot and
+  elevated endpoint failures remain separately recorded.
 
 Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
 622 native tests, 287 unit tests and 195 current functional browser passes
@@ -332,3 +338,21 @@ cases and two independent guarded native clipboard protocols plus strict
 image/text/style/restoration comparisons. No further GPU recording is needed
 for that run. Full acceptance remains open pending this evidence and resolution
 of the recorded intermittent failures.
+
+### Ordinary interactive 1527 receipt, 2026-10-04
+
+The received ordinary run passes all 29 original timing cases in 8.8 minutes
+with 26 unchanged frozen inputs. First clipboard passes six native groups,
+four independently rechecked exact RGBA comparisons, two editable UTF-16
+records, matching style and restoration. The independent session fails
+Ctrl+V after Cut: two layers remain instead of three within the original
+five-second timeout. Both original clipboard format sets restore. No retry
+or assertion change was introduced. The cause is unproven; full acceptance
+remains incomplete alongside the retained initial native Save As timeout.
+
+The new local `verify-phase5-clipboard-observed-1527.ps1` runs clipboard
+only and logs shortcut/IPC/state information plus a failure screenshot.
+Its original body reconstructs byte for byte after removing observations;
+CheckOnly and a read-only real-package logger self-check pass. It needs
+ordinary interactive PowerShell, with no further timing or GPU recording
+required for this diagnostic step.

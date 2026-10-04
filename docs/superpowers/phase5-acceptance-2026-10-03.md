@@ -15,9 +15,12 @@ functional cases and all nine independent Mac full-RGBA export comparisons.
 The four alpha probes also match GPU/CPU bytes exactly; the other 800x600
 Mac cases remain within one GPU byte. Saved transforms stay unchanged.
 
-Four targeted original timing cases pass. In the full unchanged 29-case run,
-20 pass and nine fail (10.0 minutes), including GPU waits in result/partial
-upload frames; typed W passes at 17/27 ms, and both brush/retouch sizes pass.
+The received ordinary interactive 1527 run passes all 29 original timing
+cases in 8.8 minutes, one worker and zero retries, with all 26 frozen inputs
+unchanged. The earlier Codex-host full run remains 20 passed / nine failed
+(10.0 minutes), including GPU waits in result/partial upload frames; its typed
+W passes at 17/27 ms, and both brush/retouch sizes pass. No intermittent
+performance cause is claimed fixed merely from the later complete pass.
 The prior human-run 1256 verifier is 26/29; its clipboard preflight safely
 aborts at OleGetClipboard. Two same-assets visible-window diagnostic cases
 finish one pass / one failure; a minimal no-application WebGL program also
@@ -33,8 +36,15 @@ run records a complete GPU/CPU ETL and passes original F1, but its native
 clipboard protocol never starts because the WebView debug endpoint is absent
 for 45 seconds. The snapshot succeeds and its original format set is restored.
 A non-elevated same-package endpoint control passes. The new hash-bound
-ordinary PowerShell verifier preserves the full 29 original timing cases and
-two independent guarded clipboard protocols; CheckOnly passes.
+ordinary PowerShell verifier produces the complete 29/29 timing evidence
+and a first six-group native clipboard pass, independently verified by four
+exact RGBA comparisons and UTF-16/style/restoration checks. Its second
+clipboard session fails when Ctrl+V after Cut leaves two layers instead of
+three within the unchanged five-second timeout. Both original clipboard
+format sets are restored. A new clipboard-only observer preserves the
+original body, assertions and timeouts exactly; its read-only runtime self-
+check and CheckOnly pass. The failing session has no error/IPC snapshot, so
+its cause remains unproven.
 Historical evidence below is retained.
 
 ## Earlier checkpoint, 2026-10-04 morning
@@ -1729,3 +1739,48 @@ A timing failure is retained while independent clipboard evidence proceeds.
 or application assertion/budget change is needed for this handoff. Full
 Phase 5 acceptance remains false, including the retained initial Save As
 timeout whose cause is still unproven.
+
+## Ordinary interactive receipt and clipboard Cut/Paste failure, 2026-10-04
+
+The received `interactive-1527-20261004-164354-228` passes the complete original
+29-case performance suite in 8.8 minutes, one worker, zero retries and no
+skips. All 26 frozen inputs match after execution and during independent
+review. The earlier failing performance runs are preserved; this pass does
+not by itself establish the cause or resolution of their intermittent waits.
+
+Its first clipboard session, `clipboard-20261004-165244`, passes all six
+original production-native groups. Independent re-execution of the strict
+reader passes four full RGBA comparisons, two editable text records with
+UTF-16 length 16, matching styles and original-format restoration.
+
+Its independent session, `clipboard-20261004-165317`, gets through external
+PNG paste, native PNG copy, external bitmap paste, native Cut and independent
+bitmap consumption. The following Ctrl+V fails the original five-second
+assertion: layer count remains two instead of three. The protocol stops; no
+retry is added, and its strict completion reader is not run. Its restoration
+response passes and preserves the original format set, as in the first
+session. No retained failure screenshot or IPC/error-state snapshot exists
+for that original harness, so clipboard-access contention, shortcut/focus
+and asynchronous-state explanations remain hypotheses. No product patch
+is justified yet.
+
+The local `verify-phase5-clipboard-observed-1527.ps1` prepares the next
+discriminating check in ordinary PowerShell, without repeating performance.
+It uses the same 1527 package and original guarded snapshot/restoration helper.
+Removing only the observation additions from its native JavaScript restores
+the original harness body byte for byte: assertions, timeouts and commands
+are unchanged. It records shortcut target/default-prevention, native IPC
+start/response/error metadata, working/layer/error state and a failure
+screenshot without adding waits before gestures. Native clipboard payloads
+are not logged. Each completed protocol uses the unchanged strict reader;
+overall clipboard stability requires both sessions to pass. A failure stops
+the sequence rather than retrying.
+
+CheckOnly passes. A separate real-package, read-only observer self-check
+confirms that a simulated IPC error and an unmatched key are captured; it
+executes no application actions and accesses no system clipboard. An initial
+self-check caught a collision between the IPC-error field and DOM-error
+field; those fields are now distinct and the corrected self-check passes.
+These diagnostic results establish the logger, not clipboard acceptance.
+Full Phase 5 acceptance remains false, and the prior native Save As timeout
+is still retained with its cause unproven.
