@@ -6,6 +6,32 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
+## Current checkpoint, 2026-10-04
+
+The received Windows interactive run passes all 29 original performance cases
+for production 0244. A later unchanged 0244 clipboard run passes all six
+native groups and independent exact RGBA/UTF-16/style/restoration checks;
+prior intermittent failures remain recorded.
+
+The new measured byte interpolation makes all eight received Mac projects'
+release-WASM exports exactly match every straight RGBA byte, including
+Mac-created. The four alpha probes also match CPU/GPU bytes exactly.
+The final candidate passes 623 complete native workspace cases, 287 units,
+three TypeScript checks and nineteen render cases. The subsequently added
+half-column regression passes alongside the exact grid and five existing
+pixel-copy checks. All 198 functional browser cases pass, with the 29 original
+opt-in performance skips. The separate complete timing run finishes 23 passed /
+six failed (10.6 minutes), one worker and zero retries. Packaged native
+verification and an independent prior-version timing control are in progress.
+Publication remains at the previous checkpoint.
+
+Mac gesture records report PASS, but the returned blue rounded rectangle
+contains Stroke 5 / Shadow Distance 12 instead of the reported applied 7/14.
+The actually applied-and-reopened Mac project has been requested. Full Phase 5
+acceptance is not yet complete. Later sections retain historical failures and
+diagnostics; the exact-byte candidate and final verification sections describe
+new work.
+
 ## Changes found during acceptance
 
 Native Copy and Cut sent document coordinates in HTTP `Origin`. WebView2 owns
@@ -1259,7 +1285,7 @@ differences are recorded in [the Mac return report](mac-roundtrip-results-2026-1
 Mac-created enlarged-text export acceptance remains open; no sampling fix
 is inferred from metadata preservation or the font-face correction.
 
-## Outstanding gates and publication scope
+## Outstanding gates at the production 0244 handoff
 
 Full acceptance remains incomplete. The retained canvas-dimension fix passes
 287 units, three TypeScript checks, 19 exact render cases and all 197
@@ -1286,3 +1312,128 @@ policy, skip, retry or image tolerance is weakened to close those gates.
 The checkpoint stages only reviewed source, regression tests and these reports.
 Mac return data, clipboard data, test traces, packages, `.workbuddy` and the user's
 untracked sampling probes remain local and untouched. Full acceptance awaits the required Windows interactive and Mac evidence.
+
+## Received Mac and Windows evidence, 2026-10-04
+
+The user returns four independent Mac Compositor 1.4.5 alpha PNGs, RESULT.txt
+and Mac-edited-test.comp/.png. A new local snapshot contains all thirty received
+files; its manifest records file sizes and SHA-256 values. The original return
+folders remain untouched. Evidence: mac-alpha-return-20261004-received/ and
+mac-alpha-return-20261004-received-files.json.
+
+RESULT reports text/shape undo-redo, effects preview/cancel and reopening
+editability as PASS on macOS 26.5.2. It also reports applied 7/14 persistence as
+PASS, but the actual returned rounded rectangle retains Stroke Size 5 and
+Shadow Distance 12. That saved-value check remains open; the user has been
+asked to return the project actually saved at 7/14. This discrepancy does not
+invalidate their reported cancellation and undo/redo gestures.
+
+The user's hash-bound production-0244 interactive run completes all twenty-nine
+original performance cases in 8.3 minutes, one worker and zero retries. Every
+one of the twenty frozen input hashes still matches. This is a complete timing
+pass for source dbb4d81 and the 0244 assets; it is not a timing pass for the new
+sampling prototype. The same interactive run restores the clipboard but fails
+at native text paste (four layers instead of five). Evidence:
+interactive-0244-20261004-092948-416-summary.json and its transcript.
+
+A local diagnostic clipboard run later fails the first external PNG paste. A
+second diagnostic run passes, followed by one complete unchanged original
+protocol run that passes all six groups with the production bridge, no test API
+and no page errors. Its independent comparator passes all four full-length
+exact RGBA checks, both editable UTF-16 records and style checks, and original
+format restoration. Previous failures remain retained; no clipboard code fix
+or repeatable resolution of their intermittent cause is claimed. Evidence:
+clipboard-20261004-104553/, clipboard-20261004-104919/,
+clipboard-20261004-105142/, native-0244-clipboard-original-recheck.log and
+clipboard-0244-original-exact.json/.log. No original assertion, timeout, retry
+or clipboard fixture is changed.
+
+The independent alpha exports expose the old bilinear enlargement discrepancy:
+maximum alpha error 37 for both grids and 11 for the horizontal/vertical strips.
+The two Mac grid PNGs are identical, supporting the previously measured shared
+eight-phase enlargement kernel for High quality and Smooth. A local CPU/GPU
+prototype uses that kernel only for affine enlargement; automatic upright
+pixel copies, explicit Nearest, distortions and reduction rules are preserved.
+A new synthetic grid regression uses the independent returned Mac alpha bytes.
+The geometry-correct baseline run fails at 37 against its one-level alpha
+rounding allowance; the first attempted baseline test misplaced the import and
+is explicitly excluded as a valid negative control. Evidence:
+mac-alpha-sampling-baseline-red-fixed.log and
+mac-alpha-sampling-baseline-red-initial-note.txt.
+
+The targeted native tests pass six cases. Actual prototype native exports
+reduce both grid alpha errors to one; horizontal/vertical alpha errors are also
+at most one, but raw straight RGBA has transparent-white-versus-zero pixels
+and a maximum difference of 255. Mac-created improves to 8,355 different
+pixels / 13,763 channels, but raw maximum difference remains 51. Its
+premultiplied difference of at most two does not close the required exact
+straight-RGBA export gate. Mac-edited-test is exact at its actual saved 5/12.
+Evidence: mac-alpha-sampling-targeted-native.log and
+mac-alpha-sampling-prototype-comparison.json. Full native, release WASM and GPU
+validation are still in progress; this prototype is not published or packaged.
+
+## Exact-byte enlargement candidate, 2026-10-04
+
+The continuous-weight prototype passes 623 native tests, 287 units, all three
+TypeScript checks and 198 functional browser cases with the 29 unchanged
+opt-in skips. Its first 19-case rendering run has one Image Size mask formula
+failure; keeping Image Size on its original resampling path resolves that
+failure and the corrected nineteen-case run passes. Those full functional
+results belong to the archived v2 candidate, not the new byte model.
+
+The returned strip is explained exactly by anchored, truncated byte products.
+Applying that operation vertically before horizontally also matches both
+independent grids exactly, while horizontal-first differs at 451 pixels.
+The same model matches an independently created colored-text region exactly.
+Actual native full exports leave seven differences, all on one mathematical
+half column. Keeping the lower texel against one-ulp inverse-affine drift
+removes all seven. All six full native exports now match every straight RGBA
+byte: the four probes, Mac-created and Mac-edited-test. The independent strict
+reader requires zero tolerance and fails the seven-pixel v3 candidate before
+passing v4. Evidence: mac-alpha-combined-anchored-models.json,
+mac-created-anchored-byte-model.json, mac-alpha-sampling-v3-residual-pixels.json
+and mac-alpha-sampling-v4-native-comparison.json.
+
+The CPU and GPU enlargement path now use this byte model. The new synthetic
+regressions are strengthened from a one-level alpha allowance to exact Mac
+alpha bytes. Existing assertions, image tolerances and budgets stay unchanged.
+The obsolete pre-half-fix v3 WASM compilation is stopped after verifying its
+owned process identity; its interrupted result is retained and not counted.
+The corrected v4 release WASM and complete verification are in progress.
+No new production package or full Phase 5 completion is claimed yet.
+
+
+## Final byte-interpolation source verification, 2026-10-04
+
+Final release WASM SHA-256 is
+`933ce4a56b642a390e9ff99a283860279aa7aa717641ca6b699d2bd688aaa752`.
+Its independent full-image comparison passes all eight Mac-returned PNGs with
+zero changed pixels/channels. The four alpha probes also have exact GPU/CPU
+bytes; the three 800 x 600 Mac project GPU checks remain within the original
+maximum-two-byte allowance (observed maximum one). The 1920 x 1080 Mac-created
+case has complete CPU/WASM/native PNG comparison, not a GPU full-image claim.
+
+Final native workspace: 623 passed, zero failures, ten existing ignored.
+The subsequently added mathematical half-column regression and exact alpha-grid
+regression pass alongside the five original pixel-copy cases (seven tests).
+All 287 unit tests, three TypeScript checks, nineteen targeted browser render
+cases and the complete 198-case functional suite pass. The functional suite
+retains 29 original opt-in skips; these do not count as performance acceptance.
+
+The separately executed original 29-case timing suite finishes 23 passed / six
+failed (10.6 minutes), one worker, zero retries, and no overlapping owned builds
+or tests. Failures are typed W redraw (77 / <33 ms), gradient preview step
+(567 / <150 ms), mask-gradient step (650 / <400 ms), mask-fill redraw
+(464 / <150 ms), C1 blank-gradient frame gap (492 / <100 ms), and the 100 MP
+brush/retouch responsiveness case (119.5 / <100 ms). Every original assertion,
+budget and warm-up remains intact. The earlier interactive 0244 timing PASS
+belongs to its frozen preceding source/assets; it is not transferred to this
+new candidate. Prior-version fixed-assets control is being measured separately
+to establish whether these failures require a source fix or a different
+execution-context investigation. Neither outcome by itself waives a gate.
+
+Evidence remains under `build-artifacts/phase5-acceptance`: final source identity,
+V4 full-native/source-check/functional/render logs and terminal exit JSON,
+WASM full-return comparison, and the complete final performance failure log.
+The seven-pixel V3 negative control and initial invalid origin-placement
+regression attempt remain retained and are not counted as passes.

@@ -220,3 +220,31 @@ and rejects a one-channel error in an isolated copy. None of these reader
 checks is current-package clipboard acceptance. Mac alpha PNGs/RESULT and
 gesture confirmation remain missing. The full objective and original budgets
 remain unchanged; completion requires these external evidence gates.
+
+
+Received evidence update, 2026-10-04: the hash-bound production-0244 interactive
+run passes all 29 original timing cases. Its clipboard text paste fails; a later
+unchanged original protocol passes all six groups and the independent exact
+RGBA/UTF-16/style/restoration reader, with intermittent failures retained. Mac
+1.4.5 returns all four alpha PNGs and gesture PASS records, but the saved
+rounded rectangle still contains 5/12 rather than reported 7/14; the matching
+saved project is requested. A measured eight-phase enlargement prototype
+reduces independent grid alpha error from 37 to 1 and passes six targeted native
+tests. Full regression remains in progress. Mac-created straight-RGBA export
+is still not exact (maximum difference 51), so Phase 5 is not complete. See the
+received-evidence section of phase5-acceptance-2026-10-03.md for current results.
+
+
+Exact-byte source checkpoint, 2026-10-04: all eight independent Mac PNGs now
+match complete release-WASM exports exactly, including Mac-created, with saved
+transforms unchanged. The four alpha probes also match CPU/GPU bytes exactly.
+Final native workspace passes 623 cases; the newly added half-column case
+passes separately with the exact grid and five existing pixel-copy cases.
+All 287 units, three TypeScript checks, nineteen render cases and all 198
+functional browser cases pass (29 original opt-in skips). Final original
+performance is 23 passed / six failed, 10.6 minutes, one worker and zero retries;
+no failure is waived. A prior-version fixed-assets control and new packaged
+native acceptance are in progress. Mac gesture PASS records are received, but
+the actually saved blue rectangle still reports 5/12 rather than 7/14; the
+correct applied-and-reopened project is still required. Phase 5 full acceptance
+remains open. The acceptance record retains every historical failure.

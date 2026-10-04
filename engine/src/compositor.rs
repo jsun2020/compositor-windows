@@ -3,6 +3,10 @@ use uuid::Uuid;
 
 /// Bilinear or nearest sample in premultiplied float RGBA (0..1). Outside the raster clamps to the edge; coverage is decided by the caller.
 pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
+    sample_with_phase(raster, x, y, nearest, false)
+}
+
+fn sample_with_phase(raster: &Raster, x: f64, y: f64, nearest: bool, quantized: bool) -> [f32; 4] {
     let w = raster.width as i64; let h = raster.height as i64;
     let fetch = |px: i64, py: i64| -> [f32; 4] {
         if px < 0 || py < 0 || px >= w || py >= h { return [0.0; 4]; }
@@ -15,11 +19,35 @@ pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
     }
     let fx = x - 0.5; let fy = y - 0.5;
     let xu = fx.floor() as i64; let yu = fy.floor() as i64;
-    let tx = (fx - xu as f64) as f32; let ty = (fy - yu as f64) as f32;
+    let phase = |t: f64| {
+        // Core Graphics enlargement phases, measured independently on Mac 1.2.10
+        // and the white-alpha Mac 1.4.5 horizontal/vertical/grid exports.
+        const WEIGHTS: [f32; 9] = [0.0, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875, 0.9375, 1.0];
+        if quantized { WEIGHTS[(t * 8.0).round().clamp(0.0, 8.0) as usize] } else { t as f32 }
+    };
+    let tx = phase(fx - xu as f64); let ty = phase(fy - yu as f64);
     let x0 = xu.clamp(0, w - 1); let x1 = (xu + 1).clamp(0, w - 1);
     let y0 = yu.clamp(0, h - 1); let y1 = (yu + 1).clamp(0, h - 1);
     let a = fetch(x0, y0); let b = fetch(x1, y0); let c = fetch(x0, y1); let d = fetch(x1, y1);
     let mut out = [0f32; 4];
+    if quantized {
+        // CG resamples bytes vertically first, then horizontally. Each pass keeps
+        // the nearer texel and subtracts its truncated weighted contribution.
+        // The independent alpha grid and colored-text return match this exactly.
+        let interpolate = |a: f32, b: f32, t: f64| {
+            // An inverse affine map can put an exact half one f64 ulp above it.
+            // CG chooses the lower texel at the tie; preserve that choice.
+            let (near, far, minor) = if t > 0.5 + 1e-10 { (b, a, 1.0 - t) } else { (a, b, t) };
+            let weight = phase(minor);
+            near + (far * weight).floor() - (near * weight).floor()
+        };
+        for i in 0..4 {
+            let left = interpolate((a[i] * 255.0).round(), (c[i] * 255.0).round(), fy - yu as f64);
+            let right = interpolate((b[i] * 255.0).round(), (d[i] * 255.0).round(), fy - yu as f64);
+            out[i] = interpolate(left, right, fx - xu as f64) / 255.0;
+        }
+        return out;
+    }
     for i in 0..4 {
         out[i] = (a[i] * (1.0 - tx) + b[i] * tx) * (1.0 - ty) + (c[i] * (1.0 - tx) + d[i] * tx) * ty;
     }
@@ -153,7 +181,7 @@ fn copied_edge_coverage(draw: &LayerDraw, p: Point, out_x: f64, out_y: f64) -> f
     ((coverage * 255.0).floor() / 255.0) as f32
 }
 
-fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: f64, nearest: bool, out_x: f64, out_y: f64) -> [f32; 4] {
+fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: f64, nearest: bool, out_x: f64, out_y: f64, enlargement_phases: bool) -> [f32; 4] {
     let antialiased_copy = nearest && draw.transform.sampling != Sampling::Nearest;
     let coverage = if antialiased_copy { copied_edge_coverage(draw, p, out_x, out_y) } else { 1.0 };
     if coverage <= 0.0 { return [0.0; 4]; }
@@ -161,7 +189,8 @@ fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: 
     let (x, y) = if antialiased_copy {
         ((px.x * scale).clamp(0.0, source.width as f64 - 0.0001), (px.y * scale).clamp(0.0, source.height as f64 - 0.0001))
     } else { (px.x * scale, px.y * scale) };
-    let mut color = sample(source, x, y, nearest);
+    let enlarged = enlargement_phases && draw.corners.is_none() && draw.transform.size.width * out_x / draw.pixels_width as f64 / scale > 1.001;
+    let mut color = sample_with_phase(source, x, y, nearest, enlarged);
     if antialiased_copy && coverage < 1.0 {
         // Core Graphics materializes the covered premultiplied source as bytes
         // before source-over. Keeping fractional bytes until after blending
@@ -180,7 +209,7 @@ fn sample_draw_reduced(draw: &LayerDraw, p: Point, reduced: Option<&(Raster, f64
     if w == 0 || h == 0 { return [0.0; 4]; }
     let Some((source, scale, nearest, out_x, out_y)) = reduced else { return [0.0; 4]; };
     let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), w, h, p) else { return [0.0; 4]; };
-    sample_placed(draw, source, px, p, *scale, *nearest, *out_x, *out_y)
+    sample_placed(draw, source, px, p, *scale, *nearest, *out_x, *out_y, true)
 }
 
 pub(crate) fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f32 {
@@ -219,7 +248,7 @@ pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Po
     inner(doc, plan, source, p, 0, reduced)
 }
 
-struct Target<'a> { data: &'a mut [u8], w: u32, h: u32, region: Rect }
+struct Target<'a> { data: &'a mut [u8], w: u32, h: u32, region: Rect, enlargement_phases: bool }
 
 impl<'a> Target<'a> {
     fn doc_point(&self, ox: u32, oy: u32) -> Point {
@@ -263,7 +292,7 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
     for oy in y0..y1 { for ox in x0..x1 {
         let p = target.doc_point(ox, oy);
         let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { continue; };
-        let mut s = sample_placed(draw, &source, px, p, scale, nearest, out_per_doc, target.h as f64 / target.region.height);
+        let mut s = sample_placed(draw, &source, px, p, scale, nearest, out_per_doc, target.h as f64 / target.region.height, target.enlargement_phases);
         if s[3] <= 0.0 { continue; }
         let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
         if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
@@ -382,7 +411,7 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
     let (w, h) = (target.w, target.h);
     let mut temp = vec![0u8; (w * h * 4) as usize];
     {
-        let mut t = Target { data: &mut temp, w, h, region: target.region };
+        let mut t = Target { data: &mut temp, w, h, region: target.region, enlargement_phases: target.enlargement_phases };
         draw_layer(doc, plan, &mut t, base, BlendMode::Normal, true, cache);
     }
     let base_alpha: Vec<u8> = temp.chunks_exact(4).map(|p| p[3]).collect();
@@ -396,7 +425,7 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
         px[3] = 255;
     }
     {
-        let mut t = Target { data: &mut temp, w, h, region: target.region };
+        let mut t = Target { data: &mut temp, w, h, region: target.region, enlargement_phases: target.enlargement_phases };
         for child in children { draw_layer(doc, plan, &mut t, child, child.blend, false, cache); }
     }
     // Restore the base alpha, then composite with the base's blend mode under its folder masks.
@@ -463,7 +492,7 @@ pub fn composite_plan_with(doc: &Document, plan: &RenderPlan, region: Rect, out_
 fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32, cache: &EffectsCache) -> Raster {
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
-        let mut target = Target { data: &mut data, w: out_width, h: out_height, region };
+        let mut target = Target { data: &mut data, w: out_width, h: out_height, region, enlargement_phases: true };
         for node in &plan.nodes {
             match node {
                 PlanNode::Layer { draw } => draw_layer(doc, plan, &mut target, draw, draw.blend, true, cache),
@@ -491,7 +520,9 @@ pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &L
     let (pw, ph) = layer.pixels.as_ref().map_or((0, 0), |p| (p.width, p.height));
     let draw = LayerDraw { id: layer.id, transform: layer.transform, corners: None, pixels_width: pw, pixels_height: ph, pixels_revision: layer.pixels_revision,
         opacity: layer.opacity.clamp(0.0, 1.0), blend: BlendMode::Normal, keeps_alpha: false, coverages: vec![], clip: None, adjustment: None, effects: None };
-    let mut t = Target { data: target, w: tw, h: th, region };
+    // Image Size materializes layer pixels and masks using its existing resampling
+    // behavior; display/export enlargement phases do not change that operation.
+    let mut t = Target { data: target, w: tw, h: th, region, enlargement_phases: false };
     draw_layer(&doc, &plan, &mut t, &draw, BlendMode::Normal, false, &EffectsCache::default());
 }
 

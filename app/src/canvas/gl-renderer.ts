@@ -519,12 +519,12 @@ export class GlRenderer implements Renderer {
         y: cornersView[0].y * ctx.dpr - (this.frame?.y ?? 0) + (draw.transform.flipY ? t.height - chunk.y : chunk.y) * sy,
         sx: draw.transform.flipX ? -sx : sx, sy: draw.transform.flipY ? -sy : sy,
       } : null;
-      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid);
+      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid, !t.nearest && !draw.corners && Math.hypot(cornersView[1].x - cornersView[0].x, cornersView[1].y - cornersView[0].y) * ctx.dpr / t.width > 1.001);
     }
   }
 
   /** Composes `tex` into `target`, reading `backdrop`. Never blits or swaps -- the caller owns that. */
-  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null): void {
+  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null, quantizedEnlargement = false): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
     const p = this.programs.layer; gl.useProgram(p.program);
@@ -536,6 +536,7 @@ export class GlRenderer implements Renderer {
       copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[3].y - cornersView[0].y) * ctx.dpr) : 0);
     gl.uniform4f(p.uniforms.copyGrid, copyGrid?.x ?? 0, copyGrid?.y ?? 0, copyGrid?.sx ?? 1, copyGrid?.sy ?? 1);
     gl.uniform1f(p.uniforms.copyHeight, this.fh());
+    gl.uniform1i(p.uniforms.quantizedEnlargement, quantizedEnlargement ? 1 : 0);
     gl.uniform1i(p.uniforms.flipX, flipX ? 1 : 0); gl.uniform1i(p.uniforms.flipY, flipY ? 1 : 0);
     gl.uniform1f(p.uniforms.opacity, opacity); gl.uniform1i(p.uniforms.mode, mode);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms.tex, 0);

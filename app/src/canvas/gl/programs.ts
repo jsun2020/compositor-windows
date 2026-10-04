@@ -95,6 +95,7 @@ uniform vec4 uvRect;
 uniform vec2 edgePadding;
 uniform vec4 copyGrid;
 uniform float copyHeight;
+uniform bool quantizedEnlargement;
 uniform sampler2D tex;
 uniform sampler2D backdrop;
 uniform sampler2D coverage;
@@ -104,6 +105,28 @@ uniform float opacity;
 uniform int mode;
 out vec4 color;
 ${BLEND_GLSL}
+float enlargementPhase(float t) {
+  const float weights[9] = float[9](0.0, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875, 0.9375, 1.0);
+  return weights[int(clamp(floor(t * 8.0 + 0.5), 0.0, 8.0))];
+}
+vec4 interpolateBytes(vec4 a, vec4 b, float t) {
+  bool upper = t > 0.5;
+  vec4 near = upper ? b : a, far = upper ? a : b;
+  float weight = enlargementPhase(upper ? 1.0 - t : t);
+  return near + floor(far * weight) - floor(near * weight);
+}
+vec4 enlargedTexel(ivec2 at, ivec2 size) {
+  return floor(texelFetch(tex, clamp(at, ivec2(0), size - 1), 0) * 255.0 + 0.5);
+}
+vec4 enlargedSample(vec2 at) {
+  ivec2 size = textureSize(tex, 0);
+  vec2 p = at * vec2(size) - 0.5, fraction = fract(p);
+  ivec2 lo = ivec2(floor(p));
+  // Match CG's byte order: vertical interpolation, then horizontal.
+  vec4 left = interpolateBytes(enlargedTexel(lo, size), enlargedTexel(lo + ivec2(0, 1), size), fraction.y);
+  vec4 right = interpolateBytes(enlargedTexel(lo + ivec2(1, 0), size), enlargedTexel(lo + ivec2(1, 1), size), fraction.y);
+  return interpolateBytes(left, right, fraction.x) / 255.0;
+}
 void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
@@ -118,7 +141,7 @@ void main() {
     sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
     // Covered source bytes are rounded before blending with the backdrop.
     sampled = floor(sampled * edgeCoverage * 255.0 + 0.5) / 255.0;
-  } else sampled = texture(tex, uv);
+  } else sampled = quantizedEnlargement ? enlargedSample(uv) : texture(tex, uv);
   vec4 s = sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
   // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
@@ -515,7 +538,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
+    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "quantizedEnlargement", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),

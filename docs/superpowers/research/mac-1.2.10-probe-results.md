@@ -210,6 +210,43 @@ path. This is the resampling task: the CPU compositor's `sample`, the GLSL layer
 (hardware bilinear today: the shader must fetch the four texels and weight them by the table), and
 edge coverage for turned and fractionally placed layers on both.
 
+## Mac 1.4.5 byte interpolation confirmation, 2026-10-04
+
+The independent white-alpha strip/grid returns settle the remaining byte
+rounding in affine enlargement. Linear interpolation with the phase weights
+above is close but not exact: both grids differ by one level at 366 pixels.
+A finer phase table and small four-tap coefficient perturbations cannot explain
+the strip bytes consistently.
+
+For each axis, choose the nearer byte n and farther byte f, choosing the lower
+texel at an exact half. With the minor phase's weight w, interpolate as
+
+    n + floor(f * w) - floor(n * w)
+
+Apply this vertically first, then horizontally, preserving bytes between the
+passes. The reversed order differs at 451 grid pixels; this order matches both
+grids and the entire horizontal/vertical strips exactly. An independently
+created colored-text PNG confirms the model without fitting to its pixels.
+The native full export initially has seven remaining differences on one column
+where inverse affine arithmetic moves a mathematical half just above 0.5.
+Keeping the lower texel within 1e-10 of that half removes those seven pixels.
+All six actual native exports now match full straight RGBA bytes: four synthetic
+probes, Mac-created and Mac-edited-test. Evidence:
+mac-alpha-combined-anchored-models.json, mac-created-anchored-byte-model.json,
+mac-alpha-sampling-v3-residual-pixels.json and
+mac-alpha-sampling-v4-native-comparison.json in the local acceptance folder.
+
+The implementation applies this to affine enlargement for display/export,
+preserves saved sampling metadata, automatic upright pixel copies, explicit
+Nearest and reductions, and keeps Image Size's established resampling behavior.
+It does not establish exact rotated edge coverage or distortion sampling.
+Release WASM now matches all eight complete Mac PNGs exactly; GPU matches the
+four alpha probes exactly and remains within the original two-byte allowance
+for three 800 x 600 projects (observed maximum one). The 1920 x 1080 full-image
+GPU case is not claimed. All 198 functional browser cases and nineteen targeted
+render cases pass. Original timing budgets remain a separate incomplete gate
+(23 passed / six failed), and new packaged native verification is pending.
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor
