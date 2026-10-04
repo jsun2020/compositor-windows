@@ -15,7 +15,7 @@ fn pixel_origin(headers: &tauri::http::HeaderMap) -> Result<[f64; 2], String> {
 #[cfg(windows)]
 mod win {
     use super::MAX_BYTES;
-    use std::{ffi::c_void, ptr};
+    use std::{ffi::c_void, ptr, time::{Duration, Instant}};
     type Handle = *mut c_void;
     #[link(name = "user32")]
     extern "system" {
@@ -43,10 +43,21 @@ mod win {
     struct Open;
     impl Open {
         fn new(window: Handle) -> Result<Self, String> {
-            if unsafe { OpenClipboard(window) } == 0 {
-                let error=unsafe{GetLastError()};
-                Err(if error==5{"Windows denied clipboard access. Open the app in an interactive desktop session.".into()}else{"The clipboard is in use by another application. Try again.".into()})
-            } else { Ok(Self) }
+            // Clipboard listeners can briefly own the lock immediately after
+            // Copy. ERROR_ACCESS_DENIED also describes that normal contention;
+            // it does not establish a non-interactive desktop. Wait only for
+            // acquisition, before any data access or mutation, on this blocking
+            // worker. A persistent denial still fails within a bounded interval.
+            let deadline = Instant::now() + Duration::from_millis(250);
+            loop {
+                if unsafe { OpenClipboard(window) } != 0 { return Ok(Self); }
+                let error = unsafe { GetLastError() };
+                let now = Instant::now();
+                if !matches!(error, 0 | 5 | 170) || now >= deadline {
+                    return Err("Windows clipboard is busy or unavailable. Please try again.".into());
+                }
+                std::thread::sleep(Duration::from_millis(10).min(deadline - now));
+            }
         }
     }
     impl Drop for Open { fn drop(&mut self) { unsafe { CloseClipboard(); } } }

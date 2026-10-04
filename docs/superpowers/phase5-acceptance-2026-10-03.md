@@ -6,7 +6,107 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current checkpoint, 2026-10-04 evening
+## Current clipboard-fix checkpoint, 2026-10-04 evening
+
+The native candidate waits up to 250 ms to acquire a busy Windows clipboard
+on its existing blocking worker, before reading or clearing
+the clipboard. The previous single attempt classified error 5 as
+a non-interactive desktop even though the same error occurs under a normal
+read-only external lock. Persistent unavailability still returns an error; no
+clipboard payload cache or repeated application gesture is added. Original
+acceptance assertions, deadlines, budgets and zero case retries are unchanged.
+
+The original 1527 baseline passed eight independent native protocols before
+its ninth failed at editable-text paste: accepted Ctrl+V, a real native read
+returning access denied in 12 ms, and four layers instead of five. The original
+snapshot restored and its encrypted backup remains valid. The 20 ms metadata
+probe does not identify the exact locker during that short failure. A separate
+read-only external lock also reproduces the original helper's 0x800401D0
+restoration failure without changing clipboard data; this establishes the
+mechanism, not the cause of the historical 18:23 failure.
+
+Controlled production-native checks distinguish the original and fixed
+executables: the original refuses a 160 ms lock immediately; the candidate
+completes after the short lock releases (155 ms measured read). A 500 ms lock
+returns the new availability error after 255 ms, before release. Both cases
+keep clipboard sequence 3609 unchanged. An earlier candidate-control preflight
+was unavailable and is retained; a subsequent native UI read established access
+had returned before the completed control. No user/system service is stopped.
+
+The fresh native workspace run passes **624 tests, zero failures, 10 existing
+ignored**. Seven frontend/WASM assets remain byte-identical to the verified
+1527 assets: 287 unit checks, three type checks, 198 functional browser checks
+and the received complete **29/29 original performance run** continue to apply
+to those identical assets. Performance is not rerun for the Windows-only
+clipboard acquisition change, and earlier timing failures remain retained.
+The candidate independently passes all eight original native UI groups and
+11 real native Mac reads / 10 atomic saves. All nine complete PNGs match the
+independent Mac returns exactly; saved text, shapes and 7/14 effects remain
+editable on reopen. Original action/assertion bodies are independently checked
+byte-for-byte after normalizing only endpoint/evidence-directory plumbing.
+
+Portable: `Compositor-portable-0.8.0-20261004-clipboard-wait250.zip`,
+4,911,205 bytes, SHA256
+`015F4C7B61C2E07EE6CE3477E52AB628EF670F971C899FD78BA3501CB2CE2278`.
+EXE SHA256:
+`64C74694D6D78208F238BA532FF6908A252FC65525F9FE7902B01C72BCBFC93B`.
+All three archive entries pass CRC and exact staged-file comparison. The
+frontend marker remains `COMPOSITOR_BUILD_0.8.0_20261004-1527`; candidate
+identity is the new executable hash and native-source hash, not a new UI marker.
+
+The first five independent complete candidate clipboard protocols pass their
+original six groups and strict RGBA/text/style/restoration comparisons. The
+sixth fails: the original external Windows Forms bitmap consumer returns no
+image, after a successful 34.2 ms native Cut write. Ctrl+X is accepted, the
+application is idle with two layers and no error. Explorer is sampled holding
+the clipboard at 12:25:27.567 UTC; the consumer request is written at .608
+and its error response at .718. The exact managed GetImage call time is not
+recorded, so that sample alone does not prove the natural failure's exact locker.
+The bounded series stops immediately; remaining pairs are not run. Original
+formats restore, the encrypted backup validates and no recovery is attempted.
+
+A new, separately guarded controlled experiment uses the unchanged original
+helper and actual candidate native image publication. Unlocked consumption
+passes; under a known 500 ms read-only external lock, the same GetImage call
+returns the same no-image assertion before release. Sequence remains 3887
+while held, and the original helper restores the snapshot after release. This
+proves the original independent consumer can fail under external contention
+even after successful native publication. It is diagnostic evidence, not a
+substitute for passing complete protocols or proof of the historical locker.
+
+Windows Clipboard history is currently enabled (read-only registry check).
+Its involvement is a hypothesis, not a confirmed cause. The local hash-bound
+`verify-phase5-clipboard-wait250-history-control.ps1` passes CheckOnly and
+requires the user to temporarily turn that preference off before it runs two
+independent original pairs. It never modifies Windows settings, retries a
+case, relaxes assertions or repeats performance. The user can restore the
+preference afterward. **Full acceptance remains false: external-consumer
+stability is still unresolved.**
+
+The published native acquisition regression is also run against the candidate
+and freshly compiled public helpers, passing both short and persistent lock
+cases with the sequence unchanged.
+
+Reusable, reviewed QA source is in `scripts/phase5-clipboard`: the encrypted
+backup guard, metadata-only ownership probe, read-only external locker, fresh
+builder and native acquisition regression. Their compiled synthetic self-test
+and read-only probe pass. Backups, user payloads, runtime profiles, screenshots,
+packages and all historical failed evidence stay local and excluded from Git.
+
+Evidence under `build-artifacts/phase5-acceptance`: `clipboard-protected-191051-failure-review.json`,
+`clipboard-restoration-contention-20261004-190028-939`,
+`native-clipboard-acquisition-baseline-20261004-192254-039`,
+`native-clipboard-acquisition-fixed-20261004-201901-264`,
+`clipboard-native-wait-rust-test-review.json`,
+`clipboard-native-wait-package-integrity.json`,
+`clipboard-wait-runtime-original-body-equivalence.json`,
+`clipboard-wait-native-owned-runtime-return-comparison.json` and
+`clipboard-wait250-protected-20261004-202041-865`,
+`clipboard-wait250-stability-series-20261004-202253-009`,
+`clipboard-wait250-202505-failure-review.json` and
+`clipboard-consumer-contention-20261004-203058`.
+
+## Earlier checkpoint, 2026-10-04 evening
 
 The actual Mac-applied 7/14 return now passes production-native open/export,
 save/reopen and editable text/shape checks. Its full PNG is byte-identical.

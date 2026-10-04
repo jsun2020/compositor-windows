@@ -291,3 +291,43 @@ the original clipboard and its format set are restored. The Windows clipboard
 gate is closed. The missing Mac gesture confirmations, edited/created export
 differences and recorded performance overruns remain open. No full acceptance
 is claimed, and only reviewed source/tests/docs are published.
+
+
+## Windows clipboard acquisition fix, 2026-10-04 evening
+
+An independently observed original 1527 native session fails after eight
+passing sessions: Ctrl+V is accepted, but the actual read returns error 5
+immediately and editable-text paste misses the unchanged layer assertion.
+The original clipboard restores. A read-only external lock reproduces the
+single-attempt product refusal and, separately, the original helper's
+0x800401D0 restoration failure without changing the clipboard. The exact
+locker at the natural failure and the cause of the historical 18:23
+restoration failure remain unproven.
+
+The production native clipboard now waits at most 250 ms for acquisition
+on the existing blocking worker. It keeps allocation, decoding, format,
+origin, token, ownership and original acceptance rules unchanged. The real
+candidate waits out short contention and reports sustained contention after
+255 ms; no test retry or repeated user gesture is added. Private backups are
+DPAPI encrypted and verified before original protocol actions; the original
+restoration remains mandatory, with no automatic recovery accepted as a pass.
+
+The native workspace passes 624 tests / zero failures / 10 existing ignored.
+The new executable passes eight original UI groups and nine exact native Mac
+PNG exports, 11 native reads and 10 atomic saves, editable text/shape/effects
+and reopened 7/14. All seven frontend/WASM assets are unchanged, retaining
+their 287 unit / 198 functional checks and received 29/29 original performance
+coverage. The ZIP has three CRC-verified entries matching the staged files.
+Its identity and all retained failures are in [the acceptance record](phase5-acceptance-2026-10-03.md).
+
+The candidate passes five independent complete clipboard protocols and strict
+image/text/style/restoration comparisons. The sixth stops at the original
+external bitmap consumer returning no image, after successful native Cut
+publication. The original clipboard restores; the backup remains valid. A
+known read-only external lock reproduces that same consumer failure with
+the unchanged original helper, while unlocked native publication/consumption
+passes. Clipboard history is enabled; its role remains a hypothesis. A
+hash-bound history-off environment comparison is prepared for user execution
+and passes CheckOnly without changing settings or acceptance rules. Full
+acceptance remains false until external-consumer stability is resolved. The older packages, user Mac returns,
+private backups, runtime profiles and failures remain local and preserved.
