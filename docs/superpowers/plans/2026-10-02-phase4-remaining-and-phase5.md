@@ -72,8 +72,9 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   fractional/flipped upright 1:1 probe exactly, with transforms unchanged.
 - [x] Mac gesture records for undo/redo and effect preview/cancel are received.
   Mac-created enlarged-text export now matches every complete RGBA byte.
-- [ ] Mac effect Apply 7/14 persistence: returned project still contains 5/12;
-  the correct applied-and-reopened saved project is required.
+- [x] Mac effect Apply 7/14 persistence: new Mac-edited-new.comp contains 7/14;
+  production 1256 export is exact and native save/reopen retains editable
+  text/shape and 7/14. Original 5/12 evidence is preserved.
 - [x] Production 1256 byte-interpolation package: ZIP/EXE/WASM identity,
   eight native UI groups, nine native Mac reads/saves, eight exact full-PNG
   comparisons and six clipboard groups with independent RGBA/text/restoration.
@@ -268,3 +269,28 @@ inputs. Current performance remains 23/29 passed with six failures; the
 preceding-version six-case control is one pass / five failures. New interactive
 performance evidence and the Mac-applied 7/14 saved project are requested.
 These native/pixel successes do not complete Phase 5 or waive timing failures.
+
+
+Afternoon receipt: the actual Mac-applied 7/14 project closes the saved-effect
+artifact mismatch and exports identically through production 1256. Its human
+interactive script is 26/29 timing passes; typed W and C1 exceed budget, and
+the 24 MP brush page fixture times out before its test body. Clipboard aborts
+at read-only OleGetClipboard. A shader-isolation candidate passes 287 units,
+three type checks and four selected original timing cases (typed W 14/18 ms,
+100 MP C1 gap 60 ms); complete regression and nine Mac comparisons are running.
+No source/WASM pixel algorithm, original assertion or performance budget changes.
+
+
+Separated shader checkpoint: all 287 units, three type checks and 198 complete
+functional cases pass; 29 opt-in performance skips remain unchanged. All nine
+independent Mac full-PNG exports are exact, including applied 7/14. Four selected
+original timing cases pass, and typed W passes at 17/27 ms in the full suite.
+The complete unchanged timing run is 20 passed / nine failed (10.0 minutes);
+no failure is waived. Visible-window comparison and current-source native
+package verification remain separate pending evidence gates.
+
+The visible-window comparison remains one pass / one failure; no performance
+failure is waived. A minimal WebGL control without application/WASM also
+reproduces a 446.7 ms GPU wait. The specific driver/scheduling cause remains
+unproven, and WPR GPU/CPU capture cannot enable profiling policy (0xc5585011).
+Existing display services and system settings remain unchanged.

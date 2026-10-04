@@ -5,7 +5,7 @@ import type { Viewport } from "./viewport";
 import { LayerTextures, levelRect, pixelCopyAtScale, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderHooks, RenderOptions, Renderer } from "./renderer";
 import { EFFECTS_LIMITS, EffectsImages, placedLike } from "./effects-images";
-import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
+import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, layerProgram, type Program, type Programs } from "./gl/programs";
 import { FboPool, type Target } from "./gl/framebuffers";
 import { MaskTextures, syncMask } from "./gl/mask-textures";
 import { AdjustTextures } from "./gl/adjust-textures";
@@ -527,7 +527,7 @@ export class GlRenderer implements Renderer {
   private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null, quantizedEnlargement = false): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
-    const p = this.programs.layer; gl.useProgram(p.program);
+    const p = layerProgram(gl, this.programs, quantizedEnlargement); gl.useProgram(p.program);
     const unitToClip = mat3Mul(this.viewToClip(ctx.viewport), homographyUnitTo(cornersView));
     gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(unitToClip));
     gl.uniform4f(p.uniforms.uvRect, uvRect.x, uvRect.y, uvRect.w, uvRect.h);
@@ -536,7 +536,6 @@ export class GlRenderer implements Renderer {
       copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[3].y - cornersView[0].y) * ctx.dpr) : 0);
     gl.uniform4f(p.uniforms.copyGrid, copyGrid?.x ?? 0, copyGrid?.y ?? 0, copyGrid?.sx ?? 1, copyGrid?.sy ?? 1);
     gl.uniform1f(p.uniforms.copyHeight, this.fh());
-    gl.uniform1i(p.uniforms.quantizedEnlargement, quantizedEnlargement ? 1 : 0);
     gl.uniform1i(p.uniforms.flipX, flipX ? 1 : 0); gl.uniform1i(p.uniforms.flipY, flipY ? 1 : 0);
     gl.uniform1f(p.uniforms.opacity, opacity); gl.uniform1i(p.uniforms.mode, mode);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms.tex, 0);

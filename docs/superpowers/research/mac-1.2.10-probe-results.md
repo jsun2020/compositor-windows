@@ -661,3 +661,25 @@ Of the straight-RGBA pixels differing by > 2 from this model, 867 have Mac alpha
 | (100,75) | [67, 81, 81, 91] | [0, 0, 0, 0] | [122, 153, 148, 50] | [67, 83, 80, 92] |
 | (150,70) | [94, 94, 34, 30] | [0, 0, 0, 0] | [175, 175, 64, 16] | [90, 90, 33, 31] |
 | (159,79) | [73, 73, 18, 14] | [0, 0, 0, 0] | [170, 170, 43, 6] | [73, 73, 18, 14] |
+
+## Phase 5 Mac 1.4.5 applied-effect return, 2026-10-04
+
+The user returned Mac-edited-new.comp with Stroke Size 7 and Drop Shadow
+Distance 14 on the blue rounded rectangle. An independent immutable snapshot
+and eleven file hashes preserve it beside the earlier 5/12 return. Production
+1256 opens/exports/saves/reopens this project through the native bridge with
+editable text/shape and retained 7/14; its complete PNG is exactly equal to the
+Mac export. This closes the saved-effect artifact mismatch.
+
+The subsequent separated GPU shader preserves the measured byte interpolation
+and passes full-PNG exact comparisons for all nine returned projects, including
+this new project and Mac-created, with transforms unchanged. Four alpha probes
+match every GPU/CPU byte; checked 800x600 projects differ by at most one GPU
+byte (unchanged tolerance two). The large Mac-created full GPU view is not
+claimed. Ordinary draws and affine enlargement now compile into separate
+programs; this avoids the extra interpolation branch in ordinary composition.
+Current source packaging and original complete performance gates remain open.
+
+Local evidence: build-artifacts/phase5-acceptance/mac-applied-7-14-received-files.json,
+mac-applied714-1256-comparison.json, shader-isolation-mac-return-comparison.json
+and shader-isolation-mac-validation-mac-checks/checks.json.

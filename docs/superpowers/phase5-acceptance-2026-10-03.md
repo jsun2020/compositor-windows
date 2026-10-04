@@ -6,7 +6,27 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current checkpoint, 2026-10-04
+## Current checkpoint, 2026-10-04 afternoon
+
+The actual Mac-applied 7/14 return now passes production-native open/export,
+save/reopen and editable text/shape checks. Its full PNG is byte-identical.
+The separated GPU shader passes all 287 units, three type checks, all 198
+functional cases and all nine independent Mac full-RGBA export comparisons.
+The four alpha probes also match GPU/CPU bytes exactly; the other 800x600
+Mac cases remain within one GPU byte. Saved transforms stay unchanged.
+
+Four targeted original timing cases pass. In the full unchanged 29-case run,
+20 pass and nine fail (10.0 minutes), including GPU waits in result/partial
+upload frames; typed W passes at 17/27 ms, and both brush/retouch sizes pass.
+The prior human-run 1256 verifier is 26/29; its clipboard preflight safely
+aborts at OleGetClipboard. Two same-assets visible-window diagnostic cases
+finish one pass / one failure; a minimal no-application WebGL program also
+reproduces a 446.7 ms draw/read wait. The specific system cause remains unproven.
+These diagnostic passes do not waive any complete-suite failure. Full Phase 5
+acceptance remains incomplete; current-source native packaging is pending.
+Historical evidence below is retained.
+
+## Earlier checkpoint, 2026-10-04 morning
 
 The received Windows interactive run passes all 29 original performance cases
 for production 0244. A later unchanged 0244 clipboard run passes all six
@@ -1512,3 +1532,90 @@ mac-alpha-final-native-return-comparison.json,
 mac-alpha-final-original-return-identity.json,
 mac-alpha-final-clipboard-exact.json and
 interactive-mac-alpha-final-frozen-inputs.json.
+
+
+## Received applied-effect and interactive evidence, 2026-10-04 afternoon
+
+The human-run production-1256 verifier completes all 29 original timing cases:
+26 passed / three failed (10.0 minutes). Typed W redraw is 44 / <33 ms, C1
+worker gap is 123 / <100 ms, and the 24 MP brush case stops at the original
+30-second page-fixture setup timeout before entering its body. Its clipboard
+helper stops at OleGetClipboard with CLIPBRD_E_CANT_OPEN before any mutation.
+No strict clipboard comparison is run for that aborted case. All 25 frozen
+inputs at execution are verified (the two subsequently edited GL source files
+are checked against their byte-preserved received-version archive), and the
+verifier itself retains its original fingerprint. The previous production-1256
+native clipboard PASS remains a distinct retained result.
+
+New Mac-edited-new.comp and its independent PNG are preserved in a separate
+11-file snapshot, mac-applied-7-14-return-20261004. The actual blue rectangle
+now stores Stroke 7 / Shadow Distance 14. Production 1256 natively opens,
+exports, saves and reopens the returned copy: two native reads, one atomic
+save, persistent 7/14, editable text/shape, unchanged transforms and zero page
+errors. Full RGBA PNG comparison is exact. This closes the prior saved-effect
+artifact mismatch; the original 5/12 project and all earlier evidence remain
+unchanged. Evidence: mac-applied-7-14-received-files.json,
+native-mac-applied714-1256.log and mac-applied714-1256-comparison.json.
+
+The prior plain shader independently passes the original typed-W body at
+13/26 ms. A candidate compiles the measured enlargement kernel into a separate
+program, created lazily on its first genuine enlargement and reused/disposed
+with the renderer. Ordinary draws use the original shader without a dynamic
+enlargement branch. Engine/WASM and all source/test assertions remain unchanged.
+Three TypeScript checks, all 287 units and all four selected original timing
+cases pass; typed W is 14/18 ms and the 100 MP C1 gradient gap is 60 ms. Complete
+functional/timing regression and nine-project Mac GPU/CPU comparison are in
+progress. These targeted successes are not yet full Phase 5 acceptance.
+
+
+## Separated shader verification, 2026-10-04 afternoon
+
+Ordinary composition uses the original single-texture shader again. Affine
+enlargement lazily compiles a separate byte-interpolation variant, caches it
+and disposes it with the renderer. Engine/WASM, sampling selection, tests,
+original assertions and timing budgets stay unchanged.
+
+- Three TypeScript checks and all 287 unit tests pass.
+- Complete functional run: 198 passed, 29 original opt-in timing skips,
+  7.3 minutes, one worker and zero retries.
+- Four targeted original timing cases: all pass. Typed W is 14/18 ms,
+  and the 100 MP C1 gradient gap is 60 ms.
+- Complete original timing run: 20 passed / nine failed, 10.0 minutes,
+  one worker and zero retries. Typed W is 17/27 ms (<33); 24/100 MP
+  brush, blur, healing and content-fill responsiveness passes.
+- Failed terminal assertions remain: F1 frame 146/<100 ms; Add Mask
+  frame 515/<150; partial-upload frame 374.7/<33; histogram gap 283/<150;
+  settled gradient 536/<150; mask-gradient result 414/<150; mask-fill frame
+  274/<150; small-mask gradient result 557/<150; C1 worker gap 474/<100.
+- All nine full straight-RGBA PNG exports exactly match independent Mac
+  returns, including the real applied 7/14 project and Mac-created.
+  Four alpha GPU/CPU checks are exact; other checked 800x600 GPU/CPU
+  results have maximum delta one (original tolerance two). Full Mac-created
+  GPU pixels are not claimed; its complete CPU PNG is exact.
+- Source identity: shader-isolation-source-identity.json; original five timing
+  sources retain their frozen hashes and release WASM retains SHA-256
+  933ce4a56b642a390e9ff99a283860279aa7aa717641ca6b699d2bd688aaa752.
+
+Evidence: shader-isolation-first-checks-summary.json,
+shader-isolation-complete-verification-summary.json,
+shader-isolation-complete-functional.log, shader-isolation-complete-performance.log,
+shader-isolation-independent-mac-and-environment-summary.json and
+shader-isolation-mac-return-comparison.json. The environment comparison is
+diagnostic only. Complete performance and current-source packaged acceptance
+remain open.
+
+
+The same-source visible-window comparison is one pass / one failure (1.3m):
+partial uploads pass, while F1's fill frames remain 169/386 ms against <100.
+A separate minimal WebGL program loads no application or WASM code, uploads
+a 6.25 MB texture and draws a plain quad after synthetic CPU/memory activity.
+It reproduces a 446.7 ms draw/read wait in headless Edge with GL error zero;
+other warmed frames are 4.8-21.3 ms. Twelve visible-window rounds are 5.0-18.6 ms.
+This proves that a long wait can occur outside the application, but does not
+identify the specific scheduling, driver or display-service cause and does not
+waive the original failed cases. See shader-isolation-minimal-gpu-control.json.
+The host GPU is Intel HD Graphics 520, driver 31.0.101.2111. GameViewer and
+virtual display adapters are present; their causal role is unproven, so they
+are left running. Read-only WPR status says no existing recording. GPU/CPU
+trace start fails with 0xc5585011 (performance profiling policy cannot be
+enabled); no existing trace or system setting is changed.
