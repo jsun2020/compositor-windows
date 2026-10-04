@@ -381,3 +381,23 @@ remains recorded without an unproven fix claim. The corrected clipboard-only
 entry passes CheckOnly and is ready for the ordinary interactive desktop.
 Full Phase 5 acceptance remains incomplete; the already received 29/29
 original timing run does not need repeating for this diagnostic step.
+
+
+### Snapshot restoration failure, 2026-10-04 18:23
+
+The corrected observer receipt confirms all 26 original frozen inputs and
+both observed-helper hashes. First native protocol and strict reader pass.
+The independent session finishes the original UI operations and saves; four
+exact RGBA comparisons and two editable text records independently pass.
+Its final original snapshot restoration fails with 0x800401D0, as does the
+existing finally fallback. The helper exits with the snapshot still unrestored
+and no recoverable payload backup. This protocol remains failed.
+
+All four native clipboard reads and three writes succeed before the helper
+restoration failure; the final application has five layers, no error and is
+idle. Neither this pass of the UI steps nor diagnostic pixel checks resolves
+the earlier intermittent Paste-after-Cut failure. No retry, assertion or budget
+is changed. A bounded ownership metadata probe is verified locally without
+opening or reading/writing the clipboard; it has not captured the historical
+failure. No further blind interactive rerun is requested. Full Phase 5 remains
+incomplete; the 29/29 performance result does not need repeating.

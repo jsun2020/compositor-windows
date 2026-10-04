@@ -49,8 +49,17 @@ checks passing. Each revised session has its own debug port, and endpoint
 ownership must match the launched native PID and fresh profile. Original
 actions/assertions/timeouts stay unchanged. An independently owned native
 Mac rerun again passes 11 reads, 10 atomic saves and all nine full-PNG byte
-comparisons. The earlier actual Cut/Paste failure remains unexplained; full
-clipboard stability has not been accepted.
+comparisons. The corrected 18:23 interactive run passes its first native
+protocol and strict reader. Its second session completes the clipboard UI
+actions and saves; four independently checked RGBA comparisons and two
+editable text records pass. It fails at the original snapshot restoration:
+Windows Forms SetDataObject returns 0x800401D0, and the existing finally
+fallback also fails. The helper exits without restoring its original snapshot;
+that in-memory snapshot is no longer available. This second protocol is failed,
+not accepted. Seven native clipboard IPC responses succeeded before that
+failure, and the application reports five layers, no error and no work in
+progress. The cause of the restoration failure and the earlier actual
+Cut/Paste failure remain unproven. Full clipboard stability is not accepted.
 Historical evidence below is retained.
 
 ## Earlier checkpoint, 2026-10-04 morning
@@ -1845,3 +1854,59 @@ interactive desktop because the Codex execution host cannot open that
 clipboard. Full Phase 5 acceptance remains false until the outstanding
 Cut/Paste evidence is resolved; timing and GPU tracing need not be repeated
 for this corrected diagnostic run.
+
+
+## Corrected observer receipt and failed snapshot restoration, 2026-10-04 18:23
+
+The received `clipboard-observed-1527-20261004-182308-131` verifies all
+26 frozen original source/assets/package/helper inputs and both corrected
+observed helpers. Independent hash review confirms those same identities.
+All 70 non-WebView receipt files are hashed locally; original evidence is
+retained unchanged. The first session (`clipboard-observed-20261004-182310`)
+passes the original native protocol and strict reader again: four exact RGBA
+comparisons, two editable UTF-16 text records with matching style, and original
+clipboard format-set restoration.
+
+The second session (`clipboard-observed-20261004-182332`) fails at the final
+`external(restore)` after saving `native-text-pasted.comp`. Its four native
+clipboard reads and three writes return successful responses. Paste after Cut,
+Undo/Redo and editable text Copy/Paste finish their original assertions. The
+final application state has five layers, no error banner and working=false.
+A separate diagnostic reader copies the original pixel/text assertion block
+exactly and confirms all four strict RGBA comparisons and both editable text
+records. It explicitly reports nativeProtocolAccepted=false; the unchanged
+complete strict reader is not run as a passing second-protocol check.
+
+The original helper response-5, helper-error.txt and restore-error.txt all
+record Windows Forms SetDataObject failing with 0x800401D0. Both the main
+restoration and its existing finally fallback fail. There is no
+restored-after-error.txt, and the helper PID has exited. The original snapshot
+was held only in that process; no recoverable payload backup exists in the
+receipt. Original clipboard contents must not be reported as restored. No
+new retry, relaxed assertion, timeout change or product patch is added.
+
+This failure is in the independent helper restoration step, rather than an
+observed application clipboard IPC refusal. Its underlying cause is unknown.
+The prior actual Paste-after-Cut failure and initial native Save As timeout
+remain retained without a claimed resolution. The complete timing evidence
+remains 29/29; full Phase 5 acceptance remains false. No further blind run of
+the existing clipboard script is requested.
+
+A new bounded metadata-only ownership probe is compiled and locally checked.
+Its native imports are limited to GetOpenClipboardWindow, GetClipboardOwner,
+GetClipboardSequenceNumber, GetWindowThreadProcessId and SetLastError. It
+never opens the clipboard, retrieves payloads, empties it or writes it. It
+records UTC/elapsed time, open-window PID, last-writer PID and sequence changes;
+a stop-file ends it without killing other processes. Normal completion,
+stop-file handling and refusal to overwrite retained output are verified.
+This establishes diagnostic capability only, not the owner of the historical
+failure. A zero open-window handle can also mean an anonymous opener; the
+last writer is not necessarily a current locker. See Microsoft documentation:
+[open clipboard window](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getopenclipboardwindow),
+[clipboard owner](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardowner).
+No running user application or system setting is changed.
+
+Local evidence: `clipboard-observed-1527-20261004-182308-131-received-verification.json`,
+`clipboard-1823-first-independent-review.json`,
+`clipboard-1823-second-data-diagnostic-review.json`,
+`clipboard-ownership-readonly-validation.json` and the preserved case files.
