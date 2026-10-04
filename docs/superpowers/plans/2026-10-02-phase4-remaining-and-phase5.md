@@ -45,10 +45,10 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Final native workspace: 623 passed, zero failures, 10 existing ignored;
-  the subsequently added exact-half regression passes separately.
+- [x] Current unchanged native workspace coverage: 624 passed, zero failures,
+  10 existing ignored, including the exact-half regression.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
-- [x] Current separated-shader full fixed-asset browser suite: 198 passed,
+- [x] Historical separated-shader full fixed-asset browser suite: 198 passed,
   29 unchanged opt-in skips, one worker and zero retries (7.3 minutes).
 - [x] 0.8.0 portable build and real Tauri window checks, including visible
   painting, eraser/undo, blur, clone, healing, fill, text and effects.
@@ -86,12 +86,44 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   Independent fresh-profile native Mac checks pass 11 reads / 10 atomic saves
   and all nine complete PNGs exactly; new Mac 7/14 persists on reopen.
   An initial Save As timeout is retained and not declared fixed.
-- [ ] Production 1527 independent clipboard stability: first interactive
+- Historical failed production 1527 independent clipboard stability: first interactive
   protocol passes all six groups and strict RGBA/text/style/restoration; the
   second fails at Paste after Cut (two layers instead of three within the
   original five seconds). Both original format sets restore. Clipboard-only
   observation is prepared and passes CheckOnly; earlier host snapshot and
   elevated endpoint failures remain separately recorded.
+
+### Current local Windows candidate, 2026-10-04
+
+Production `COMPOSITOR_BUILD_0.8.0_20261004-2216` includes the file-operation
+status fix. A held recent-file registration deterministically demonstrates
+the old invisible busy guard; the fix keeps working visible until the guard
+releases, after which Cut and Undo pass. Three type checks, 287 unit tests and
+199 full functional cases pass (29 original opt-in skips, one worker, zero
+retries). Native code and WASM are unchanged, retaining 624 native passes /
+10 existing ignored. The new portable passes eight original UI groups,
+11 native Mac reads / 10 atomic saves, all nine full-PNG exact comparisons
+and saved/reopened editable text, shapes and effects 7/14.
+
+The user confirms local Windows operation. Two original clipboard pairs with
+GameViewer temporarily absent pass all four native protocols and strict
+RGBA/text/style/restoration readers. Fresh profiles and ports are independently
+owned. The process monitor observes no GameViewer PID in 545 samples at
+200 ms intervals; the installed launcher restarts afterwards. Read-only
+backup comparisons confirm complete current clipboard formats/data match
+all four pre-test snapshots. Earlier failures are retained and not reclassified.
+
+The complete 29-case new-asset performance run retains 24 passes / five
+failures (page setup, typed-width frame, gradient drag/installation and
+blank-gradient frame gap). The single separate complete GameViewer-absent
+environment control finishes with 27 passes / two failures: 100 MP gradient
+drag at 1:1, 58 ms / <50 ms, and motion-blur eyedropper, 2,122 ms / <2,000 ms.
+Both complete runs retain unchanged assertions/budgets and zero retries,
+with frozen assets verified after execution. GameViewer is reopened after
+the control. Full Phase 5 acceptance remains incomplete; targeted kernel
+profiling and byte-preserving optimization are the next work. See the current section of
+[the acceptance record](../phase5-acceptance-2026-10-03.md) for package identity,
+current results, environment limits and retained failures.
 
 Acceptance evidence, including historical checkpoints, is [the 2026-10-03 acceptance record](../phase5-acceptance-2026-10-03.md):
 622 native tests, 287 unit tests and 195 current functional browser passes

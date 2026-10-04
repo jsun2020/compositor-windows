@@ -139,3 +139,40 @@ test("closing a modified document asks first", async ({ page }) => {
   await clickMenu(page, "File", "close");
   await expect(page.getByTestId("project-tab")).toHaveCount(1);
 });
+
+test("Save As stays visibly busy until recent-file registration finishes, then Cut and Undo work", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await clickMenu(page, "File", "new");
+  await page.getByLabel("Width").fill("64");
+  await page.getByLabel("Height").fill("48");
+  await page.getByRole("button", { name: "Create" }).click();
+  await seedImage(page, "C:/pics/busy-red.png");
+  await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/pics/busy-red.png"));
+  await clickMenu(page, "File", "import");
+  await expect(page.getByTestId("layer-row")).toHaveCount(2);
+  await page.evaluate(() => {
+    const bridge = (window as any).__compositor.bridge;
+    const register = bridge.addRecentPackage.bind(bridge);
+    bridge.addRecentPackage = async (path: string) => {
+      await new Promise<void>((resolve) => { (window as any).__releaseRecentRegistration = resolve; });
+      await register(path);
+    };
+    bridge.setNextPick("C:/projects/VisibleBusy.comp");
+  });
+  await clickMenu(page, "File", "save-as");
+  await expect.poll(() => page.evaluate(() => (window as any).__compositor.bridge.hasPackage("C:/projects/VisibleBusy.comp"))).toBe(true);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__compositor.store.getState();
+    return { busy: s.busy, working: s.working };
+  })).toEqual({ busy: true, working: false });
+  await expect(page.getByTestId("working")).toBeVisible();
+  await page.evaluate(() => (window as any).__releaseRecentRegistration());
+  await expect(page.getByTestId("working")).toHaveCount(0);
+  await page.keyboard.press("Control+x");
+  await expect(page.getByTestId("layer-row")).toHaveCount(1);
+  await expect(page.getByTestId("working")).toHaveCount(0);
+  await page.keyboard.press("Control+z");
+  await expect(page.getByTestId("layer-row")).toHaveCount(2);
+  await expect(page.getByTestId("error-banner")).toHaveCount(0);
+});

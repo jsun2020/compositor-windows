@@ -40,7 +40,9 @@ export function App() {
   const [version, setVersion] = useState("");
   const sheet = useEditor((s) => s.sheet);
   const banner = useEditor((s) => s.error);
-  const working = useEditor((s) => s.working);
+  // File operations also block edits until their guarded work has finished.
+  // Keep that lock visible, including the final recent-file registration.
+  const working = useEditor((s) => s.working || s.busy);
   // React 18 StrictMode double-invokes effects in dev (which is what `pnpm dev` - and
   // so every e2e run - uses). This effect has no cleanup, so without a guard that
   // double-invoke calls EngineClient.load() twice, constructing two WasmEngine

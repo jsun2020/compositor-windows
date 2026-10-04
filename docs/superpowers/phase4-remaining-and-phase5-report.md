@@ -382,3 +382,36 @@ restored. The next control refuses to start while GameViewer is running and
 never disconnects remote access. User operation mode is pending; full Phase 5
 remains incomplete. No additional product patch, performance rerun or Mac
 verification is justified yet. See [the latest evidence and limits](phase5-acceptance-2026-10-03.md).
+
+
+## Current local Windows candidate, 2026-10-04
+
+Production `COMPOSITOR_BUILD_0.8.0_20261004-2216` includes the file-operation
+status fix. A held recent-file registration deterministically demonstrates
+the old invisible busy guard; the fix keeps working visible until the guard
+releases, after which Cut and Undo pass. Three type checks, 287 unit tests and
+199 full functional cases pass (29 original opt-in skips, one worker, zero
+retries). Native code and WASM are unchanged, retaining 624 native passes /
+10 existing ignored. The new portable passes eight original UI groups,
+11 native Mac reads / 10 atomic saves, all nine full-PNG exact comparisons
+and saved/reopened editable text, shapes and effects 7/14.
+
+The user confirms local Windows operation. Two original clipboard pairs with
+GameViewer temporarily absent pass all four native protocols and strict
+RGBA/text/style/restoration readers. Fresh profiles and ports are independently
+owned. The process monitor observes no GameViewer PID in 545 samples at
+200 ms intervals; the installed launcher restarts afterwards. Read-only
+backup comparisons confirm complete current clipboard formats/data match
+all four pre-test snapshots. Earlier failures are retained and not reclassified.
+
+The complete 29-case new-asset performance run retains 24 passes / five
+failures (page setup, typed-width frame, gradient drag/installation and
+blank-gradient frame gap). The single separate complete GameViewer-absent
+environment control finishes with 27 passes / two failures: 100 MP gradient
+drag at 1:1, 58 ms / <50 ms, and motion-blur eyedropper, 2,122 ms / <2,000 ms.
+Both complete runs retain unchanged assertions/budgets and zero retries,
+with frozen assets verified after execution. GameViewer is reopened after
+the control. Full Phase 5 acceptance remains incomplete; targeted kernel
+profiling and byte-preserving optimization are the next work. See the current section of
+[the acceptance record](phase5-acceptance-2026-10-03.md) for package identity,
+current results, environment limits and retained failures.

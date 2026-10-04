@@ -6,7 +6,87 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current recovery and recognition-off control, 2026-10-04 21:51
+## Current file-operation status fix and local Windows validation, 2026-10-04
+
+The user confirms Windows local operation. GameViewer is temporarily exited
+for a bounded environment control and reopened through its installed root
+launcher afterwards. No service, Explorer, remote connection or system setting
+is changed. The initial launcher check that observed a still-terminating
+process is retained separately; it starts no original protocol.
+
+The old candidate's GameViewer-absent control passes two complete protocols,
+then fails Cut in `clipboard-protected-20261004-220239`: three layers remain
+instead of two within the original 5,000 ms. Ctrl+X is received at 11,990 ms,
+but no clipboard write follows. Recent-file registration spans
+11,967.6–12,043.8 ms and keeps the file busy guard set, while the old status
+indicator reports only edit working. A deterministic delayed-registration
+regression reproduces the missing indicator with the frozen old assets.
+
+`App.tsx` now displays the existing working status for either edit working or
+file busy. The regression verifies that Save As remains visibly busy after
+the package commit until recent-file registration finishes, then Cut and Undo
+work. The file-operation guard and all original clipboard actions, assertions,
+timeouts and performance budgets remain unchanged. This fixes the observed
+missed Cut; it does not establish a cause for the earlier all-zero PNG or
+retroactively pass any historical failure.
+
+The new production marker is `COMPOSITOR_BUILD_0.8.0_20261004-2216`. Three
+TypeScript checks, 287 unit tests, and the full fixed-asset functional suite
+(199 passed, 29 original performance opt-in skips, one worker, zero retries)
+pass. The unchanged native core retains its 624 passed / zero failures /
+10 existing ignored coverage. Source, test and production WASM are identical.
+The new portable passes eight original native UI groups and 11 Mac reads /
+10 atomic saves. All nine complete Mac PNG exports match every RGBA byte;
+continued text/shape edits and reopened Stroke 7 / Shadow Distance 14 pass.
+
+Two independent original clipboard pairs on the new package pass all four
+complete native protocols and strict readers, with no retry or repeated
+gesture. Case directories are `clipboard-protected-20261004-223815`,
+`223847`, `223927`, and `223953` (same full prefix). Each passes all six
+operation groups, four exact RGBA comparisons, two editable UTF-16 records,
+matching style, and mandatory snapshot restoration. Separate read-only
+rechecks confirm all four strict results, valid encrypted backups, unique
+owned native endpoints/profiles and complete current formats/data identical
+to each pre-test snapshot after GameViewer restarts. The absence monitor
+records 545 samples over 130,685 ms at a 200 ms interval, with no observed
+GameViewer PID; this is sampled absence, not an assertion between samples.
+
+The new package's complete original 29-case performance run finishes with
+24 passed / five failed in 12.7 minutes, one worker and zero retries. Failures
+are: Add Mask page-fixture setup exceeds 30 seconds before its body; 100 MP
+typed-width frame 36 ms / <33 ms; 100 MP fit gradient drag 51 ms / <50 ms;
+100 MP gradient installation 501 ms / <450 ms; and blank-layer gradient
+worker frame gap 112 ms / <100 ms. All frozen inputs verify afterwards.
+These failures remain failed, with no source or assertion change justified
+solely by the environment hypothesis. The single distinct complete 29-case
+GameViewer-absent environment control finishes with 27 passed / two failed
+in 10.2 minutes, same fixed assets/config and zero retries. The remaining
+failures are 100 MP gradient drag at 1:1 (58 ms / <50 ms, engine 51 ms and
+frame 8 ms) and motion-blur eyedropper (2,122 ms / <2,000 ms). Source/assets
+verify after both runs; sampled process absence passes and GameViewer is
+reopened afterwards. Full acceptance remains false. The environment control
+does not establish GameViewer as a cause or justify a retry or budget waiver.
+The next work measures the existing gradient paint and spatial-enlargement
+kernels and preserves their complete pixel outputs before any optimization. Clipboard
+acceptance is established for the tested ordinary local Windows environment
+with GameViewer absent during the protocol. Running GameViewer or another
+external clipboard consumer remains a separate environment constraint; these
+passes do not prove universal interoperability under external locks. The
+recorded restoration locks, all-zero PNG, missed Cut, earlier Save As timeout
+and historical performance failures remain retained with their original status.
+
+The ZIP contains three CRC-verified entries identical to the staged portable:
+4,744,584 bytes, SHA256
+`6D7BA0B384C08F6260C7E849BADECB1B7D5768ED7CFE4E71C69E74E6F63A5D0F`.
+The executable is 11,977,728 bytes, SHA256
+`B5B5A6E0585752ED2DAEFA4DA316B681F3ACF7F883D21273FA6A37D2DD76C0A3`.
+Private backups, user Mac returns, profiles and generated packages remain local.
+Evidence is under `build-artifacts/phase5-acceptance`: `file-busy-*`,
+`native-file-busy-ui-20261004-2216`, `native-file-busy-mac-20261004-2216`,
+`local-file-busy-gameviewer-absence-20261004-223806-115` and
+`clipboard-file-busy-gameviewer-absent-control-20261004-223811-394`.
+
+## Earlier recovery and recognition-off control, 2026-10-04 21:51
 
 The user disabled GameViewer's **remote-assistance clipboard recognition**
 setting and explicitly authorized recovery. The screenshot describes invitation
