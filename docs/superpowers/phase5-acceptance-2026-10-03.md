@@ -6,7 +6,112 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current file-operation status fix and local Windows validation, 2026-10-04
+## Current kernel optimization and remaining environment gates, 2026-10-05
+
+Production `COMPOSITOR_BUILD_0.8.0_20261005-0054` specializes gray/RGBA paint
+loops and caches only two decoded source rows plus interpolation columns for
+spatial enlargement. It preserves the original coordinate calculations,
+floating-point operation order, rounding and preview resolutions. Two complete
+synthetic output references were generated from the validated e644fe3 release
+library before either kernel changed. Both new regressions match every byte.
+The initially attempted full float-image cache exceeded two original peak-heap
+budgets and was rejected; the final row cache passes the unchanged budgets.
+The complete native workspace passes 626 tests, zero failures, ten existing
+ignored. Release native/WASM builds, three type checks and 287 unit tests pass.
+
+The new complete functional run retains 198 passes, one failure and 29 original
+performance opt-in skips, with one worker and zero retries. The failure occurs
+while setting up the page, exceeding the original 30 seconds before the
+100-megapixel project-limit test body executes. It remains failed. The targeted
+original performance pair retains one spatial pass and one gradient failure:
+100 MP gradient drag is 35 ms / <50 ms and motion-blur eyedropper is
+1,012 ms / <2,000 ms, but settled gradient frames still exceed their unchanged
+budget. These improvements do not establish full performance acceptance.
+
+An erroneous diagnostic launcher invoked the original two-case runner again,
+overwriting its fixed-path outputs. The first run's 34 ms drag, 1,057 ms
+eyedropper and 555/564 ms settled totals survive only as recorded observations;
+its raw log is lost. The unexpected second run also fails, and its outputs are
+retained separately in `kernel-diagnostic-launcher-error-retained`. This error
+is explicitly recorded in `kernel-diagnostic-launcher-error-audit.json`; no
+repeat is treated as a pass or substituted for the first failed result.
+
+Corrected independent passive and serialized GPU diagnostics retain their
+failures separately. With explicit finishes after individual draws/uploads,
+no wrapped finish exceeds 20 ms, but subsequent 1x1 readPixels still stalls
+near 500 ms. A separate build that draws/presents through a dedicated screen
+framebuffer also fails (529 ms / <150 ms), with readPixels stalls of
+448.5–542.6 ms. Neither diagnostic changes production renderer code or proves
+a driver/scheduling cause. GPU error is zero on Intel HD Graphics 520 / ANGLE
+D3D11. The prior no-application minimal control also retains a similar stall.
+
+The new portable passes all eight original native UI groups and the owned
+Mac protocol: 11 reads, ten atomic saves, continued text/shape/effect edits and
+reopened 7/14 effects. All nine complete Mac PNG exports match every RGBA byte.
+Source, test and production WASM match. ZIP's three entries pass CRC and match
+the staged portable. Native adapters differ only in package identities and
+evidence destinations, verified by reversing those replacements.
+
+The new clipboard control stops at the encrypted snapshot gate before any
+protocol or clipboard mutation (`clipboard-protected-20261005-010814`).
+The main GameViewer process is absent in 51 sampled observations over
+11,825 ms and is reopened afterwards. The snapshot helper reports an external
+clipboard exception. A separate read-only Win32 metadata check returns
+OpenClipboard error 5, with accessible Default input desktop; a zero observed
+open-window handle does not prove absence of a clipboard lock. The ordinary
+native UI's earlier read-only clipboard probe also refuses access. Historical
+2216 four-protocol passes remain valid for that earlier tested state; they do
+not pass the new package's failed snapshot gate.
+
+GameViewerService and its server/health children remain running after exiting
+GameViewer.exe. Their role is unproven. A bounded service-control helper passed
+read-only preflight, but the administrator request is superseded by more direct
+session evidence. Windows 10 19045 WTSINFOEX Level1 reports current session 1,
+state 0 and SessionFlags 0. Microsoft's
+[WTS structure definition](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/ns-wtsapi32-wtsinfoex_level1_w)
+defines this as locked. An accessible Default input desktop is insufficient
+to establish an unlocked session. This proves the present state, not the state
+through every earlier failed test or the cause of every GPU/clipboard failure.
+
+The old service-control command is disabled; its original source is retained
+as superseded evidence. The service still reports Running / Auto and no
+service/display/driver setting has been changed. The user is asked only to
+unlock Windows and keep the desktop active, with no clipboard copying during
+the original protocols. The public `Phase5SessionGate.cs` queries only session
+metadata and refuses unknown, inactive or locked state. It reads no clipboard,
+sends no input and changes no policy. Its Unicode WTS query confirms the
+232-byte response, Level1/session identities and flags 0. A negative preflight
+refuses before any original protocol, clipboard access or process mutation.
+The prepared unlocked environment control verifies 32 frozen inputs and
+records session samples at 200 ms alongside main GameViewer process samples.
+It runs the original independent clipboard pairs, complete functional suite
+and 29 performance cases without modifying bodies/assertions/budgets or adding
+retries. All native/browser tests remain non-elevated; user unlock is pending.
+
+Evidence: `kernel-specialization-row-cache-native-summary.json`,
+`kernel-specialization-wasm-test-build-summary.json`,
+`kernel-specialization-functional-summary.json`,
+`kernel-gradient-gpu-passive.json`, `kernel-gradient-gpu-serialized.json`,
+`kernel-screen-gpu-passive.json`, `kernel-package-integrity.json`,
+`kernel-native-adapter-equivalence.json`, `native-kernel-ui-20261005-0054`,
+`native-kernel-mac-20261005-0054`,
+`kernel-native-owned-runtime-return-comparison.json`,
+`kernel-input-desktop-and-clipboard-metadata.json`,
+`kernel-readonly-wts-session-metadata.json`, `kernel-session-gate-preflight.json`,
+`kernel-unlocked-control-negative-preflight.json`,
+`kernel-service-request-superseded.json` and
+`kernel-package-native-and-control-summary.json`. Full acceptance remains false.
+
+Package identity:
+
+- EXE: 11,979,264 bytes; SHA256
+  `BA76044FD002A42E41DC94200ACB94CADF1D57B1E5EDE300600B555AC8327798`.
+- ZIP: 4,746,599 bytes; SHA256
+  `F5CCA10EF3F795170DE46EDEF79E4D65CA0E8995B2E40905DA097624CCCD07E8`.
+- WASM: 3,264,517 bytes; SHA256
+  `EF30FB8B91C999627551D9C9C5F7F9DFF9A240D2317CD741834F39B86BFC25B4`.
+
+## File-operation status fix and local Windows checkpoint, 2026-10-04
 
 The user confirms Windows local operation. GameViewer is temporarily exited
 for a bounded environment control and reopened through its installed root

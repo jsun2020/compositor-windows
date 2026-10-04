@@ -144,9 +144,19 @@ impl Ramp {
 /// every part of the canvas and the selection's clip it touches, and a transparent end of a gradient
 /// still touches it: `paintCanvas`, BrushStroke.swift:645-652).
 pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, grey: bool) -> bool {
+    // Choose the pixel layout once, so the inner loop has a fixed stride and
+    // does not branch between mask and RGBA painting for every pixel.
+    if grey {
+        paint_grid_channels::<1>(doc, data, width, height, transform, coverage, paint)
+    } else {
+        paint_grid_channels::<4>(doc, data, width, height, transform, coverage, paint)
+    }
+}
+
+fn paint_grid_channels<const CHANNELS: usize>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
-    let (w, channels) = (width as usize, if grey { 1 } else { 4 });
+    let w = width as usize;
     let ramp = Ramp::of(paint);
     let (from, to, opacity) = match paint {
         Paint::Fill(c) => ([c[0], c[1], c[2], 1.0], [c[0], c[1], c[2], 1.0], 1.0),
@@ -160,8 +170,8 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
         // The row's first pixel centre in the document, and the step one pixel to the right.
         let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
         let cover = coverage.map(|c| &c.bytes()[y * w..(y + 1) * w]);
-        let line = &mut data[y * w * channels..(y + 1) * w * channels];
-        for (x, px) in line.chunks_exact_mut(channels).enumerate() {
+        let line = &mut data[y * w * CHANNELS..(y + 1) * w * CHANNELS];
+        for (x, px) in line.chunks_exact_mut(CHANNELS).enumerate() {
             let k = cover.map_or(255, |c| c[x]);
             if k == 0 { continue; }
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
@@ -171,7 +181,7 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
             let keep = 1.0 - s;
-            if grey {
+            if CHANNELS == 1 {
                 px[0] = ((from[0] + delta[0] * t) * 255.0 * s + px[0] as f64 * keep + 0.5) as u8;
             } else {
                 for c in 0..3 { px[c] = ((from[c] + delta[c] * t) * 255.0 * s + px[c] as f64 * keep + 0.5) as u8; }

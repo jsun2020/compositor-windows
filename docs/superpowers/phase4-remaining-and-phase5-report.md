@@ -384,7 +384,41 @@ remains incomplete. No additional product patch, performance rerun or Mac
 verification is justified yet. See [the latest evidence and limits](phase5-acceptance-2026-10-03.md).
 
 
-## Current local Windows candidate, 2026-10-04
+## Current kernel candidate, 2026-10-05
+
+Production `COMPOSITOR_BUILD_0.8.0_20261005-0054` specializes the gray/RGBA
+paint loops and spatial enlargement using two row caches. Complete synthetic
+outputs frozen before the changes match every byte. Native 626 tests, original
+memory budgets, 287 unit tests and three type checks pass. The new portable
+passes eight original native UI groups, 11 Mac reads / ten atomic saves, all
+nine complete RGBA-exact Mac exports, and editable text/shape/effects 7/14 on
+reopen. ZIP's three entries match the staged files and source/test/production
+WASM are identical.
+
+Full acceptance remains incomplete: the complete functional run retains
+198 passes / one page-fixture setup timeout before its body / 29 original
+opt-in skips. The targeted original performance pair retains one pass / one
+failure: 100 MP gradient drag is 35 ms / <50 and motion-blur eyedropper is
+1,012 ms / <2,000, but settled readbacks still stall near 500 ms. Separate
+passive, serialized and dedicated-screen-framebuffer diagnostics fail; the
+screen experiment is not added to the product. The diagnostic-launcher error
+that repeated the original pair and overwrote its first raw log is recorded
+explicitly, and both failures remain failed.
+
+The new native clipboard control fails its original encrypted snapshot gate
+before any mutation with the main GameViewer process sampled absent. The
+background service/server remain active; causality is unproven. A separate
+read-only Win32 metadata check refuses clipboard access with error 5. The
+bounded service-control helper's administrator request is superseded: Windows
+WTS subsequently confirms the current session is locked. The command is
+disabled and the service remains Running / Auto. The public read-only session
+gate refuses before original tests or clipboard/process mutation while locked.
+The prepared unlocked control verifies 32 frozen inputs and monitors session
+state without changing original tests, budgets or retry counts. User unlock
+is pending and original tests remain in the ordinary context. See
+[the acceptance record](phase5-acceptance-2026-10-03.md) for hashes and evidence.
+
+## Previous local Windows checkpoint, 2026-10-04
 
 Production `COMPOSITOR_BUILD_0.8.0_20261004-2216` includes the file-operation
 status fix. A held recent-file registration deterministically demonstrates

@@ -45,8 +45,9 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Current unchanged native workspace coverage: 624 passed, zero failures,
-  10 existing ignored, including the exact-half regression.
+- [x] Current native workspace coverage: 626 passed, zero failures,
+  10 existing ignored, including the exact-half and two complete kernel-output
+  regressions; original peak-heap budgets pass.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
 - [x] Historical separated-shader full fixed-asset browser suite: 198 passed,
   29 unchanged opt-in skips, one worker and zero retries (7.3 minutes).
@@ -93,7 +94,35 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   observation is prepared and passes CheckOnly; earlier host snapshot and
   elevated endpoint failures remain separately recorded.
 
-### Current local Windows candidate, 2026-10-04
+### Current kernel candidate, 2026-10-05
+
+Production 0054 specializes paint layout and spatial interpolation without
+changing bytes, preview resolutions or original assertions/budgets. Native
+626 / unit 287 / three type checks pass. The package passes eight original
+native UI groups and the 11-read / ten-save Mac protocol, with nine complete
+RGBA-exact exports and editable 7/14 effects on reopen. ZIP entries and all
+source/test/production WASM identities verify.
+
+- [ ] Current complete functional acceptance: 198 pass / one page-fixture
+  setup timeout before its body / 29 original opt-in skips; no retry.
+- [ ] Current complete large-image performance acceptance: original gradient
+  drag and motion-blur eyedropper improve, but settled GPU readbacks still
+  exceed the original budget. Separate passive/serialized/screen-framebuffer
+  diagnostics fail; the screen experiment is not incorporated into production.
+- [ ] Current native clipboard stability: its guarded snapshot fails before
+  any clipboard mutation despite sampled main-process absence. Background
+  GameViewer service remains active; no causal claim is made. Windows WTS
+  subsequently confirms the present session is locked. The service-control
+  request is superseded and its command disabled without service mutation.
+  Read-only session checks and 32 frozen inputs guard the prepared unlocked
+  control. User unlock is pending; original tests remain non-elevated.
+
+Full Phase 5 acceptance is incomplete. The unintended repeat caused by a
+diagnostic-launcher replacement error and loss of the first fixed-path raw
+log are recorded explicitly; neither failed result is waived. See the
+current section of [the acceptance record](../phase5-acceptance-2026-10-03.md).
+
+### Previous local Windows checkpoint, 2026-10-04
 
 Production `COMPOSITOR_BUILD_0.8.0_20261004-2216` includes the file-operation
 status fix. A held recent-file registration deterministically demonstrates
