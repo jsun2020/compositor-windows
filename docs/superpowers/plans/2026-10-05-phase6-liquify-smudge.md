@@ -34,6 +34,8 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
   Liquify offsets, bounded allocation and deterministic edge/rounding cases.
 - [x] Bounded CPU engine job/command integration, selection coverage,
   transformed-layer writeback and single-step history/cancellation.
+- [x] Independent tiled WebGL2 kernels, fractional carry / float offset
+  snapshots, allocation checks and explicit disposal/context-loss handling.
 - [ ] GPU source/result transport through the same guarded writeback.
 - [ ] WebGL2 live preview without a document-sized upload on each pointer move;
   bounded CPU fallback and safe resource disposal.
@@ -182,3 +184,58 @@ or automatic assertion retry was used.
 - Unsupported GPU capability may use the explicitly bounded CPU path. It must
   report the existing refusal on larger canvases instead of blocking the UI
   with an unbounded fallback or silently reducing the edited image.
+
+## Tiled GPU kernel checkpoint — 2026-10-05
+
+`app/src/canvas/gpu-warp.ts` owns a dedicated WebGL2 context. It uploads an
+immutable, premultiplied RGBA8 source once into a texture array of 1024-pixel
+tiles. Work tiles are 256 pixels and allocated only along the stroke. This
+allows a 10000 × 10000 source without assuming one texture can hold it.
+Each Liquify dab snapshots the intersecting RG32F field into one dependency
+rectangle before any tile writes. Source sampling and field interpolation are
+manual, so floating-point linear-filter support is not required. Smudge uses
+RGBA32F ping-pong carry, snapshots current RGBA8 tiles, retains fractional
+painted values and rounds only the canvas. Row zero stays the document's top.
+
+The session checks float framebuffer capability, texture-array depth, texture
+dimensions, premultiplied inputs and an explicit 512 MiB allocation budget.
+Point/work/capacity refusals occur before applying an append. Runtime GPU
+errors or context loss invalidate the session. Explicit cancellation releases
+textures, framebuffers, programs and the vertex array, and unbinds the current
+program. `readTiles` returns only touched tiles for future guarded writeback.
+It does not install pixels or claim to implement a styled canvas preview.
+
+Eleven browser checks exercise actual GL draws against the existing WASM
+reference command: exact analytic bytes, mixed alpha and fractional tips,
+repeated turns through source/work boundaries, negative half centers and thin
+axes, pickup/sub-spacing no-ops, resource refusals, cancellation and context
+loss. The mixed-float cases permit at most one byte of channel error, separately
+from exact analytic cases. Neither proves byte equality with actual Mac Metal.
+
+Initial failures are retained under ignored `build-artifacts/phase6-gpu-warp-*`:
+the first harness used the wrong Vite root; the first allocation run omitted
+UNPACK_IMAGE_HEIGHT for source array tile uploads. Setting the full input
+height fixes offset row uploads. The new analytic expectation also initially
+assigned Smudge's fading trail to Liquify; the WASM/GPU comparison was already
+exact and the immutable-source Liquify expectation was corrected. No original
+test or budget was changed.
+
+Independent opt-in `GPU_WARP_PERF=1` cases run hardware Edge kernels on 24/100
+MP, keeping all original 29 `PERF` cases separate. The first cold 24 MP Liquify
+append failed the new 100 ms submission/completion/frame-gap limits (136/143/
+137 ms). Drivers defer native pipeline compilation until drawing, so the
+session now primes every pass/format on disposable one-pixel targets during
+preparation, before accepting a stroke. That failure remains recorded.
+The next complete 13-case GPU run passed, including both hardware sizes on
+Intel HD Graphics 520 / ANGLE D3D11. Preparation took 263–357 ms at 24 MP and
+1039–1120 ms at 100 MP; maximum append submission 3.4–6.7 ms, GPU completion
+9–11.5 ms and frame gap 16.9–19.2 ms. Sparse final readback was 256 KiB in
+each mode/size, and allocations stayed below 512 MiB. These are raw-kernel
+measurements, not worker preparation, effects/masks, complete UI or packaged
+runtime acceptance. Full-source regression and fresh hosted CI remain required.
+
+Still pending: raw source/result worker transport with LayerStamp, preview
+through the actual transformed layer/masks/effects/selection, mode controls,
+bounded fallback, packaged tool measurements and focused actual Mac returns.
+The GPU module is not imported by the production editor yet. Published 0.8.0
+and its release assets remain unchanged; Phase 6 is not complete.
