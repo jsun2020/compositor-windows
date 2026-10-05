@@ -112,6 +112,19 @@ pub(crate) fn target(doc: &Document, id: Uuid, mask: bool) -> Result<&Layer, Com
 /// bake opacity, blend mode, effects, masks or neighbouring layers into pixels.
 pub fn source_plane(doc: &Document, id: Uuid) -> Result<Raster, CommandError> {
     let mut layer = target(doc, id, false)?.clone();
+    // An untransformed canvas-sized asset already is the unstyled source.
+    // Sharing it avoids resampling every pixel merely to reproduce its bytes
+    // (hundreds of MB, paid before the first live dab on a large document).
+    if let Some(pixels) = &layer.pixels {
+        let t = layer.transform;
+        if (pixels.width, pixels.height) == (doc.width, doc.height)
+            && t.origin == (Point { x: 0.0, y: 0.0 })
+            && t.size == doc.size()
+            && t.rotation == 0.0 && !t.flip_x && !t.flip_y
+        {
+            return Ok(pixels.clone());
+        }
+    }
     layer.parent_id = None;
     layer.mask_source_id = None;
     layer.mask = None;

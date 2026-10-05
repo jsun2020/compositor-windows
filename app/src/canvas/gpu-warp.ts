@@ -163,9 +163,12 @@ export class GpuWarpStroke {
    * CPU buffer or readback is made on pointer movement. Unchanged pixels within
    * a tile remain the original; the worker still applies the final footprint.
    */
-  readTiles(): WarpTile[] {
+  readTiles(maxBytes = 64 * 1024 * 1024): WarpTile[] {
     this.live(); const out: WarpTile[] = [], gl = this.gl;
     try {
+      let count=0;
+      for(const tile of this.tiles.values()) count+=Math.min(this.workSide,this.width-tile.x)*Math.min(this.workSide,this.height-tile.y)*4;
+      if(!Number.isSafeInteger(maxBytes)||maxBytes<0||count>maxBytes)throw Error("The warp stroke exceeds the 64 MiB readback limit");
       for (const tile of this.tiles.values()) {
         const width = Math.min(this.workSide, this.width - tile.x), height = Math.min(this.workSide, this.height - tile.y);
         const pixels = new Uint8Array(width * height * 4);

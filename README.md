@@ -152,14 +152,23 @@ gesture acceptance; these remain separate recorded checks.
 - [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md)
 - [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
 
-Phase 6 development has CPU reference kernels, guarded single-stroke editing
-jobs, tiled WebGL2 kernels and GPU source/result worker transport for
-Liquify/Smudge. Final GPU tiles use the original layer snapshot and selection,
-with stale-result checks and one undo step. The raw GPU kernels have separate
-local 24/100 MP hardware measurements. Live GPU preview,
-tool controls, complete tool timing and Mac gesture comparisons are still in
-progress; these tools are not yet
-exposed in the application.
+Phase 6 development exposes Liquify/Smudge through **R**, then **Mode** in the
+tool options. Blur remains the default; warp modes use Size, Hardness and
+Strength. A dedicated worker owns each stroke's original snapshot and GPU
+resources. Live previews retain layer effects, masks and selection, with a
+bounded image on large layers; mouse-up commits the original resolution as
+one history edit, subject to the existing 256 MiB undo budget. A 100 MP whole
+layer replacement exceeds that budget and cannot retain its previous raster.
+Escape, document/tool/mode switches and pointer cancellation
+discard the preview. GPU-unavailable fallback is limited to 4 Mi pixels.
+
+The raw kernels and complete tool have separate local 24/100 MP hardware
+measurements. Two independent complete-tool runs met the unchanged response
+budgets on aligned full-canvas fixtures. Packaged-runtime acceptance and
+actual Mac gesture comparisons remain pending; see the
+[manual checks](docs/superpowers/phase6-manual-checks.md).
+This development checkpoint is not part of the published
+0.8.0 release and does not complete Phase 6.
 
 Original Mac sources and retouch kernels use MIT. Icons use
 [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are licensed for

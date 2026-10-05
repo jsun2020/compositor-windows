@@ -98,7 +98,7 @@ export function CanvasView() {
       ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.beginPath();ctx.rect(canvas.x,canvas.y,canvas.width,canvas.height);ctx.clip();
       ctx.drawImage(text.bitmap,p.x,p.y,text.bitmap.width*vp.pointsPerPixel,text.bitmap.height*vp.pointsPerPixel);ctx.restore();
     }
-    if (s.brushDraft?.document===id) {
+    if (s.brushDraft?.document===id && !s.brushDraft.warp) {
       const ctx=overlay.getContext("2d")!, b=s.brushDraft, canvas=vp.documentRect({width:doc.width,height:doc.height});
       ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.beginPath();ctx.rect(canvas.x,canvas.y,canvas.width,canvas.height);ctx.clip();
       const c=b.operation.kind!=="Paint"?[0,0,0,0.45]:b.erasing ? [1,1,1,1] : b.color;
@@ -392,8 +392,10 @@ export function CanvasView() {
     const leave=()=>{brushHoverRef.current=null;useEditor.getState().invalidateOverlay();};
     const up=(e:PointerEvent)=>{if(pointer!==e.pointerId)return;pointer=null;finishBrush();};
     const cancel=()=>{pointer=null;cancelBrush();};
+    const lost=()=>{if(pointer!==null)cancel();};
     el.addEventListener("pointerdown",down);el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",cancel);el.addEventListener("pointerleave",leave);
-    return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",cancel);el.removeEventListener("pointerleave",leave);};
+    el.addEventListener("lostpointercapture",lost);
+    return()=>{cancel();el.removeEventListener("lostpointercapture",lost);el.removeEventListener("pointerdown",down);el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",cancel);el.removeEventListener("pointerleave",leave);};
   },[]);
 
   // Move tool: drag to move (a press outside the shape still moves it, as macOS does),
