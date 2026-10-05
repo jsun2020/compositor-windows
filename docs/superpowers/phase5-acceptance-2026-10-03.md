@@ -6,7 +6,109 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Verified unlocked desktop control, 2026-10-05
+## Final acceptance of production 1025, 2026-10-05 11:34 local
+
+**Phase 5 acceptance is complete for the current Windows desktop and the
+received Mac 1.4.5 fixtures.** The complete original source gates pass: native
+628 / zero failed / ten existing ignored, units 287, three type checks, full
+functional 199 and full performance 29/29. Performance uses one worker and
+zero automatic retries with original assertions, case bodies and budgets.
+Typed-width frames are 12/29 ms at 24/100 MP; Levels installation is 320 ms
+at 100 MP. All 13 original peak-heap budgets pass.
+
+Production `COMPOSITOR_BUILD_0.8.0_20261005-1025` passes all eight original
+native UI groups in the separately executed input-monitored verification.
+The unchanged helper validates painting, eraser/undo, blur/clone, all healing
+modes, content-fill preview/cancel/apply, editable text, effects and the
+24 MP asynchronous histogram. It has the native bridge and no development
+test API. All 106 observed input ticks remain unchanged and span the entire
+original UI log; all 141 session samples are unlocked. The initial 11:11
+File > New Canvas timeout remains a failed historical execution with cause
+unconfirmed; the later passing execution does not establish a universal
+fix or reclassify it. No automatic retry was added.
+
+The new input wrapper falsely reports a failed gate after the original UI
+passes: PowerShell's redirected Start-Process exposes a null ExitCode when
+the process handle was not retained. A separate bounded read-only probe
+reproduces null without handle retention and exit zero with it, against
+identical zero-change monitor results. The corrected future adapter retains
+the handle. Independent post-processing verifies all 106 raw samples, their
+order and timestamps, the unchanged helper/source hashes, quiet setup,
+complete non-expired monitor summary and empty stderr. This repairs the
+wrapper's exit-status interpretation without repeating the UI body, dropping
+an original assertion or claiming its outer exit was zero. The original
+wrapper failure and its complete raw evidence remain untouched.
+
+The current package also passes 11 native Mac reads / ten atomic saves,
+continued editable text/shape/effects 7/14, and all nine complete Mac PNGs
+with zero differing RGBA bytes. Four original protected clipboard protocols
+pass six groups each, 16 full RGBA comparisons and eight editable UTF-16/style
+records. Complete original formats/data match all four encrypted backups in
+the read-only audit before copying resumes; no emergency recovery is used.
+Fresh profiles and four unique ports verify native ownership.
+
+The ZIP has exactly the executable, license and README; every CRC and staged
+file comparison passes. Actual native WebView fetch/digest confirms the
+validated WASM, and all 188 frozen source/package/helper/guard inputs match.
+Source, Mac/clipboard and UI controls have 4,222 / 654 / 141 unlocked-session
+samples with full monitor coverage and sampled GameViewer-main absence. Its
+launcher is restored after each control. Services/settings are unchanged.
+These are sampled observations, not proof of between-sample or historical
+state. Earlier timing, clipboard and menu failures remain recorded; acceptance
+of this package does not assert that every intermittent failure is fixed.
+
+- Portable ZIP: `build-artifacts/windows-x64/Compositor-portable-0.8.0-20261005-1025.zip`
+- ZIP SHA-256: `B0574BD59EC9F74E6853799171C5217B65F5BCBE5C39231284C7742CDF4052FA`
+- EXE SHA-256: `49C7ED6E2CA75C7F745FFB4904EE8515971016C423E8733EAC6DFEC271B4293C`
+- WASM SHA-256: `AF75DB00BDF8C688779B59D9660C3126926D946BBC922DD034D0A8AF9A6E1185`
+- Independent final review: `kernel-packed-final-acceptance-independent-review.json`
+- Read-only review command: `node build-artifacts/phase5-acceptance/review-kernel-packed-final-acceptance.cjs`
+
+The review refuses to overwrite its existing receipt. The earlier incomplete
+checkpoints below are retained as dated historical status.
+
+## Earlier native package checkpoint, 2026-10-05 11:21 local
+
+Production `COMPOSITOR_BUILD_0.8.0_20261005-1025` passes its first Mac-return
+and four protected native clipboard protocols. The Mac protocol records 11
+reads, ten atomic saves, continued text/shape editing and reopened effects
+7/14. All nine complete exported PNGs match the Mac returns in every RGBA byte.
+The two independent clipboard pairs pass six groups per protocol, 16 full
+RGBA comparisons and eight editable UTF-16/style records. Four fresh profiles
+and unique ports have verified native ownership. All original formats/data
+match all four encrypted backups in the additional read-only audit before
+the user resumes copying; no emergency recovery or retry is used.
+
+The 184 frozen inputs still match. Runtime fetch and SHA-256 hashing establish
+that the actual packaged native WebView serves the validated release WASM,
+with the native bridge present and development test API absent. The Mac and
+clipboard control has 654 unlocked-session samples, complete monitor coverage
+and sampled GameViewer-main absence; the installed launcher is restored.
+Services and settings remain unchanged. Sampling does not establish state
+between observations.
+
+The earlier first native UI protocol fails at File > New Canvas: its original
+menu-new locator exceeds 30,000 ms before any canvas is created. Its WASM
+provenance check passed and all 244 session samples were unlocked. The failure
+is retained in `native-kernel-packed-ui-20261005-1025`; it has not been retried
+or waived. Separate observation-only diagnostics open that menu successfully,
+including eight finite gestures under the same sampled process/session
+control. They do not establish the failure's cause or replace the original
+eight-group UI acceptance. Possible concurrent mouse/window interaction is
+unconfirmed; no product change is justified solely by those passing diagnostics.
+
+Source acceptance is complete: native 628, units 287, three type checks, full
+functional 199 and complete original performance 29/29, with unchanged budgets
+and zero runner retries. Full Phase 5 acceptance remains incomplete solely
+because the new package's original eight-group UI protocol failed. Earlier
+package UI passes and current Mac/clipboard passes do not substitute for it.
+Local evidence: `kernel-packed-native-independent-review.json`,
+`kernel-packed-clipboard-backup-protection-review.json`,
+`kernel-packed-native-owned-runtime-return-comparison.json`,
+`local-kernel-packed-native-remaining-control-20261005-111830-804` and
+`local-kernel-packed-native-acceptance-control-20261005-111115-194`.
+
+## Earlier unlocked desktop and pre-unlock checkpoint, 2026-10-05
 
 The 0054 source checkpoint and immutable release-WASM browser assets pass
 all 199 functional cases (7.5 minutes), with the 29 original performance opt-in skips exercised

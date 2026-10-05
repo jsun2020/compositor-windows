@@ -2,26 +2,30 @@
 
 ## Latest acceptance status, 2026-10-05
 
-The 0054 release-WASM browser assets pass 199 functional cases. Its portable
-passes four independent native clipboard protocols with complete restoration,
-eight native UI groups and nine complete Mac RGBA-exact exports. Native 626 / unit 287 / three type
-checks and package identities are verified for that source checkpoint.
-The complete original performance suite is 27 passed / two failed: 24 MP
-typed-width frame 34 ms / <33 ms and 100 MP Levels installation 543 ms / <450 ms.
-Desktop unlock and sampled GameViewer-main absence cover the whole control;
-the launcher is restored afterwards and no service/settings are changed.
+**Phase 5 acceptance is complete for production 1025 on this Windows desktop
+and the received Mac 1.4.5 fixtures.** Source gates pass native 628 / zero
+failed / ten existing ignored, units 287, three type checks, all 199 functional
+cases and all 29 original performance cases. Assertions and budgets are
+unchanged, with one worker and zero automatic retries. Typed-width frames
+are 12/29 ms at 24/100 MP; 100 MP Levels installation is 320 ms.
 
-The packed integer halving candidate passes all 628 native tests, including
-two independent box-average regressions and the original peak-heap budgets.
-Release WASM, three type checks, 287 units and frozen browser assets pass.
-The new full functional run passes 199 cases / zero failures (8.0 minutes).
-The complete original performance run also passes 29/29 (8.0 minutes),
-with unchanged budgets and zero retries. Typed-width frames are 12/29 ms
-at 24/100 MP; 100 MP Levels installation is 320 ms. Source validation is
-complete; fresh production 1025 native UI, Mac and clipboard gates remain pending.
-Full Phase 5 remains incomplete. The following sections retain earlier
-implementation and acceptance checkpoints; the latest evidence is recorded
-in [the acceptance record](phase5-acceptance-2026-10-03.md).
+The current portable passes all eight original native UI groups, Mac 11 reads /
+ten atomic saves / nine complete RGBA-exact exports, and four protected
+clipboard protocols with 16 complete RGBA comparisons, eight editable
+UTF-16/style records and full original formats/data restoration. Its native
+WebView serves the validated WASM; ZIP identities/CRCs and all 188 frozen
+inputs verify. Desktop unlock, input observations and sampled GameViewer-main
+absence are recorded. Its launcher and clipboard are restored; services and
+settings are unchanged. Normal keyboard, mouse and copying can resume.
+
+The first menu timeout remains failed with cause unconfirmed. The separately
+executed input-monitored UI passes; no automatic retry is added. Its wrapper
+misreads a redirected process's null ExitCode as failure. Independent probes
+reproduce and correct that handle-retention error; raw samples and timestamp
+coverage verify the input gate without repeating the UI body. The failed
+wrapper is retained with its nonzero exit. Earlier intermittent failures are
+not reclassified or claimed universally fixed. Details and package hashes
+are in [the acceptance record](phase5-acceptance-2026-10-03.md).
 
 ## Scope and publication
 

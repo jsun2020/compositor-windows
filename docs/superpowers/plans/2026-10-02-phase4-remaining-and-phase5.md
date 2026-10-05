@@ -94,7 +94,58 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   observation is prepared and passes CheckOnly; earlier host snapshot and
   elevated endpoint failures remain separately recorded.
 
-### Latest verified control and pending halving candidate, 2026-10-05
+### Final current-package acceptance, 2026-10-05 11:34 local
+
+- [x] Native source: 628 passed, zero failed, ten existing ignored; all
+  13 original peak-heap budgets and both new scalar-reference tests pass.
+- [x] Release WASM, three type checks and 287 units pass.
+- [x] Complete functional 199 and original performance 29/29 pass, one
+  worker, zero automatic retries and unchanged assertions/budgets.
+- [x] Production 1025 ZIP/EXE/CRC identity and actual native runtime WASM
+  provenance verify; all 188 source/package/helper/guard inputs match.
+- [x] All eight original native UI groups pass in the separate input-
+  monitored verification. Its 106 unchanged input ticks span the original
+  UI log. The first menu timeout remains a failed historical execution.
+- [x] Additional wrapper ExitCode/handle-retention error is reproduced
+  independently and corrected; raw input gate verifies without repeating
+  the UI body. The original nonzero wrapper result remains unchanged.
+- [x] Native Mac: 11 reads, ten atomic saves, nine exact complete RGBA
+  exports and editable text/shape/effects 7/14 persist on reopen.
+- [x] Four independent protected clipboard protocols: 16 full RGBA
+  comparisons, eight UTF-16/style records, complete original formats/data
+  restored and four unique owned native ports; no emergency recovery.
+- [x] Full monitoring coverage and unlocked samples verify; GameViewer
+  launcher and clipboard are restored, services/settings unchanged.
+
+Phase 5 acceptance is complete for the current local package and received
+Mac fixtures. Historical failures remain recorded and are not declared
+universally fixed. The final independent receipt is
+`kernel-packed-final-acceptance-independent-review.json`; the detailed
+acceptance record explains the wrapper-only post-processing correction.
+
+### Earlier packed package checkpoint, 2026-10-05 11:21 local
+
+- [x] Source validation: native 628, units 287, three type checks, full
+  functional 199 and complete original performance 29/29; budgets unchanged.
+- [x] Production 1025 ZIP/EXE identity, original three ZIP entries and CRCs,
+  and SHA-256 of WASM fetched from the actual native WebView verify.
+- [x] Production 1025 Mac returns: 11 native reads, ten atomic saves,
+  nine complete RGBA-exact PNGs and editable text/shape/effects 7/14 on reopen.
+- [x] Production 1025 clipboard: four original protected protocols, six
+  groups each, 16 full RGBA comparisons, eight UTF-16/style records and
+  complete original format/data restoration; four unique owned ports.
+- [x] Read-only backup audit and all 184 frozen input hashes verify.
+  All 654 session samples are unlocked, monitor coverage is complete,
+  GameViewer main is sampled absent and its launcher is restored.
+- [ ] Production 1025 original eight-group UI: first File > New Canvas
+  menu locator exceeds its unchanged 30,000 ms. Failure retained, no retry
+  or waiver. Eight finite diagnostic menu gestures pass, but the cause is
+  unconfirmed and diagnostics do not replace original acceptance.
+
+Full Phase 5 remains incomplete because of that UI gate. The checkpoints
+below preserve historical results and earlier pre-unlock status.
+
+### Earlier verified control and pre-unlock halving checkpoint, 2026-10-05
 
 Production 0054 preserves exact paint/spatial output and passes native 626,
 unit 287, three type checks, eight native UI groups, the 11-read / ten-save Mac
