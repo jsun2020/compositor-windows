@@ -6,6 +6,8 @@ Set-StrictMode -Version Latest
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $root
 function Step([string]$m) { Write-Host "[build-windows-x64] $m" }
+$buildInfoPath = Join-Path $root 'app/src/build-info.ts'
+$originalBuildInfo = [IO.File]::ReadAllBytes($buildInfoPath)
 
 try {
   # MSVC environment
@@ -50,7 +52,9 @@ try {
   $stamp = ($marker -split '_')[-1]
   $outDir = Join-Path $root 'build-artifacts\windows-x64'
   $stage = Join-Path $outDir "Compositor-portable-$version-$stamp"
-  New-Item -ItemType Directory -Force $stage | Out-Null
+  $zip = "$stage.zip"
+  if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $zip)) { throw 'Portable output already exists; preserve it and build at a new timestamp.' }
+  New-Item -ItemType Directory -Path $stage | Out-Null
   Copy-Item $exe (Join-Path $stage 'Compositor.exe')
   Copy-Item (Join-Path $root 'engine/native/LICENSE-Compositor.txt') (Join-Path $stage 'LICENSE-Compositor.txt')
   @(
@@ -58,15 +62,13 @@ try {
     'Portable build: run Compositor.exe. Requires the Microsoft Edge WebView2 Runtime (preinstalled on Windows 10 19045 and later).',
     'Projects are .comp folders compatible with Compositor for macOS.'
   ) | Set-Content -Path (Join-Path $stage 'README.txt') -Encoding ascii
-  $zip = "$stage.zip"
-  if (Test-Path $zip) { Remove-Item $zip -Force }
   Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
   $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
   Step "Portable zip: $zip ($size MB)"
 
   if (-not $NoSmoke) {
     Step 'Smoke launch'
-    $p = Start-Process -FilePath (Join-Path $stage 'Compositor.exe') -PassThru
+    $p = Start-Process -FilePath (Join-Path $stage 'Compositor.exe') -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 5
     if ($p.HasExited) { throw "Compositor.exe exited early with code $($p.ExitCode)" }
     Stop-Process -Id $p.Id -Force
@@ -76,5 +78,5 @@ try {
 }
 finally {
   Set-Location $root
-  git checkout -- app/src/build-info.ts
+  [IO.File]::WriteAllBytes($buildInfoPath, $originalBuildInfo)
 }

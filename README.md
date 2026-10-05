@@ -1,314 +1,157 @@
 # Compositor for Windows
 
-Compositor is a free, open-source image editor for macOS built around a Photoshop-style
-compositing workflow (crop, resize, layers, adjustments, retouching). This project is a
-Windows rewrite of that app, built with Tauri 2, a Rust/wasm image-compositing engine, and
-a React/TypeScript UI, so everyday image editing on Windows no longer requires launching
-Photoshop.
+[![Windows CI](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml)
+[![Windows Release](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml)
 
-## Phase 1 features
+A free, open-source Windows image editor, ported from Compositor for macOS.
+Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 
-- New canvas, and image import as a new project or as a layer
-- Open and save `.comp` project packages
-- Export PNG, and JPEG with a quality preview
-- Crop with snapping, Canvas Size, Image Size with resolution, Flip Canvas
-- Zoom and pan, pixel grid when zoomed in, sharp downsampling when zoomed out
-- Multiple projects in tabs
-- Keyboard shortcuts and drag-and-drop import
+**Current source: 0.8.0. Phase 4 and Phase 5 are implemented and accepted on the
+tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
+Liquify and Smudge are Phase 6 development work and are not part of 0.8.0.
 
-## Phase 2: layers
+## Download
 
-- Layer stack with folders, drag reorder and nest
-- Opacity and 13 blend modes (Normal, Multiply, Screen, Overlay, Darken, Lighten,
-  Difference, Color Dodge, Color Burn, Hue, Saturation, Color, Luminosity)
-- Layer and folder masks: invert, fill (white or black), blur/feather, link/unlink
-- Clipping masks
-- Non-destructive move, scale, rotate, flip and free distort, with snapping
-- Transform several layers or a whole folder together
-- Merge down, merge layers, merge group
-- Duplicate
-- Note: mask painting arrives with the brush tool in Phase 4; today masks are edited
-  through fill, invert and blur only.
-- Note: Alt-dragging a layer on the canvas to duplicate it is two undo steps
-  (duplicate, then move), not one.
+Get the portable Windows x64 ZIP from [Releases](https://github.com/jsun2020/compositor-windows/releases/latest),
+extract it and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required;
+Rust and Node are only needed for development. Projects are `.comp` folders:
+keep their manifest and asset files together.
 
-### Layer menu shortcuts
+Automated releases include `SHA256SUMS.txt` and `release-manifest.json` with
+the exact source commit, build marker and artifact hashes.
 
-| Action | Shortcut |
-| --- | --- |
-| New Layer | Ctrl+Shift+N |
-| Duplicate | Ctrl+J |
-| Group | Ctrl+G |
-| Merge | Ctrl+E |
-| Clipping Mask | Ctrl+Alt+G |
-| Bring Forward | Ctrl+] |
-| Send Backward | Ctrl+[ |
-| Cycle blend mode forward | Shift+= |
-| Cycle blend mode backward | Shift+- |
-| Set layer opacity (move tool) | 0-9 (10% steps; two digits combine, e.g. 2 then 5 for 25%) |
-| Nudge selection | Arrow keys (Shift = 10 px) |
-| Apply transform | Enter |
-| Cancel transform | Escape |
+## Features
 
-## Phase 3: adjustments and filters
+- **Projects:** image import, multiple tabs, drag-and-drop, PNG/JPEG export with
+  quality preview, crop, Canvas Size, Image Size, flip, zoom and pan.
+- **Layers:** folders, reorder/nesting, all 24 Mac blend modes, opacity, clipping
+  masks, linked/unlinked layer and folder masks, mask painting, multi-layer
+  transforms, snapping, merge, duplicate and ungroup.
+- **Adjustments:** Levels, Curves, Hue/Saturation, Exposure, Gradient Map, Grain,
+  Invert, Black & White and Color Balance, with previews and adjustment layers.
+  Gaussian/Motion Blur, Add Noise and Lens Correction are available.
+- **Selections and fills:** marquee, lasso, Magic Wand, add/subtract, move outline,
+  invert/expand/contract/feather, foreground/background fills and gradients.
+- **Clipboard:** Windows PNG/DIB Cut, Copy, Copy Merged and Paste; Layer via Copy;
+  floating-selection move/resize/rotate/distort; cancellation and one undo per
+  gesture. Internal copies retain editable metadata; external PNGs carry pixels.
+- **Painting and retouching:** Brush/Eraser size, hardness, opacity and smoothing,
+  Shift straight lines, Blur, aligned Clone Stamp, three Spot Healing modes and
+  Content-Aware Fill with Preview, Cancel and Apply. Healing/fill compile the
+  original Mac 1.4.5 C kernels.
+- **Text, shapes and effects:** point and fixed-box text, UTF-16 font/color runs,
+  live shape redraw on resize, editable Stroke and Drop Shadow. Save/reopen,
+  cancellation and undo preserve editable records. Other effects are rendered
+  and preserved.
 
-- Levels, with Auto and the three eyedroppers (black point, gray point, white point)
-- Curves
-- Hue/Saturation, with seven colour ranges (Reds, Yellows, Greens, Cyans, Blues,
-  Magentas, and the master range), Colorize, and the band eyedroppers
-- Exposure
-- Gradient Map
-- Grain
-- Invert
-- Gaussian Blur and Motion Blur, both spreading past the layer's edges
-- Add Noise
-- Lens Correction
-- Live previews for every adjustment: the document is untouched until OK; Cancel
-  restores it exactly
-- Adjustment layers for all six kinds above that support them (Levels, Curves,
-  Hue/Saturation, Exposure, Gradient Map, Grain): maskable, clippable, and reaching
-  everything beneath them in the stack unless limited by an enclosing folder's mask
-  (a folder does not isolate its contents on its own). Double-clicking an adjustment
-  layer's row reopens its panel; double-clicking an ordinary layer's row still renames it.
-- Note: an adjustment layer is never a clipping source.
-- Note: Hue/Saturation is evaluated per pixel rather than through the Mac's 33-point
-  colour cube, so results are slightly more exact than the Mac app's.
-- Note: Image > Grain places its grain in document pixels; the Mac's uses the layer's own
-  pixels, so on a scaled layer the grain size differs from the Mac's by the layer's scale.
+Large edits and histograms use background jobs with visible progress and
+cooperative transfers. Packed RGBA reductions retain exact integer averages
+and established undo/memory budgets.
 
-### Image and Filter menu shortcuts
+## Shortcuts
 
 | Action | Shortcut |
 | --- | --- |
-| Levels | Ctrl+L |
-| Curves | Ctrl+M |
-| Hue/Saturation | Ctrl+U |
-| Invert | Ctrl+I |
-
-## Phase 3.5: Compositor for Mac 1.2.6 and later
-
-- All 24 of the Mac's blend modes, in its menu order. New: Linear Burn, Linear Dodge (Add),
-  Soft Light, Hard Light, Vivid Light, Linear Light, Pin Light, Hard Mix, Exclusion, Subtract
-  and Divide. As on the Mac, an adjustment layer in any mode but Normal blends its result at
-  full strength and keeps the alpha of what lies beneath it. (Until Phase 4.5 the eight modes
-  Compositor 1.2 computed with Core Image were drawn as Normal for an adjustment layer and a
-  clipped group, as 1.2 drew them; see Phase 4.5.)
-- Adjustment layers for Add Noise, Gaussian Blur, Motion Blur, Invert, Black & White and
-  Color Balance, from Layer > New Adjustment, with panels (Invert has nothing to set). Blur
-  layers blur everything beneath them, fading at the canvas edge as the Mac's do.
-- Image > Black & White and Color Balance, applied to the selected layer.
-- Grain and Add Noise use the Mac 1.2.6 patterns, for layers and for the Image and Filter menus.
-- Folder opacity and saved guides, as the Mac draws and moves them.
-- Motion Blur, as a layer or a filter, is Core Image's: a Gaussian along the angle whose sigma is
-  the distance / sqrt(12), within 6 levels of the Mac's own render.
-- Note: a Gaussian Blur or a Motion Blur reaching more than 48 screen pixels (three sigmas: a
-  Motion Blur reaches 0.87 x its distance) is computed on a reduced copy. Measured against the
-  exact blur: away from the edges, within 1 level; up to 4 levels for a Gaussian Blur and 9 for a
-  Motion Blur along the canvas edge and along hard edges of transparency; and a long Motion Blur
-  loses fine detail across its angle (up to 19 levels on pixel-sized noise). At export (100%), a
-  Gaussian Blur up to radius 16 and a Motion Blur up to 55 px are exact. Every view of it, and
-  the export, shows the same result. Zoomed far into a very large blur, its edge can show at the
-  window's edge.
-- Note: projects are limited to 100 megapixels of layer images (and of masks). Compositor for
-  Mac allows more on a Mac with more memory; such a project is refused with a message saying so.
-- Layer effects, drawn as the Mac draws them: stroke (outside or inside), drop shadow, inner
-  shadow, outer glow, inner glow and colour overlay, on the canvas and in every export. Merging
-  bakes them, and every eyedropper and histogram that reads the picture sees them. They cannot be
-  edited yet.
-- Note: an effect whose blur reaches more than 48 pixels (a shadow blur or a glow size above 32)
-  is computed on a reduced copy, within 1 level of the exact result. A layer whose effects would
-  need an image of more than 200 megapixels is drawn without them, as on the Mac.
-- Note: Image Size scales a layer's effects with it, and Canvas Size and Crop keep them.
-  Compositor for Mac removes them in Image Size, Canvas Size, Crop and Trim.
-- Note: deleting a layer that others clip to, with Bake, keeps its stroke and shadow in the
-  baked pixels, as the canvas showed them; Compositor for Mac bakes without them.
-- Note: an unknown key inside an effect is kept and named in the notice; Compositor for Mac
-  drops it.
-- Note: a layer with effects is drawn from an image made when its pixels, mask or effects change,
-  and on every step of dragging its unlinked mask. On a large layer that takes a few seconds:
-  measured at about 3 s for a pixel edit and 5 s for each frame of an unlinked mask drag, on a
-  3000 x 2000 layer with all six effects. The 8 most recently made images, up to 512 MB, are
-  kept.
-
-## Phase 4a: selections
-
-- Marquee (M; Tab switches Rectangle and Ellipse), Lasso (L; Tab switches Freehand and
-  Polygonal) and Magic Wand (W), with New, Add and Subtract in the options bar, or Shift (add)
-  and Alt (subtract) held as a drag or click begins.
-- The Magic Wand's tolerance, sample size (point, 3 by 3, 5 by 5), This Layer or All Layers, and
-  Contiguous. Anti-alias for the Lasso, the Magic Wand and the elliptical Marquee.
-- Drag inside a selection to move its outline; the arrow keys nudge it (Shift = 10 px). A click
-  inside it without a drag deselects (with the Magic Wand, selects afresh from that pixel).
-- The Polygonal Lasso: a click per corner; click the first corner or double-click to close;
-  Backspace removes the last corner, Enter closes, Escape cancels.
-- Select menu: All, Deselect, Inverse, Layer's Pixels, Mask's Black Areas, and Expand, Contract
-  and Feather with an amount; the three are also in the options bar.
-- Ctrl-click a layer's thumbnail to select its pixels (at least half opaque), or a mask's to
-  select its black areas, as on the Mac; Ctrl+Shift adds and Ctrl+Alt subtracts.
-- With a selection: adjustments, filters and Invert change only what is selected (a blur still
-  grows the layer where the selection reaches), and Levels and Curves show the histogram of the
-  selected pixels. Delete clears the selected pixels, or fills a targeted mask with its background
-  colour (white unless its edges are mostly black), growing it to cover the canvas as Compositor
-  1.3.7 for Mac does. Add Mask reveals the selection (Alt-click, or Add Mask (Hide All), hides it)
-  and uses it up (Phase 4.5; 1.2 hid it). The Crop tool starts at the selection's bounds.
-  Adjustment layers ignore the selection.
-- An empty selection (after Subtract or Contract) says so in the options bar, and every edit
-  refuses it until it is deselected or replaced.
-- Selections are part of undo and, as on the Mac, are never saved in the project. Crop, Canvas
-  Size and Image Size drop the selection; Flip Canvas mirrors it.
-- Note: dragging a Marquee or an outline past the window's edge does not scroll the view yet.
-- Note: object selection, Select Subject, the clipboard and the brushes are not in this phase.
-
-### Select menu shortcuts
-
-| Action | Shortcut |
-| --- | --- |
+| Move / Type / Brush / Eraser | V / T / B / E |
 | Marquee / Lasso / Magic Wand | M / L / W |
-| Switch the Marquee's shape or the Lasso's kind | Tab |
-| Select All | Ctrl+A |
-| Deselect | Ctrl+D |
-| Inverse | Ctrl+Shift+I |
-| Add to / subtract from the selection | Shift / Alt while drawing |
-| Nudge the selection (selection tools) | Arrow keys (Shift = 10 px) |
-| Clear the selected pixels | Delete |
+| Blur / Clone Stamp / Spot Healing | R / S / J |
+| Gradient / Shape / Eyedropper | G / U / I |
+| Crop / Hand / Zoom | C / H / Z |
+| Copy / Copy Merged / Cut / Paste | Ctrl+C / Ctrl+Shift+C / Ctrl+X / Ctrl+V |
+| Layer via Copy / duplicate | Ctrl+J |
+| Select All / Deselect / Inverse | Ctrl+A / Ctrl+D / Ctrl+Shift+I |
+| Fill foreground / background | Alt+Backspace / Ctrl+Backspace |
+| Swap / reset palette colors | X / D |
+| Levels / Curves / Hue-Saturation | Ctrl+L / Ctrl+M / Ctrl+U |
+| Group / Ungroup / Merge | Ctrl+G / Ctrl+Shift+G / Ctrl+E |
+| Apply / cancel transform or gradient | Enter / Escape |
+| Apply / cancel text editing | Ctrl+Enter / Escape |
+| Clone source | Alt-click |
 
-## Phase 4b-1: colour, fills, gradients and shapes
+## Mac interoperability and limits
 
-- The palette at the foot of the tool rail: the foreground and background colours; X swaps them
-  and D restores black over white. With a layer's mask targeted they are black and white, and a
-  click on a swatch asks which ("Black - Hide" or "White - Reveal").
-- The colour picker, opened from a swatch: a saturation and brightness field, a hue strip, R, G, B
-  and hex, OK (Enter) and Cancel (Escape). It floats, opens where it was last left, and while it
-  is open a click or drag on the canvas samples the colour under the pointer, with a ring showing
-  the sampled colour over the one before.
-- Eyedropper (I): a click or drag on the canvas sets the foreground colour from what the canvas
-  shows. Alt with the Gradient tool does the same.
-- Edit > Fill with Foreground Color (Alt+Backspace) and Fill with Background Color
-  (Ctrl+Backspace): the selection, or the whole layer, which grows to cover the canvas as on the
-  Mac; on a targeted mask its black or white, and the mask grows past its layer to cover the
-  canvas, as Compositor 1.3.7 for Mac does. The new area takes the mask's background colour: white
-  unless the mask's edges are mostly black.
-- Gradient (G): drag a line; its ends can then be dragged (Shift holds 45 degrees), Enter or Apply
-  paints it, Escape or Cancel drops it, and the first Undo discards it. Linear or Radial (Tab),
-  Foreground to Background or to Transparent, Reverse, and Opacity (the digit keys set it). It
-  previews from a reduced copy while dragged (a patch at full size inside a small selection) and
-  is applied to the full layer; switching tool or layer, opening an adjustment panel, filling or
-  importing an image applies it first. A gradient on a targeted mask grows it the same way, with
-  the same background rule.
-- Shape (U; Shift+U or Tab steps Rectangle, Ellipse and Line): drag to draw the shape in the
-  foreground colour on a new layer above the active one (Shift squares it or holds a line to 45
-  degrees, Alt draws from the centre). Rectangles take a corner Radius, lines a Width. The layer
-  keeps the Mac's shape record, so Compositor for Mac redraws it crisply when it is scaled there;
-  this app scales its pixels. It always uses the image's foreground colour, even with a mask
-  targeted.
-- A new Gradient Map, as a layer or from the Image menu, starts from the foreground to the
-  background colour, and its two ends open the colour picker, which previews them live.
-- Large layers (over 4 megapixels) are edited, and their Levels and Curves histograms read, off the
-  interface thread: "Working..." shows meanwhile. Edits inside a selection upload only the pixels
-  they change, and undo keeps the last 100 steps, fewer once they hold more than 256 MB.
-- Note: a shape is drawn as the Mac draws it (Core Graphics' anti-aliasing is approximated by exact
-  area coverage); a scaled shape layer is not redrawn here.
-- Note: the colour picker works in sRGB, 8 bits a channel, as the Mac's does.
+Reads `.comp` versions 1–11 and writes version 11, as Mac 1.4.5 does.
+Supported unknown manifest fields and text runs are preserved. The Mac
+regenerates its Quick Look preview after a Windows save.
 
-### Colour and tool shortcuts
+Nine complete PNG exports from the received Mac projects match every RGBA
+byte; text/shapes remain editable and saved Stroke/Shadow parameters persist.
+This validates those fixtures, not every possible document.
 
-| Action | Shortcut |
+- Projects are limited to 100 megapixels of layer images and masks.
+- Windows/Mac fonts and fallback can draw glyphs differently.
+- Upright fractional 1:1 copies and measured affine enlargement now follow
+  the Mac's sampled behavior. Rotated-edge/distortion resampling remains
+  separate Phase 3.5d work.
+- Very large blur/effect previews use reduced copies; research records describe
+  their tolerances and padded-image limits.
+- Liquify/Smudge are Phase 6. Camera Raw and PSD/RAW import are Phase 7.
+
+## Validation
+
+| Accepted local 0.8.0 checkpoint | Result |
 | --- | --- |
-| Eyedropper / Gradient / Shape | I / G / U |
-| Swap colours / default colours | X / D |
-| Fill with the foreground / background colour | Alt+Backspace / Ctrl+Backspace |
-| Gradient: Linear or Radial; Shape: next kind | Tab (Shape also Shift+U) |
-| Gradient opacity | 1-9 for 10-90 %, 0 for 100 % |
-| Apply / cancel a pending gradient | Enter / Escape |
+| Rust workspace | 628 passed, zero failed, 10 existing ignored |
+| TypeScript / Vitest | Three type checks; 287 unit tests |
+| Complete functional browser suite | 199 passed; 29 performance opt-ins exercised separately |
+| Complete original performance suite | 29/29; one worker, zero automatic retries |
+| Native production UI | Eight original groups |
+| Native Mac returns | 11 reads, 10 atomic saves, nine complete RGBA-exact PNGs |
+| Native clipboard | Four protected protocols, 16 full image comparisons, original clipboard restored |
 
-## Phase 4.5: Compositor for Mac 1.4.5
+Assertions and budgets are unchanged. Historical failures, the initial menu
+timeout and the independently repaired wrapper exit-status error remain
+recorded. The current pass does not establish a universal intermittent fix.
+See [the acceptance record](docs/superpowers/phase5-acceptance-2026-10-03.md).
 
-- Projects saved by Compositor for Mac 1.3 and 1.4 (format 11) open, and every save is written at
-  format 11. A text layer's coloured words and its words in another face are kept exactly as the
-  Mac saved them (this app has no text tool yet, and draws text as the Mac last drew it). A project
-  from a newer Mac says which formats this version reads.
-- Soft Light is drawn as Compositor 1.4.5 draws it (the W3C formula; 1.2 used another one, which
-  differs where the top layer is lighter than mid grey).
-- An adjustment layer, and a clipping mask's base layer, blend in their own mode in all 24 modes
-  (1.2 drew Linear Burn, Linear Dodge, Vivid Light, Linear Light, Pin Light, Hard Mix, Subtract and
-  Divide as Normal there).
-- Hue/Saturation raises saturation as Photoshop does: +50 doubles it, +100 takes any colour all the
-  way.
-- Add Mask with a selection reveals the selection; Alt-click on the mask button hides it.
-- Inverse of a selection that covers the whole canvas leaves nothing selected.
-- Layer > Ungroup Layers (Shift+Ctrl+G, or a folder's context menu): the folder's layers take its
-  place and the folder goes.
-- Drag a tab along the tab strip to reorder the open projects.
-- Resize handles snap the edges they move to the canvas and other layers, as a move does.
-- The Move bar has W and H fields and an aspect lock (on at first), which the handles follow too;
-  Shift turns it the other way while held.
-- A large edit through the background worker comes back ready to draw at the canvas's zoom, so the
-  frame after it no longer stalls (up to half a second at 100 megapixels before).
-- Note: the Mac's overflow menu for many tabs, showing a mask alone (Alt-click on its thumbnail) and
-  flipping a layer by dragging a handle past the opposite side are not in this version.
+## Build and test
 
-### Phase 4.5 shortcuts
+Windows prerequisites: Rust **1.95.0** with `wasm32-unknown-unknown`, Node 22,
+pnpm **10.34.5**, Visual Studio C++ Build Tools, LLVM (`clang` and `llvm-ar`)
+and WebView2. Install `wasm-pack` with
+`cargo install wasm-pack --version 0.15.0 --locked`; its pin lives in
+`package.json` under `config.wasmPackVersion`.
 
-| Action | Shortcut |
-| --- | --- |
-| Ungroup Layers | Shift+Ctrl+G |
-| Add a mask hiding the selection (or all black) | Alt-click the mask button |
-| Keep or free the aspect ratio while dragging a handle | Shift (turns the Move bar's lock the other way) |
-
-## Prerequisites
-
-- Rust 1.95 with the `wasm32-unknown-unknown` target
-- wasm-pack 0.15.0, installed with `cargo install wasm-pack --version 0.15.0 --locked`.
-  It is not an npm dependency: the npm package's postinstall step downloads a binary from
-  GitHub, which the corporate proxy this project runs behind may block. The pinned version
-  lives in `package.json`'s `config.wasmPackVersion`; `pnpm wasm` and `pnpm wasm:dev` run
-  `scripts/ensure-wasm-pack.ps1` first and fail with the install command above if the
-  `wasm-pack` on PATH does not match.
-- Node 22 and pnpm
-- Visual Studio Build Tools with the C++ (VC.Tools.x86.x64) workload
-- Microsoft Edge WebView2 Runtime (preinstalled on Windows 10 19045 and later)
-
-## Commands
-
-```
-pnpm install         # install dependencies
-pnpm wasm:dev         # build the wasm engine (dev profile)
-pnpm dev              # run the app in a browser against a mock shell
-pnpm tauri:dev        # run the full desktop app in dev mode
-pnpm test             # run vitest unit tests
-pnpm e2e              # run Playwright end-to-end tests
-cargo test            # run the Rust engine and shell test suites
-pnpm build:portable   # build and package the portable Windows zip
+```powershell
+pnpm install --frozen-lockfile
+pnpm wasm:dev             # development WASM
+pnpm dev                  # browser with mock shell
+pnpm tauri:dev            # native desktop development
+pnpm wasm                # release WASM
+pnpm build               # three type checks and frontend
+pnpm test
+cargo test --workspace --locked
+pnpm exec playwright install chromium
+pnpm exec playwright test --workers 1 --retries 0
+pnpm build:portable
 ```
 
-## Project file interoperability
+Portable outputs live in `build-artifacts/windows-x64/`. Packaging preserves
+the original build-info file and refuses to overwrite an existing portable.
 
-Projects are `.comp` folder packages, compatible with Compositor for macOS. This app opens
-projects from Compositor for Mac 1.4.5 (format version 11) and every earlier format (1 to 11),
-writes version 11 as the Mac does, and saves them back without losing anything: a text layer's
-colour and font runs come back exactly as the Mac wrote them, and the Mac's Quick Look preview
-inside a project is left out of a save (the Mac makes it again on its next save). What they
-contain is drawn as Compositor 1.4.5 draws it, within the reduced-copy blur note above, except:
+## Automatic releases
 
-- a layer enlarged in High quality (the default), which Compositor for Mac draws with Core
-  Graphics' high-quality filter and this app bilinearly: sharper soft edges on the Mac, up to 29
-  levels on one probe turned 25 degrees at 150 %, until Phase 3.5d ports the Mac's resampling
-  filter (probe results, "Step probes");
-- layer effects, which match the Mac's renders (11 of the 16 effects probes exactly, 4 within 3
-  levels, and the last apart from the resampling above) but are written as the Mac's code writes
-  them, not yet checked against a project the Mac itself saved with effects;
-- text colour and font runs, checked so far against projects written by hand from the Mac's code
-  (and a real 1.4.5 save without text), until the user's Mac saves with text runs come back;
-- an upright layer placed at a fraction of a pixel and drawn at 100 %, which Compositor 1.4.5
-  copies pixel for pixel and this app still blends (Phase 3.5d).
+Windows CI runs on main/development pushes and pull requests. A new stable
+version on `main`, a matching `vX.Y.Z` tag, or a manual Windows Release run
+starts release validation. Keep `package.json`, the Cargo workspace version
+and `src-tauri/tauri.conf.json` aligned; add `docs/releases/X.Y.Z.md`.
 
-## Further reading
+Original native/unit/functional gates run before a production portable build.
+ZIP CRCs, staged bytes, hashes and the downloaded artifact's source receipt
+are checked before publishing the ZIP, checksums and manifest. Published
+versions remain immutable; an existing failed draft requires inspection.
+Only the final publishing job has write permission. Actions are pinned to
+reviewed commit SHAs.
 
-- Design specs: `docs/superpowers/specs`
-- Implementation plans: `docs/superpowers/plans`
+Hosted CI does not replace local hardware timing, native clipboard or Mac
+gesture acceptance; these remain separate recorded checks.
 
-## Credits
+## Roadmap and credits
 
-The tool rail's icons are from [Lucide](https://lucide.dev) (ISC License; the notice is in
-`app/src/panels/tool-icons.tsx`). The Mac app draws its tools with Apple's SF Symbols, which are
-licensed for Apple platforms only, so this port uses the closest Lucide icons instead.
+- [Design and scope](docs/superpowers/specs/2026-09-20-windows-port-design.md)
+- [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md)
+- [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
+
+Original Mac sources and retouch kernels use MIT. Icons use
+[Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are licensed for
+Apple platforms and are not used here.
