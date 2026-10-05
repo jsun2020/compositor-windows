@@ -27,6 +27,7 @@ pub enum Command {
     LayerViaCopy { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     CutPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     BrushStroke { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, brush: crate::BrushSpec },
+    WarpStroke { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, warp: crate::WarpSpec },
     ContentAwareFill { #[serde(with = "ids::upper")] id: Uuid },
     SetLayerEffects { #[serde(with = "ids::upper")] id: Uuid, effects: Option<crate::LayerEffects> },
     DuplicateLayerTo { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
@@ -88,6 +89,7 @@ impl Command {
     pub fn action_name(&self) -> &'static str {
         match self {
             Command::LayerViaCopy { .. } => "Layer via Copy",
+            Command::WarpStroke { warp, .. } => match warp.mode {crate::warp::WarpMode::Liquify=>"Liquify",crate::warp::WarpMode::Smudge=>"Smudge"},
             Command::CutPixels { .. } => "Cut",
             Command::BrushStroke { brush, .. } => match brush.operation {crate::BrushOperation::Blur { .. }=>"Blur",crate::BrushOperation::Clone { .. }=>"Clone Stamp",crate::BrushOperation::Heal { .. }=>"Spot Healing",_=>if brush.erasing {"Erase"}else{"Brush Stroke"}},
             Command::ContentAwareFill { .. } => "Content-Aware Fill",

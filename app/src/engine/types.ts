@@ -9,6 +9,8 @@ export interface LayerTransform { origin: [number, number]; size: [number, numbe
 
 export type PointTuple = [number, number];
 export type HealingMode="Content-Aware"|"Create Texture"|"Proximity Match";
+export type WarpMode="Liquify"|"Smudge";
+export interface WarpSpec {mode:WarpMode;diameter:number;hardness:number;strength:number;points:PointTuple[];}
 export type BrushOperation={kind:"Paint"}|{kind:"Blur";radius:number}|{kind:"Clone";offset:PointTuple;allLayers:boolean}|{kind:"Heal";mode:HealingMode;seed:number};
 export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
@@ -194,6 +196,7 @@ export type Command =
   | { type: "LayerViaCopy"; id: string; mask: boolean }
   | { type: "CutPixels"; id: string; mask: boolean }
   | { type: "BrushStroke"; id: string; mask: boolean; brush: { diameter: number; hardness: number; opacity: number; points: PointTuple[]; color: [number,number,number,number]; erasing: boolean; operation?:BrushOperation } }
+  | { type: "WarpStroke"; id: string; mask: boolean; warp: WarpSpec }
   | { type:"ContentAwareFill";id:string }
   | { type: "DuplicateLayerTo"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "DuplicateLayerTransformed"; id: string; transform: LayerTransform }

@@ -52,10 +52,11 @@ pub fn grid_for(doc: &Document, layer: &Layer, area: Rect) -> Result<ops::raster
     let inverse=layer.transform.pixel_to_document(ow,oh).invert().ok_or(ProjectError::Invalid)?;
     let corners=[Point{x:area.x,y:area.y},Point{x:area.max_x(),y:area.y},Point{x:area.max_x(),y:area.max_y()},Point{x:area.x,y:area.max_y()}].map(|p|inverse.apply(p));
     let base = layer.pixels.is_some();
-    let x0=corners.iter().map(|p|p.x).fold(if base {0.0}else{f64::INFINITY},f64::min).floor();
-    let y0=corners.iter().map(|p|p.y).fold(if base {0.0}else{f64::INFINITY},f64::min).floor();
-    let x1=corners.iter().map(|p|p.x).fold(if base {ow as f64}else{f64::NEG_INFINITY},f64::max).ceil();
-    let y1=corners.iter().map(|p|p.y).fold(if base {oh as f64}else{f64::NEG_INFINITY},f64::max).ceil();
+    let snap=ops::raster_edit::snap_near_int;
+    let x0=snap(corners.iter().map(|p|p.x).fold(if base {0.0}else{f64::INFINITY},f64::min)).floor();
+    let y0=snap(corners.iter().map(|p|p.y).fold(if base {0.0}else{f64::INFINITY},f64::min)).floor();
+    let x1=snap(corners.iter().map(|p|p.x).fold(if base {ow as f64}else{f64::NEG_INFINITY},f64::max)).ceil();
+    let y1=snap(corners.iter().map(|p|p.y).fold(if base {oh as f64}else{f64::NEG_INFINITY},f64::max)).ceil();
     let (w,h)=(x1-x0,y1-y0);
     if w>MAX_SIDE as f64 || h>MAX_SIDE as f64 || w*h>MAX_PIXELS.saturating_sub(doc.used_pixels().saturating_sub(layer.pixels.as_ref().map_or(0,|r|r.width as u64*r.height as u64))) as f64 {return Err(ProjectError::TooLarge.into());}
     let transform=ops::adjust::placed_like(&layer.transform,ow,oh,w as u32,h as u32,-x0,-y0);

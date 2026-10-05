@@ -73,7 +73,7 @@ pub struct EditGrid { pub width: u32, pub height: u32, pub x: u32, pub y: u32, p
 /// integer (e.g. -5.7e-13 instead of 0.0, or 700.0000000000001 instead of 700.0); left alone, `floor`
 /// or `ceil` would round that to the wrong pixel and grow an already-grown grid by one more pixel on a
 /// second, otherwise no-op edit (fix round 1, I-1).
-fn snap_near_int(v: f64) -> f64 { let r = v.round(); if (v - r).abs() < 1e-6 { r } else { v } }
+pub(crate) fn snap_near_int(v: f64) -> f64 { let r = v.round(); if (v - r).abs() < 1e-6 { r } else { v } }
 
 /// The grid for painting `layer`'s pixels: its own grid (its pixels, or its box rounded when it has
 /// none) grown to cover the canvas as the layer maps it, rounded out to whole pixels

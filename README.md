@@ -6,7 +6,7 @@
 A free, open-source Windows image editor, ported from Compositor for macOS.
 Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 
-**Current source: 0.8.0. Phase 4 and Phase 5 are implemented and accepted on the
+**Current release: 0.8.0. Phase 4 and Phase 5 are implemented and accepted on the
 tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
 Liquify and Smudge are Phase 6 development work and are not part of 0.8.0.
 
@@ -151,6 +151,11 @@ gesture acceptance; these remain separate recorded checks.
 - [Design and scope](docs/superpowers/specs/2026-09-20-windows-port-design.md)
 - [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md)
 - [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
+
+Phase 6 development has CPU reference kernels and guarded single-stroke
+editing jobs for Liquify/Smudge. GPU preview, tool controls, large-canvas timing
+and Mac gesture comparisons are still in progress; these tools are not yet
+exposed in the application.
 
 Original Mac sources and retouch kernels use MIT. Icons use
 [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are licensed for
