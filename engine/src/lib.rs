@@ -54,6 +54,7 @@ pub use lineage::*;
 pub use jobs::*;
 pub use clipboard_job::*;
 pub use retouch::HealingMode;
+pub use ops::warp::WarpSpec;
 pub use ops::masks::blur_gray;
 pub use ops::raster_edit::{GradientShape, GradientSpec, Paint, MIN_GRADIENT_LINE};
 pub use ops::shape::{ShapeKind, ShapeSpec, SHAPE_SIDE_TOO_LARGE, SHAPE_TOO_LARGE};

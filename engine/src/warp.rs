@@ -4,12 +4,12 @@
 //! algorithm oracle, not a document command or the large-document GPU path.
 //! Selection, transforms, history and preview ownership belong to the caller.
 
-const MAX_PIXELS: usize = 4_194_304;
+pub const REFERENCE_MAX_PIXELS: usize = 4_194_304;
 const MAX_DIAMETER: f64 = 2000.0;
 const MAX_STEPS: usize = 4096;
 const MAX_DAB_SAMPLES: usize = 16_777_216;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WarpMode {
     Smudge,
     Liquify,
@@ -57,7 +57,7 @@ impl WarpStroke {
     ) -> Result<Self, WarpError> {
         let count = width.checked_mul(height).ok_or(WarpError::InvalidPlane)?;
         if count == 0
-            || count > MAX_PIXELS
+            || count > REFERENCE_MAX_PIXELS
             || count.checked_mul(4) != Some(pixels.len())
             || pixels
                 .chunks_exact(4)
@@ -104,6 +104,12 @@ impl WarpStroke {
     /// Returns scheduled dabs, not a claim that the pixel bytes changed.
     /// Rejected movement leaves both pixels and the previous anchor intact.
     pub fn append(&mut self, point: [f64; 2]) -> Result<usize, WarpError> {
+        self.append_dabs(point).map(|dabs| dabs.len())
+    }
+
+    /// Actual scheduled centers, for the final replacement footprint. Pickup
+    /// and sub-spacing moves return no centers; callers must not paint them.
+    pub fn append_dabs(&mut self, point: [f64; 2]) -> Result<Vec<[f64; 2]>, WarpError> {
         if point
             .iter()
             .any(|p| !p.is_finite() || p.abs() > 1_000_000.0)
@@ -115,7 +121,7 @@ impl WarpStroke {
                 self.pickup(point);
             }
             self.last = Some(point);
-            return Ok(0);
+            return Ok(Vec::new());
         };
         let delta = [point[0] - last[0], point[1] - last[1]];
         let distance = delta[0].hypot(delta[1]);
@@ -126,7 +132,7 @@ impl WarpStroke {
             })
         .max(1.0);
         if distance < spacing {
-            return Ok(0);
+            return Ok(Vec::new());
         }
         let steps = (distance / spacing).ceil() as usize;
         let side = (2 * self.radius + 1) as usize;
@@ -135,6 +141,7 @@ impl WarpStroke {
             return Err(WarpError::MovementTooLong);
         }
         let mut previous = last;
+        let mut dabs = Vec::with_capacity(steps);
         for step in 1..=steps {
             let t = step as f64 / steps as f64;
             let current = [last[0] + delta[0] * t, last[1] + delta[1] * t];
@@ -143,9 +150,10 @@ impl WarpStroke {
                 WarpMode::Liquify => self.push(previous, current),
             }
             previous = current;
+            dabs.push(current);
         }
         self.last = Some(point);
-        Ok(steps)
+        Ok(dabs)
     }
 
     fn index(&self, x: i32, y: i32) -> Option<usize> {

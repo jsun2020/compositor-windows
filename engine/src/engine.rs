@@ -547,6 +547,7 @@ impl Engine {
             Command::DuplicateLayer { id } => { ops::hierarchy::duplicate_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::LayerViaCopy { id, mask } => { ops::clipboard::layer_via_copy(doc, id, mask)?; Ok(Dirty::everything()) }
             Command::BrushStroke { id, mask, brush } => ops::brush::paint(doc, clips, id, mask, &brush),
+            Command::WarpStroke { id, mask, warp } => ops::warp::apply_reference(doc, clips, id, mask, &warp),
             Command::ContentAwareFill { id } => ops::content_fill::apply(doc,clips,id),
             Command::SetLayerEffects {id,effects}=>{
                 if effects.as_ref().is_some_and(|e|!e.is_valid()){return Err(CommandError::Argument("invalid layer effects".into()));}

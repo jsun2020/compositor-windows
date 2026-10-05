@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay, type AntsState } from "./overlay";
@@ -173,13 +173,21 @@ export function CanvasView() {
     return () => { renderer.dispose(); rendererRef.current = null; };
   }, [engine]);
 
-  // Size the viewport to the element.
-  useEffect(() => {
+  // Toolbars change the canvas height. Map the committed layout before a
+  // pointer can arrive; ResizeObserver alone can leave the first point using
+  // the old center and subsequent points using the new one.
+  useLayoutEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
     const resize = () => {
       const s = useEditor.getState();
-      for (const id of s.order) { const d = s.documents[id]; s.viewports[id].resize({ width: el.clientWidth, height: el.clientHeight }, window.devicePixelRatio || 1, { width: d.width, height: d.height }); }
-      s.invalidate();
+      const size = { width: el.clientWidth, height: el.clientHeight }, dpr = window.devicePixelRatio || 1;
+      let changed = false;
+      for (const id of s.order) {
+        const d = s.documents[id], vp = s.viewports[id];
+        if (vp.viewSize.width === size.width && vp.viewSize.height === size.height && vp.backingScale === dpr && !vp.followsFit) continue;
+        vp.resize(size, dpr, { width: d.width, height: d.height }); changed = true;
+      }
+      if (changed) s.invalidate();
     };
     // Fit a newly opened document before the draw effect below. Waiting for the
     // observer would first upload the entire large raster at the default 1:1 zoom.
@@ -187,7 +195,7 @@ export function CanvasView() {
     const observer = new ResizeObserver(resize);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [activeId]);
+  }, [activeId, tool]);
 
   // Draw on every store change that affects the picture.
   useEffect(() => {

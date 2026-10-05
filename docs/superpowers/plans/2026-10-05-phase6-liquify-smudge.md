@@ -32,8 +32,9 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
 - [x] Phase 6 scope re-read against the actual v1.4.5 sources.
 - [x] CPU reference kernels: smudge carried colors and immutable-source
   Liquify offsets, bounded allocation and deterministic edge/rounding cases.
-- [ ] Engine job/command integration, selection coverage, transformed-layer
-  writeback and single-step history/cancellation.
+- [x] Bounded CPU engine job/command integration, selection coverage,
+  transformed-layer writeback and single-step history/cancellation.
+- [ ] GPU source/result transport through the same guarded writeback.
 - [ ] WebGL2 live preview without a document-sized upload on each pointer move;
   bounded CPU fallback and safe resource disposal.
 - [ ] Mode controls, brush options, shortcuts and refusal messages.
@@ -82,7 +83,102 @@ Validation on the Windows development machine:
 - `rustfmt --edition 2021 --check engine/src/warp.rs` and `git diff --check`:
   passed.
 
-The module is not yet connected to editing jobs or the tool rail. Existing
+At this first checkpoint the module was not connected to editing jobs or the tool rail. Existing
 Blur, painting, clipboard and the accepted 0.8.0 package are unchanged. Next:
 integrate one-stroke history/selection coverage and GPU preview ownership,
 then expose Liquify/Smudge and measure native/Mac behavior.
+
+## Document/job checkpoint — 2026-10-05
+
+`WarpStroke` now runs directly or through the existing detached WASM edit-job
+protocol. It processes the unmasked, full-opacity layer asset in document
+coordinates, excluding other layers and effects. Only the final hard footprint
+(diameter + 4) is written back, through canvas/selection coverage and the
+layer's original pixel grid. Replacement includes alpha, so transparent dragged
+pixels can clear the destination. Opacity, blend mode, effects and masks are
+retained; editable text/shape metadata is removed only when pixel bytes change.
+
+Actual scheduled dab centers define the final footprint. First-click pickup,
+sub-spacing movement and an unchanged result preserve history/redo. A changed
+stroke installs as one undo step. The existing layer stamp rejects results
+after source pixels, transform, canvas, selection or mask changes. Existing
+worker-preview cancellation leaves committed pixels and earlier history intact.
+
+The shared brush grid now absorbs near-integer inverse-transform roundoff,
+using the existing raster-edit tolerance. A 90-degree rotation previously
+created an extra column and a white fringe in a following mask.
+
+The CPU command checks both canvas and source against the 4 Mi pixel cap before
+rendering the document plane, limits input to 4096 points and a stroke to 64 Mi
+scheduled brush samples, and checks the output grid before allocating it.
+`ops::warp::writeback` can accept a finished GPU plane, but its GPU transport,
+interactive preview and tool controls are still pending. No 24/100 MP warp
+responsiveness, native tool UI or Metal pixel equivalence is claimed here.
+
+Validation for this checkpoint on the Windows development machine:
+
+- `cargo test --workspace --locked`: **650 passed**, zero failed, the same
+  **10 pre-existing ignored** tests. The new `warp_jobs` suite has 10 checks,
+  alongside the 12 reference-kernel checks and unchanged original suites.
+- `pnpm wasm` and `pnpm build`: passed, including the command's WASM build
+  and all three TypeScript projects.
+- `pnpm test`: **287 passed**, zero failed.
+- The first targeted browser run had **5 passes and 1 navigation timeout** at
+  `page.goto`, before engine readiness or any warp command. The concurrent
+  workspace build was still compiling. Its log and error context were retained
+  under `build-artifacts/phase6-warp-jobs-*`. The original 30-second test budget
+  and zero-retry policy remain unchanged.
+- Complete `pnpm exec playwright test --workers 1 --retries 0` after compilation:
+  **205 passed**, zero failed. This includes all six new real-WASM worker cases:
+  direct/worker byte equality for both modes, selected/whole writeback, one
+  undo/redo step, pickup/sub-spacing no-op/redo and changed-layer refusal. The
+  **29 existing PERF opt-in** cases remain separate; this functional run does
+  not prove new warp performance. The earlier failed run remains recorded above.
+
+## Canvas layout follow-up — 2026-10-05
+
+On `3ac43cc`, GitHub's push run `37277409207` failed one original Shape tool
+assertion: the rectangle started at Y=13 and had height 17, instead of Y=10 and
+height 20. Its other 204 functional cases passed. The independent PR run
+`37277429012` passed all 205, which does not make the intermittent issue fixed.
+Both results and the failed run's error context were retained.
+
+The added `canvas-layout` case defers ResizeObserver notifications while a
+toolbar changes height, without changing original tests or their budgets. On
+the old source it deterministically found viewport height 639 while the DOM
+height was already 551. Client points computed in that interval could use
+different canvas centers for the same drag.
+
+Canvas sizing now runs in a layout effect when a document or tool changes,
+before pointer input uses the committed toolbar geometry. The observer still
+handles actual resizes; redundant unchanged sizes skip non-fit viewports and
+fit viewports retain their previous refit behavior.
+
+The controlled regression fails before the source fix and passes after it.
+On the final follow-up source, all **10 targeted browser cases** passed (the
+new layout case, three unchanged original shape cases and six warp-job cases),
+and the three TypeScript checks/build plus **287 unit cases** passed again.
+Rust/WASM kernel sources are unchanged by this follow-up. Fresh full GitHub
+checks are required before merging; no CI rerun of the unchanged failed source
+or automatic assertion retry was used.
+
+## Next GPU integration contract
+
+- Keep immutable source pixels and float Liquify offsets / fractional Smudge
+  carry separate. Freeze each dab's dependency region before changing it; do
+  not read and upload a document-sized image for every pointer movement.
+- A preview must draw through the layer's existing masks, effects, blend mode,
+  opacity and final selection coverage. It must not change engine pixel
+  revisions or history on every dab. The current brush's translucent overlay
+  is not a substitute for the warped image preview.
+- Final readback must reach the worker's guarded replacement writeback using
+  the original layer stamp. Display halvings stay in the worker, following F1.
+  Closing/switching documents, cancellation and context loss release resources
+  and discard stale results rather than applying them to the current layer.
+- Check float-render-target support, texture dimensions and resource bounds
+  before allocation. The existing renderer chunks large images at 2048 pixels;
+  a 100 MP document must not assume it fits a single WebGL texture. Tile/source
+  preparation and interactive dab costs need separate measured evidence.
+- Unsupported GPU capability may use the explicitly bounded CPU path. It must
+  report the existing refusal on larger canvases instead of blocking the UI
+  with an unbounded fallback or silently reducing the edited image.
