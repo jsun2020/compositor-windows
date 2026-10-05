@@ -30,7 +30,7 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
 - [x] README and Windows CI/release implementation prepared with immutable
   version checks, original test gates and ZIP/source-provenance verification.
 - [x] Phase 6 scope re-read against the actual v1.4.5 sources.
-- [ ] CPU reference kernels: smudge carried colors and immutable-source
+- [x] CPU reference kernels: smudge carried colors and immutable-source
   Liquify offsets, bounded allocation and deterministic edge/rounding cases.
 - [ ] Engine job/command integration, selection coverage, transformed-layer
   writeback and single-step history/cancellation.
@@ -52,8 +52,37 @@ smudge pickup, and immutable-source offset advection from repeated RGBA
 resampling. Include first-click and sub-spacing no-ops, clipping, alpha,
 invalid inputs and thin-axis safety. Exact Metal/WASM equality is not inferred
 from matching formulas: GPU float arithmetic and normalized-texture rounding
-require measured probes. The Mac shader's one-pixel axes have undefined neighbor
-reads; Windows must handle them safely and record that boundary explicitly.
+require measured probes. With a one-pixel dependency axis, the Mac shader skips
+the dab at its negative-neighbor guard; Windows defines clamped bilinear reads
+for thin planes and must record this boundary explicitly.
 
 Do not alter Phase 5 assertions/budgets, claim hosted CI proves local clipboard
 or Mac behavior, or include the user's unrelated sampling fixtures in commits.
+
+## First reference checkpoint — 2026-10-05
+
+`engine/src/warp.rs` owns the working plane, Smudge's fractional carried colors
+and Liquify's untouched source/float offset field. Dabs freeze only their
+offset dependency rectangle. First-click pickup and Mac mode-specific spacing
+are implemented; invalid/excessive appends leave the stroke unchanged.
+
+The reference refuses planes above 4 Mi pixels, diameters above 2000 and
+appends above 4096 dabs or 16 Mi brush samples. Checked multiplication also
+protects the 32-bit WASM target. These limits define a bounded oracle; they
+are not the interactive 24/100 MP product limits.
+
+Validation on the Windows development machine:
+
+- `cargo test -p compositor-engine --lib --locked`: **12 passed**, zero failed.
+  Includes analytic fractional advection, reads from one pre-dab snapshot,
+  premultiplied alpha, fractional diameter falloff and the Mac bright-circle
+  fixture's no-ghost-peaks/fading-tail assertions.
+- `cargo check -p compositor-engine --target wasm32-unknown-unknown --locked`:
+  passed. This proves compilation, not browser/Metal arithmetic equivalence.
+- `rustfmt --edition 2021 --check engine/src/warp.rs` and `git diff --check`:
+  passed.
+
+The module is not yet connected to editing jobs or the tool rail. Existing
+Blur, painting, clipboard and the accepted 0.8.0 package are unchanged. Next:
+integrate one-stroke history/selection coverage and GPU preview ownership,
+then expose Liquify/Smudge and measure native/Mac behavior.

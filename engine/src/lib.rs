@@ -21,6 +21,7 @@ pub mod lineage;
 pub mod jobs;
 pub mod clipboard_job;
 pub mod retouch;
+pub mod warp;
 
 pub use adjust::settings::*;
 pub use adjust::levels::*;
