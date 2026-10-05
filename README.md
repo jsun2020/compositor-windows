@@ -152,9 +152,11 @@ gesture acceptance; these remain separate recorded checks.
 - [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md)
 - [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
 
-Phase 6 development has CPU reference kernels and guarded single-stroke
-editing jobs for Liquify/Smudge. GPU preview, tool controls, large-canvas timing
-and Mac gesture comparisons are still in progress; these tools are not yet
+Phase 6 development has CPU reference kernels, guarded single-stroke editing
+jobs and independently tested tiled WebGL2 kernels for Liquify/Smudge. The raw
+GPU kernels have separate local 24/100 MP hardware measurements. GPU preview,
+tool controls, complete tool timing and Mac gesture comparisons are still in
+progress; these tools are not yet
 exposed in the application.
 
 Original Mac sources and retouch kernels use MIT. Icons use
