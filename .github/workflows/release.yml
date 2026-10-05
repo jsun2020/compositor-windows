@@ -1,0 +1,76 @@
+name: Windows Release
+run-name: Windows release from ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: windows-2022
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - name: Validate versions and immutable release identity
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-metadata.mjs
+  validate-and-package:
+    needs: metadata
+    if: needs.metadata.outputs.publish == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      portable: true
+    permissions:
+      contents: read
+  publish:
+    needs: [metadata, validate-and-package]
+    if: needs.metadata.outputs.publish == 'true'
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-portable
+          path: release-upload
+      - name: Recheck downloaded assets against build receipt
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: node scripts/verify-portable-release.mjs --receipt release-upload
+      - name: Publish only after all validation and uploads succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          $notes = "docs/releases/$env:RELEASE_VERSION.md"
+          if (-not (Test-Path -LiteralPath $notes)) { throw 'Versioned release notes are required' }
+          $assets = @(Get-ChildItem release-upload -File | Select-Object -ExpandProperty FullName)
+          gh release create $env:RELEASE_TAG @assets --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_COMMIT --title "Compositor for Windows $env:RELEASE_VERSION" --notes-file $notes --draft
+          if ($LASTEXITCODE -ne 0) { throw 'Draft/upload failed; no public release was published' }
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed; retained draft must be inspected' }

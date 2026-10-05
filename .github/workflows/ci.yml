@@ -1,0 +1,92 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      portable:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: 1.95.0
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      PERF: ''
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Install pinned Rust and WASM tools
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --target wasm32-unknown-unknown
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          $required = (Get-Content package.json -Raw | ConvertFrom-Json).config.wasmPackVersion
+          cargo install wasm-pack --version $required --locked
+          if ($LASTEXITCODE -ne 0) { throw 'wasm-pack installation failed' }
+          'C:\Program Files\LLVM\bin' | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Release metadata and packaging regressions
+        run: node --test scripts/tests/release.test.mjs
+      - name: Original native workspace tests
+        run: cargo test --workspace --locked
+      - name: Release WASM
+        run: pnpm wasm
+      - name: Three TypeScript checks and web build
+        run: pnpm build
+      - name: Unit tests
+        run: pnpm test
+      - name: Install functional test browser
+        run: pnpm exec playwright install chromium
+      - name: Original browser functional suite
+        run: pnpm exec playwright test --workers 1 --retries 0
+      - name: Build production portable
+        if: inputs.portable == true
+        env:
+          VITE_BRIDGE: ''
+          VITE_TEST_API: ''
+        run: |
+          & ./scripts/build-windows-x64.ps1 -NoSmoke
+          if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
+          $zips = @(Get-ChildItem build-artifacts/windows-x64 -Filter '*.zip' -File)
+          if ($zips.Count -ne 1) { throw 'Expected exactly one fresh portable ZIP' }
+          node scripts/verify-portable-release.mjs $zips[0].FullName build-artifacts/release-upload
+          if ($LASTEXITCODE -ne 0) { throw 'Portable integrity check failed' }
+      - name: Retain release ZIP, hashes and provenance
+        if: inputs.portable == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-portable
+          path: build-artifacts/release-upload/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain functional failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: functional-failure-evidence
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
