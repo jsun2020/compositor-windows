@@ -135,6 +135,33 @@ Validation for this checkpoint on the Windows development machine:
   **29 existing PERF opt-in** cases remain separate; this functional run does
   not prove new warp performance. The earlier failed run remains recorded above.
 
+## Canvas layout follow-up — 2026-10-05
+
+On `3ac43cc`, GitHub's push run `37277409207` failed one original Shape tool
+assertion: the rectangle started at Y=13 and had height 17, instead of Y=10 and
+height 20. Its other 204 functional cases passed. The independent PR run
+`37277429012` passed all 205, which does not make the intermittent issue fixed.
+Both results and the failed run's error context were retained.
+
+The added `canvas-layout` case defers ResizeObserver notifications while a
+toolbar changes height, without changing original tests or their budgets. On
+the old source it deterministically found viewport height 639 while the DOM
+height was already 551. Client points computed in that interval could use
+different canvas centers for the same drag.
+
+Canvas sizing now runs in a layout effect when a document or tool changes,
+before pointer input uses the committed toolbar geometry. The observer still
+handles actual resizes; redundant unchanged sizes skip non-fit viewports and
+fit viewports retain their previous refit behavior.
+
+The controlled regression fails before the source fix and passes after it.
+On the final follow-up source, all **10 targeted browser cases** passed (the
+new layout case, three unchanged original shape cases and six warp-job cases),
+and the three TypeScript checks/build plus **287 unit cases** passed again.
+Rust/WASM kernel sources are unchanged by this follow-up. Fresh full GitHub
+checks are required before merging; no CI rerun of the unchanged failed source
+or automatic assertion retry was used.
+
 ## Next GPU integration contract
 
 - Keep immutable source pixels and float Liquify offsets / fractional Smudge
