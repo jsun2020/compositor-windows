@@ -12,6 +12,8 @@
 import {releaseJobBuffer,takeSpareJobBuffer} from "./job-buffers";
 
 export type JobRequest =
+  | { kind:"warpSource"; input:string; pixels:ArrayBuffer|null; mask:ArrayBuffer|null; points:ArrayBuffer|null; maskTarget:boolean }
+  | { kind:"warpResult"; input:string; pixels:ArrayBuffer|null; mask:ArrayBuffer|null; points:ArrayBuffer|null; maskTarget:boolean; warp:string; tiles:{x:number;y:number;width:number;height:number;pixels:ArrayBuffer}[]; outPerDoc:number }
   | {kind:"text";input:string;pixels:null;mask:null}
   | { kind: "documentEdit"; input: string; layer: string; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; pixels: null; mask: null; points: ArrayBuffer | null; command: string; outPerDoc: number }
   | { kind: "clipboard"; input: string; pixels: null; mask: null; layers: { pixels: ArrayBuffer | null; mask: ArrayBuffer | null }[]; points: ArrayBuffer | null; png: boolean }
@@ -24,13 +26,17 @@ export type JobRequest =
  * image's size and inset; null when an effects image found nothing to draw) and any buffers. An edit
  * run at a scale (`outPerDoc`, device pixels per document pixel) also brings its new pixels halved to
  * the level the canvas draws them at (`display`, engine `JobOutput.display`; F1). */
-export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null; }
+export interface JobResult { header: string | null; pixels: ArrayBuffer | null; mask: ArrayBuffer | null; display?: ArrayBuffer | null;
+  /** The exact original source snapshot, returned only by warpSource. It must
+   * survive until completion/cancel; fetching current pixels would mix stamps. */
+  inputs?: {pixels:ArrayBuffer|null;mask:ArrayBuffer|null;points:ArrayBuffer|null};
+}
 
 /** Retire large transferred buffers after installation. The bounded buffer pool
  * detaches callers while keeping a spare for the next edit; previews keep their
  * buffers until Apply/Cancel. Small results remain available as before. */
 export function releaseJobResult(result:JobResult|null):void {
-  if(!result)return;for(const b of [result.pixels,result.mask,result.display]){
+  if(!result)return;for(const b of new Set([result.pixels,result.mask,result.display,result.inputs?.pixels,result.inputs?.mask,result.inputs?.points])){
     if(b)releaseJobBuffer(b);
   }
 }
@@ -69,7 +75,7 @@ export function trapMessage(error: string): string {
 export function transferables(request: JobRequest): ArrayBuffer[] {
   if (request.kind === "clipboard" || request.kind === "documentEdit") return [...request.layers.flatMap((l) => [l.pixels, l.mask]), request.points].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
   const points = "points" in request ? request.points : null;
-  return [request.pixels, request.mask, points, request.kind === "edit" ? request.outputPixels ?? null : null].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
+  return [...new Set([request.pixels, request.mask, points, request.kind === "edit" ? request.outputPixels ?? null : null,...(request.kind==="warpResult"?request.tiles.map(t=>t.pixels):[])])].filter((b): b is ArrayBuffer => b !== null && b.byteLength > 0);
 }
 
 interface Pending { id: number; channel: string; request: JobRequest; resolve: (r: JobResult | null) => void; reject: (e: Error) => void; }

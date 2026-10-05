@@ -276,7 +276,12 @@ pub fn run_document_edit(document: Document,layer:Uuid,pixels:Option<Raster>,mas
     let mut engine = Engine::new();
     let id = engine.insert_document(document);
     let dirty = engine.execute(id, command)?;
-    let l = engine.document(id).and_then(|d| d.layer(layer)).ok_or(CommandError::NoLayer)?;
+    edit_output(engine.document(id).ok_or(CommandError::NoDocument)?,layer,pixels,mask,dirty,out_per_doc)
+}
+
+/// Common output/witness/display preparation, also for checked GPU results.
+pub(crate) fn edit_output(document:&Document,layer:Uuid,pixels:Option<Raster>,mask:Option<GrayRaster>,dirty:Dirty,out_per_doc:f64)->Result<(JobOutput,Option<Raster>,Option<GrayRaster>,Option<Raster>),CommandError>{
+    let l = document.layer(layer).ok_or(CommandError::NoLayer)?;
     let new_pixels = l.pixels.clone().filter(|p| !pixels.as_ref().is_some_and(|o| o.same_pixels(p)));
     let new_mask = l.mask.as_ref().map(|m| m.pixels.clone()).filter(|m| !mask.as_ref().is_some_and(|o| o.same_pixels(m)));
     let regions: Vec<(Plane, PixelRect)> = dirty.regions.iter().filter(|r| r.layer == layer).map(|r| (r.plane, r.rect)).collect();
@@ -305,6 +310,126 @@ pub fn run_document_edit(document: Document,layer:Uuid,pixels:Option<Raster>,mas
         witness,
     };
     Ok((output, new_pixels, new_mask, display.map(|(_, d)| d)))
+}
+
+/// Headers travel as small JSON; every tile's RGBA bytes travel separately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WarpTileRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+fn check_warp_canvas(input: &JobInput, mask_target: bool) -> Result<(), CommandError> {
+    if mask_target {
+        return Err(CommandError::Refused(ops::warp::MASK_REFUSAL.into()));
+    }
+    if input.width == 0
+        || input.height == 0
+        || input.width as i64 > MAX_SIDE
+        || input.height as i64 > MAX_SIDE
+        || input.width as u64 * input.height as u64 > MAX_PIXELS
+    {
+        return Err(CommandError::Argument("invalid warp canvas".into()));
+    }
+    Ok(())
+}
+
+/// Prepare the unstyled document-space source off the UI thread. The caller
+/// retains the original JobInput/stamp and buffers for final replacement.
+pub fn run_warp_source_job(
+    input: &JobInput,
+    pixels: Option<Raster>,
+    mask: Option<GrayRaster>,
+    points: Option<&[i32]>,
+    mask_target: bool,
+) -> Result<Raster, CommandError> {
+    check_warp_canvas(input, mask_target)?;
+    ops::warp::source_plane(&input.document(pixels, mask, points)?, input.layer.id)
+}
+
+/// A completed GPU stroke follows the same selection/grid replacement and
+/// output protocol as the reference. No CPU warp kernel runs here. Nothing
+/// is installed on the main engine until its original LayerStamp is checked.
+pub fn run_warp_result_job(
+    input: &JobInput,
+    pixels: Option<Raster>,
+    mask: Option<GrayRaster>,
+    points: Option<&[i32]>,
+    mask_target: bool,
+    spec: &WarpSpec,
+    tiles: Vec<(WarpTileRect, Vec<u8>)>,
+    out_per_doc: f64,
+) -> Result<
+    (
+        JobOutput,
+        Option<Raster>,
+        Option<GrayRaster>,
+        Option<Raster>,
+    ),
+    CommandError,
+> {
+    check_warp_canvas(input, mask_target)?;
+    let dabs = ops::warp::footprint(spec)?;
+    // Bound JSON headers and total readback independently of canvas size.
+    if tiles.len() > 4096 {
+        return Err(CommandError::Argument("too many warp tiles".into()));
+    }
+    let mut count = 0u64;
+    for (i, (rect, bytes)) in tiles.iter().enumerate() {
+        let area = rect.width as u64 * rect.height as u64;
+        count = count
+            .checked_add(area)
+            .ok_or_else(|| CommandError::Argument("invalid warp tiles".into()))?;
+        if rect.width == 0
+            || rect.height == 0
+            || rect.x as u64 + rect.width as u64 > input.width as u64
+            || rect.y as u64 + rect.height as u64 > input.height as u64
+            || count > 16_777_216
+            || area * 4 != bytes.len() as u64
+            || bytes
+                .chunks_exact(4)
+                .any(|p| p[..3].iter().any(|v| *v > p[3]))
+        {
+            return Err(CommandError::Argument("invalid warp tiles".into()));
+        }
+        if tiles[..i].iter().any(|(other, _)| {
+            rect.x < other.x + other.width
+                && other.x < rect.x + rect.width
+                && rect.y < other.y + other.height
+                && other.y < rect.y + rect.height
+        }) {
+            return Err(CommandError::Argument("overlapping warp tiles".into()));
+        }
+    }
+    let mut document = input.document(pixels.clone(), mask.clone(), points)?;
+    // Still validate the layer for no-op strokes; source_plane checks the
+    // target, but it is not needed to allocate a full source for a pickup.
+    ops::warp::target(&document, input.layer.id, false)?;
+    let dirty = if dabs.is_empty() || tiles.is_empty() {
+        Dirty::pixels(vec![])
+    } else {
+        let mut bytes = ops::warp::source_plane(&document, input.layer.id)?.into_bytes();
+        for (rect, tile) in tiles {
+            for y in 0..rect.height as usize {
+                let start = ((rect.y as usize + y) * input.width as usize + rect.x as usize) * 4;
+                let row = rect.width as usize * 4;
+                bytes[start..start + row].copy_from_slice(&tile[y * row..(y + 1) * row]);
+            }
+        }
+        let result = Raster::from_premultiplied(input.width, input.height, bytes);
+        ops::warp::writeback(
+            &mut document,
+            &SelectionClips::default(),
+            input.layer.id,
+            spec,
+            &dabs,
+            &result,
+            false,
+        )?
+    };
+    edit_output(&document, input.layer.id, pixels, mask, dirty, out_per_doc)
 }
 
 /// Runs a histogram job: the layer's histogram weighted by the selection (`Engine::histogram`).

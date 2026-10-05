@@ -44,7 +44,55 @@ fn valid_point(p: Point) -> bool {
     p.x.is_finite() && p.y.is_finite() && p.x.abs() <= 1_000_000.0 && p.y.abs() <= 1_000_000.0
 }
 
-fn target(doc: &Document, id: Uuid, mask: bool) -> Result<&Layer, CommandError> {
+/// The actual scheduled centers retained for the final diameter+4 hard tip.
+/// GPU clients send input points, not an arbitrary replacement footprint.
+pub fn footprint(spec: &WarpSpec) -> Result<Vec<Point>, CommandError> {
+    spec.check()?;
+    let side = (2.0 * (spec.diameter / 2.0).ceil() + 1.0) as usize;
+    let spacing = (spec.diameter * 0.05).max(1.0);
+    let mut anchor = None;
+    let mut kept: Vec<Point> = Vec::new();
+    let mut final_dab = None;
+    let mut work = 0usize;
+    for p in &spec.points {
+        let dabs = crate::warp::schedule_dabs(spec.mode, spec.diameter, anchor, [p.x, p.y])
+            .map_err(|_| CommandError::Argument("the warp stroke is too long".into()))?;
+        work = dabs
+            .len()
+            .checked_mul(side)
+            .and_then(|n| n.checked_mul(side))
+            .and_then(|n| work.checked_add(n))
+            .filter(|n| *n <= MAX_STROKE_SAMPLES)
+            .ok_or_else(|| CommandError::Argument("the warp stroke is too long".into()))?;
+        if anchor.is_none() || !dabs.is_empty() {
+            anchor = Some([p.x, p.y]);
+        }
+        for dab in dabs {
+            let p = Point {
+                x: dab[0],
+                y: dab[1],
+            };
+            if kept
+                .last()
+                .is_none_or(|last| (p.x - last.x).hypot(p.y - last.y) >= spacing)
+            {
+                kept.push(p);
+            }
+            final_dab = Some(p);
+            if kept.len() > 100_000 {
+                return Err(CommandError::Argument("the warp stroke is too long".into()));
+            }
+        }
+    }
+    if let Some(last) = final_dab {
+        if kept.last() != Some(&last) {
+            kept.push(last);
+        }
+    }
+    Ok(kept)
+}
+
+pub(crate) fn target(doc: &Document, id: Uuid, mask: bool) -> Result<&Layer, CommandError> {
     if mask {
         return Err(CommandError::Refused(MASK_REFUSAL.into()));
     }

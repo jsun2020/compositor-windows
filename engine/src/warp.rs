@@ -9,6 +9,57 @@ const MAX_DIAMETER: f64 = 2000.0;
 const MAX_STEPS: usize = 4096;
 const MAX_DAB_SAMPLES: usize = 16_777_216;
 
+/// Shared scheduling for the reference and GPU writeback protocol. The first
+/// point and sub-spacing movement do not advance an existing anchor. No pixel
+/// plane is allocated merely to validate the stroke's replacement footprint.
+pub fn schedule_dabs(
+    mode: WarpMode,
+    diameter: f64,
+    last: Option<[f64; 2]>,
+    point: [f64; 2],
+) -> Result<Vec<[f64; 2]>, WarpError> {
+    if !diameter.is_finite() || !(2.0..=MAX_DIAMETER).contains(&diameter) {
+        return Err(WarpError::InvalidSettings);
+    }
+    if point
+        .iter()
+        .chain(last.iter().flatten())
+        .any(|p| !p.is_finite() || p.abs() > 1_000_000.0)
+    {
+        return Err(WarpError::InvalidPoint);
+    }
+    let Some(last) = last else {
+        return Ok(Vec::new());
+    };
+    let delta = [point[0] - last[0], point[1] - last[1]];
+    let distance = delta[0].hypot(delta[1]);
+    let spacing = (diameter
+        * match mode {
+            WarpMode::Smudge => 0.005,
+            WarpMode::Liquify => 0.025,
+        })
+    .max(1.0);
+    if distance < spacing {
+        return Ok(Vec::new());
+    }
+    let steps = (distance / spacing).ceil() as usize;
+    let side = (2.0 * (diameter * 0.5).ceil() + 1.0) as usize;
+    if steps > MAX_STEPS
+        || steps
+            .checked_mul(side)
+            .and_then(|n| n.checked_mul(side))
+            .is_none_or(|n| n > MAX_DAB_SAMPLES)
+    {
+        return Err(WarpError::MovementTooLong);
+    }
+    Ok((1..=steps)
+        .map(|step| {
+            let t = step as f64 / steps as f64;
+            [last[0] + delta[0] * t, last[1] + delta[1] * t]
+        })
+        .collect())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WarpMode {
     Smudge,
@@ -110,12 +161,7 @@ impl WarpStroke {
     /// Actual scheduled centers, for the final replacement footprint. Pickup
     /// and sub-spacing moves return no centers; callers must not paint them.
     pub fn append_dabs(&mut self, point: [f64; 2]) -> Result<Vec<[f64; 2]>, WarpError> {
-        if point
-            .iter()
-            .any(|p| !p.is_finite() || p.abs() > 1_000_000.0)
-        {
-            return Err(WarpError::InvalidPoint);
-        }
+        let dabs = schedule_dabs(self.mode, self.settings.diameter, self.last, point)?;
         let Some(last) = self.last else {
             if self.mode == WarpMode::Smudge {
                 self.pickup(point);
@@ -123,34 +169,16 @@ impl WarpStroke {
             self.last = Some(point);
             return Ok(Vec::new());
         };
-        let delta = [point[0] - last[0], point[1] - last[1]];
-        let distance = delta[0].hypot(delta[1]);
-        let spacing = (self.settings.diameter
-            * match self.mode {
-                WarpMode::Smudge => 0.005,
-                WarpMode::Liquify => 0.025,
-            })
-        .max(1.0);
-        if distance < spacing {
+        if dabs.is_empty() {
             return Ok(Vec::new());
         }
-        let steps = (distance / spacing).ceil() as usize;
-        let side = (2 * self.radius + 1) as usize;
-        let work = steps.checked_mul(side).and_then(|n| n.checked_mul(side));
-        if steps > MAX_STEPS || work.is_none_or(|n| n > MAX_DAB_SAMPLES) {
-            return Err(WarpError::MovementTooLong);
-        }
         let mut previous = last;
-        let mut dabs = Vec::with_capacity(steps);
-        for step in 1..=steps {
-            let t = step as f64 / steps as f64;
-            let current = [last[0] + delta[0] * t, last[1] + delta[1] * t];
+        for &current in &dabs {
             match self.mode {
                 WarpMode::Smudge => self.smudge(current),
                 WarpMode::Liquify => self.push(previous, current),
             }
             previous = current;
-            dabs.push(current);
         }
         self.last = Some(point);
         Ok(dabs)

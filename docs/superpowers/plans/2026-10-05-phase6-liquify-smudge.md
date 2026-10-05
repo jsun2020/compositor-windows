@@ -36,7 +36,7 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
   transformed-layer writeback and single-step history/cancellation.
 - [x] Independent tiled WebGL2 kernels, fractional carry / float offset
   snapshots, allocation checks and explicit disposal/context-loss handling.
-- [ ] GPU source/result transport through the same guarded writeback.
+- [x] GPU source/result transport through the same guarded writeback.
 - [ ] WebGL2 live preview without a document-sized upload on each pointer move;
   bounded CPU fallback and safe resource disposal.
 - [ ] Mode controls, brush options, shortcuts and refusal messages.
@@ -234,8 +234,60 @@ each mode/size, and allocations stayed below 512 MiB. These are raw-kernel
 measurements, not worker preparation, effects/masks, complete UI or packaged
 runtime acceptance. Full-source regression and fresh hosted CI remain required.
 
-Still pending: raw source/result worker transport with LayerStamp, preview
+At the kernel checkpoint, still pending: raw source/result worker transport with LayerStamp, preview
 through the actual transformed layer/masks/effects/selection, mode controls,
 bounded fallback, packaged tool measurements and focused actual Mac returns.
 The GPU module is not imported by the production editor yet. Published 0.8.0
 and its release assets remain unchanged; Phase 6 is not complete.
+
+## GPU worker transport checkpoint — 2026-10-05
+
+`warpSource` prepares the unstyled document-space layer in the existing WASM
+worker. It returns both that GPU upload plane and the exact original layer,
+mask and selection buffers. The caller keeps the original JobInput/stamp;
+worker heap reclamation cannot lose the snapshot. Cancellation retires the
+source and all returned inputs through the existing bounded buffer pool.
+
+`warpResult` transfers sparse RGBA tiles and bounded JSON rectangles to the
+worker. It checks canvas size, premultiplication, byte counts, tile bounds,
+overlaps and a 64 MiB readback limit before reconstruction. The final footprint
+is recomputed from actual scheduled input dabs, using the reference's shared
+spacing rule. The worker recomposes the original source once at completion,
+overlays tiles, then calls the established replacement writeback and output
+preparation. It never runs the CPU warp kernel on the GPU result. Selection,
+transformed grids, alpha replacement, following masks, change witnesses and
+display halvings retain their existing paths. Installation still checks the
+original LayerStamp and produces one history entry; pickup/sub-spacing no-ops
+preserve redo.
+
+Six new native cases cover byte/record equality with the CPU command, stale
+pixels/transform/canvas/selection/mask, malformed tiles, mask/pixel-free
+refusals and a document above the CPU reference cap. Initial new-test failures
+are retained in ignored transport logs: an unplaced mask is legitimately
+followed even without growth; cache revisions differ across direct execution,
+installation and undo; and Liquify does not change the initially chosen x=5
+selection on the analytic stripe. The test now compares the complete persisted
+record/all pixel and mask bytes, with the selection over the changed x=4 pixel.
+No original test/assertion/budget was modified.
+
+Thirteen new browser cases exercise source worker -> actual WebGL2 -> result
+worker -> main-engine install/preview. The original input buffers really detach
+and return; styled selected/whole results match the CPU command, final-result
+preview/cancel preserves stored revisions/history, five stale-source mutations
+refuse, and malformed requests leave the worker usable. A 6 MP document proves
+this route works beyond the 4 Mi pixel reference cap: analytic Smudge bytes
+128/64/32, sparse readback and one undo. It is a transport test, not a 24/100 MP
+responsiveness measurement or a live pointer-preview test.
+
+Local release-WASM and all three TypeScript checks/web build passed; native
+workspace regression reported **656 passed, zero failed, 10 pre-existing
+ignored cases**, and the unit suite **290 passed**. Thirty targeted browser
+cases passed (11 kernels, six existing reference jobs, 13 transport cases).
+Full functional regression and fresh hosted checks must pass before merging.
+
+This checkpoint has no production pointer/controller imports or tool controls.
+Live preview needs a separate path: this completion protocol reconstructs a
+document plane and final layer once; running it on every pointer movement would
+violate the live-preview allocation/latency contract. Actual transformed,
+masked and styled live rendering, bounded fallback, packaged UI timing and
+focused Mac returns remain required before Phase 6 can be accepted.
