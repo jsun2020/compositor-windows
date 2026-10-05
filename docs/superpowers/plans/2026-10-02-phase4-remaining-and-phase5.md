@@ -45,7 +45,7 @@ Implementation boxes describe delivered code, not completion of every acceptance
 gate. The delivery report records validation results and remaining native
 clipboard, large-image performance and Mac interoperability evidence separately.
 
-- [x] Current native workspace coverage: 626 passed, zero failures,
+- [x] Verified 0054 baseline native workspace coverage: 626 passed, zero failures,
   10 existing ignored, including the exact-half and two complete kernel-output
   regressions; original peak-heap budgets pass.
 - [x] Vitest: 287 passed. Current TypeScript and fixed-asset UI build pass.
@@ -94,33 +94,44 @@ clipboard, large-image performance and Mac interoperability evidence separately.
   observation is prepared and passes CheckOnly; earlier host snapshot and
   elevated endpoint failures remain separately recorded.
 
-### Current kernel candidate, 2026-10-05
+### Latest verified control and pending halving candidate, 2026-10-05
 
-Production 0054 specializes paint layout and spatial interpolation without
-changing bytes, preview resolutions or original assertions/budgets. Native
-626 / unit 287 / three type checks pass. The package passes eight original
-native UI groups and the 11-read / ten-save Mac protocol, with nine complete
-RGBA-exact exports and editable 7/14 effects on reopen. ZIP entries and all
-source/test/production WASM identities verify.
+Production 0054 preserves exact paint/spatial output and passes native 626,
+unit 287, three type checks, eight native UI groups, the 11-read / ten-save Mac
+protocol and nine complete RGBA-exact exports. Package/ZIP/WASM identities match.
 
-- [ ] Current complete functional acceptance: 198 pass / one page-fixture
-  setup timeout before its body / 29 original opt-in skips; no retry.
-- [ ] Current complete large-image performance acceptance: original gradient
-  drag and motion-blur eyedropper improve, but settled GPU readbacks still
-  exceed the original budget. Separate passive/serialized/screen-framebuffer
-  diagnostics fail; the screen experiment is not incorporated into production.
-- [ ] Current native clipboard stability: its guarded snapshot fails before
-  any clipboard mutation despite sampled main-process absence. Background
-  GameViewer service remains active; no causal claim is made. Windows WTS
-  subsequently confirms the present session is locked. The service-control
-  request is superseded and its command disabled without service mutation.
-  Read-only session checks and 32 frozen inputs guard the prepared unlocked
-  control. User unlock is pending; original tests remain non-elevated.
+- [x] Complete 0054 release-WASM browser functional acceptance: 199 passed, zero failures,
+  29 original opt-in performance skips, one worker, zero retries (7.5 minutes).
+- [x] Current-package native clipboard stability: four independent original
+  protocols, six groups each, 16 exact image comparisons, eight editable text
+  records and complete original-format/data restoration. Distinct owned ports
+  and profiles verify; no recovery or retry is used.
+- [ ] Complete performance acceptance: 27 passed / two failed (8.8 minutes),
+  with typed-width frame 34 ms / <33 ms and Levels installation 543 ms / <450 ms.
+- [x] New packed integer halving native validation: 628 passed, zero failures,
+  ten existing ignored; both new reference tests and all 13 peak-heap budgets pass.
+- [x] New packed halving release WASM, three type checks, 287 units and frozen
+  browser assets pass; working/frozen WASM matches and 137 inputs are verified.
+- [x] New packed halving full functional validation: 199 passed / zero failed,
+  29 original performance opt-in skips, one worker, zero retries (8.0 minutes).
+- [x] New packed halving complete original performance: 29 passed / zero failed,
+  one worker, zero retries, unchanged budgets (8.0 minutes); typed-width
+  frames 12/29 ms at 24/100 MP and Levels installation 320 ms at 100 MP.
+- [ ] Fresh production 1025 native UI, Mac/PNG and protected clipboard
+  acceptance: pending; source passes do not accept the future package.
 
-Full Phase 5 acceptance is incomplete. The unintended repeat caused by a
-diagnostic-launcher replacement error and loss of the first fixed-path raw
-log are recorded explicitly; neither failed result is waived. See the
-current section of [the acceptance record](../phase5-acceptance-2026-10-03.md).
+All 4,753 session samples are unlocked and all 4,734 process samples omit
+GameViewer.exe through the complete control; the launcher reopens. Sampling
+does not establish between-sample or historical states. Services/settings stay
+unchanged. Two monitor-startup preflights fail before any original test and
+remain recorded; the corrected wrapper uses complete shared log reads and
+rejects early expiry. Original assertions/budgets and zero retries remain intact.
+
+Observation-only diagnostics identify an uncached next-level reduction costing
+21.6 ms, and installation byte copies dominating Levels CPU. The packed candidate
+keeps the same integer averages and adds independent edge/rounding references.
+No diagnostic pass or historical failure is substituted for full acceptance.
+See [the acceptance record](../phase5-acceptance-2026-10-03.md).
 
 ### Previous local Windows checkpoint, 2026-10-04
 

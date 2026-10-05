@@ -1,5 +1,28 @@
 # Phase 4 remaining work and Phase 5 delivery
 
+## Latest acceptance status, 2026-10-05
+
+The 0054 release-WASM browser assets pass 199 functional cases. Its portable
+passes four independent native clipboard protocols with complete restoration,
+eight native UI groups and nine complete Mac RGBA-exact exports. Native 626 / unit 287 / three type
+checks and package identities are verified for that source checkpoint.
+The complete original performance suite is 27 passed / two failed: 24 MP
+typed-width frame 34 ms / <33 ms and 100 MP Levels installation 543 ms / <450 ms.
+Desktop unlock and sampled GameViewer-main absence cover the whole control;
+the launcher is restored afterwards and no service/settings are changed.
+
+The packed integer halving candidate passes all 628 native tests, including
+two independent box-average regressions and the original peak-heap budgets.
+Release WASM, three type checks, 287 units and frozen browser assets pass.
+The new full functional run passes 199 cases / zero failures (8.0 minutes).
+The complete original performance run also passes 29/29 (8.0 minutes),
+with unchanged budgets and zero retries. Typed-width frames are 12/29 ms
+at 24/100 MP; 100 MP Levels installation is 320 ms. Source validation is
+complete; fresh production 1025 native UI, Mac and clipboard gates remain pending.
+Full Phase 5 remains incomplete. The following sections retain earlier
+implementation and acceptance checkpoints; the latest evidence is recorded
+in [the acceptance record](phase5-acceptance-2026-10-03.md).
+
 ## Scope and publication
 
 The user authorized committing and pushing the existing work first, then

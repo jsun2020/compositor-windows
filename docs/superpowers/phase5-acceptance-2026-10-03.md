@@ -6,7 +6,86 @@ implementation completion and individual passing checks are not a substitute.
 The user's Phase 3.5d sampling probes and `.workbuddy` remain untouched. The
 full-acceptance goal now includes the pixel-copy compatibility work below.
 
-## Current kernel optimization and remaining environment gates, 2026-10-05
+## Verified unlocked desktop control, 2026-10-05
+
+The 0054 source checkpoint and immutable release-WASM browser assets pass
+all 199 functional cases (7.5 minutes), with the 29 original performance opt-in skips exercised
+separately. The complete original performance run finishes 27 passed / two
+failed (8.8 minutes), one worker and zero retries. The failures are a 24 MP
+typed-width result frame at 34 ms / <33 ms and 100 MP Levels installation
+at 543 ms / <450 ms. Both remain failed; no assertion or budget changes.
+
+Two independent clipboard pairs pass all four original native protocols:
+six groups per protocol, 16 complete RGBA comparisons, eight editable text
+records, matching UTF-16/style and original restoration. Fresh profiles and
+four distinct ports have verified native parent ownership. An additional
+read-only DPAPI comparison confirms all original formats and data match all
+four backups immediately after the protocols, before the user resumes copying.
+No emergency recovery is used and no clipboard payload is published.
+
+The full 1,096-second control has 4,753 unlocked-session samples and 4,734
+GameViewer-main-process absence samples. Both monitors cover the complete
+control and the installed launcher reopens afterwards. Sampling does not prove
+state between observations. GameViewerService and system settings are unchanged.
+These observations do not establish the session state of historical failures.
+
+Two wrapper preflights abort before any original test: the first reads the
+newly-created monitor file before its first flushed line, and the second uses
+a reader sharing mode that conflicts with its active writer. Their evidence
+and restored GameViewer state are retained. The corrected wrapper waits for a
+complete line within the original five-second startup deadline, uses a
+read-only shared stream, extends process monitoring to 30 minutes and rejects
+early monitor completion. All 32 inputs match; original protocols have no retries.
+
+Finite observation-only diagnostics retain their failures separately. Typed
+width reaches an uncached reduction from level 2 to level 3; layerPixels takes
+21.6 ms within a 27.7 ms CPU render. Levels installation spends most of its
+CPU time appending output bytes; initial reservation is about 21 ms. No cause
+is inferred solely from a diagnostic passing a particular timing.
+
+A separate fixed six-copy memory diagnostic compares 400 MB first writes with
+resident overwrites: plain buffers 296/40 ms, independent WASM memory 360/38 ms,
+and the actual staged bridge 310/45 ms of CPU. Source preparation, allocations,
+all cooperative yields and cancellation are recorded separately. It executes
+no original acceptance case and does not establish the cause of every prior
+543 ms installation. The GameViewer launcher is restored; all 112 sampled
+session states are unlocked. Evidence: `kernel-copy-boundary-independent-review.json`.
+
+The packed integer RGBA box-average candidate passes the complete native
+workspace: 628 tests, zero failures, ten existing ignored across 85 suites,
+including both new independent regressions and all 13 original peak-heap
+budgets. Release WASM, all three type checks, 287 unit tests and fresh browser
+assets also pass. Working and frozen-asset WASM hashes match; 137 source,
+original-assertion and asset inputs are frozen for the candidate. Its full
+functional run passes 199 cases with zero failures (8.0 minutes), with the
+29 original opt-in performance skips exercised separately. The complete
+29-case performance run passes all cases (8.0 minutes), one worker and zero
+retries. Typed-width frames are 12 ms at 24 MP and 29 ms at 100 MP / <33 ms;
+100 MP Levels installation is 320 ms / <450 ms. All 137 frozen inputs verify
+afterwards, all 4,222 session samples are unlocked and the launcher reopens.
+This is one complete original performance run on the changed candidate; it
+does not establish a universal fix for prior intermittent copy outliers. The candidate
+keeps the exact (sum + 2)/4 rule, edge behavior and channel separation; new
+independent scalar-reference tests cover thin/odd grids, chained reductions
+and 65,536 channel permutations covering carries and half-up rounding. It is not a validated release.
+Fresh production `COMPOSITOR_BUILD_0.8.0_20261005-1025` builds successfully.
+Its 4,746,697-byte ZIP contains exactly the executable, license and README;
+all three CRCs and extracted-file comparisons pass. Source, fixed-test and
+production WASM bytes match. The earlier production assets and packages remain
+preserved. The 184 candidate/package/helper inputs are frozen; original
+clipboard observed/protection helpers are unchanged, and native UI uses the
+original helper. Native package protocols have not started because the
+read-only session gate reports locked at 02:38:32 UTC. A new unlock request
+is pending. This is a session requirement, not an approval request.
+
+Full Phase 5 acceptance remains incomplete until the fresh 1025 package passes
+the original native UI, Mac-return and independent protected clipboard gates. Local evidence:
+`kernel-unlocked-control-independent-result.json`,
+`kernel-unlocked-clipboard-independent-review.json`,
+`kernel-unlocked-clipboard-backup-protection-review.json`,
+`kernel-quiet-control-20261005-084723-186` and both diagnostic directories.
+
+## Previous kernel optimization and environment checkpoint, 2026-10-05
 
 Production `COMPOSITOR_BUILD_0.8.0_20261005-0054` specializes gray/RGBA paint
 loops and caches only two decoded source rows plus interpolation columns for
