@@ -239,6 +239,93 @@ impl WasmEngine {
         self.job = (new_pixels, new_mask, None, display);
         serde_json::to_string(&output).map_err(js_err)
     }
+    /// Unstyled source for the GPU. Original input buffers remain owned by the
+    /// JS caller and are returned separately for the final stamped writeback.
+    pub fn run_warp_source_job(
+        &mut self,
+        input_json: &str,
+        pixels: Option<Vec<u8>>,
+        mask: Option<Vec<u8>>,
+        points: Option<Vec<u8>>,
+        mask_target: bool,
+    ) -> Result<String, JsError> {
+        let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
+        let pixels = raster_of(input.pixels, pixels)?;
+        let mask = gray_of(input.mask, mask)?;
+        let points = points_of(
+            input.selection.as_ref().map(JobSelection::point_count),
+            points,
+        )?;
+        let source = run_warp_source_job(&input, pixels, mask, points.as_deref(), mask_target)
+            .map_err(js_err)?;
+        let header = serde_json::json!({"width":source.width,"height":source.height}).to_string();
+        self.job = (Some(source), None, None, None);
+        Ok(header)
+    }
+    /// Sparse GPU readback travels as bounded headers and typed arrays, never
+    /// pixel JSON. The worker reconstructs and selects the replacement once.
+    pub fn run_warp_result_job(
+        &mut self,
+        input_json: &str,
+        pixels: Option<Vec<u8>>,
+        mask: Option<Vec<u8>>,
+        points: Option<Vec<u8>>,
+        mask_target: bool,
+        warp_json: &str,
+        rects_json: &str,
+        tiles: Array,
+        out_per_doc: f64,
+    ) -> Result<String, JsError> {
+        let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
+        let warp: WarpSpec = serde_json::from_str(warp_json).map_err(js_err)?;
+        let rects: Vec<WarpTileRect> = serde_json::from_str(rects_json).map_err(js_err)?;
+        if rects.len() > 4096 || rects.len() != tiles.length() as usize {
+            return Err(JsError::new("invalid warp tiles"));
+        }
+        let mut area = 0u64;
+        for (i, r) in rects.iter().enumerate() {
+            area = area
+                .checked_add(r.width as u64 * r.height as u64)
+                .ok_or_else(|| JsError::new("invalid warp tiles"))?;
+            let tile = tiles
+                .get(i as u32)
+                .dyn_into::<Uint8Array>()
+                .map_err(|_| JsError::new("invalid warp tiles"))?;
+            if area > 16_777_216 || tile.length() as u64 != r.width as u64 * r.height as u64 * 4 {
+                return Err(JsError::new("invalid warp tiles"));
+            }
+        }
+        let tiles = rects
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| {
+                (
+                    r,
+                    tiles.get(i as u32).unchecked_into::<Uint8Array>().to_vec(),
+                )
+            })
+            .collect();
+        let pixels = raster_of(input.pixels, pixels)?;
+        let mask = gray_of(input.mask, mask)?;
+        let points = points_of(
+            input.selection.as_ref().map(JobSelection::point_count),
+            points,
+        )?;
+        let (output, pixels, mask, display) = run_warp_result_job(
+            &input,
+            pixels,
+            mask,
+            points.as_deref(),
+            mask_target,
+            &warp,
+            tiles,
+            out_per_doc,
+        )
+        .map_err(js_err)?;
+        self.job = (pixels, mask, None, display);
+        serde_json::to_string(&output).map_err(js_err)
+    }
+
     /// `run_histogram_job` (in the worker): four arrays of 256 bins, as JSON. `points` as
     /// `run_edit_job` takes it.
     pub fn run_histogram_job(&self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>) -> Result<String, JsError> {

@@ -153,8 +153,10 @@ gesture acceptance; these remain separate recorded checks.
 - [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
 
 Phase 6 development has CPU reference kernels, guarded single-stroke editing
-jobs and independently tested tiled WebGL2 kernels for Liquify/Smudge. The raw
-GPU kernels have separate local 24/100 MP hardware measurements. GPU preview,
+jobs, tiled WebGL2 kernels and GPU source/result worker transport for
+Liquify/Smudge. Final GPU tiles use the original layer snapshot and selection,
+with stale-result checks and one undo step. The raw GPU kernels have separate
+local 24/100 MP hardware measurements. Live GPU preview,
 tool controls, complete tool timing and Mac gesture comparisons are still in
 progress; these tools are not yet
 exposed in the application.

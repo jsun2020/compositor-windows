@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EFFECTS_JOB_DISPLACED, JobClient, WORKER_MEMORY_LIMIT, type FromWorker, type JobRequest, type ToWorker } from "../../src/engine/jobs";
+import { EFFECTS_JOB_DISPLACED, JobClient, WORKER_MEMORY_LIMIT, transferables, type FromWorker, type JobRequest, type ToWorker } from "../../src/engine/jobs";
 import {clearJobBuffers,releaseJobBuffer,takeJobBuffer,takeSpareJobBuffer} from "../../src/engine/job-buffers";
 
 /** A worker that records what it is sent and answers when told to. */
@@ -29,6 +29,31 @@ function client() {
 }
 
 describe("JobClient", () => {
+  it("retires both the GPU source and its original snapshot when canceled",async()=>{
+    clearJobBuffers();const {jobs,workers}=client();
+    try{
+      const pending=jobs.run("warp",{kind:"warpSource",input:"",pixels:new ArrayBuffer(8),mask:null,points:null,maskTarget:false});
+      await settle();workers[0].reply({type:"ready"});await settle();jobs.cancel("warp");
+      const buffers=Array.from({length:4},()=>new ArrayBuffer(4*1024*1024));
+      workers[0].reply({type:"done",id:1,result:{header:"raw",pixels:buffers[0],mask:null,inputs:{pixels:buffers[1],mask:buffers[2],points:buffers[3]}},memory:1});
+      expect(await pending).toBeNull();expect(buffers.map(b=>b.byteLength)).toEqual([0,0,0,0]);
+    }finally{jobs.dispose();clearJobBuffers();}
+  });
+  it("keeps a successful source snapshot across worker heap reclamation",async()=>{
+    const {jobs,workers}=client();
+    const pending=jobs.run("warp",{kind:"warpSource",input:"",pixels:new ArrayBuffer(8),mask:null,points:null,maskTarget:false});
+    await settle();workers[0].reply({type:"ready"});await settle();
+    const original=new ArrayBuffer(8),source=new ArrayBuffer(12),selection=new ArrayBuffer(0);
+    workers[0].reply({type:"done",id:1,result:{header:"raw",pixels:source,mask:null,inputs:{pixels:original,mask:null,points:selection}},memory:WORKER_MEMORY_LIMIT+1});
+    const result=await pending;expect(workers[0].terminated).toBe(true);
+    expect(result?.pixels).toBe(source);expect(result?.inputs?.pixels).toBe(original);
+    expect(result?.inputs?.points).toBe(selection);expect(original.byteLength).toBe(8);jobs.dispose();
+  });
+  it("transfers sparse result bytes once alongside all original buffers",()=>{
+    const pixels=new ArrayBuffer(12),mask=new ArrayBuffer(4),points=new ArrayBuffer(8),tile=new ArrayBuffer(4);
+    expect(transferables({kind:"warpResult",input:"",pixels,mask,points,maskTarget:false,warp:"",outPerDoc:1,
+      tiles:[{x:0,y:0,width:1,height:1,pixels:tile},{x:1,y:0,width:1,height:1,pixels:tile}]})).toEqual([pixels,mask,points,tile]);
+  });
   it("retires a canceled edit's returned large buffer without exposing it to the caller",async()=>{
     clearJobBuffers();
     try{

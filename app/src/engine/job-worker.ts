@@ -31,6 +31,17 @@ function keptDisplay(): ArrayBuffer | null {
 
 function run(request: JobRequest): JobResult {
   switch (request.kind) {
+    case "warpSource": {
+      const header=engine!.run_warp_source_job(request.input,bytes(request.pixels),bytes(request.mask),bytes(request.points),request.maskTarget);
+      try{return {header,pixels:kept(false),mask:null,inputs:{pixels:request.pixels,mask:request.mask,points:request.points}};}
+      finally{engine!.release_job();}
+    }
+    case "warpResult": {
+      const header=engine!.run_warp_result_job(request.input,bytes(request.pixels),bytes(request.mask),bytes(request.points),request.maskTarget,request.warp,
+        JSON.stringify(request.tiles.map(({x,y,width,height})=>({x,y,width,height}))),request.tiles.map(t=>new Uint8Array(t.pixels)),request.outPerDoc);
+      try{return {header,pixels:kept(false,request.pixels),mask:kept(true,request.mask),display:keptDisplay()};}
+      finally{engine!.release_job();}
+    }
     case "text": {const {width,height,pixels}=renderText(JSON.parse(request.input) as TextStyle);return{header:JSON.stringify({width,height}),pixels,mask:null};}
     case "documentEdit": {
       const header=engine!.run_document_edit_job(request.input,request.layers.map(l=>bytes(l.pixels)??null),request.layers.map(l=>bytes(l.mask)??null),bytes(request.points),request.layer,request.command,request.outPerDoc);
@@ -75,8 +86,19 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     const result = run(message.request);
     // Return inputs that were not reused for the result, including no-op edits.
     // They are already copied into WASM and no longer borrowed by the kernel.
-    const recycled=message.request.kind==="histogram"||message.request.kind==="edit"?[message.request.pixels,message.request.mask,message.request.points,message.request.kind==="edit"?message.request.outputPixels??null:null].filter((b):b is ArrayBuffer=>b!==null&&b.byteLength>=4*1024*1024&&b!==result.pixels&&b!==result.mask&&b!==result.display):[];
-    post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength, recycled }, [...[result.pixels, result.mask, result.display ?? null].filter((b): b is ArrayBuffer => b !== null),...recycled]);
+    const request = message.request;
+    const returned = [result.pixels, result.mask, result.display ?? null,
+      result.inputs?.pixels ?? null, result.inputs?.mask ?? null, result.inputs?.points ?? null];
+    let unused: (ArrayBuffer | null)[] = [];
+    if (request.kind === "histogram" || request.kind === "edit" || request.kind === "warpResult") {
+      unused = [request.pixels, request.mask, request.points];
+      if (request.kind === "edit") unused.push(request.outputPixels ?? null);
+      if (request.kind === "warpResult") unused.push(...request.tiles.map(t => t.pixels));
+    }
+    const recycled = [...new Set(unused)].filter((b): b is ArrayBuffer =>
+      b !== null && b.byteLength >= 4 * 1024 * 1024 && !returned.includes(b));
+    const transfer = [...new Set([...returned, ...recycled].filter((b): b is ArrayBuffer => b !== null))];
+    post({ type: "done", id: message.id, result, memory: memory!.buffer.byteLength, recycled }, transfer);
   } catch (err) {
     // A wasm trap (an `unreachable` panic, an allocation abort) throws a `WebAssembly.RuntimeError`,
     // not the ordinary `JsError` a refused command throws: it leaves this instance unusable (jobs.ts's
