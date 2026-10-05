@@ -1,5 +1,43 @@
 /// <reference types="vite/client" />
 import {test,expect} from "@playwright/test";
+test("large warp preview refreshes the rendered layer and cancellation restores its metadata",async({page})=>{
+  await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
+  await page.evaluate(async()=>{
+    const a=(window as any).__compositor,e=a.engine,s=a.store.getState();
+    const bytes=new Uint8Array(3000*2000*4);new Uint32Array(bytes.buffer).fill(0xff000000);
+    for(let y=0;y<2000;y++)bytes.fill(255,(y*3000+1500)*4,(y*3000+1501)*4);
+    const doc=e.newDocument(3000,2000,true);e.pastePixels(doc,3000,2000,bytes.buffer,[0,0]);
+    s.openDocument(doc);s.setTool("blur");s.setBrushOptions({smearMode:"Liquify",diameter:40,hardness:0.5,strength:0.5});
+    const frame=()=>new Promise<void>(r=>requestAnimationFrame(()=>r()));await frame();await frame();
+    const vp=a.store.getState().viewports[doc];vp.setZoom(1,vp.center,e.state(doc));s.invalidate();await frame();await frame();
+    const canvas=document.querySelector('[data-testid="canvas-view"] canvas') as HTMLCanvasElement;
+    (window as any).warpRenderBaseline={doc,layer:e.state(doc).activeLayerId,state:e.state(doc),png:canvas.toDataURL()};
+    const path="/src/tools/brush.ts",tools:typeof import("../../src/tools/brush")=await import(/* @vite-ignore */path);
+    if(!tools.beginBrush([1500,1000],false))throw Error("Could not start stroke");tools.moveBrush([1530,1000]);
+  });
+  await expect.poll(()=>page.evaluate(()=>{
+    const a=(window as any).__compositor,b=(window as any).warpRenderBaseline;
+    return a.engine.state(b.doc).layers.find((l:any)=>l.id===b.layer).pixelsWidth;
+  })).toBeLessThanOrEqual(1024);
+  await expect.poll(()=>page.evaluate(()=>{
+    const a=(window as any).__compositor,b=(window as any).warpRenderBaseline;
+    return a.store.getState().documents[b.doc].layers.find((l:any)=>l.id===b.layer).pixelsWidth;
+  })).toBeLessThanOrEqual(1024);
+  await expect.poll(()=>page.evaluate(()=>{
+    const canvas=document.querySelector('[data-testid="canvas-view"] canvas') as HTMLCanvasElement;
+    return canvas.toDataURL()!==(window as any).warpRenderBaseline.png;
+  })).toBe(true);
+  await page.keyboard.press("Escape");
+  const restored=await page.evaluate(()=>{
+    const a=(window as any).__compositor,b=(window as any).warpRenderBaseline,s=a.store.getState().documents[b.doc];
+    return{layer:s.layers.find((l:any)=>l.id===b.layer),depth:s.undoDepth,original:b.state.layers.find((l:any)=>l.id===b.layer),originalDepth:b.state.undoDepth};
+  });
+  expect(restored.layer).toEqual(restored.original);expect(restored.depth).toBe(restored.originalDepth);
+  await expect.poll(()=>page.evaluate(()=>{
+    const canvas=document.querySelector('[data-testid="canvas-view"] canvas') as HTMLCanvasElement;
+    return canvas.toDataURL()===(window as any).warpRenderBaseline.png;
+  })).toBe(true);
+});
 test("6 MP production stroke uses a bounded live preview and full-resolution guarded commit",async({page})=>{
   await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
   const ids=await page.evaluate(async()=>{

@@ -28,7 +28,9 @@ export function beginWarp(draft:BrushDraft):void{
       const {points:_,...settings}=draft.warp!;
       g.client=new WarpClient(new Worker(new URL("../engine/warp-worker.ts",import.meta.url),{type:"module"}),engine.module,snapshot,settings,
         result=>{
-          try{if(valid(g)&&result?.header&&result.pixels){engine.keepJobPreview(draft.document,draft.layer,snapshot!.input,result.header,result.pixels,result.mask,result.display??null);useEditor.getState().invalidate();}}
+          // Texture uploads use the displayed layer's revision and dimensions.
+          // A render tick alone leaves those at the committed source values.
+          try{if(valid(g)&&result?.header&&result.pixels){engine.keepJobPreview(draft.document,draft.layer,snapshot!.input,result.header,result.pixels,result.mask,result.display??null);useEditor.getState().refresh(draft.document);}}
           finally{releaseJobResult(result);}
         },error=>fail(g,error));
       // Include every point received while snapshot preparation was yielding.
@@ -42,7 +44,7 @@ export function moveWarp(draft:BrushDraft):void{
 }
 export function cancelWarp():void{
   const g=gesture;if(!g)return;g.cancelled=true;gesture=null;g.client?.dispose();
-  const s=useEditor.getState();if(s.documents[g.draft.document]){s.engine?.setPreview(g.draft.document,null);s.invalidate();}
+  const s=useEditor.getState();if(s.documents[g.draft.document]){s.engine?.setPreview(g.draft.document,null);s.refresh(g.draft.document);}
   if(g.ending)useEditor.setState({working:false});
 }
 export async function finishWarp():Promise<void>{

@@ -408,3 +408,34 @@ Mac/Windows preview cancellation, commit, undo/redo, save/reopen, effects/masks,
 selection and mask refusal. Returns must contain edited projects, exported PNGs
 and gesture records. Phase 6 remains open until this real-runtime evidence is
 received and checked; the published 0.8.0 release is unchanged.
+
+### Displayed preview metadata follow-up
+
+Native production WebView2 checks of both modes on a small painted layer
+passed two independent runs on the unchanged `ed27ac1` portable. Earlier
+pointer-capture and source-seeding failures remain retained. Those passes
+did not cover a canvas-sized raster. A 24 MP native diagnostic produced a
+GPU preview without losing pointer capture, but the displayed image stayed
+unchanged and its original 30-second visual gate failed.
+
+The controller installed the engine preview and incremented a render tick,
+while leaving the store's layer dimensions and pixel revision at their
+committed values. The renderer keys uploads and sizes from that store state;
+a canvas-sized preview could therefore retain the existing texture. The
+controller now refreshes displayed document metadata after installing a
+preview and after cancellation. Stored pixels, layer stamps and history
+remain unchanged during a preview.
+
+A new 6 MP browser regression first confirms that the engine received the
+reduced preview, then checks displayed metadata and actual canvas PNG changes.
+On the old controller it failed with store width 3000 despite the engine's
+reduced preview. After the fix it passes and checks that Escape restores the
+original layer metadata, canvas PNG and history depth. All 16 focused tool
+checks, 295 unit checks, three TypeScript projects and web build passed.
+The unchanged 24/100 MP complete-tool hardware cases also passed two
+independent zero-retry runs after this fix, retaining the original response
+budgets and 256 MiB history policy. Their ignored logs are
+`phase6-warp-preview-metadata-performance-{1,2}.log`.
+Fresh complete hosted regression, rebuilt portable checks and actual Mac
+returns are still required; earlier package passes are not evidence for this
+changed controller.
