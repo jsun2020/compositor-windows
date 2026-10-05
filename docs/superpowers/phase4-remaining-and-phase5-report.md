@@ -1,5 +1,32 @@
 # Phase 4 remaining work and Phase 5 delivery
 
+## Latest acceptance status, 2026-10-05
+
+**Phase 5 acceptance is complete for production 1025 on this Windows desktop
+and the received Mac 1.4.5 fixtures.** Source gates pass native 628 / zero
+failed / ten existing ignored, units 287, three type checks, all 199 functional
+cases and all 29 original performance cases. Assertions and budgets are
+unchanged, with one worker and zero automatic retries. Typed-width frames
+are 12/29 ms at 24/100 MP; 100 MP Levels installation is 320 ms.
+
+The current portable passes all eight original native UI groups, Mac 11 reads /
+ten atomic saves / nine complete RGBA-exact exports, and four protected
+clipboard protocols with 16 complete RGBA comparisons, eight editable
+UTF-16/style records and full original formats/data restoration. Its native
+WebView serves the validated WASM; ZIP identities/CRCs and all 188 frozen
+inputs verify. Desktop unlock, input observations and sampled GameViewer-main
+absence are recorded. Its launcher and clipboard are restored; services and
+settings are unchanged. Normal keyboard, mouse and copying can resume.
+
+The first menu timeout remains failed with cause unconfirmed. The separately
+executed input-monitored UI passes; no automatic retry is added. Its wrapper
+misreads a redirected process's null ExitCode as failure. Independent probes
+reproduce and correct that handle-retention error; raw samples and timestamp
+coverage verify the input gate without repeating the UI body. The failed
+wrapper is retained with its nonzero exit. Earlier intermittent failures are
+not reclassified or claimed universally fixed. Details and package hashes
+are in [the acceptance record](phase5-acceptance-2026-10-03.md).
+
 ## Scope and publication
 
 The user authorized committing and pushing the existing work first, then
@@ -291,3 +318,161 @@ the original clipboard and its format set are restored. The Windows clipboard
 gate is closed. The missing Mac gesture confirmations, edited/created export
 differences and recorded performance overruns remain open. No full acceptance
 is claimed, and only reviewed source/tests/docs are published.
+
+
+## Windows clipboard acquisition fix, 2026-10-04 evening
+
+An independently observed original 1527 native session fails after eight
+passing sessions: Ctrl+V is accepted, but the actual read returns error 5
+immediately and editable-text paste misses the unchanged layer assertion.
+The original clipboard restores. A read-only external lock reproduces the
+single-attempt product refusal and, separately, the original helper's
+0x800401D0 restoration failure without changing the clipboard. The exact
+locker at the natural failure and the cause of the historical 18:23
+restoration failure remain unproven.
+
+The production native clipboard now waits at most 250 ms for acquisition
+on the existing blocking worker. It keeps allocation, decoding, format,
+origin, token, ownership and original acceptance rules unchanged. The real
+candidate waits out short contention and reports sustained contention after
+255 ms; no test retry or repeated user gesture is added. Private backups are
+DPAPI encrypted and verified before original protocol actions; the original
+restoration remains mandatory, with no automatic recovery accepted as a pass.
+
+The native workspace passes 624 tests / zero failures / 10 existing ignored.
+The new executable passes eight original UI groups and nine exact native Mac
+PNG exports, 11 native reads and 10 atomic saves, editable text/shape/effects
+and reopened 7/14. All seven frontend/WASM assets are unchanged, retaining
+their 287 unit / 198 functional checks and received 29/29 original performance
+coverage. The ZIP has three CRC-verified entries matching the staged files.
+Its identity and all retained failures are in [the acceptance record](phase5-acceptance-2026-10-03.md).
+
+The candidate passes five independent complete clipboard protocols and strict
+image/text/style/restoration comparisons. The sixth stops at the original
+external bitmap consumer returning no image, after successful native Cut
+publication. The original clipboard restores; the backup remains valid. A
+known read-only external lock reproduces that same consumer failure with
+the unchanged original helper, while unlocked native publication/consumption
+passes. Clipboard history is enabled; its role remains a hypothesis. A
+hash-bound history-off environment comparison is prepared for user execution
+and passes CheckOnly without changing settings or acceptance rules. Full
+acceptance remains false until external-consumer stability is resolved. The older packages, user Mac returns,
+private backups, runtime profiles and failures remain local and preserved.
+
+
+## History-off receipt and captured remote clipboard lock, 2026-10-04 21:00
+
+With Clipboard history disabled, two independent original protocols and strict
+readers pass. The third completes native UI/data checks but fails original
+snapshot restoration and its existing finally fallback with 0x800401D0. All
+seven native clipboard IPC responses succeed; four exact RGBA comparisons
+and two editable text/style records independently pass as diagnostics only.
+The complete third protocol remains failed. No fourth session or retry runs.
+
+The read-only ownership probe captures GameViewer holding the clipboard
+through samples spanning 2,118 ms, overlapping both restoration failures.
+This identifies an external blocker for this receipt; it does not prove all
+historical failures share that cause or establish the responsible GameViewer
+feature. Neither GameViewer nor any remote connection/service is stopped.
+The original snapshot is not confirmed restored, but its private encrypted
+backup validates. A recovery entry is prepared that requires explicit execution,
+backs up current data first and verifies restored data; it is never acceptance
+evidence. A hash-bound GameViewer-sync-off control is prepared without changes
+to original assertions or budgets. User action is pending.
+
+Full Phase 5 remains incomplete. The unchanged product/source/package and
+previous native, Mac, functional and original timing results retain their
+applicable coverage; no further product patch or repeated performance run is
+justified by this restoration failure. See [the current acceptance record](phase5-acceptance-2026-10-03.md).
+
+## Verified recovery and recognition-off result, 2026-10-04 21:51
+
+The user's screenshot and action concern remote-assistance invitation
+recognition, not verified clipboard synchronization. The first authorized
+Windows Forms recovery fails after backing up current data. A separate native
+text recovery prepares the original four formats using local WinForms COM
+serialization, publishes immediate Win32 data, and verifies a new encrypted
+snapshot against the full original entries. Exact recovery passes; both
+pre-recovery backups and all failed evidence remain private and retained.
+
+The unchanged original recognition-off control completes its first native
+protocol and restores the snapshot, but its strict independent reader finds
+an all-zero 7,057-byte PNG from the external consumer. The sequence stops
+without retries. A known 500 ms lock instead produces no stream, so it does
+not explain this new failure. A separate path diagnostic finds identical valid
+PNG bytes in native reads before/after the independent consumer, and all strict
+pixel/text/style/restoration checks pass. Additional reads make that diagnostic
+separate from original acceptance; the failed original gate remains failed.
+
+The final read-only snapshot confirms exact pre-test clipboard contents still
+restored. The next control refuses to start while GameViewer is running and
+never disconnects remote access. User operation mode is pending; full Phase 5
+remains incomplete. No additional product patch, performance rerun or Mac
+verification is justified yet. See [the latest evidence and limits](phase5-acceptance-2026-10-03.md).
+
+
+## Current kernel candidate, 2026-10-05
+
+Production `COMPOSITOR_BUILD_0.8.0_20261005-0054` specializes the gray/RGBA
+paint loops and spatial enlargement using two row caches. Complete synthetic
+outputs frozen before the changes match every byte. Native 626 tests, original
+memory budgets, 287 unit tests and three type checks pass. The new portable
+passes eight original native UI groups, 11 Mac reads / ten atomic saves, all
+nine complete RGBA-exact Mac exports, and editable text/shape/effects 7/14 on
+reopen. ZIP's three entries match the staged files and source/test/production
+WASM are identical.
+
+Full acceptance remains incomplete: the complete functional run retains
+198 passes / one page-fixture setup timeout before its body / 29 original
+opt-in skips. The targeted original performance pair retains one pass / one
+failure: 100 MP gradient drag is 35 ms / <50 and motion-blur eyedropper is
+1,012 ms / <2,000, but settled readbacks still stall near 500 ms. Separate
+passive, serialized and dedicated-screen-framebuffer diagnostics fail; the
+screen experiment is not added to the product. The diagnostic-launcher error
+that repeated the original pair and overwrote its first raw log is recorded
+explicitly, and both failures remain failed.
+
+The new native clipboard control fails its original encrypted snapshot gate
+before any mutation with the main GameViewer process sampled absent. The
+background service/server remain active; causality is unproven. A separate
+read-only Win32 metadata check refuses clipboard access with error 5. The
+bounded service-control helper's administrator request is superseded: Windows
+WTS subsequently confirms the current session is locked. The command is
+disabled and the service remains Running / Auto. The public read-only session
+gate refuses before original tests or clipboard/process mutation while locked.
+The prepared unlocked control verifies 32 frozen inputs and monitors session
+state without changing original tests, budgets or retry counts. User unlock
+is pending and original tests remain in the ordinary context. See
+[the acceptance record](phase5-acceptance-2026-10-03.md) for hashes and evidence.
+
+## Previous local Windows checkpoint, 2026-10-04
+
+Production `COMPOSITOR_BUILD_0.8.0_20261004-2216` includes the file-operation
+status fix. A held recent-file registration deterministically demonstrates
+the old invisible busy guard; the fix keeps working visible until the guard
+releases, after which Cut and Undo pass. Three type checks, 287 unit tests and
+199 full functional cases pass (29 original opt-in skips, one worker, zero
+retries). Native code and WASM are unchanged, retaining 624 native passes /
+10 existing ignored. The new portable passes eight original UI groups,
+11 native Mac reads / 10 atomic saves, all nine full-PNG exact comparisons
+and saved/reopened editable text, shapes and effects 7/14.
+
+The user confirms local Windows operation. Two original clipboard pairs with
+GameViewer temporarily absent pass all four native protocols and strict
+RGBA/text/style/restoration readers. Fresh profiles and ports are independently
+owned. The process monitor observes no GameViewer PID in 545 samples at
+200 ms intervals; the installed launcher restarts afterwards. Read-only
+backup comparisons confirm complete current clipboard formats/data match
+all four pre-test snapshots. Earlier failures are retained and not reclassified.
+
+The complete 29-case new-asset performance run retains 24 passes / five
+failures (page setup, typed-width frame, gradient drag/installation and
+blank-gradient frame gap). The single separate complete GameViewer-absent
+environment control finishes with 27 passes / two failures: 100 MP gradient
+drag at 1:1, 58 ms / <50 ms, and motion-blur eyedropper, 2,122 ms / <2,000 ms.
+Both complete runs retain unchanged assertions/budgets and zero retries,
+with frozen assets verified after execution. GameViewer is reopened after
+the control. Full Phase 5 acceptance remains incomplete; targeted kernel
+profiling and byte-preserving optimization are the next work. See the current section of
+[the acceptance record](phase5-acceptance-2026-10-03.md) for package identity,
+current results, environment limits and retained failures.

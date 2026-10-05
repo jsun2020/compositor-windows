@@ -210,6 +210,45 @@ path. This is the resampling task: the CPU compositor's `sample`, the GLSL layer
 (hardware bilinear today: the shader must fetch the four texels and weight them by the table), and
 edge coverage for turned and fractionally placed layers on both.
 
+## Mac 1.4.5 byte interpolation confirmation, 2026-10-04
+
+The independent white-alpha strip/grid returns settle the remaining byte
+rounding in affine enlargement. Linear interpolation with the phase weights
+above is close but not exact: both grids differ by one level at 366 pixels.
+A finer phase table and small four-tap coefficient perturbations cannot explain
+the strip bytes consistently.
+
+For each axis, choose the nearer byte n and farther byte f, choosing the lower
+texel at an exact half. With the minor phase's weight w, interpolate as
+
+    n + floor(f * w) - floor(n * w)
+
+Apply this vertically first, then horizontally, preserving bytes between the
+passes. The reversed order differs at 451 grid pixels; this order matches both
+grids and the entire horizontal/vertical strips exactly. An independently
+created colored-text PNG confirms the model without fitting to its pixels.
+The native full export initially has seven remaining differences on one column
+where inverse affine arithmetic moves a mathematical half just above 0.5.
+Keeping the lower texel within 1e-10 of that half removes those seven pixels.
+All six actual native exports now match full straight RGBA bytes: four synthetic
+probes, Mac-created and Mac-edited-test. Evidence:
+mac-alpha-combined-anchored-models.json, mac-created-anchored-byte-model.json,
+mac-alpha-sampling-v3-residual-pixels.json and
+mac-alpha-sampling-v4-native-comparison.json in the local acceptance folder.
+
+The implementation applies this to affine enlargement for display/export,
+preserves saved sampling metadata, automatic upright pixel copies, explicit
+Nearest and reductions, and keeps Image Size's established resampling behavior.
+It does not establish exact rotated edge coverage or distortion sampling.
+Release WASM now matches all eight complete Mac PNGs exactly; GPU matches the
+four alpha probes exactly and remains within the original two-byte allowance
+for three 800 x 600 projects (observed maximum one). The 1920 x 1080 full-image
+GPU case is not claimed. All 198 functional browser cases and nineteen targeted
+render cases pass. Original timing budgets remain a separate incomplete gate
+(23 passed / six failed). Production 1256 also passes all eight complete Mac
+PNG comparisons through native open/export/save, nine native reads/atomic saves,
+eight UI groups and six clipboard groups with independent exact payload checks.
+
 ## Generated tables
 
 # Mac probe exports vs the Windows port's CPU compositor
@@ -622,3 +661,33 @@ Of the straight-RGBA pixels differing by > 2 from this model, 867 have Mac alpha
 | (100,75) | [67, 81, 81, 91] | [0, 0, 0, 0] | [122, 153, 148, 50] | [67, 83, 80, 92] |
 | (150,70) | [94, 94, 34, 30] | [0, 0, 0, 0] | [175, 175, 64, 16] | [90, 90, 33, 31] |
 | (159,79) | [73, 73, 18, 14] | [0, 0, 0, 0] | [170, 170, 43, 6] | [73, 73, 18, 14] |
+
+## Phase 5 Mac 1.4.5 applied-effect return, 2026-10-04
+
+The user returned Mac-edited-new.comp with Stroke Size 7 and Drop Shadow
+Distance 14 on the blue rounded rectangle. An independent immutable snapshot
+and eleven file hashes preserve it beside the earlier 5/12 return. Production
+1256 opens/exports/saves/reopens this project through the native bridge with
+editable text/shape and retained 7/14; its complete PNG is exactly equal to the
+Mac export. This closes the saved-effect artifact mismatch.
+
+The subsequent separated GPU shader preserves the measured byte interpolation
+and passes full-PNG exact comparisons for all nine returned projects, including
+this new project and Mac-created, with transforms unchanged. Four alpha probes
+match every GPU/CPU byte; checked 800x600 projects differ by at most one GPU
+byte (unchanged tolerance two). The large Mac-created full GPU view is not
+claimed. Ordinary draws and affine enlargement now compile into separate
+programs; this avoids the extra interpolation branch in ordinary composition.
+Current source packaging and original complete performance gates remain open.
+
+Local evidence: build-artifacts/phase5-acceptance/mac-applied-7-14-received-files.json,
+mac-applied714-1256-comparison.json, shader-isolation-mac-return-comparison.json
+and shader-isolation-mac-validation-mac-checks/checks.json.
+
+Production 1527 (source 1942966) subsequently passes an independent fresh-profile
+native nine-project open/export/save run with 11 reads / 10 atomic commits.
+All nine complete PNGs are exact, including the new Mac-applied 7/14; both new
+and Windows-continued effects persist on reopen. Thirty original plus eleven
+new snapshot receipt hashes remain unchanged. Its initial Save As timeout is
+retained and not declared fixed; current clipboard and complete performance
+gates remain open in the Phase 5 acceptance report.

@@ -2,7 +2,7 @@
 //! rules here, so they blur the same image: how much of the work runs at full resolution
 //! (`spatial_blur`), and the lattice the reduced copies are cut on and how far a render pads
 //! (`spatial_grid`, `spatial_span`). The GPU asks for all three through wasm.
-use crate::{compositor::sample, gaussian_blur, gaussian_blur_in_place, motion_blur, motion_reach, motion_sigma, AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
+use crate::{gaussian_blur, gaussian_blur_in_place, motion_blur, motion_reach, motion_sigma, AdjustmentKind, LayerAdjustment, LayerDraw, PlanNode, Raster, RenderPlan};
 use serde::Serialize;
 
 /// Output pixels a blur may reach (3 sigma) at full resolution, a Gaussian or a Motion Blur (since
@@ -114,14 +114,50 @@ fn reduced(raster: &Raster, level: u32) -> Raster {
 fn enlarged(small: &Raster, level: u32, full: Raster) -> Raster {
     let (width, height) = (full.width, full.height);
     let f = (1u32 << level) as f64;
+    // Every output row samples the same columns. Keep only the two normalized
+    // source rows it needs, instead of repeating clamping and sixteen channel
+    // conversions for every pixel or retaining a full frame of float pixels.
+    // Keep sample()'s unquantized interpolation and operation order exactly.
+    let sw = small.width as usize;
+    let mut rows = [vec![[0f32; 4]; sw], vec![[0f32; 4]; sw]];
+    let mut row_numbers = [None, None];
+    let columns: Vec<(usize, usize, f32)> = (0..width).map(|x| {
+        let fx = (x as f64 + 0.5) / f - 0.5;
+        let xu = fx.floor() as i64;
+        (xu.clamp(0, small.width as i64 - 1) as usize,
+         (xu + 1).clamp(0, small.width as i64 - 1) as usize,
+         (fx - xu as f64) as f32)
+    }).collect();
     let mut data = full.into_bytes();
-    for y in 0..height { for x in 0..width {
-        let s = sample(small, (x as f64 + 0.5) / f, (y as f64 + 0.5) / f, false);
-        let i = ((y * width + x) * 4) as usize;
-        let alpha = (s[3] * 255.0).round().clamp(0.0, 255.0);
-        data[i + 3] = alpha as u8;
-        for c in 0..3 { data[i + c] = (s[c] * 255.0).round().clamp(0.0, alpha) as u8; }
-    }}
+    for y in 0..height {
+        let fy = (y as f64 + 0.5) / f - 0.5;
+        let yu = fy.floor() as i64;
+        let ty = (fy - yu as f64) as f32;
+        let y0 = yu.clamp(0, small.height as i64 - 1) as usize;
+        let y1 = (yu + 1).clamp(0, small.height as i64 - 1) as usize;
+        // Consecutive source rows use distinct slots; at a clamped edge both
+        // samples reuse the same slot. A row is decoded only when it changes.
+        for sy in [y0, y1] {
+            let slot = sy & 1;
+            if row_numbers[slot] != Some(sy) {
+                for (out, p) in rows[slot].iter_mut().zip(small.bytes()[sy * sw * 4..(sy + 1) * sw * 4].chunks_exact(4)) {
+                    *out = [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, p[3] as f32 / 255.0];
+                }
+                row_numbers[slot] = Some(sy);
+            }
+        }
+        let row0 = &rows[y0 & 1];
+        let row1 = &rows[y1 & 1];
+        for (x, &(x0, x1, tx)) in columns.iter().enumerate() {
+            let (a, b, c, d) = (row0[x0], row0[x1], row1[x0], row1[x1]);
+            let s: [f32; 4] = std::array::from_fn(|i|
+                (a[i] * (1.0 - tx) + b[i] * tx) * (1.0 - ty) + (c[i] * (1.0 - tx) + d[i] * tx) * ty);
+            let i = (y as usize * width as usize + x) * 4;
+            let alpha = (s[3] * 255.0).round().clamp(0.0, 255.0);
+            data[i + 3] = alpha as u8;
+            for c in 0..3 { data[i + c] = (s[c] * 255.0).round().clamp(0.0, alpha) as u8; }
+        }
+    }
     Raster::from_premultiplied(width, height, data)
 }
 

@@ -104,6 +104,30 @@ uniform float opacity;
 uniform int mode;
 out vec4 color;
 ${BLEND_GLSL}
+#ifdef QUANTIZED_ENLARGEMENT
+float enlargementPhase(float t) {
+  const float weights[9] = float[9](0.0, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875, 0.9375, 1.0);
+  return weights[int(clamp(floor(t * 8.0 + 0.5), 0.0, 8.0))];
+}
+vec4 interpolateBytes(vec4 a, vec4 b, float t) {
+  bool upper = t > 0.5;
+  vec4 near = upper ? b : a, far = upper ? a : b;
+  float weight = enlargementPhase(upper ? 1.0 - t : t);
+  return near + floor(far * weight) - floor(near * weight);
+}
+vec4 enlargedTexel(ivec2 at, ivec2 size) {
+  return floor(texelFetch(tex, clamp(at, ivec2(0), size - 1), 0) * 255.0 + 0.5);
+}
+vec4 enlargedSample(vec2 at) {
+  ivec2 size = textureSize(tex, 0);
+  vec2 p = at * vec2(size) - 0.5, fraction = fract(p);
+  ivec2 lo = ivec2(floor(p));
+  // Match CG's byte order: vertical interpolation, then horizontal.
+  vec4 left = interpolateBytes(enlargedTexel(lo, size), enlargedTexel(lo + ivec2(0, 1), size), fraction.y);
+  vec4 right = interpolateBytes(enlargedTexel(lo + ivec2(1, 0), size), enlargedTexel(lo + ivec2(1, 1), size), fraction.y);
+  return interpolateBytes(left, right, fraction.x) / 255.0;
+}
+#endif
 void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
@@ -118,7 +142,13 @@ void main() {
     sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
     // Covered source bytes are rounded before blending with the backdrop.
     sampled = floor(sampled * edgeCoverage * 255.0 + 0.5) / 255.0;
-  } else sampled = texture(tex, uv);
+  } else {
+#ifdef QUANTIZED_ENLARGEMENT
+    sampled = enlargedSample(uv);
+#else
+    sampled = texture(tex, uv);
+#endif
+  }
   vec4 s = sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
   // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
@@ -497,7 +527,7 @@ void main() {
 }`;
 
 export interface Program { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null>; }
-export interface Programs { layer: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program;
+export interface Programs { layer: Program; enlargedLayer?: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program;
   halve: Program; gaussian: Program; motion: Program; spatialMix: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
 
 function compile(gl: WebGL2RenderingContext, vert: string, frag: string, uniforms: string[]): Program {
@@ -515,7 +545,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"]),
+    layer: compile(gl, VERT_UNIT, FRAG_LAYER, LAYER_UNIFORMS),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
@@ -536,7 +566,25 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   }
   return programs;
 }
+
+const LAYER_UNIFORMS = ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"];
+
+/** Keep ordinary draws on their original shader. Compile the byte-interpolation
+ * variant only when an affine enlargement needs it, then reuse it. */
+export function layerProgram(gl: WebGL2RenderingContext, programs: Programs, enlarged: boolean): Program {
+  if (!enlarged) return programs.layer;
+  if (!programs.enlargedLayer) {
+    const fragment = FRAG_LAYER.replace("precision highp float;", "precision highp float;\n#define QUANTIZED_ENLARGEMENT");
+    programs.enlargedLayer = compile(gl, VERT_UNIT, fragment, LAYER_UNIFORMS);
+    gl.bindVertexArray(programs.vao); gl.bindBuffer(gl.ARRAY_BUFFER, programs.buffer);
+    const loc = gl.getAttribLocation(programs.enlargedLayer.program, "unit");
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  }
+  return programs.enlargedLayer;
+}
+
 export function disposePrograms(gl: WebGL2RenderingContext, p: Programs): void {
+  if (p.enlargedLayer) gl.deleteProgram(p.enlargedLayer.program);
   for (const q of [p.layer, p.coverage, p.alphaOf, p.opaque, p.restore, p.blit, p.checker, p.adjust, p.halve, p.gaussian, p.motion, p.spatialMix]) gl.deleteProgram(q.program);
   gl.deleteVertexArray(p.vao); gl.deleteBuffer(p.buffer);
 }

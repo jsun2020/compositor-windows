@@ -5,7 +5,7 @@ import type { Viewport } from "./viewport";
 import { LayerTextures, levelRect, pixelCopyAtScale, prefilterLevel, sizeAtLevel } from "./layer-textures";
 import type { RenderHooks, RenderOptions, Renderer } from "./renderer";
 import { EFFECTS_LIMITS, EffectsImages, placedLike } from "./effects-images";
-import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, type Program, type Programs } from "./gl/programs";
+import { ADJUST_KIND, BLEND_INDEX, createPrograms, disposePrograms, layerProgram, type Program, type Programs } from "./gl/programs";
 import { FboPool, type Target } from "./gl/framebuffers";
 import { MaskTextures, syncMask } from "./gl/mask-textures";
 import { AdjustTextures } from "./gl/adjust-textures";
@@ -216,7 +216,8 @@ export class GlRenderer implements Renderer {
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void {
     const gl = this.gl;
     const W = Math.max(1, Math.round(viewport.viewSize.width * dpr)), H = Math.max(1, Math.round(viewport.viewSize.height * dpr));
-    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
+    if (this.canvas.width !== W) this.canvas.width = W;
+    if (this.canvas.height !== H) this.canvas.height = H;
     this.W = W; this.H = H; this.dpr = dpr;
     const plan = engine.renderPlan(state.id, edit);
     this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);
@@ -518,15 +519,15 @@ export class GlRenderer implements Renderer {
         y: cornersView[0].y * ctx.dpr - (this.frame?.y ?? 0) + (draw.transform.flipY ? t.height - chunk.y : chunk.y) * sy,
         sx: draw.transform.flipX ? -sx : sx, sy: draw.transform.flipY ? -sy : sy,
       } : null;
-      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid);
+      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid, !t.nearest && !draw.corners && Math.hypot(cornersView[1].x - cornersView[0].x, cornersView[1].y - cornersView[0].y) * ctx.dpr / t.width > 1.001);
     }
   }
 
   /** Composes `tex` into `target`, reading `backdrop`. Never blits or swaps -- the caller owns that. */
-  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null): void {
+  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null, quantizedEnlargement = false): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
-    const p = this.programs.layer; gl.useProgram(p.program);
+    const p = layerProgram(gl, this.programs, quantizedEnlargement); gl.useProgram(p.program);
     const unitToClip = mat3Mul(this.viewToClip(ctx.viewport), homographyUnitTo(cornersView));
     gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(unitToClip));
     gl.uniform4f(p.uniforms.uvRect, uvRect.x, uvRect.y, uvRect.w, uvRect.h);

@@ -40,7 +40,18 @@ fn halve_into(src: &[u8], sw: u32, sh: u32, out: &mut [u8], region: PixelRect) {
             let bottom = &src[(2 * y + 1) * sw * 4 + 8 * x0..(2 * y + 1) * sw * 4 + 8 * x1];
             let line = &mut out[(y * w + x0) * 4..(y * w + x1) * 4];
             for ((a, b), o) in top.chunks_exact(8).zip(bottom.chunks_exact(8)).zip(line.chunks_exact_mut(4)) {
-                for c in 0..4 { o[c] = ((a[c] as u16 + a[4 + c] as u16 + b[c] as u16 + b[4 + c] as u16 + 2) >> 2) as u8; }
+                let a0 = u32::from_le_bytes(a[..4].try_into().unwrap());
+                let a1 = u32::from_le_bytes(a[4..].try_into().unwrap());
+                let b0 = u32::from_le_bytes(b[..4].try_into().unwrap());
+                let b1 = u32::from_le_bytes(b[4..].try_into().unwrap());
+                // Two channels per word, with a vacant byte between lanes.
+                // Four byte values plus rounding fit in ten bits, so no carry
+                // reaches the neighbouring lane. This is exactly (sum + 2)/4.
+                let rb = (((a0 & 0x00ff00ff) + (a1 & 0x00ff00ff)
+                    + (b0 & 0x00ff00ff) + (b1 & 0x00ff00ff) + 0x00020002) >> 2) & 0x00ff00ff;
+                let ga = ((((a0 >> 8) & 0x00ff00ff) + ((a1 >> 8) & 0x00ff00ff)
+                    + ((b0 >> 8) & 0x00ff00ff) + ((b1 >> 8) & 0x00ff00ff) + 0x00020002) >> 2) & 0x00ff00ff;
+                o.copy_from_slice(&(rb | (ga << 8)).to_le_bytes());
             }
         }
         return;
