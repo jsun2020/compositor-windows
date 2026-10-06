@@ -1,9 +1,10 @@
 import type { AdjustmentKind, FilterKind, FilterParams, LayerAdjustment, PreviewRequest } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { defaultHsv } from "../tools/hue-band";
+import { freshCameraRaw, cameraRawIsIdentity,effectiveCameraRaw,type CameraRawGroupName } from "../engine/camera-raw";
 
 /** Which eyedropper is armed: the Levels three, or the Hue/Saturation band tools. */
-export type SampleMode = "Black" | "Gray" | "White" | "replace" | "add" | "remove";
+export type SampleMode = "Black" | "Gray" | "White" | "replace" | "add" | "remove" | "CameraWhiteBalance" | "CameraPointColor" | "CameraDefringe";
 /** Everything a panel edits. `kind` is an adjustment kind or a filter kind; the two never mix. */
 export interface AdjustEdit {
   kind: AdjustmentKind | FilterKind;
@@ -17,6 +18,8 @@ export interface AdjustEdit {
   preview: boolean;
   sampleMode: SampleMode | null;
   histogram: number[][] | null;
+  cameraRawBypass?:CameraRawGroupName[];
+  cameraRawView?:{clipping:number;visualize:number;sharpen_mask:boolean;shadow_overlay:boolean;highlight_overlay:boolean};
 }
 
 const IDENTITY_LEVELS = { black: 0, gamma: 1, white: 255, outputBlack: 0, outputWhite: 255 };
@@ -36,6 +39,7 @@ export function defaultAdjustment(kind: AdjustmentKind): LayerAdjustment {
 
 export function defaultFilterParams(kind: FilterKind): FilterParams {
   switch (kind) {
+    case "CameraRaw": return { filter: "CameraRaw", settings: freshCameraRaw() };
     case "GaussianBlur": return { filter: "GaussianBlur", radius: 1 };
     case "MotionBlur": return { filter: "MotionBlur", angle: 0, distance: 10 };
     case "AddNoise": return { filter: "AddNoise", amount: 10, gaussian: false, monochromatic: false, seed: Math.floor(Math.random() * 0xffffffff) };
@@ -44,6 +48,7 @@ export function defaultFilterParams(kind: FilterKind): FilterParams {
 }
 
 export const FILTER_TITLES: Record<FilterKind, string> = {
+  CameraRaw: "Camera Raw",
   GaussianBlur: "Gaussian Blur", MotionBlur: "Motion Blur", AddNoise: "Add Noise", LensCorrection: "Lens Correction",
 };
 export function adjustTitle(edit: Pick<AdjustEdit, "kind" | "params">): string {
@@ -82,10 +87,11 @@ export type EngineIdentity = (adjustment: LayerAdjustment) => boolean;
  * For an adjustment layer it is "equal to `edit.original`", the settings already on the layer,
  * which may themselves be far from any default: a no-op reopen of a customised layer is not an
  * edit. */
-export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" | "original">, engineIdentity: EngineIdentity): boolean {
+export function effectiveFilterParams(edit:Pick<AdjustEdit,"params"|"cameraRawBypass">):FilterParams|null {const p=edit.params;return p?.filter==="CameraRaw"?{...p,settings:effectiveCameraRaw(p.settings,edit.cameraRawBypass)}:p;}
+export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" | "original"|"cameraRawBypass">, engineIdentity: EngineIdentity): boolean {
   if (edit.params) {
-    const p = edit.params;
-    return p.filter === "LensCorrection" ? p.distortion === 0 : false;
+    const p = effectiveFilterParams(edit)!;
+    return p.filter === "CameraRaw" ? cameraRawIsIdentity(p.settings) : p.filter === "LensCorrection" ? p.distortion === 0 : false;
   }
   const a = edit.adjustment;
   if (!a) return true;
@@ -133,7 +139,10 @@ export function resetAdjustment(current: LayerAdjustment, original: LayerAdjustm
  * `dragging` asks for a colour adjustment's quick, reduced preview (see `COLOUR_DRAG_LIMIT` in
  * engine/src/preview.rs); filters have one quality only. */
 export function previewRequestFor(edit: AdjustEdit, engineIdentity: EngineIdentity, dragging = false): PreviewRequest | null {
-  if (edit.target !== "layer" || !edit.preview || isAdjustIdentity(edit, engineIdentity)) return null;
-  if (edit.params) return { preview: "Filter", layer: edit.layerId, params: edit.params };
+  if (edit.target !== "layer" || !edit.preview) return null;
+  const params=effectiveFilterParams(edit),view=edit.cameraRawView;
+  if(params?.filter==="CameraRaw"&&view&&(view.clipping!==0||view.visualize>=0||view.sharpen_mask||view.shadow_overlay||view.highlight_overlay))return{preview:"CameraRawView",layer:edit.layerId,settings:params.settings,...view};
+  if(isAdjustIdentity(edit, engineIdentity))return null;
+  if (edit.params) return { preview: "Filter", layer: edit.layerId, params: effectiveFilterParams(edit)! };
   return edit.adjustment ? { preview: dragging ? "DragAdjustment" : "Adjustment", layer: edit.layerId, adjustment: edit.adjustment } : null;
 }

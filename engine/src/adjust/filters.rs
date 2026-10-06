@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 fn clamp_or(n: f64, lo: f64, hi: f64, fallback: f64) -> f64 { if n.is_finite() { n.clamp(lo, hi) } else { fallback } }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "filter")]
 pub enum FilterParams {
     /// Standard deviation in layer pixels, 0.1 to 250.
@@ -14,6 +14,7 @@ pub enum FilterParams {
     AddNoise { amount: f64, gaussian: bool, monochromatic: bool, seed: u32 },
     /// Remove Distortion, -100 to 100: positive straightens barrel, negative pincushion.
     LensCorrection { distortion: f64 },
+    CameraRaw { settings: Box<super::camera_raw::CameraRawSettings> },
 }
 
 /// Remove Distortion at +/-100 moves the corners by this share of their distance from the centre.
@@ -22,10 +23,11 @@ pub const LENS_STRENGTH: f64 = 0.35;
 impl FilterParams {
     pub fn name(&self) -> &'static str {
         match self { FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
-            FilterParams::AddNoise { .. } => "Add Noise", FilterParams::LensCorrection { .. } => "Lens Correction" }
+            FilterParams::AddNoise { .. } => "Add Noise", FilterParams::LensCorrection { .. } => "Lens Correction", FilterParams::CameraRaw { .. } => "Camera Raw" }
     }
     pub fn normalized(&self) -> FilterParams {
         match *self {
+            FilterParams::CameraRaw { ref settings } => FilterParams::CameraRaw { settings: Box::new(settings.normalized()) },
             FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: clamp_or(radius, 0.1, 250.0, 1.0) },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle: clamp_or(angle, -90.0, 90.0, 0.0), distance: clamp_or(distance, 1.0, 2000.0, 10.0) },
             FilterParams::AddNoise { amount, gaussian, monochromatic, seed } => FilterParams::AddNoise { amount: clamp_or(amount, 0.1, 400.0, 10.0), gaussian, monochromatic, seed },
@@ -34,7 +36,7 @@ impl FilterParams {
     }
     /// Whether applying this would change nothing.
     pub fn is_identity(&self) -> bool {
-        match self.normalized() { FilterParams::LensCorrection { distortion } => distortion == 0.0, _ => false }
+        match self.normalized() { FilterParams::LensCorrection { distortion } => distortion == 0.0, FilterParams::CameraRaw { settings } => settings.is_identity(), _ => false }
     }
     /// The room the filter needs around the layer, in layer pixels: about three standard
     /// deviations, or half a streak.
@@ -50,9 +52,10 @@ impl FilterParams {
     /// lens correction are relative to the raster's own size, so they do not scale.
     pub fn scaled(&self, factor: f64) -> FilterParams {
         match *self {
+            FilterParams::CameraRaw { ref settings } => {let mut settings=settings.normalized();settings.pixel_scale*=factor;FilterParams::CameraRaw{settings:Box::new(settings)}},
             FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: radius * factor },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle, distance: distance * factor },
-            other => other,
+            ref other => other.clone(),
         }
     }
 }
@@ -289,11 +292,12 @@ pub fn lens_distort(raster: &Raster, k: f64) -> Raster {
 }
 
 /// The filter at its own scale; callers reduce the raster and pass `params.scaled(factor)`.
-pub fn apply_filter(raster: &Raster, params: &FilterParams) -> Raster {
-    match params.normalized() {
+pub fn apply_filter(raster: &Raster, params: &FilterParams) -> Result<Raster,crate::CommandError> {
+    Ok(match params.normalized() {
+        FilterParams::CameraRaw { settings } => return settings.apply(raster),
         FilterParams::GaussianBlur { radius } => gaussian_blur(raster, radius),
         FilterParams::MotionBlur { angle, distance } => motion_blur(raster, angle, distance),
         FilterParams::AddNoise { amount, gaussian, monochromatic, seed } => add_noise(raster, amount, gaussian, monochromatic, seed),
         FilterParams::LensCorrection { distortion } => lens_distort(raster, distortion / 100.0 * LENS_STRENGTH),
-    }
+    })
 }

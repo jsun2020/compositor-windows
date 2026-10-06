@@ -1,4 +1,5 @@
 pub mod files;
+pub mod raw;
 pub mod package;
 pub mod recent;
 

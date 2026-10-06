@@ -1,4 +1,6 @@
 import { BUSY_MESSAGE, useEditor } from "../state/store";
+import {developCameraRaw,isCameraRaw} from "../sheets/RawDevelopSheet";
+import {showImportConversions} from "../sheets/ImportReportSheet";
 
 function ctx() {
   const s = useEditor.getState();
@@ -96,11 +98,16 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     const { s, engine, bridge } = ctx();
     const files = paths ?? (await bridge.pickImportImages());
     const failures: string[] = [];
+    const conversions: string[] = [];
     let target = s.activeId;
     for (const path of files) {
       try {
-        const bytes = await bridge.readFile(path);
-        const id = engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        const bytes = isCameraRaw(path)?await developCameraRaw(path,bridge):await bridge.readFile(path);
+        if(!bytes)continue;
+        const photoshop=bytes.length>=4&&bytes[0]===56&&bytes[1]===66&&bytes[2]===80&&bytes[3]===83;
+        const imported=photoshop?engine.importPhotoshop(target,bytes,target?at??null:null):null;
+        const id = imported?.id ?? engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        if(imported)conversions.push(...imported.conversions.map(c=>`${bridge.baseName(path)} / ${c.layerName}: ${c.message}`));
         // Import does not go through `store.run`, so the reveal has to be called here: an
         // import with a folder active lands inside it (`import_raster` sets parent_id), and a
         // collapsed folder would otherwise leave the new layer active with no row.
@@ -113,6 +120,7 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
         }
       } catch (e) { failures.push(`${bridge.baseName(path)}: ${e instanceof Error ? e.message : String(e)}`); }
     }
+    if(conversions.length)await showImportConversions(conversions);
     if (failures.length) throw new Error(failures.join("\n"));
   });
 }

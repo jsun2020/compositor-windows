@@ -316,6 +316,19 @@ export class EngineClient {
     const json = this.wasm.sample_layer_color(doc, layer, at.x, at.y);
     return json ? (JSON.parse(json) as [number, number, number]) : null;
   }
+  cameraRawAutoBalance(doc:string,layer:string):[number,number]|null {
+    const json=this.wasm.camera_raw_auto_balance(doc,layer);return json?JSON.parse(json):null;
+  }
+  cameraRawScope(doc:string,layer:string,settings:import("./camera-raw").CameraRawSettings):{red:number[];green:number[];blue:number[];vectorscope:number[]}{return JSON.parse(this.wasm.camera_raw_scope(doc,layer,JSON.stringify(settings)));}
+  cameraRawWhiteBalance(doc:string,layer:string,at:{x:number;y:number}):[number,number]|null {
+    const json=this.wasm.camera_raw_white_balance(doc,layer,at.x,at.y);return json?JSON.parse(json):null;
+  }
+  cameraRawSampleColor(doc:string,layer:string,at:{x:number;y:number},prepared=true):[number,number,number]|null {
+    const json=this.wasm.camera_raw_sample_color(doc,layer,at.x,at.y,prepared);return json?JSON.parse(json):null;
+  }
+  importPhotoshop(doc:string|null,bytes:Uint8Array,at:{x:number;y:number}|null):{id:string;conversions:{layerName:string;message:string}[]} {
+    return JSON.parse(this.wasm.import_photoshop(doc??undefined,bytes,at?.x,at?.y));
+  }
   /** Reads the STORED document, never an open preview -- for the Hue/Saturation eyedroppers, the
    * same reason `sampleLayerColor` bypasses the preview for Levels'. A caller that wants what the
    * canvas is showing right now, preview included, should read the rendered canvas directly

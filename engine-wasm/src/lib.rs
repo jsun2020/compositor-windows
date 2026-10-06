@@ -495,6 +495,25 @@ impl WasmEngine {
             Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),
         }
     }
+    pub fn camera_raw_scope(&self,doc:&str,layer:&str,settings:&str)->Result<String,JsError>{let settings:compositor_engine::adjust::camera_raw::CameraRawSettings=serde_json::from_str(settings).map_err(js_err)?;let scope=self.engine.camera_raw_scope(parse_id(doc)?,parse_id(layer)?,&settings).map_err(js_err)?;serde_json::to_string(&scope).map_err(js_err)}
+    pub fn camera_raw_auto_balance(&self, doc: &str, layer: &str) -> Result<Option<String>, JsError> {
+        self.engine.camera_raw_auto_balance(parse_id(doc)?,parse_id(layer)?).map_err(js_err)?
+            .map(|v|serde_json::to_string(&v).map_err(js_err)).transpose()
+    }
+    pub fn camera_raw_white_balance(&self, doc: &str, layer: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
+        let rgb=self.engine.sample_camera_raw_color(parse_id(doc)?,parse_id(layer)?,Point{x,y},false).map_err(js_err)?;
+        let value=rgb.and_then(|rgb| {let [r,g,b]=rgb.map(|v|if v<=0.04045 {v/12.92}else{((v+0.055)/1.055).powf(2.4)});compositor_engine::adjust::camera_raw::CameraRawSettings::neutralize(r,g,b)});
+        value.map(|v|serde_json::to_string(&v).map_err(js_err)).transpose()
+    }
+    pub fn camera_raw_sample_color(&self,doc:&str,layer:&str,x:f64,y:f64,prepared:bool)->Result<Option<String>,JsError>{
+        self.engine.sample_camera_raw_color(parse_id(doc)?,parse_id(layer)?,Point{x,y},prepared).map_err(js_err)?.map(|rgb|serde_json::to_string(&rgb).map_err(js_err)).transpose()
+    }
+    pub fn import_photoshop(&mut self, doc: Option<String>, bytes: &[u8], x: Option<f64>, y: Option<f64>) -> Result<String, JsError> {
+        let id=doc.as_deref().map(parse_id).transpose()?;
+        let at=x.zip(y).map(|(x,y)|Point{x,y});
+        let (id,conversions)=self.engine.import_psd(id,bytes,at).map_err(js_err)?;
+        serde_json::to_string(&serde_json::json!({"id":ids::upper_string(&id),"conversions":conversions})).map_err(js_err)
+    }
     pub fn sample_color(&self, doc: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
         match self.engine.sample_color(parse_id(doc)?, Point { x, y }).map_err(js_err)? {
             Some(rgb) => Ok(Some(serde_json::to_string(&rgb).map_err(js_err)?)), None => Ok(None),

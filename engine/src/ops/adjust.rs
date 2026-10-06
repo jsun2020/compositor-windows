@@ -158,7 +158,7 @@ pub fn apply_filter_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, p
     };
     let coverage = edit_coverage(doc, clips, &placed, source.width, source.height)?;
     // Kernel function, not this module's own `apply_filter`: adjust::filters::apply_filter.
-    let filtered = adjust::filters::apply_filter(&source, &params);
+    let filtered = adjust::filters::apply_filter(&source, &params)?;
     let filtered = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &source, &c), None => filtered };
     let (result, transform) = if params.spreads() { trimmed(&filtered, &placed) } else { (filtered, placed) };
     let mask = match &layer.mask {

@@ -116,6 +116,7 @@ export function MenuBar() {
       })),
     ] },
     { title: "Filter", items: [
+      { id: "filter-camera-raw", label: "Camera Raw...", run: () => s.beginAdjust({ kind: "CameraRaw" }), enabled: s.canAdjust() },
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
       { id: "filter-motion-blur", label: "Motion Blur...", run: () => s.beginAdjust({ kind: "MotionBlur" }), enabled: s.canAdjust() },
       { id: "filter-add-noise", label: "Add Noise...", run: () => s.beginAdjust({ kind: "AddNoise" }), enabled: s.canAdjust() },

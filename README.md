@@ -10,6 +10,9 @@ Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
 Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
+Phase 7 is in development on `codex/phase7`: Camera Raw, layered PSD/PSB import
+and camera sensor RAW development. Its final cross-platform and packaged-runtime
+acceptance is still open; these features are not part of the current release.
 
 ## Download
 
@@ -20,6 +23,34 @@ keep their manifest and asset files together.
 
 Automated releases include `SHA256SUMS.txt` and `release-manifest.json` with
 the exact source commit, build marker and artifact hashes.
+
+The Phase 7 development package must be extracted in full: it also includes
+`CompositorRaw.exe`, three MSVC runtime DLLs and `LibRaw-notices`. The packaging
+gate checks every file and rejects missing decoder components or license notices.
+
+## Phase 7 development
+
+- **Camera Raw filter:** Light, Color, parametric/point curves, Color Mixer,
+  Point Color, Color Grading, Effects, Detail, Optics, Geometry and Calibration.
+  Group resets/bypass, white-balance/Point Color sampling and diagnostic previews
+  preserve the original pixels until Apply; Apply records one undo step.
+- **Photoshop import:** bounded RGB 8-bit PSD/PSB raw/PackBits decoding, groups,
+  visibility/opacity, blend modes, clipping, raster masks, supported Levels/Curves/
+  Hue-Saturation adjustments, first-style editable text and supported live shapes.
+  Text retains its cached Photoshop raster until edited. Unsupported records are
+  reported. ZIP compression, 16/32-bit and non-RGB Photoshop documents are refused.
+- **Camera RAW import:** a pinned LibRaw 0.22.2 helper develops the sensor data,
+  with As Shot reset, exposure, estimated temperature, tint, tone curve, bounded
+  preview, cancellation and full-size import. Embedded JPEGs are never substituted
+  for sensor processing. Apple CIRAWFilter and LibRaw can produce different colour
+  and tone results; camera coverage depends on the decoder.
+
+The implementation and outstanding acceptance gates are recorded in
+[the Phase 7 plan](docs/superpowers/plans/2026-10-06-phase7-camera-raw-and-import.md).
+LibRaw is distributed under its CDDL-1.0 option with upstream notices and a pinned
+[SDK source archive](https://www.libraw.org/data/LibRaw-0.22.2-Win64.zip).
+The included Microsoft runtime files are unmodified redistributables from Visual
+Studio's `VC/Redist` directory; see [Microsoft's redistribution list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution).
 
 ## Features
 

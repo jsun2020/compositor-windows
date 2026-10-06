@@ -11,7 +11,33 @@ fn seeded() -> (Engine, uuid::Uuid, uuid::Uuid) {
 fn middle(e: &Engine, doc: uuid::Uuid) -> [u8; 4] {
     e.composite_edit(doc, None, Rect { x: 0.0, y: 0.0, width: 20.0, height: 20.0 }, 20, 20).unwrap().pixel(10, 10)
 }
+#[test]
+fn camera_raw_diagnostic_preview_is_never_reused_by_apply(){
+    let(mut e,doc,layer)=seeded();let depth=e.state(doc).unwrap().undo_depth;
+    let mut settings=adjust::camera_raw::CameraRawSettings::default();settings.exposure=1.0;
+    e.set_preview(doc,Some(PreviewRequest::CameraRawView{layer,settings:Box::new(settings.clone()),clipping:1,visualize:-1,sharpen_mask:false,shadow_overlay:false,highlight_overlay:false})).unwrap();
+    assert_eq!(middle(&e,doc),[0,0,0,255]);assert_eq!(e.state(doc).unwrap().undo_depth,depth);
+    e.execute(doc,Command::ApplyFilter{id:layer,params:FilterParams::CameraRaw{settings:Box::new(settings)}}).unwrap();
+    let result=middle(&e,doc);assert!(result[0].abs_diff(176)<=2);assert_eq!(e.state(doc).unwrap().undo_depth,depth+1);
+    e.undo(doc).unwrap();assert_eq!(middle(&e,doc),[128,128,128,255]);
+}
 
+#[test]
+fn camera_raw_sampling_keeps_original_and_prepared_layer_pixels_separate_from_the_composite(){
+    let(mut e,doc,layer)=seeded();
+    e.execute(doc,Command::AddMask{id:layer,revealing:false}).unwrap();
+    let cover=encode_png(&Raster::from_premultiplied(8,8,[255u8,0,0,255].repeat(64)),72.).unwrap();
+    e.import_image(Some(doc),&cover,"Cover",Some(Point{x:10.,y:10.})).unwrap();
+    let at=Point{x:10.,y:10.};let original=e.sample_camera_raw_color(doc,layer,at,false).unwrap().unwrap();
+    assert_eq!(original,[128./255.;3]);assert_eq!(e.sample_color(doc,at).unwrap(),Some([1.,0.,0.]));
+    let mut settings=adjust::camera_raw::CameraRawSettings::default();settings.exposure=1.;
+    e.set_preview(doc,Some(PreviewRequest::Filter{layer,params:FilterParams::CameraRaw{settings:Box::new(settings)}})).unwrap();
+    assert_eq!(e.sample_camera_raw_color(doc,layer,at,false).unwrap(),Some(original));
+    let prepared=e.sample_camera_raw_color(doc,layer,at,true).unwrap().unwrap();assert!(prepared[0]>original[0]);assert_eq!(prepared,[prepared[0];3]);
+    assert_eq!(e.sample_color(doc,at).unwrap(),Some([1.,0.,0.]));
+    for at in [Point{x:-1.,y:10.},Point{x:f64::NAN,y:10.},Point{x:19.,y:19.}]{assert!(e.sample_camera_raw_color(doc,layer,at,true).unwrap().is_none());}
+    e.set_preview(doc,None).unwrap();assert_eq!(e.sample_camera_raw_color(doc,layer,at,true).unwrap(),Some(original));
+}
 #[test]
 fn a_preview_shows_through_every_render_path_without_touching_the_document() {
     let (mut e, doc, layer) = seeded();
@@ -97,7 +123,7 @@ fn a_blur_preview_grows_the_layer_and_previews_from_a_reduced_copy() {
     let before = before_state.layers[0].transform;
     let before_pixels_width = before_state.layers[0].pixels_width;
     let requested = FilterParams::GaussianBlur { radius: 6.0 };
-    e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: requested })).unwrap();
+    e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: requested.clone() })).unwrap();
     let state = e.state(doc).unwrap();
     let l = &state.layers[0];
     assert!(l.transform.size.width > before.size.width, "the preview shows the grown layer");

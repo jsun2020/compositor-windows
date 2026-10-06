@@ -1,6 +1,11 @@
 import type { PackageFiles } from "../engine/types";
+export interface RawInfo {decoder:string;width:number;height:number;make:string;model:string;asShotTemperature:number;asShotTint:number;whiteBalanceEstimate:boolean;sensorDecoded:boolean}
+export interface RawDevelopSettings {exposure:number;temperature:number;tint:number;tone:number}
 
 export interface ShellBridge {
+  rawInspect?(path:string,token:string):Promise<RawInfo>;
+  rawDevelop?(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array>;
+  rawCancel?(token:string):Promise<void>;
   readClipboardImage(): Promise<{ bytes: Uint8Array; origin: [number, number] | null; layerToken?: string | null }>;
   writeClipboardImage(bytes: Uint8Array, origin: [number, number], layerToken?: string): Promise<void>;
   /** True when `onFileDrop` positions are physical pixels relative to the window (Tauri);

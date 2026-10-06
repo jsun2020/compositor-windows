@@ -12,7 +12,7 @@ import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "
 import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } from "./selection";
 import { reorderedTabs } from "./tab-reorder";
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
-import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor } from "./adjust-edit";
+import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor,effectiveFilterParams } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
 import { DEFAULT_SHAPE, nextShapeKind, shapeSpec, type ShapeDraft, type ShapeOptions } from "../tools/shape-draft";
 import { DEFAULT_GRADIENT, gradientSpec, hasLine, type GradientEdit, type GradientOptions } from "./gradient-edit";
@@ -26,7 +26,7 @@ export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wa
 export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
-export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" }
+export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
   | { kind: "selectionAmount"; operation: SelectionAmountOperation };
 
 /** The selection tools' settings, kept per app session as the Mac keeps them per session
@@ -259,7 +259,7 @@ export interface EditorStore {
   panelOwnsDocument(refuse?: boolean): boolean;
   canAdjust(): boolean;
   beginAdjust(opts: { kind: AdjustmentKind | FilterKind; layerId?: string; target?: "layer" | "adjustmentLayer" }): boolean;
-  updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"] }): void;
+  updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"]; cameraRawBypass?:AdjustEdit["cameraRawBypass"];cameraRawView?:AdjustEdit["cameraRawView"] }): void;
   setAdjustPreview(on: boolean): void;
   setAdjustSample(mode: SampleMode | null): void;
   sampleAt(at: { x: number; y: number }): void;
@@ -1020,6 +1020,24 @@ export const useEditor = create<EditorStore>((set, get) => ({
   sampleAt: (at) => {
     const { engine, activeId, adjustEdit } = get(); if (!engine || !activeId || !adjustEdit?.sampleMode) return;
     const mode = adjustEdit.sampleMode;
+    if(mode==="CameraPointColor"&&adjustEdit.params?.filter==="CameraRaw"){
+      const rgb=engine.cameraRawSampleColor(activeId,adjustEdit.layerId,at);if(!rgb)return;const settings=adjustEdit.params.settings;if(settings.mixer.points.length>=8)return;
+      const [r,g,b]=rgb,max=Math.max(r,g,b),min=Math.min(r,g,b),l=(max+min)/2,d=max-min;
+      const hue=hueOf(rgb)??0,saturation=max===0?0:d/max;
+      get().updateAdjust({params:{filter:"CameraRaw",settings:{...settings,mixer:{...settings.mixer,points:[...settings.mixer.points,{hue,saturation,luminance:l,hueShift:0,saturationShift:0,luminanceShift:0,hueRange:30,saturationRange:.4,luminanceRange:.4}]}}}});get().setAdjustSample(null);return;
+    }
+    if(mode==="CameraDefringe"&&adjustEdit.params?.filter==="CameraRaw"){
+      const rgb=engine.cameraRawSampleColor(activeId,adjustEdit.layerId,at,false);if(!rgb)return;const hue=hueOf(rgb)??0;
+      const optics={...adjustEdit.params.settings.optics};
+      if(Math.abs(hue-290)<Math.abs(hue-90)){optics.purpleHueLow=Math.max(0,hue-25);optics.purpleHueHigh=Math.min(360,hue+25);if(optics.purpleAmount===0)optics.purpleAmount=50;}
+      else{optics.greenHueLow=Math.max(0,hue-25);optics.greenHueHigh=Math.min(360,hue+25);if(optics.greenAmount===0)optics.greenAmount=50;}
+      get().updateAdjust({params:{filter:"CameraRaw",settings:{...adjustEdit.params.settings,optics}}});return;
+    }
+    if (mode === "CameraWhiteBalance" && adjustEdit.params?.filter === "CameraRaw") {
+      const balanced=engine.cameraRawWhiteBalance(activeId,adjustEdit.layerId,at);
+      if(balanced){const [temperature,tint]=balanced;get().updateAdjust({params:{filter:"CameraRaw",settings:{...adjustEdit.params.settings,whiteBalance:"Custom",temperature:Math.max(-100,Math.min(100,temperature)),tint:Math.max(-100,Math.min(100,tint))}}});}
+      return;
+    }
     if (mode === "Black" || mode === "Gray" || mode === "White") {
       const levels = engine.levelsSampling(activeId, adjustEdit.layerId, adjustEdit.adjustment!.levels, at, mode);
       get().updateAdjust({ adjustment: { ...adjustEdit.adjustment!, levels } });
@@ -1077,7 +1095,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (get().working) { set({ error: BUSY_MESSAGE }); return; }
     const identity = isAdjustIdentity(edit, (a) => engine.adjustmentIsIdentity(a));
     const command: Command = edit.target === "adjustmentLayer" ? { type: "SetAdjustment", id: edit.layerId, adjustment: edit.adjustment! }
-      : edit.params ? { type: "ApplyFilter", id: edit.layerId, params: edit.params }
+      : edit.params ? { type: "ApplyFilter", id: edit.layerId, params: effectiveFilterParams(edit)! }
       : { type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! };
     // A large layer is edited by the job worker: the panel closes but the canvas keeps its preview
     // until the result is put back (runEditJob clears it then); the document is busy meanwhile.
