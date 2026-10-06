@@ -692,6 +692,7 @@ impl Engine {
     }
 
     pub fn import_image(&mut self, id: Option<Uuid>, bytes: &[u8], name: &str, at: Option<Point>) -> Result<Uuid, CommandError> {
+        if psd::matches(bytes) { return self.import_psd(id, bytes, at).map(|(id, _)| id); }
         let raster = decode_image(bytes)?.raster;
         match id {
             Some(id) => {
@@ -710,6 +711,44 @@ impl Engine {
         }
     }
 
+    /// Parse and validate the entire file before mutating a session. A PSD import into an
+    /// existing document records one history entry for all layers, never one per layer.
+    pub fn import_psd(&mut self, id: Option<Uuid>, bytes: &[u8], at: Option<Point>) -> Result<(Uuid, Vec<psd::PsdConversion>), CommandError> {
+        let (images, masks) = if let Some(id)=id { let doc=&self.session(id)?.document; (MAX_PIXELS.saturating_sub(doc.used_pixels()), MAX_PIXELS.saturating_sub(doc.used_mask_pixels())) } else { (MAX_PIXELS, MAX_PIXELS) };
+        let imported=psd::read(bytes, images, masks)?;
+        let psd::PsdImport{mut document,conversions}=imported;
+        let id=if let Some(id)=id {
+            self.edit(id, |doc,_| {
+                if doc.layers.len()+document.layers.len()>MAX_LAYERS { return Err(CommandError::Refused("Too many layers".into())); }
+                let offset=at.map(|p|Point{x:p.x-document.width as f64/2.,y:p.y-document.height as f64/2.}).unwrap_or(Point{x:(doc.width as f64-document.width as f64)/2.,y:(doc.height as f64-document.height as f64)/2.});
+                for layer in &mut document.layers {layer.transform.origin.x+=offset.x;layer.transform.origin.y+=offset.y;}
+                doc.active_layer_id=document.active_layer_id;doc.layers.extend(document.layers);Ok(Dirty::structure())
+            })?;id
+        } else { let id=self.insert(document,None);self.session_mut(id)?.history.mark_never_saved();id };
+        Ok((id,conversions))
+    }
+    pub fn camera_raw_scope(&self,id:Uuid,layer:Uuid,settings:&adjust::camera_raw::CameraRawSettings)->Result<adjust::camera_raw_scope::CameraRawScope,CommandError>{let raster=self.session(id)?.document.layer(layer).and_then(|l|l.pixels.as_ref()).ok_or(CommandError::NoLayer)?;adjust::camera_raw_scope::graded_scope(raster,settings)}
+    pub fn camera_raw_auto_balance(&self, id: Uuid, layer: Uuid) -> Result<Option<(f64,f64)>, CommandError> {
+        let layer=self.session(id)?.document.layer(layer).ok_or(CommandError::NoLayer)?;
+        Ok(layer.pixels.as_ref().and_then(adjust::camera_raw::CameraRawSettings::auto_balance))
+    }
+    /// Camera Raw sampling is local to its layer. Point Color reads the prepared
+    /// preview; white balance and defringe read the original, as on Mac 1.4.5.
+    pub fn sample_camera_raw_color(&self,id:Uuid,layer:Uuid,at:Point,prepared:bool)->Result<Option<[f64;3]>,CommandError>{
+        let session=self.session(id)?;
+        if !(at.x>=0.&&at.y>=0.&&at.x<session.document.width as f64&&at.y<session.document.height as f64){return Ok(None);}
+        if prepared {
+            if let Some(preview)=session.preview.as_ref().filter(|p|p.layer==layer&&matches!(p.request,PreviewRequest::CameraRawView{..}|PreviewRequest::Filter{params:FilterParams::CameraRaw{..},..})) {
+                let raster=&preview.raster;
+                let Some(inverse)=preview.transform.pixel_to_document(raster.width,raster.height).invert()else{return Ok(None)};
+                let point=inverse.apply(at);
+                if !(point.x>=0.&&point.y>=0.&&point.x<raster.width as f64&&point.y<raster.height as f64){return Ok(None);}
+                let pixel=raster.pixel(point.x as u32,point.y as u32);
+                return Ok((pixel[3]>0).then(||[0,1,2].map(|c|(pixel[c] as f64/pixel[3] as f64).min(1.))));
+            }
+        }
+        self.sample_layer_color(id,layer,at)
+    }
     pub fn paste_raster(&mut self, id: Uuid, raster: Raster, origin: Option<Point>, keep_selection: bool) -> Result<Dirty, CommandError> {
         self.clear_preview(id);
         self.edit(id, |doc, _| {

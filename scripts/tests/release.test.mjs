@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateVersions, releaseExists, projectVersion } from '../release-metadata.mjs';
-import { inspectZip, crc32 } from '../verify-portable-release.mjs';
+import { inspectZip, crc32, PORTABLE_FILES } from '../verify-portable-release.mjs';
 
 test('matching main/version tag release metadata', () => {
   assert.deepEqual(validateVersions('0.8.0', '0.8.0', '0.8.0', 'branch', 'main'), { version: '0.8.0', tag: 'v0.8.0' });
@@ -27,7 +27,7 @@ test('published releases are immutable; drafts require inspection', async () => 
 });
 
 // Independent small ZIP fixture, with stored payloads and an explicit central directory.
-function zip(names = ['Compositor.exe', 'LICENSE-Compositor.txt', 'README.txt']) {
+function zip(names = PORTABLE_FILES) {
   const locals = [], central = []; let offset = 0;
   for (const name of names) {
     const n = Buffer.from(name), bytes = Buffer.from(name), crc = crc32(bytes);
@@ -38,11 +38,15 @@ function zip(names = ['Compositor.exe', 'LICENSE-Compositor.txt', 'README.txt'])
   const directory = Buffer.concat(central), end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50); end.writeUInt16LE(names.length, 8); end.writeUInt16LE(names.length, 10); end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
 }
-test('standard CRC and complete three-entry archive', () => {
+test('standard CRC and complete archive including RAW runtime and notices', () => {
   assert.equal(crc32(Buffer.from('123456789')), 0xcbf43926);
-  assert.equal(inspectZip(zip()).length, 3);
+  assert.equal(inspectZip(zip()).length, PORTABLE_FILES.length);
 });
 test('tampered payload, duplicate entries, traversal and truncation fail', () => {
   const changed = zip(); changed[30 + 'Compositor.exe'.length] ^= 1;
   for (const b of [changed, zip(['Compositor.exe', 'Compositor.exe', 'README.txt']), zip(['../Compositor.exe', 'LICENSE-Compositor.txt', 'README.txt']), zip().subarray(0, 20)]) assert.throws(() => inspectZip(b));
+});
+test('missing RAW helper, runtime or license and unapproved added files fail',()=>{
+  for(const name of ['CompositorRaw.exe','vcruntime140.dll','LibRaw-notices/LICENSE.CDDL'])assert.throws(()=>inspectZip(zip(PORTABLE_FILES.filter(n=>n!==name))));
+  assert.throws(()=>inspectZip(zip([...PORTABLE_FILES,'private-photo.dng'])));
 });

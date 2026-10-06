@@ -16,6 +16,9 @@ pub enum PreviewRequest {
     /// (`COLOUR_DRAG_LIMIT`) and followed by an `Adjustment` request once input settles.
     DragAdjustment { #[serde(with = "ids::upper")] layer: Uuid, adjustment: LayerAdjustment },
     Filter { #[serde(with = "ids::upper")] layer: Uuid, params: FilterParams },
+    /// Camera Raw diagnostic views are preview-only. Their request never matches an
+    /// ApplyFilter request, so clipping colours and masks cannot be committed.
+    CameraRawView { #[serde(with="ids::upper")] layer:Uuid,settings:Box<adjust::camera_raw::CameraRawSettings>,clipping:i32,visualize:i32,sharpen_mask:bool,shadow_overlay:bool,highlight_overlay:bool },
     /// A gradient not yet applied (Phase 4b-1), on the layer's pixels or its mask: while `dragging`
     /// from a copy at most `GRADIENT_DRAG_LIMIT` across, then at most `GRADIENT_SETTLED_LIMIT`; inside a
     /// selection on pixels that already cover the canvas, at full size as a patch (`PATCH_LIMIT`).
@@ -24,7 +27,7 @@ pub enum PreviewRequest {
 
 impl PreviewRequest {
     pub fn layer(&self) -> Uuid {
-        match self { PreviewRequest::Shape{layer,..}|PreviewRequest::Text {layer}|PreviewRequest::ContentFill { layer } | PreviewRequest::Adjustment { layer, .. } | PreviewRequest::DragAdjustment { layer, .. } | PreviewRequest::Filter { layer, .. } | PreviewRequest::Gradient { layer, .. } => *layer }
+        match self { PreviewRequest::CameraRawView{layer,..}|PreviewRequest::Shape{layer,..}|PreviewRequest::Text {layer}|PreviewRequest::ContentFill { layer } | PreviewRequest::Adjustment { layer, .. } | PreviewRequest::DragAdjustment { layer, .. } | PreviewRequest::Filter { layer, .. } | PreviewRequest::Gradient { layer, .. } => *layer }
     }
     /// Whether two requests compute the same pixels: the same layer and settings at the same
     /// effective limit (a Grain drag and a settled Grain are both full size).
@@ -36,6 +39,7 @@ impl PreviewRequest {
             (Shape{draft:a,..},Shape{draft:b,..})=>a==b,
             (Adjustment { adjustment: a, .. } | DragAdjustment { adjustment: a, .. }, Adjustment { adjustment: b, .. } | DragAdjustment { adjustment: b, .. }) => a == b,
             (Filter { params: a, .. }, Filter { params: b, .. }) => a == b,
+            (CameraRawView{settings:a,clipping:ac,visualize:av,sharpen_mask:am,shadow_overlay:as_,highlight_overlay:ah,..},CameraRawView{settings:b,clipping:bc,visualize:bv,sharpen_mask:bm,shadow_overlay:bs,highlight_overlay:bh,..})=>a==b&&ac==bc&&av==bv&&am==bm&&as_==bs&&ah==bh,
             (Gradient { mask: a, gradient: g, .. }, Gradient { mask: b, gradient: h, .. }) => a == b && g == h,
             _ => false,
         };
@@ -135,6 +139,7 @@ pub fn preview_limit(request: &PreviewRequest) -> u32 {
         PreviewRequest::Adjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_PREVIEW_LIMIT },
         PreviewRequest::DragAdjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_DRAG_LIMIT },
         PreviewRequest::Filter { params, .. } => if matches!(params, FilterParams::AddNoise { .. }) { u32::MAX } else { FILTER_PREVIEW_LIMIT },
+        PreviewRequest::CameraRawView{..}=>FILTER_PREVIEW_LIMIT,
         PreviewRequest::Gradient { dragging, .. } => if *dragging { GRADIENT_DRAG_LIMIT } else { GRADIENT_SETTLED_LIMIT },
     }
 }
@@ -198,9 +203,16 @@ pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &Pr
                 false => (source, layer.transform),
             };
             let coverage = ops::adjust::edit_coverage(doc, clips, &placed, grid.width, grid.height).ok()?;
-            let filtered = adjust::filters::apply_filter(&grid, &scaled);
+            let filtered = adjust::filters::apply_filter(&grid, &scaled).ok()?;
             let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &grid, &c), None => filtered };
             Some(PixelPreview::new(layer.id, result, placed, revision, request, made_from, PreviewTarget::Pixels { followed: None }))
+        }
+        PreviewRequest::CameraRawView{settings,clipping,visualize,sharpen_mask,shadow_overlay,highlight_overlay,..}=>{
+            let mut scaled=settings.normalized();scaled.pixel_scale*=factor;
+            let filtered=scaled.apply_preview(&source,*clipping,*visualize,*sharpen_mask,*shadow_overlay,*highlight_overlay).ok()?;
+            let coverage=ops::adjust::edit_coverage(doc,clips,&layer.transform,source.width,source.height).ok()?;
+            let result=match coverage{Some(c)=>adjust::apply::blend_by_coverage(&filtered,&source,&c),None=>filtered};
+            Some(PixelPreview::new(layer.id,result,layer.transform,revision,request,made_from,PreviewTarget::Pixels{followed:None}))
         }
         PreviewRequest::Gradient { .. } => None,
     }

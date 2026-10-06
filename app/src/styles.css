@@ -88,7 +88,7 @@ body { margin: 0; }
 .status { flex: 0 0 auto; padding: 4px; font-size: 11px; color: #999; }
 
 /* Modal sheet */
-.sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; color: #ddd; font: 12px system-ui, sans-serif; }
 .sheet { background: #2a2a2a; border-radius: 8px; padding: 20px; min-width: 320px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); }
 .sheet h2 { margin: 0 0 12px; font-size: 14px; }
 .sheet-body { display: flex; flex-direction: column; gap: 10px; }
@@ -122,6 +122,16 @@ body { margin: 0; }
 .adjust-footer label { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; }
 .adjust-footer button { padding: 4px 10px; border: 1px solid #555; background: #333; color: #ddd; border-radius: 4px; cursor: pointer; }
 .adjust-footer button.primary { background: #3a6ea5; border-color: #3a6ea5; color: #fff; }
+.camera-raw-panel { max-height: calc(100vh - 80px); width: min(380px, calc(100vw - 24px)); }
+.camera-raw-panel .adjust-body { overflow-y: auto; min-height: 0; }
+.camera-raw-panel .adjust-header, .camera-raw-panel .adjust-footer { flex-shrink: 0; }
+.camera-raw-panel details { margin-bottom: 8px; }
+.camera-raw-panel summary { padding: 5px 0; cursor: pointer; }
+.camera-raw-panel .number-field { margin: 4px 0; }
+.camera-raw-panel .number-field-label { width: 120px; flex-shrink: 0; }
+[data-import-report] .sheet { max-width: min(720px, calc(100vw - 48px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+[data-import-report] .sheet-body { overflow-y: auto; min-height: 0; overflow-wrap: anywhere; }
+[data-import-report] .sheet h2, [data-import-report] .sheet-buttons { flex-shrink: 0; }
 
 /* Undrawn-feature notice: floating at the top of the canvas area like .adjust-panel above
    (`position: fixed`, never in layout flow), not fixed at the bottom like the error banner. */

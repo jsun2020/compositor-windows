@@ -2,6 +2,7 @@ import { useEditor } from "../state/store";
 import type { AdjustmentColor, BlackWhiteSettings, ColorBalanceSettings, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { NumberInput } from "./NumberInput";
+import { CameraRawPanel } from "./CameraRawPanel";
 
 // A plain <span> caption, not a <label>, wraps the pair: a <label> would give the range
 // input the same accessible name as the number input (Chromium keeps a focusable element
@@ -26,6 +27,7 @@ export function FilterPanel() {
   const edit = s.adjustEdit!;
   if (edit.params) {
     const p = edit.params;
+    if (p.filter === "CameraRaw") return <CameraRawPanel />;
     const set = (patch: Partial<FilterParams>) => s.updateAdjust({ params: { ...p, ...patch } as FilterParams });
     if (p.filter === "GaussianBlur") return <NumberField label="Radius" value={p.radius} min={0.1} max={250} step={0.1} onChange={(radius) => set({ radius } as never)} />;
     if (p.filter === "MotionBlur") return (<>

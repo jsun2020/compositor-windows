@@ -36,7 +36,7 @@ export function AdjustPanel() {
   }, [edit]);
   if (!edit) return null;
   const reset = () => {
-    if (edit.params) s.updateAdjust({ params: defaultFilterParams(edit.params.filter) });
+    if (edit.params) s.updateAdjust({ params: defaultFilterParams(edit.params.filter),cameraRawBypass:[] });
     else s.updateAdjust({ adjustment: resetAdjustment(edit.adjustment!, edit.original) });
   };
   let body: ReactNode;
@@ -45,7 +45,7 @@ export function AdjustPanel() {
   else if (!edit.params && edit.adjustment!.kind === "Hue/Saturation") body = <HueSaturationPanel />;
   else body = <FilterPanel />;
   return (
-    <div className="adjust-panel" data-testid="adjust-panel" role="dialog" aria-label={adjustTitle(edit)}>
+    <div className={`adjust-panel${edit.params?.filter === "CameraRaw" ? " camera-raw-panel" : ""}`} data-testid="adjust-panel" role="dialog" aria-label={adjustTitle(edit)}>
       <div className="adjust-header" data-testid="adjust-title">{adjustTitle(edit)}</div>
       <div className="adjust-body">{body}</div>
       <div className="adjust-footer">

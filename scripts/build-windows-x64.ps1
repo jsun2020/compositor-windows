@@ -56,6 +56,9 @@ try {
   if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $zip)) { throw 'Portable output already exists; preserve it and build at a new timestamp.' }
   New-Item -ItemType Directory -Path $stage | Out-Null
   Copy-Item $exe (Join-Path $stage 'Compositor.exe')
+  Step 'Building pinned camera RAW decoder and including its license notices'
+  & powershell -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-raw-helper.ps1') -OutputDirectory $stage
+  if ($LASTEXITCODE -ne 0) { throw 'RAW helper build failed' }
   Copy-Item (Join-Path $root 'engine/native/LICENSE-Compositor.txt') (Join-Path $stage 'LICENSE-Compositor.txt')
   @(
     "Compositor for Windows $version ($marker)",

@@ -71,6 +71,7 @@ export interface LayerAdjustment {
 }
 
 export type FilterParams =
+  | { filter: "CameraRaw"; settings: import("./camera-raw").CameraRawSettings }
   | { filter: "GaussianBlur"; radius: number }
   | { filter: "MotionBlur"; angle: number; distance: number }
   | { filter: "AddNoise"; amount: number; gaussian: boolean; monochromatic: boolean; seed: number }
@@ -97,6 +98,7 @@ export type PreviewRequest =
   /** The same while a slider moves: previewed from a smaller copy until input settles. */
   | { preview: "DragAdjustment"; layer: string; adjustment: LayerAdjustment }
   | { preview: "Filter"; layer: string; params: FilterParams }
+  | {preview:"CameraRawView";layer:string;settings:import("./camera-raw").CameraRawSettings;clipping:number;visualize:number;sharpen_mask:boolean;shadow_overlay:boolean;highlight_overlay:boolean}
   /** A gradient not yet applied: from a smaller copy while `dragging` (engine `GRADIENT_DRAG_LIMIT`),
    * or a full-size patch inside a small selection on a layer over the canvas. */
   | { preview: "Gradient"; layer: string; mask: boolean; gradient: GradientSpec; dragging: boolean };

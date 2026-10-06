@@ -1,4 +1,7 @@
 import { BUSY_MESSAGE, useEditor } from "../state/store";
+import {developCameraRaw,isCameraRaw} from "../sheets/RawDevelopSheet";
+import {showImportConversions} from "../sheets/ImportReportSheet";
+import { chooseProjectClose } from "../sheets/CloseProjectSheet";
 
 function ctx() {
   const s = useEditor.getState();
@@ -96,11 +99,16 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     const { s, engine, bridge } = ctx();
     const files = paths ?? (await bridge.pickImportImages());
     const failures: string[] = [];
+    const conversions: string[] = [];
     let target = s.activeId;
     for (const path of files) {
       try {
-        const bytes = await bridge.readFile(path);
-        const id = engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        const bytes = isCameraRaw(path)?await developCameraRaw(path,bridge):await bridge.readFile(path);
+        if(!bytes)continue;
+        const photoshop=bytes.length>=4&&bytes[0]===56&&bytes[1]===66&&bytes[2]===80&&bytes[3]===83;
+        const imported=photoshop?engine.importPhotoshop(target,bytes,target?at??null:null):null;
+        const id = imported?.id ?? engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        if(imported)conversions.push(...imported.conversions.map(c=>`${bridge.baseName(path)} / ${c.layerName}: ${c.message}`));
         // Import does not go through `store.run`, so the reveal has to be called here: an
         // import with a folder active lands inside it (`import_raster` sets parent_id), and a
         // collapsed folder would otherwise leave the new layer active with no row.
@@ -113,6 +121,7 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
         }
       } catch (e) { failures.push(`${bridge.baseName(path)}: ${e instanceof Error ? e.message : String(e)}`); }
     }
+    if(conversions.length)await showImportConversions(conversions);
     if (failures.length) throw new Error(failures.join("\n"));
   });
 }
@@ -132,16 +141,33 @@ export async function exportPng(): Promise<void> {
  * background tab must not switch to it first, which would cancel the active document's panel. */
 export async function closeProject(id: string): Promise<boolean> {
   const { s } = ctx();
-  const doc = s.documents[id];
-  if (!doc) return true;
-  if (doc.isModified) {
-    const save = window.confirm(`Save changes to ${doc.path ? s.bridge!.baseName(doc.path) : "Untitled"} before closing?\n\nOK saves, Cancel keeps the document open.`);
-    if (!save) return false;
-    await guarded(() => saveFlow(id));
-    if (useEditor.getState().documents[id]?.isModified) return false;
-  }
-  useEditor.getState().closeDocument(id);
-  return true;
+  if (!s.documents[id]) return true;
+  if (s.sheet) return false;
+  let closed = false;
+  await guarded(async () => {
+    const current = useEditor.getState();
+    const doc = current.documents[id];
+    const activeDraft = current.activeId === id && (current.transformEdit || current.gradientEdit || current.panelOwnsDocument());
+    if (doc.isModified || activeDraft) {
+      const choice = await chooseProjectClose(doc.path ? s.bridge!.baseName(doc.path) : "Untitled");
+      if (choice === "cancel") return;
+      if (choice === "save") {
+        const state = useEditor.getState();
+        if (state.activeId === id) {
+          if (state.panelOwnsDocument(true)) return;
+          state.commitTransform();
+          state.commitGradient();
+          if (useEditor.getState().working) { useEditor.getState().setError(BUSY_MESSAGE); return; }
+        }
+        await saveFlow(id);
+        // Cancelling Save As or a failed write must never silently discard changes.
+        if (useEditor.getState().documents[id]?.isModified) return;
+      }
+    }
+    useEditor.getState().closeDocument(id);
+    closed = true;
+  });
+  return closed;
 }
 
 /** Returns false when the user cancelled. */

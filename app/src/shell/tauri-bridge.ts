@@ -2,9 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { PackageFiles } from "../engine/types";
-import { baseName, type ShellBridge } from "./bridge";
+import { baseName, type ShellBridge, type RawInfo,type RawDevelopSettings } from "./bridge";
 
 export class TauriBridge implements ShellBridge {
+  rawInspect(path:string,token:string):Promise<RawInfo> {return invoke("raw_inspect",{path,token});}
+  async rawDevelop(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array> {return new Uint8Array(await invoke<ArrayBuffer>("raw_develop",{path,settings,preview,token}));}
+  rawCancel(token:string):Promise<void> {return invoke("raw_cancel",{token});}
   readonly positionIsPhysical = true;
   async readClipboardImage(): Promise<{ bytes: Uint8Array; origin: [number, number] | null; layerToken: string | null }> {
     const buffer = await invoke<ArrayBuffer>("read_clipboard_image");
@@ -27,7 +30,7 @@ export class TauriBridge implements ShellBridge {
     return picked ? (picked.endsWith(".comp") ? picked : `${picked}.comp`) : null;
   }
   async pickImportImages(): Promise<string[]> {
-    const picked = await open({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp"] }] });
+    const picked = await open({ multiple: true, filters: [{ name: "Images, Photoshop and Camera RAW", extensions: ["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "psd", "psb", "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "rw2", "orf", "pef", "ptx", "raw", "rwl", "srw", "3fr", "fff", "iiq", "kdc", "dcr", "mos", "mef", "erf", "x3f"] }] });
     return Array.isArray(picked) ? picked : picked ? [picked] : [];
   }
   async pickExportFile(suggested: string, ext: "png" | "jpg"): Promise<string | null> {

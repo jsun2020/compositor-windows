@@ -48,6 +48,14 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Release metadata and packaging regressions
         run: node --test scripts/tests/release.test.mjs
+      - name: Pinned RAW helper and actual sensor development without a JPEG preview
+        run: |
+          & ./scripts/build-raw-helper.ps1 -OutputDirectory build-artifacts/raw-helper-ci
+          if ($LASTEXITCODE -ne 0) { throw 'RAW helper build failed' }
+          python -X utf8 scripts/make-phase7-dng-probe.py build-artifacts/raw-probe-ci.dng
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic sensor input generation failed' }
+          python -X utf8 scripts/verify-phase7-raw-helper.py build-artifacts/raw-helper-ci/CompositorRaw.exe build-artifacts/raw-probe-ci.dng build-artifacts/raw-verification-ci
+          if ($LASTEXITCODE -ne 0) { throw 'RAW sensor development verification failed' }
       - name: Original native workspace tests
         run: cargo test --workspace --locked
       - name: Release WASM
@@ -88,5 +96,7 @@ jobs:
           path: |
             test-results/
             playwright-report/
+            build-artifacts/raw-verification-ci/
+            build-artifacts/raw-helper-ci/LibRaw-notices/
           if-no-files-found: ignore
           retention-days: 14
