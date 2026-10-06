@@ -2,7 +2,9 @@
 
 Authorized by the user on 2026-10-06. Development starts on `codex/phase7`,
 from documentation commit `f463b6264e62baf11bc55e1801acf6022ddc5356`.
-Phase 6 PR #8 and published 0.8.0 remain separate from this work.
+Phase 6 PR #8 and Phase 7 PR #9 were merged into `main` on 2026-10-06,
+at `1de001b` and `9aafb14` respectively. Published 0.8.0 remains unchanged;
+merging the implementation does not complete the acceptance gates below.
 
 ## Oracle and scope
 
@@ -47,14 +49,17 @@ different decoders.
 - [x] Camera Raw controls, resets, group bypass and preview diagnostics.
 - [x] Bounded PSD/PSB reader and compression/channel validation.
 - [x] Groups/masks/blend/clipping and supported editable conversion records.
-- [ ] Import conversion report and native/browser file routing.
+- [x] Import conversion report and native/browser file routing.
 - [x] Pinned RAW decoder, development controls and portable dependency receipts.
 - [x] Deterministic synthetic PSD/PSB/DNG probes and malformed-input checks.
-- [ ] User-provided RAW/PSD sample verification (paths requested).
-- [ ] Complete original source and performance gates; no changed budgets/retries.
-- [ ] Rebuilt production portable with no test API, native real-file checks.
+- [x] Supplied real PSD and its Mac project/export counterpart verified.
+- [x] Actual public camera RAW sensor development, bounded preview and full import.
+- [x] Complete original source gates and exact-source hosted CI.
+- [ ] Complete original hardware performance gates; no changed budgets/retries.
+- [x] Rebuilt production portable with no test API, native real-file checks.
 - [ ] Actual Mac 1.4.5 counterpart returns and human Windows checks.
-- [ ] Documentation, commit/push, exact-source CI and final acceptance receipt.
+- [x] Implementation documentation, commit/push, reviewed CI and main integration.
+- [ ] Final acceptance receipt after all remaining gates pass.
 
 Each checkpoint must state what passed and what is still open. Do not mark
 Phase 7 complete from source tests alone. Preserve user files, old failures,
@@ -189,3 +194,54 @@ F1 frame after result 165 ms (<100), Add Mask frame 472 ms (<150), Levels worker
 commit frame gap 383 ms (<100), and grown-mask gradient frame 386 ms (<150).
 These failures remain retained and unresolved. This close fix does not waive
 them or complete the outstanding Phase 7 performance and cross-platform gates.
+
+## Main integration and remaining acceptance
+
+The close choices, corrected PSD order and Phase 7 implementation are in main
+at merge `9aafb14f8ca8b3cf13fb30f94f2a0fb843120765`. Its tracked file tree is
+identical to `cedba2a388cd880fa3a1420110334865d64b40b8`, whose hosted run
+`37459575896` passed 693 native cases with ten original ignores, 295 unit cases
+and 269 functional cases with the 33 original hardware opt-ins skipped. Release
+WASM, the three TypeScript checks, pinned sensor decoder checks and nine release
+packaging regressions also passed. The merge's own hosted run `37463621544`
+also completed successfully on the exact `9aafb14` merge.
+
+The clean-source `COMPOSITOR_BUILD_0.8.0_20261006-1955` portable passed the
+complete supplemental production protocol, including three close choices,
+cancelled save, actual canvas clearing and native package save/reopen. The
+production test API was absent. Native RAW IPC, Camera Raw preview/cancel/
+history/diagnostics and all five Photoshop imports passed as well. Only the
+save-picker HTTP response was supplied; actual Windows picker/mouse operation
+still requires the human checklist. Private originals and frozen probes remained
+unchanged. No new version or release was published: the main release workflow
+validated the existing immutable 0.8.0 identity and skipped package/publication.
+
+The same 1955 production package also passed the actual public Canon EOS 40D
+CR2 protocol: native sensor development at 3908x2602 for As Shot and Exposure +1,
+a 1954x1301 bounded preview, preview/Cancel/reset/full-dialog import, and native
+save/reopen of both developments. Each before/reopened export was byte-exact
+with the corresponding native decoder PNG; Exposure +1 increased mean RGB
+brightness. The source RAW remained unchanged. This extends the earlier 1531
+sensor evidence to the current package and proves native project persistence;
+the save-picker response fixture and synthetic Tauri drop still do not prove
+actual OS mouse/file-picker operation or Mac CIRAWFilter behavior.
+
+The four failing original performance scenarios were copied into an isolated
+diagnostic harness. Only their fixture import changed; their bodies, assertions,
+budgets, single worker and zero retries were preserved. GL calls and browser
+timeline measurements add overhead, so the diagnostic is not acceptance. Three
+cases passed; F1 failed with a 145 ms frame gap during 100 MP Levels (<100 ms).
+That interval had no similarly long main-thread task. Large-mask diagnostic
+frames also spent time uploading R8 textures and waiting for GPU readback; those
+observations do not establish the cause of the four prior complete-run failures.
+No speculative source fix, budget waiver or repeat-until-green run was added.
+The unchanged complete 29-case result remains 25 pass / four fail.
+
+The corrected private counterpart bundle is
+`build-artifacts/phase7-acceptance-20261006-order-fixed`. Its result fields are
+still blank. The remaining human checklist is
+`build-artifacts/phase7-remaining-checks-20261006.md`: four Camera Raw recipes,
+synthetic PSD/PSB structure and editable records, actual camera RAW on Mac 1.4.5,
+and actual Windows close/save-picker gestures. The supplied real PSD counterpart
+has already passed and need not be repeated. Phase 7 remains incomplete until
+the original hardware budgets and the remaining human returns pass.

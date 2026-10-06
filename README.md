@@ -10,9 +10,9 @@ Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
 Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
-Phase 7 is in development on `codex/phase7`: Camera Raw, layered PSD/PSB import
-and camera sensor RAW development. Its final cross-platform and packaged-runtime
-acceptance is still open; these features are not part of the current release.
+Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
+sensor RAW development. Hardware performance, remaining Mac counterparts and
+human Windows checks are still open; these features await a future release.
 
 ## Download
 
@@ -44,6 +44,19 @@ gate checks every file and rejects missing decoder components or license notices
   preview, cancellation and full-size import. Embedded JPEGs are never substituted
   for sensor processing. Apple CIRAWFilter and LibRaw can produce different colour
   and tone results; camera coverage depends on the decoder.
+
+The tested development portable has no test API. Native checks passed Camera Raw
+preview/cancel/history, Photoshop conversion notices, project close choices and
+real Canon EOS 40D sensor import. As Shot and Exposure +1 saved and reopened at
+3908 × 2602 with unchanged exported pixels. The supplied real PSD also matched
+its Mac export after correcting layer order. These checks use native file APIs
+with automated dialog input; actual OS picker gestures remain a separate gate.
+The complete original hardware suite still has four failures out of 29 cases;
+its timing budgets and zero-retry policy are unchanged.
+
+For modified projects, **Save and Close** saves before closing, **Don't Save and
+Close** discards the changes, and **Cancel Close** keeps the project open.
+Cancelling the Save As picker keeps the project open as well.
 
 The implementation and outstanding acceptance gates are recorded in
 [the Phase 7 plan](docs/superpowers/plans/2026-10-06-phase7-camera-raw-and-import.md).
