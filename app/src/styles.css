@@ -88,7 +88,7 @@ body { margin: 0; }
 .status { flex: 0 0 auto; padding: 4px; font-size: 11px; color: #999; }
 
 /* Modal sheet */
-.sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; color: #ddd; font: 12px system-ui, sans-serif; }
 .sheet { background: #2a2a2a; border-radius: 8px; padding: 20px; min-width: 320px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); }
 .sheet h2 { margin: 0 0 12px; font-size: 14px; }
 .sheet-body { display: flex; flex-direction: column; gap: 10px; }

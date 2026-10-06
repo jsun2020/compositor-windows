@@ -48,7 +48,7 @@ different decoders.
 - [x] Bounded PSD/PSB reader and compression/channel validation.
 - [x] Groups/masks/blend/clipping and supported editable conversion records.
 - [ ] Import conversion report and native/browser file routing.
-- [ ] Pinned RAW decoder, development controls and portable dependency receipts.
+- [x] Pinned RAW decoder, development controls and portable dependency receipts.
 - [x] Deterministic synthetic PSD/PSB/DNG probes and malformed-input checks.
 - [ ] User-provided RAW/PSD sample verification (paths requested).
 - [ ] Complete original source and performance gates; no changed budgets/retries.
@@ -101,3 +101,43 @@ The private cross-platform probe bundle is
 and supplementary `WINDOWS-STEPS.md`. Mac returns, real RAW, original complete
 performance gates, final production runtime/OS input and publication checks
 remain open. Stable version 0.8.0 has not been changed or republished.
+
+## Production and original performance checkpoint
+
+Commit `26a2b9d30de17b16c08b0902e8aa34097f7515b1` passed hosted run
+`37426990777`: 692 native tests, ten original ignores, 295 unit tests and
+263 functional cases, with the 33 original hardware performance opt-ins skipped.
+Release WASM, TypeScript and packaging regressions also passed. Hosted CI does
+not run the local hardware budgets or the actual Windows file picker.
+
+The clean-source `COMPOSITOR_BUILD_0.8.0_20261006-1500` portable passed all eleven
+ZIP entry/CRC checks, bundled helper sensor development and the complete
+supplemental production protocol: RAW IPC/dialog, Camera Raw preview/cancel/
+history/diagnostics and five PSD/PSB imports. Original private samples and the
+frozen probe inputs were unchanged. Visual inspection then found that sheets
+mounted outside the application root inherited black serif text. Explicit sheet
+foreground/font styling fixes this; the native protocol now requires readable
+contrast and the application font in RAW and conversion dialogs. A fresh package
+must pass those additional checks before delivery.
+
+One unchanged complete original hardware run finished with **25 passes and four
+failures**, one worker and zero retries. Retained evidence is under
+`build-artifacts/phase7-performance-original-29-1`; no budget was waived:
+
+| Original assertion | Observed | Original limit |
+| --- | --- | --- |
+| F1 100 MP Levels: frame gap while the worker edits | 751 ms | <100 ms |
+| 24 MP Levels: result installation CPU | 169 ms | <150 ms |
+| 24 MP gradient at 1:1: settled preview | 169 ms | <150 ms |
+| 100 MP grown-mask fill: frame after the result | 445 ms | <400 ms |
+
+Cause is not established; neither a source regression nor environment scheduling
+has been proved. This performance gate remains open. The independent original
+four hardware Liquify/Smudge cases all passed; they do not replace the 29 cases.
+
+Computer Use selected the owned 1500 package window but activation and one
+refreshed recovery failed with `failed to activate captured window`. No OS input
+was issued, the user's older application was untouched, and the owned process
+was stopped. Do not infer an unlocked/locked desktop or claim OS input acceptance
+from the successful CDP protocol. The Windows manual checklist, Mac returns and
+real camera RAW remain required. Phase 7 is still incomplete.
