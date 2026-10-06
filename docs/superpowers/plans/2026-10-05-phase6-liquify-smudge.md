@@ -45,7 +45,7 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
 - [x] Focused actual Mac 1.4.5 returns with committed edits, PNG comparisons,
   preserved styling/masks and Windows WASM save/reopen.
 - [x] Windows operator operations and committed project/PNG returns received.
-- [ ] Last-tab residual-image fix: rebuilt native checks and final acceptance.
+- [x] Last-tab residual-image fix: rebuilt native checks and development acceptance.
 
 The first implementation increment is the independently tested CPU reference.
 It is a foundation for the GPU and engine integration, not a shipped tool or
@@ -494,3 +494,23 @@ file/render checks (14), warp checks (16), unit checks (295) and all three
 TypeScript projects/web build pass. New packaged verification and exact-head
 CI remain required. The runtime checkpoint retains the old failures and
 Windows received-file hashes.
+
+### Final development acceptance — 2026-10-06
+
+All delivery steps above are complete on the tested Windows hardware and
+received Mac/Windows probes. Corrected source `1fbe0aa` passes both hosted
+push/PR CI: 661 native, 295 unit and 248 functional cases, with 10 existing
+native ignores and 33 opt-in skips unchanged. The rebuilt development
+portable `0.8.0-20261006-1125` passes build/smoke, ZIP/hash/source/WASM receipts
+and the final native empty-workspace protocol after read-only unlock preflight.
+It clears both picture and overlay, creates no document automatically and
+renders a subsequent explicit File > New. Native inputs are synthetic CDP;
+the earlier received operator returns remain the human evidence.
+
+Native result: `build-artifacts/phase6-native-last-close-20261006-115458-177`.
+Earlier locked preflights, failing package/source checks and experimental
+performance predicates remain retained; no assertion, budget or retry policy
+changed. Earlier performance measurements retain their `a01c7ed` identity;
+the final correction only changes empty-workspace clearing. Published 0.8.0
+is unchanged and PR #8 remains open for review. This closes development
+acceptance, with exact Metal/WebGL kernel equality outside the claim.

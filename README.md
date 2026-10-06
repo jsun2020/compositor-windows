@@ -8,7 +8,8 @@ Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 
 **Current release: 0.8.0. Phase 4 and Phase 5 are implemented and accepted on the
 tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
-Liquify and Smudge are Phase 6 development work and are not part of 0.8.0.
+Phase 6 Liquify and Smudge development acceptance is complete on the tested
+hardware and received Mac/Windows probes; these tools await a future release.
 
 ## Download
 
@@ -104,12 +105,17 @@ timeout and the independently repaired wrapper exit-status error remain
 recorded. The current pass does not establish a universal intermittent fix.
 See [the acceptance record](docs/superpowers/phase5-acceptance-2026-10-03.md).
 
-Phase 6 development has passed hosted source checks, supplemental native
-WebView2 protocols and two independent 24/100 MP responsiveness runs. Received
+Phase 6 development acceptance is complete. It has passed hosted source checks,
+supplemental native WebView2 protocols and two independent 24/100 MP
+responsiveness runs. Received
 Mac 1.4.5 committed Liquify/Smudge PNGs match Windows WASM exactly; the styled
 mask probe has a maximum one-level color difference and exact alpha. Windows
-operator projects and PNGs have been verified; final checks of the reported
-last-tab residual-image correction remain pending. See the
+operator projects and PNGs have been verified. The rebuilt production WebView2
+package also clears the picture and tool overlay after closing the last tab,
+and renders an explicitly created new canvas afterward. Closing the last tab
+shows an empty dark workspace. Exact-source CI passed 661 native, 295 unit
+and 248 functional cases; existing ignores and opt-in skips are unchanged. See
+the
 [Phase 6 runtime checkpoint](docs/superpowers/research/phase6-runtime-checkpoint-2026-10-06.md).
 
 ## Build and test
@@ -172,11 +178,13 @@ discard the preview. GPU-unavailable fallback is limited to 4 Mi pixels.
 
 The raw kernels and complete tool have separate local 24/100 MP hardware
 measurements. Two independent complete-tool runs met the unchanged response
-budgets on aligned full-canvas fixtures. Packaged-runtime acceptance and
-actual Mac gesture comparisons remain pending; see the
+budgets on aligned full-canvas fixtures. Packaged-runtime checks and received
+Mac/Windows committed project/PNG checks are complete within the measured
+boundaries above; see the
 [manual checks](docs/superpowers/phase6-manual-checks.md).
 This development checkpoint is not part of the published
-0.8.0 release and does not complete Phase 6.
+0.8.0 release. See the runtime checkpoint for package/source identities and
+retained failures; exact Metal/WebGL kernel equality is not claimed.
 
 Original Mac sources and retouch kernels use MIT. Icons use
 [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are licensed for

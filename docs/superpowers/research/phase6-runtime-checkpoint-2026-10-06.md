@@ -1,6 +1,7 @@
 # Phase 6 runtime checkpoint — 2026-10-06
 
-Phase 6 acceptance remains open pending final checks of the last-tab fix.
+Phase 6 development acceptance is complete on the tested Windows hardware
+and received Mac/Windows probes, including the final last-tab correction.
 The corrected Mac return now contains committed edits in all three projects,
 three lossless PNGs and preserved styling/masks. The initial unchanged return
 and intermediate recheck remain retained below. Keep PR #8 open and published
@@ -9,7 +10,9 @@ and intermediate recheck remain retained below. Keep PR #8 open and published
 Windows operator returns have now been received and verified. The operator
 also reported a stale picture after closing the final tab. Source regressions
 reproduce and fix this issue in both WebGL and CPU rendering; a rebuilt
-development portable and exact-source hosted checks are the next gates.
+development portable and exact-source hosted checks now pass. Earlier pending
+checkpoints below are retained chronologically; the final results are recorded
+at the end of this document.
 
 ## Frozen Windows development package
 
@@ -188,3 +191,44 @@ warp preview/cancel/commit regressions pass (16 cases), all 295 unit cases
 pass and three TypeScript checks/web build pass. Original assertions, budgets
 and history policy are unchanged. Rebuilt native checks and exact-head CI
 remain required before final acceptance.
+
+## Final corrected-package acceptance
+
+Corrected code source: `1fbe0aa830dcd6001d851ef5685300e8dc1c46fd`.
+Both exact-source hosted runs passed: push `37408867139` and PR `37408873909`.
+Each passed 661 native cases across 88 suites, 295 unit cases and 248
+functional cases. Ten pre-existing native ignores and 33 opt-in skips are
+unchanged. Source receipt: `build-artifacts/phase6-close-last-ci-verified.json`.
+
+Development marker: `COMPOSITOR_BUILD_0.8.0_20261006-1125`.
+EXE SHA256:
+`d37b0c5dccc85343d863c5195dc8f5aee4d5db8f7b541088837c03b7afc10f63`.
+ZIP SHA256:
+`0dcf2538fb3ae4e8c7f6a3323bda9d39ee2f384865d8c2c65cd412ed6292b36c`.
+WASM SHA256 remains
+`289c4a8a96808283732123c12d1be53b81c1ad3db994116b00edef6b21801079`.
+Build, smoke launch, ZIP CRCs, staged bytes and complete source/WASM receipts
+pass; the receipt is in `phase6-close-last-portable-verified`.
+
+The first read-only preflight reported the desktop locked, so the new native
+protocol was not launched then. After the user unlocked it, the retained
+preflight at `2026-10-06T03:54:53.6788741Z` reports session 1 unlocked. A fresh
+production WebView2 process/profile on port 19372 ran the original helper
+once and exited 0. Evidence is retained under
+`build-artifacts/phase6-native-last-close-20261006-115458-177`.
+The native bridge is present, the test API is undefined, and the exact marker
+and EXE hash above are verified. Closing the only document removes all tabs
+and layer rows, shows the empty-workspace hint, clears the entire picture to
+RGB 41 (within the original one-level predicate), clears every overlay byte,
+and creates no new document. Explicit File > New renders afterward; no page
+errors occurred. The retained screenshot was visually checked and shows the
+dark empty workspace without the closed image or brush outline.
+
+This protocol uses synthetic CDP menu/pointer input. Human warp operation
+evidence comes from the separately received Mac/Windows statements and
+projects. All Phase 6 development delivery gates are satisfied within those
+recorded scopes. No assertion/budget was relaxed, no automatic retry added,
+and no earlier failure removed. Previous performance timings remain tied to
+`a01c7ed`; the final fix affects only empty-workspace clearing. PR #8 remains
+open, and published 0.8.0 assets are unchanged. A subsequent documentation-only
+commit does not change the verified executable or code source identity.
