@@ -373,3 +373,48 @@ recorder error is explicitly retained, and no successful recovery is claimed.
 No document input succeeded and actual OS gestures remain unverified. Desktop
 lock is not established. Current correction portable/hosted CI receipts remain
 separate from the preceding 1955 package evidence, and Phase 7 is incomplete.
+
+## Production correction and main integration, 2026-10-07
+
+Source `98fa5a47bef3bfc2e15108391e728100708396bc` passed hosted run `37493681473`:
+695 native workspace cases, 295 unit cases in 43 files and 270 functional cases.
+Ten original native ignores and 33 hardware opt-ins remain distinct from those
+passing counts. The same tested source was fast-forwarded into `main`; hosted
+functional CI does not replace the retained 16/13 hardware result.
+
+The clean 0010 production portable uses that source and the corrected release
+WASM. Its 11 ZIP entries passed CRC, length, hash, native binary, dependency and
+license checks. The original production protocol passed RAW, Camera Raw, five
+Photoshop imports, readable dialogs and close/cancel/discard/native save/reopen.
+The actual Canon CR2 separately passed As Shot, Exposure +1, bounded preview,
+Cancel/Reset/full import and native disk persistence. Only picker responses are
+supplied by these protocols; actual OS input remains unverified.
+
+A supplemental production Point Color check sampled the blue stripe (hue
+230.526315789), shifted saturation -40, enabled Visualize Range, then verified
+OK returns to the normal grade, one Undo/Redo and native disk save/reopen. It
+passed with the production test API absent. Its initial helper mistakenly opened
+the saved generated probe directly, so Save and Close wrote its raster back to
+that probe instead of invoking the prepared Save As response. That failed run
+and modified raster are retained. The single changed generated PNG was restored
+from the byte-exact original source PNG; all 64 frozen inputs and all 339 Mac
+return files verified against their original hashes afterward. The corrected
+helper opens only a private copied project and saves on that copied path. This
+passing CDP/native protocol neither substitutes for OS input nor claims a
+successful Mac Point Color counterpart.
+
+Supplemental frame attribution recorded small partial updates with only 1.7-4.3
+ms of render submission but 318-390 ms inside synchronized `readPixels`. A separate
+detailed Chromium trace recorded four long WebGL GPU tasks (368-504 ms) without
+overlapping D3DCompile events. This narrows those stalls to GPU command completion;
+it does not establish one driver, shader, desktop lock, CPU or external-process
+cause, eliminate all thirteen hardware failures, or change an assertion. The
+first diagnostic static server rejected its root path; that failure is retained
+and a corrected server ran in a separate directory.
+
+The existing 0.8.0 release remains immutable. Main release run `37497059404`
+validated metadata and skipped packaging/publication because the version already
+exists. Current local evidence, return integrity, the initial supplemental helper
+failure and its restoration receipt remain under ignored build-artifacts paths.
+The Mac checklist need not be repeated. Hardware performance, counterpart pixel
+discrepancies and actual Windows OS gestures still prevent final acceptance.

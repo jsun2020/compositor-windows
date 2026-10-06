@@ -11,8 +11,9 @@ tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
 Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
 Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
-sensor RAW development. Hardware performance, remaining Mac counterparts and
-human Windows checks are still open; these features await a future release.
+sensor RAW development. Mac counterparts have been received and independently
+checked; remaining pixel discrepancies, hardware performance and actual Windows
+OS gestures are still open. These features await a future release.
 
 ## Download
 
@@ -51,8 +52,21 @@ real Canon EOS 40D sensor import. As Shot and Exposure +1 saved and reopened at
 3908 × 2602 with unchanged exported pixels. The supplied real PSD also matched
 its Mac export after correcting layer order. These checks use native file APIs
 with automated dialog input; actual OS picker gestures remain a separate gate.
-The complete original hardware suite still has four failures out of 29 cases;
-its timing budgets and zero-retry policy are unchanged.
+The new production portable also passed Point Color eyedropper, Visualize Range,
+OK, Undo/Redo and native disk save/reopen on an isolated working copy. The range
+overlay is excluded from the committed image. These controls were exercised
+through CDP; they do not establish actual OS mouse or picker gestures.
+
+All 339 returned Mac files were independently checked. Fourteen returned projects
+opened, saved and reopened in the Windows engine with unchanged exports. The
+Light/Color/Curve, Mixer/Grading and Effects/Detail/Optics probes are pixel-exact.
+Geometry's boundary alpha discrepancy was reduced from 127 to 1, but Geometry
+and two grouped PSD/PSB cases still differ in some pixels. Mac Point Color crashed
+with Visualize Range enabled; its failure report is retained.
+
+The latest complete original hardware suite passed 16 and failed 13 of 29 cases.
+The preceding 25/4 and 18/11 runs remain retained; timing budgets and the
+zero-retry policy are unchanged. Phase 7 acceptance is incomplete.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.
