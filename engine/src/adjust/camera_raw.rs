@@ -1333,6 +1333,54 @@ impl CameraRawGeometry {
             }
         })
     }
+    /// Perspective sampling interpolates straight colour and alpha separately,
+    /// with clear black outside the input extent, then restores premultiplied
+    /// storage. Ordinary layer sampling clamps premultiplied texels instead.
+    fn transparent_sample(raster: &Raster, x: f64, y: f64) -> [f32; 4] {
+        let (w, h) = (raster.width as i64, raster.height as i64);
+        if !x.is_finite()
+            || !y.is_finite()
+            || x <= -0.5
+            || y <= -0.5
+            || x >= w as f64 + 0.5
+            || y >= h as f64 + 0.5
+        {
+            return [0.0; 4];
+        }
+        let (fx, fy) = (x - 0.5, y - 0.5);
+        let (x0, y0) = (fx.floor() as i64, fy.floor() as i64);
+        let (tx, ty) = ((fx - x0 as f64) as f32, (fy - y0 as f64) as f32);
+        let fetch = |px: i64, py: i64| {
+            if px < 0 || py < 0 || px >= w || py >= h {
+                return [0.0; 4];
+            }
+            let pixel = raster.pixel(px as u32, py as u32);
+            let alpha = pixel[3] as f32;
+            if alpha == 0.0 {
+                return [0.0; 4];
+            }
+            [
+                pixel[0] as f32 / alpha,
+                pixel[1] as f32 / alpha,
+                pixel[2] as f32 / alpha,
+                alpha / 255.0,
+            ]
+        };
+        let (a, b, c, d) = (
+            fetch(x0, y0),
+            fetch(x0 + 1, y0),
+            fetch(x0, y0 + 1),
+            fetch(x0 + 1, y0 + 1),
+        );
+        let mut sample = std::array::from_fn(|i| {
+            (a[i] * (1.0 - tx) + b[i] * tx) * (1.0 - ty)
+                + (c[i] * (1.0 - tx) + d[i] * tx) * ty
+        });
+        for channel in 0..3 {
+            sample[channel] *= sample[3];
+        }
+        sample
+    }
     fn apply(&self, raster: &Raster) -> Result<Raster, CommandError> {
         if !self.active() {
             return Ok(raster.clone());
@@ -1357,10 +1405,7 @@ impl CameraRawGeometry {
                 });
                 let px = p.x * w as f64;
                 let py = p.y * h as f64;
-                if px < 0.0 || py < 0.0 || px >= w as f64 || py >= h as f64 {
-                    continue;
-                }
-                let sample = crate::compositor::sample(raster, px, py, false);
+                let sample = Self::transparent_sample(raster, px, py);
                 let i = (y as usize * w as usize + x as usize) * 4;
                 for c in 0..4 {
                     data[i + c] = (sample[c] * 255.0).round().clamp(0.0, 255.0) as u8;

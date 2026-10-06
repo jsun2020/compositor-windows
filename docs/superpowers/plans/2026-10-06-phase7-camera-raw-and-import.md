@@ -57,7 +57,8 @@ different decoders.
 - [x] Complete original source gates and exact-source hosted CI.
 - [ ] Complete original hardware performance gates; no changed budgets/retries.
 - [x] Rebuilt production portable with no test API, native real-file checks.
-- [ ] Actual Mac 1.4.5 counterpart returns and human Windows checks.
+- [x] Actual Mac 1.4.5 counterpart runs and returned evidence independently received.
+- [ ] Remaining counterpart discrepancies and actual Windows OS gestures.
 - [x] Implementation documentation, commit/push, reviewed CI and main integration.
 - [ ] Final acceptance receipt after all remaining gates pass.
 
@@ -238,10 +239,137 @@ No speculative source fix, budget waiver or repeat-until-green run was added.
 The unchanged complete 29-case result remains 25 pass / four fail.
 
 The corrected private counterpart bundle is
-`build-artifacts/phase7-acceptance-20261006-order-fixed`. Its result fields are
-still blank. The remaining human checklist is
+`build-artifacts/phase7-acceptance-20261006-order-fixed`. Its initial result fields
+were blank; the returned Mac evidence is independently checked below. The checklist is
 `build-artifacts/phase7-remaining-checks-20261006.md`: four Camera Raw recipes,
 synthetic PSD/PSB structure and editable records, actual camera RAW on Mac 1.4.5,
-and actual Windows close/save-picker gestures. The supplied real PSD counterpart
+and actual Windows close/save-picker gestures, now assigned to Codex while the
+user performs only the Mac checks. The supplied real PSD counterpart
 has already passed and need not be repeated. Phase 7 remains incomplete until
 the original hardware budgets and the remaining human returns pass.
+
+## Current-main Windows verification, 2026-10-06
+
+The complete original 29-case hardware run on `0a73281d49711b2134926c72bcc9f86dc3703f32`
+passed 18 and failed 11, with one worker and zero retries. The assertions and
+budgets remain equal to the Phase 6 originals; all 230 frozen source, asset,
+package and helper inputs verified before and after the run. Runtime sources
+match the clean 1955 package source. The only tracked overlay at that run was
+the requested Chinese Mac instructions, recorded separately. The new result is
+retained in `build-artifacts/phase7-windows-current-main-0a73281-20261006` and
+does not replace the preceding 25/4 evidence. Nine cases exceeded their original
+timing bounds; two were still showing Loading engine at the original five-second
+readiness deadline. These failures do not establish a single CPU, GPU, memory or
+desktop-lock cause, and Phase 7 performance acceptance remains incomplete.
+
+Codex selected the actual 1955 Windows application and read its version marker
+and empty workspace through Computer Use accessibility. Native screen capture
+failed twice; an accessibility-only attempt then rejected input with
+`coordinate input geometry is unavailable`. No input action succeeded. The
+physical close/save-picker checks remain unverified; a fixture response is still
+distinct from an actual OS gesture. The local evidence is retained in
+`build-artifacts/phase7-windows-ui-20261006-221842`. The user need not perform the
+Windows checklist; Codex will continue it when desktop input is available.
+
+## Mac return received and independently checked
+
+The user completed the Mac checks and returned 339 files (292,720,253 bytes) in
+the corrected bundle's `Mac-return`. Thirteen new project/PNG pairs and the
+preexisting `00-source` project are complete. All 64 bundle receipt inputs and
+the 31 inputs recorded on Mac independently match their hashes. Light/Color/
+Curve, Mixer/Grading and Effects/Detail/Optics outputs are pixel-exact with the
+frozen Windows expected PNGs. Geometry/Calibration differs at 5,317 pixels;
+maximum alpha difference is 127, with low-alpha boundary samples showing a
+hard/clamped Windows edge against a partially covered Mac edge. No new tolerance
+has been introduced to call that discrepancy passed.
+
+The saved Mac editable text is `Editable ABC X`, its rectangle is 240x150 and
+Levels output white is 200 (255 in the Cancel/original control). Native Windows
+engine open, disk save and disk reopen succeeded for all 14 projects with exact
+before/after exports. Twelve native exports equal the corresponding Mac PNG;
+the two grouped PSD/PSB cases have a one-level blue-channel difference over
+16,800 pixels, with matching names, hierarchy, masks, opacity and clipping.
+Original PSD text appearance also differs across import paths; the returned
+Mac text raster itself is preserved exactly by native Windows reopen. These
+are separate observations, not evidence that all counterpart pixels passed.
+
+The Mac log records successful Preview/Cancel/Undo/Redo/reopen checks and other
+controls. Its returned 24 visible-canvas crop comparisons were independently
+recomputed. Point Color with Visualize Range enabled crashed Mac Compositor
+1.4.5 build 40 on OK: EXC_BREAKPOINT/SIGTRAP, with SwiftUI ForEachChild frames.
+The actual `.ips` report is retained; no root cause is inferred and no successful
+Point Color saved counterpart is claimed. This does not by itself prove a
+Windows defect. The synthetic DNG rejection is explicitly recorded. The actual
+Canon CR2 Mac outputs are 3888x2592, while Windows LibRaw develops 3908x2602;
+the protocol does not require different decoders' dimensions/WB/RGB to match.
+The original returns remain unchanged. All private files, hashes and detailed
+pixel receipts stay in `build-artifacts/phase7-mac-return-audit-20261006`.
+
+## Selection coverage optimization verification
+
+The current-main complete run's Add Mask step exceeded its unchanged 100 MP
+budget. Profiling an unmodified 64,032,004-pixel ellipse independently measured
+194-224 ms in native release rasterization. Filling constant coverage spans
+between touched edge ranges measured 20-26 ms with the same benchmark; all
+64,032,004 output bytes and 1,206 additional aliased/antialiased cases matched
+the retained pre-change bytes exactly. Nonzero winding and the float addition
+order at touched cells remain unchanged. An independent rectangle-area test
+covers long fractional spans, reversed holes, overlapping edge ranges, canvas
+clipping and row clearing. All 677 engine tests passed, with ten original ignores.
+This native diagnostic improvement does not complete release WASM, production
+package or original hardware acceptance. Their results remain separate.
+
+## Geometry boundary sampling correction
+
+The returned Mac geometry PNG exposed hard transparent transitions at Windows
+source boundaries. A 0.6-pixel translation regression first failed on the
+unmodified sampler (edge alpha 0, expected 102). Geometry now interpolates clear
+black beyond the source extent, samples straight colour/alpha independently,
+and stores premultiplied pixels. The shared ordinary-layer sampler is unchanged.
+
+An intermediate premultiplied interpolation candidate reduced alpha error but
+increased boundary colour error; its probes and comparison are retained. The
+straight-colour candidate reduced maximum alpha difference from 127 to 1 and
+mean RGB difference from about 0.14 to 0.02 levels. Light/Color/Curve,
+Mixer/Grading and Effects/Detail/Optics remain pixel-exact. Geometry still has
+4,743 differing pixels: maximum straight RGB difference 23 at low alpha,
+maximum premultiplied RGB difference 4/5/4, and maximum alpha difference 1.
+No tolerance or exact-match claim was added. Current-source probes are in
+`build-artifacts/phase7-geometry-straight-probes-20261006`; independent receipts,
+including both intermediate candidates, are in the Mac return audit directory.
+
+The supplemental Windows Point Color functional case explicitly checks
+Visualize Range on OK, one history entry, Undo/Redo, and project save/reopen.
+It uses the browser mock file bridge; production/native picker evidence remains
+separate. The current-source complete engine suite passed 678 cases with ten
+original ignores, release WASM and the isolated browser build completed, and
+all 27 related functional cases passed. The current source is a correction
+candidate; the existing 1955 portable is unchanged.
+
+## Correction candidate verification, 2026-10-06/07
+
+The isolated fixed browser build is retained in
+`build-artifacts/phase7-selection-spans-browser-20261006`, marked
+`COMPOSITOR_DIAGNOSTIC_PHASE7_GEOMETRY_SELECTION_0a73281`. Its WASM exactly matches
+the newly compiled release WASM. All 384 source, asset and helper inputs verified
+before and after both runs. All original performance assertions and budgets are
+equal to the Phase 6 originals. Both runs used one worker and zero retries.
+
+The complete original 29 performance cases passed 16 and failed 13. The 100 MP
+Add Mask operations improved to 149/156 ms against the original <1000 ms step
+budget, but the worst Hide Selection frame was 579 ms against <400 ms. Other
+failures include result/frame installation, partial uploads, effects frames,
+gradient/mask frames, an eyedropper sample at 16 ms against strict <16 ms, and
+24/100 MP brush responsiveness at 108.7/113.2 ms against <100 ms. Full results and
+failure indexes are retained. The 18/11 and earlier 25/4 runs remain unchanged;
+none is replaced or waived by the optimization. This candidate does not pass
+complete performance acceptance or prove a single cause for the timing failures.
+
+All 339 Mac return files independently reverified unchanged after the current
+source tests. Standard `sky.launch_app` of the 1955 application also failed with
+`failed to activate captured window`. A refreshed recovery failed to retain its
+state because the evidence recorder referenced an uninitialized binding; that
+recorder error is explicitly retained, and no successful recovery is claimed.
+No document input succeeded and actual OS gestures remain unverified. Desktop
+lock is not established. Current correction portable/hosted CI receipts remain
+separate from the preceding 1955 package evidence, and Phase 7 is incomplete.

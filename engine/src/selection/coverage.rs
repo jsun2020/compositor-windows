@@ -34,7 +34,7 @@ fn edges(contours: &[Contour], left: f64, top: f64) -> Vec<Edge> {
 /// Adds one edge's share of row `y` to `acc` (`width + 2` cells): the signed area it covers to its
 /// right, spread over the cells it crosses (the accumulation rasteriser). Cells left of 0 fold into
 /// cell 0 and cells right of `width` are dropped: neither changes a pixel inside the row.
-fn accumulate(acc: &mut [f32], width: usize, e: &Edge, y: f64) {
+fn accumulate(acc: &mut [f32], touched: &mut Vec<(usize, usize)>, width: usize, e: &Edge, y: f64) {
     let (top, bottom) = (e.y0.max(y), e.y1.min(y + 1.0));
     if !(bottom > top) { return; }
     let dxdy = (e.x1 - e.x0) / (e.y1 - e.y0);
@@ -63,6 +63,9 @@ fn accumulate(acc: &mut [f32], width: usize, e: &Edge, y: f64) {
         let (lo, hi) = if x0 < x1 { (x0, x1) } else { (x1, x0) };
         let (lo_floor, hi_ceil) = (lo.floor(), hi.ceil());
         let (i0, i1) = (lo_floor as usize, hi_ceil as usize);
+        // Include both cells of a vertical edge, even when ceil(hi) == floor(lo).
+        // Beyond the output row only the two sentinel cells need clearing.
+        touched.push((i0.min(width), (i1 + 1).max(i0 + 2).min(width)));
         if i1 <= i0 + 1 {
             // Within one column: the area right of the piece's middle.
             let xm = (0.5 * (x0 + x1) - lo_floor) as f32;
@@ -89,6 +92,13 @@ fn accumulate(acc: &mut [f32], width: usize, e: &Edge, y: f64) {
     }
 }
 
+#[inline]
+fn coverage_byte(sum: f32) -> u8 {
+    // Rounded half up in f64, where v + 0.5 is exact: the same as f32::round
+    // on 0..=255, without its library call.
+    ((sum.abs().min(1.0) * 255.0) as f64 + 0.5) as u8
+}
+
 /// The outline filled into a `width` x `height` region whose top-left corner is document pixel
 /// (`left`, `top`), by the nonzero winding rule, 255 inside and 0 outside. `antialiased`: each
 /// pixel is the area of it the outline covers (Core Graphics' antialiased fill); else a pixel is
@@ -100,6 +110,7 @@ pub fn rasterize(contours: &[Contour], left: f64, top: f64, width: u32, height: 
     let mut next = 0usize;
     let mut active: Vec<Edge> = Vec::new();
     let mut acc = vec![0f32; w + 2];
+    let mut touched: Vec<(usize, usize)> = Vec::new();
     let mut crossings: Vec<(f64, i32)> = Vec::new();
     for y in 0..h {
         let (row_top, row_bottom) = (y as f64, y as f64 + 1.0);
@@ -107,15 +118,26 @@ pub fn rasterize(contours: &[Contour], left: f64, top: f64, width: u32, height: 
         active.retain(|e| e.y1 > row_top);
         let line = &mut out[y * w..(y + 1) * w];
         if antialiased {
-            for e in &active { accumulate(&mut acc, w, e, row_top); }
+            touched.clear();
+            for e in &active { accumulate(&mut acc, &mut touched, w, e, row_top); }
+            touched.sort_unstable();
             let mut sum = 0f32;
-            // Each cell is read once and cleared for the next row. Rounded half up in f64, where
-            // v + 0.5 is exact: the same as f32::round on 0..=255, without its library call.
-            for (px, cell) in line.iter_mut().zip(acc.iter_mut()) {
-                sum += *cell;
-                *cell = 0.0;
-                *px = ((sum.abs().min(1.0) * 255.0) as f64 + 0.5) as u8;
+            let mut next_cell = 0;
+            // Between edges the prefix sum is constant. Fill those spans rather than
+            // repeating the floating-point sum and conversion for every interior pixel.
+            // Overlapping edge ranges are consumed once, in the original left-to-right
+            // order, so nonzero winding, fractional coverage and rounding stay exact.
+            for &(start, end) in &touched {
+                if end <= next_cell { continue; }
+                if start > next_cell { line[next_cell..start].fill(coverage_byte(sum)); }
+                for i in next_cell.max(start)..end {
+                    sum += acc[i];
+                    acc[i] = 0.0;
+                    line[i] = coverage_byte(sum);
+                }
+                next_cell = end;
             }
+            line[next_cell..].fill(coverage_byte(sum));
             acc[w] = 0.0;
             acc[w + 1] = 0.0;
         } else {

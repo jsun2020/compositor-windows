@@ -10,6 +10,22 @@ fn gray(v: u8) -> Raster {
     rgba(&[[v, v, v, 255]])
 }
 #[test]
+fn geometry_interpolates_transparent_pixels_beyond_the_source_edges() {
+    let image = Raster::from_premultiplied(16, 4, [255u8; 4].repeat(16 * 4));
+    for (offset, edge) in [(25.0, 0), (-25.0, 15)] {
+        let mut settings = CameraRawSettings::default();
+        // The Geometry offset is 15% of width at 100: +/-25 shifts by 0.6 px.
+        // The edge pixel centre then samples 0.4 of the last in-bounds texel
+        // and 0.6 clear black. Straight colour and alpha are each 0.4;
+        // the stored premultiplied white is round(0.4 * 0.4 * 255) = 41.
+        settings.geometry.offset_x = offset;
+        let result = settings.apply(&image).unwrap();
+        assert_eq!(result.pixel(edge, 1), [41, 41, 41, 102]);
+        assert_eq!(result.pixel(8, 1), [255; 4]);
+        assert_eq!(image.pixel(edge, 1), [255; 4], "source remains intact");
+    }
+}
+#[test]
 fn identity_keeps_exact_premultiplied_pixels_and_ignores_idle_controls() {
     let image = rgba(&[[128, 70, 200, 128], [0, 0, 0, 0], [44, 80, 20, 255]]);
     let mut s = CameraRawSettings::default();

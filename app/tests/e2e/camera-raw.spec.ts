@@ -4,6 +4,40 @@ async function setup(page:Page){await page.goto("/");await expect(page.getByTest
 async function snapshot(page:Page){return page.evaluate(()=>{const api=(window as any).__compositor;const s=api.store.getState();return {depth:s.documents[s.activeId].undoDepth,png:Array.from(api.engine.composite(s.activeId,{x:0,y:0,width:64,height:64},64,64))};});}
 async function exposure(page:Page,value:string){await page.getByLabel("Exposure",{exact:true}).fill(value);await page.getByLabel("Exposure",{exact:true}).press("Enter");}
 test("diagnostic clipping view is visible at neutral settings and is never baked by OK",async({page})=>{await setup(page);const before=await snapshot(page);await clickMenu(page,"Filter","filter-camera-raw");await page.getByRole("combobox",{name:"Clipping view",exact:true}).selectOption("1");await expect.poll(async()=>(await snapshot(page)).png).not.toEqual(before.png);await page.getByTestId("adjust-ok").click();expect(await snapshot(page)).toEqual(before);});
+test("Point Color Visualize range is excluded from OK, history and project save/reopen", async ({ page }) => {
+  await setup(page);
+  const before = await snapshot(page);
+  await clickMenu(page, "Filter", "filter-camera-raw");
+  await page.getByText("Point Color", { exact: true }).click();
+  await page.getByRole("button", { name: "Point Color Eyedropper", exact: true }).click();
+  await page.evaluate(() => (window as any).__compositor.store.getState().sampleAt({ x: 20, y: 20 }));
+  const saturation = page.getByLabel("Color 1 Saturation Shift", { exact: true });
+  await saturation.fill("-40");
+  await saturation.press("Enter");
+  await expect.poll(async () => (await snapshot(page)).png).not.toEqual(before.png);
+  const normalPreview = (await snapshot(page)).png;
+  await page.getByRole("combobox", { name: "Visualize range", exact: true }).selectOption("0");
+  await expect.poll(async () => (await snapshot(page)).png).not.toEqual(normalPreview);
+  await page.getByTestId("adjust-ok").click();
+  await expect(page.getByTestId("adjust-ok")).toHaveCount(0);
+  const applied = await snapshot(page);
+  expect(applied.depth).toBe(before.depth + 1);
+  expect(applied.png).toEqual(normalPreview);
+  await page.keyboard.press("Control+z");
+  expect(await snapshot(page)).toEqual(before);
+  await page.keyboard.press("Control+Shift+z");
+  expect(await snapshot(page)).toEqual(applied);
+  const path = "C:/projects/PointColorRange.comp";
+  await page.evaluate(path => (window as any).__compositor.bridge.setNextPick(path), path);
+  await page.getByTestId("project-tab").getByRole("button").click();
+  await page.getByRole("dialog", { name: "Close project", exact: true })
+    .getByRole("button", { name: "Save and Close", exact: true }).click();
+  await expect(page.getByTestId("project-tab")).toHaveCount(0);
+  await page.evaluate(path => (window as any).__compositor.bridge.setNextPick(path), path);
+  await clickMenu(page, "File", "open");
+  await expect(page.getByTestId("project-tab")).toContainText("PointColorRange");
+  expect((await snapshot(page)).png).toEqual(applied.png);
+});
 test("Point Color samples the graded layer with HSV saturation under another covering layer",async({page})=>{
   await setup(page);
   await page.evaluate(()=>{const a=(window as any).__compositor,s=a.store.getState(),doc=s.activeId,target=s.documents[doc].activeLayerId;const c=document.createElement("canvas");c.width=64;c.height=64;const ctx=c.getContext("2d")!;ctx.fillStyle="red";ctx.fillRect(0,0,64,64);const data=c.toDataURL().split(",")[1];a.engine.importImage(doc,Uint8Array.from(atob(data),(v:string)=>v.charCodeAt(0)),"Cover",null);a.engine.execute(doc,{type:"SetActiveLayer",id:target});a.store.getState().refresh(doc);a.store.getState().selectLayers([target],target);});

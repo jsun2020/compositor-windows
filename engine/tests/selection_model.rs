@@ -55,6 +55,34 @@ fn a_thin_sliver_and_a_contour_off_the_canvas_cover_by_area() {
 }
 
 #[test]
+fn antialiased_winding_keeps_fractional_long_spans_holes_and_clipped_edges() {
+    // Independent rectangle areas across wide gaps, with reversed holes and edge
+    // contributions sharing columns. Consecutive rows also check that the previous
+    // row's accumulation cannot leak into a shorter or empty row.
+    let boxes = [
+        (rect(1024.25, 0.25, 6144.5, 2.5), 1.0),
+        (rect(1024.5, 0.75, 3072.0, 1.5), -1.0),
+        (rect(-12.0, 0.0, 13.25, 1.5), 1.0),
+        (rect(8191.75, 1.0, 12.0, 1.5), 1.0),
+    ];
+    let contours: Vec<Contour> = boxes.iter().map(|&(b, sign)| {
+        let mut c = rectangle(b);
+        if sign < 0.0 { c.reverse(); }
+        c
+    }).collect();
+    let filled = rasterize(&contours, 0.0, 0.0, 8192, 4, true);
+    for y in 0..4 { for x in 0..8192 {
+        let area: f64 = boxes.iter().map(|&(b, sign)| {
+            let dx = ((x as f64 + 1.0).min(b.max_x()) - (x as f64).max(b.x)).max(0.0);
+            let dy = ((y as f64 + 1.0).min(b.max_y()) - (y as f64).max(b.y)).max(0.0);
+            sign * dx * dy
+        }).sum();
+        let want = (area.abs().min(1.0) * 255.0).round() as u8;
+        assert_eq!(at(&filled, x, y), want, "({x}, {y}): rectangle area {area}");
+    }}
+}
+
+#[test]
 fn edges_slanting_across_the_canvas_sides_cover_by_area() {
     // A trapezium whose left side x = 2y - 20.5 crosses x = 0 at y = 10.25 and whose right side
     // x = 50.5 - 2y crosses x = 30 there too, both in the middle of row 10, on 30 x 16: each pixel is
