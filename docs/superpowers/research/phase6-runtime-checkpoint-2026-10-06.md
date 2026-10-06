@@ -1,8 +1,9 @@
 # Phase 6 runtime checkpoint — 2026-10-06
 
-Phase 6 acceptance remains open. The received Mac projects preserve their
-format and styling, but do not contain a committed warp edit. Actual Windows
-OS mouse gestures also remain unconfirmed. Keep PR #8 open and published
+Phase 6 acceptance remains open pending actual Windows OS mouse gestures.
+The corrected Mac return now contains committed edits in all three projects,
+three lossless PNGs and preserved styling/masks. The initial unchanged return
+and intermediate recheck remain retained below. Keep PR #8 open and published
 0.8.0 assets unchanged.
 
 ## Frozen Windows development package
@@ -81,7 +82,7 @@ helper attempt omitted WASM `prepare_save`; its error is retained under
 `phase6-mac-return-20261006-initial`. The corrected helper uses the existing
 save protocol. Production code and original input files were unchanged.
 
-## Remaining human evidence
+## Follow-up requested after the initial return
 
 Follow [the manual checks](../phase6-manual-checks.md), retaining a visible
 committed edit before saving each copy. Release the drag, save, close/reopen
@@ -92,3 +93,50 @@ Smudge Escape is absent from its record line; styled undo/redo/save-reopen
 also need explicit confirmation. Actual Windows OS mouse behavior remains
 separate: Computer Use window capture failed on both attempts, so the
 passing synthetic CDP protocols cannot fill that gate.
+
+## Verified committed Mac return
+
+The user explained that the initial files had been saved after undo. After
+instructions to redo before saving, close/reopen and export PNGs, the user
+confirmed completion and recopied the returns. The new observations are
+retained independently under
+`build-artifacts/phase6-mac-return-20261006-recopied`. The intermediate check
+before the new files arrived is retained under
+`phase6-mac-return-20261006-resaved`; only its operator record had changed.
+
+All three corrected projects contain visible committed edits. Their
+background rasters remain unchanged, and transforms/effects/opacity/blend
+mode and the decoded styled mask are preserved. All frozen original source
+assets still match the probe receipt. Every project imports and passes an
+exact Windows release-WASM save/reopen of manifest and rendered output.
+
+| Corrected return | Changed saved warp pixels | Mac PNG vs Windows WASM |
+| --- | ---: | --- |
+| 01 Liquify | 1,897 | 640×480 PNG; every RGBA byte equal |
+| 02 Smudge | 3,053 | 640×480 PNG; every RGBA byte equal |
+| 03 Styled-mask | 3,361 | 640×480 PNG; maximum RGB difference 1, alpha exact |
+
+The styled composite changes at 3,361 pixels. The corrected styled Mac PNG
+differs from Windows at 64,329 pixels / 164,120 channels, with mean absolute
+RGBA difference 0.13356119791666668 and maximum 1. Report this measured
+rounding residual rather than claiming byte equality or introducing a new
+tolerance. These checks establish saved-project interoperability and edit
+persistence, not exact Metal/WebGL warp equality.
+
+The received files, `RESULT.txt` and SHA256 receipts are preserved in
+`received-snapshot` within the new evidence directory. The old JPG is not
+used for lossless comparison. No prior evidence or original test assertion
+was overwritten. The frozen development EXE and WASM hashes remain unchanged.
+
+`RESULT.txt` reports successful Mac live preview, undo/redo, save/reopen and
+styled mask/effects/selection/refusal. The user's later completion statement
+followed the redo-before-save and Smudge Escape instructions; this is
+supplementary human confirmation, distinct from file-based evidence. The
+received record itself still omits Escape from the Smudge line.
+
+Actual Windows OS mouse evidence remains pending. A fresh Computer Use
+attempt again failed with `FrameArrived timed out: timed out waiting on
+channel`; refreshed selection and one retry failed with `window capture
+timed out: timed out waiting on channel`. No actual OS drag was issued or
+declared passed. Requested the human Windows result for both modes' live
+held preview, Escape, release/commit and Ctrl+Z / Ctrl+Shift+Z.

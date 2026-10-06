@@ -40,8 +40,11 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
 - [x] WebGL2 live preview without a document-sized upload on each pointer move;
   bounded CPU fallback and safe resource disposal.
 - [x] Mode controls, brush options, shortcuts and refusal messages.
-- [ ] Native/WASM/unit/browser/packaged-runtime acceptance, 24/100 MP
-  responsiveness and focused actual Mac 1.4.5 gesture/export returns.
+- [x] Native/WASM/unit/browser source checks, packaged WebView2 supplemental
+  protocols and 24/100 MP responsiveness on the tested hardware.
+- [x] Focused actual Mac 1.4.5 returns with committed edits, PNG comparisons,
+  preserved styling/masks and Windows WASM save/reopen.
+- [ ] Actual Windows OS mouse gestures and final release acceptance.
 
 The first implementation increment is the independently tested CPU reference.
 It is a foundation for the GPU and engine integration, not a shipped tool or
@@ -459,3 +462,18 @@ outcomes. Windows actual OS mouse evidence also remains pending.
 See [the measured runtime checkpoint](../research/phase6-runtime-checkpoint-2026-10-06.md)
 for source hashes, comparisons, retained failures and remaining gates.
 Phase 6 remains open; PR #8 is not merged and published 0.8.0 is unchanged.
+
+### Corrected committed Mac return
+
+The user identified that the initial copies had been saved after undo, then
+redid, saved and recopied all three projects. Their saved warp rasters now
+change at 1,897 / 3,053 / 3,361 pixels respectively. Liquify and Smudge Mac
+640×480 PNGs match Windows WASM in every RGBA byte. Styled-mask retains its
+mask/effects/opacity with a maximum one-level RGB rendering residual and
+exact alpha. All three Windows WASM manifest/render save-reopens are exact.
+The received copies and SHA256 receipts are independently preserved under
+`build-artifacts/phase6-mac-return-20261006-recopied`.
+
+The user's completion statement supplements the Mac operator record. It
+does not prove Windows actual OS mouse gestures, which remain the next
+human gate after another two window-capture failures. Phase 6 is still open.
