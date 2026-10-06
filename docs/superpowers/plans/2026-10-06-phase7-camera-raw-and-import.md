@@ -161,3 +161,31 @@ This proves this sample's composition; other Photoshop features and Phase 7
 gates remain separate. A new production portable must validate the correction
 before it replaces the 1531 development package. Private sample content and
 fingerprints stay in ignored local evidence.
+
+## Unsaved project close choices
+
+The user confirmed the corrected PSD layer composition in Windows. Closing its
+unsaved project then exposed a missing action: the old two-way confirmation
+offered saving or keeping the project open, with no way to discard and close.
+The application now explicitly offers **Save and Close**, **Don't Save and
+Close**, and **Cancel Close**. Cancelling the native Save As picker continues to
+keep the project open; a failed write reports its error and retains changes.
+Cancel Close and Escape preserve pending edits. Saving resolves a pending
+transform/gradient before serializing, while an open adjustment must first be
+applied or cancelled. Closing a background tab preserves the active panel.
+
+All 16 related functional cases passed with one worker and zero retries,
+covering all choices, save cancellation/failure, save/reopen, pending transform,
+background-tab/panel preservation, duplicate close requests, keyboard focus,
+and last-document canvas clearing with both renderers. The supplemental native
+protocol also checks the three-way dialog, save-picker cancellation, discard
+canvas clearing and actual native package save/reopen. Its picker response is
+a fixture; physical OS picker operation remains distinct.
+
+The preceding clean-source `20261006-1759` portable passed its production
+protocol and four supplied-PSD/Mac-project export comparisons pixel-for-pixel.
+Its complete original frozen 29 performance cases passed 25 and failed four:
+F1 frame after result 165 ms (<100), Add Mask frame 472 ms (<150), Levels worker
+commit frame gap 383 ms (<100), and grown-mask gradient frame 386 ms (<150).
+These failures remain retained and unresolved. This close fix does not waive
+them or complete the outstanding Phase 7 performance and cross-platform gates.

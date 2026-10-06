@@ -135,8 +135,10 @@ test("closing a modified document asks first", async ({ page }) => {
   await page.getByRole("button", { name: "Create" }).click();
   await page.getByTestId("layer-add").click();
   await expect(page.getByTestId("project-tab").first()).toContainText("\u2022");
-  page.once("dialog", (d) => d.dismiss());
   await clickMenu(page, "File", "close");
+  await expect(page.getByRole("dialog", { name: "Close project" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel Close", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Close project" })).toHaveCount(0);
   await expect(page.getByTestId("project-tab")).toHaveCount(1);
 });
 

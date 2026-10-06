@@ -48,7 +48,32 @@ const rows=[];
   await menu('Filter','filter-camera-raw');await page.getByRole('combobox',{name:'Clipping view',exact:true}).selectOption('1');await expect.poll(picture).not.toEqual(applied);await page.getByTestId('adjust-ok').click();await expect.poll(picture).toEqual(applied);await page.screenshot({path:path.join(out,'camera-raw-applied-window.png')});rows.push({case:'production Camera Raw',previewChanges:true,previewOffAndCancelRestore:true,oneUndoRedo:true,diagnosticsNotBaked:true});
   const fixtures=[['01-groups-masks-clipping.psd',['Folder','Background']],['01-groups-masks-clipping.psb',['Folder','Background']],['02-editable-text-shape.psd',['Editable text','Editable rectangle']],['03-adjustment-conversions.psd',['Levels']],['../Real-PSD/source.psd',['图层 1','背景']]];
   for(const [name,names] of fixtures){await fresh();const before=warnings.length;await drop(path.resolve(probes,'Photoshop',name));await expect(page.getByTestId('project-tab')).toHaveCount(1);for(const name of names)await expect(page.getByTestId('layer-row').filter({hasText:name}).first()).toBeVisible();const report=page.getByRole('dialog',{name:'Photoshop import conversions',exact:true});if(name.includes('editable')||name.includes('adjustment')){await expect(report).toBeVisible();await readable(report);const text=await report.innerText();warnings.push(text);if(name.includes('adjustment'))assert(/unsupported.*skipped/is.test(text));await page.screenshot({path:path.join(out,path.basename(name).replaceAll('.','-')+'-report.png')});await report.getByRole('button',{name:'Close',exact:true}).click();await expect(report).toHaveCount(0);}await page.screenshot({path:path.join(out,path.basename(name).replaceAll('.','-')+'-window.png')});rows.push({case:'production Photoshop import',input:name,visibleNames:names,warnings:warnings.slice(before)});}
+  // Closing an imported, unsaved project must expose all three choices. Only
+  // the save picker's response is supplied below; package read/write IPC is native.
+  const closeDialog=()=>page.getByRole('dialog',{name:'Close project',exact:true});
+  const requestClose=async()=>{await page.getByTestId('project-tab').last().getByRole('button').click();await expect(closeDialog()).toBeVisible();};
+  const setSavePick=async target=>page.evaluate(target=>{
+    const native=window.fetch.bind(window);
+    window.fetch=(request,options)=>{
+      const url=typeof request==='string'?request:request.url;
+      if(decodeURIComponent(new URL(url,location.href).pathname)==='/plugin:dialog|save')
+        return Promise.resolve(new Response(JSON.stringify(target),{headers:{'Tauri-Response':'ok','Content-Type':'application/json'}}));
+      return native(request,options);
+    };
+  },target);
+  await requestClose();await readable(closeDialog());
+  await expect(closeDialog().getByRole('button',{name:'Cancel Close',exact:true})).toBeFocused();
+  await page.screenshot({path:path.join(out,'close-project-choices.png')});
+  await page.keyboard.press('Escape');await expect(closeDialog()).toHaveCount(0);await expect(page.getByTestId('project-tab')).toHaveCount(1);
+  await requestClose();await closeDialog().getByRole('button',{name:'Cancel Close',exact:true}).click();await expect(closeDialog()).toHaveCount(0);await expect(page.getByTestId('project-tab')).toContainText('•');
+  await setSavePick(null);await requestClose();await closeDialog().getByRole('button',{name:'Save and Close',exact:true}).click();await expect(closeDialog()).toHaveCount(0);await expect(page.getByTestId('working')).toHaveCount(0);await expect(page.getByTestId('project-tab')).toContainText('•');
+  await requestClose();await closeDialog().getByRole('button',{name:"Don't Save and Close",exact:true}).click();await expect(page.getByTestId('project-tab')).toHaveCount(0);await expect(page.getByTestId('layer-row')).toHaveCount(0);await expect(page.getByText('Open an image or create a new canvas',{exact:true})).toBeVisible();
+  const cleared=await picture();
+  const empty=await page.evaluate(async src=>{const img=new Image();img.src=src;await img.decode();const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);return ctx.getImageData(0,0,canvas.width,canvas.height).data.every((v,i)=>Math.abs(v-(i%4===3?255:41))<=1);},cleared);assert(empty,'Discard close must clear the actual canvas');
+  await fresh();await drop(path.resolve(probes,'Real-PSD','source.psd'));await expect(page.getByTestId('layer-row')).toHaveCount(2);
+  const saved=path.join(out,'close-saved.comp');assert(!fs.existsSync(saved));await setSavePick(saved);await requestClose();await closeDialog().getByRole('button',{name:'Save and Close',exact:true}).click();await expect(page.getByTestId('project-tab')).toHaveCount(0,{timeout:30000});assert(fs.existsSync(path.join(saved,'manifest.json')),'Native save must complete before close');
+  await drop(saved);await expect(page.getByTestId('layer-row')).toHaveCount(2);await expect(page.getByTestId('project-tab')).not.toContainText('•');rows.push({case:'production close project',explicitChoices:true,cancelAndEscapeRetainChanges:true,cancelledSaveAsRetainsChanges:true,discardClosesAndClearsCanvas:true,nativeSaveThenCloseAndReopen:true});
   assert.equal(hash(fs.readFileSync(dng)),original,'Original DNG changed');checkInputs();assert.deepEqual(errors,[]);
-  fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({status:'PASS',marker,identity,rows,pageErrors:errors,scope:'Production native WebView2, real file/RAW IPC, synthetic Tauri drop and CDP menu/keyboard input. Actual OS file-picker/mouse and real-camera RAW remain separate.'},null,2),{flag:'wx'});
-  console.log('PASS: production native RAW commands/dialog, Camera Raw worker/history/diagnostics and five Photoshop imports.');await browser.close();
+  fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({status:'PASS',marker,identity,rows,pageErrors:errors,scope:'Production native WebView2, real file/RAW/package IPC, synthetic Tauri drop and CDP menu/keyboard input; only the save-picker HTTP response is supplied. Actual OS file-picker/mouse and real-camera RAW remain separate.'},null,2),{flag:'wx'});
+  console.log('PASS: production RAW, Camera Raw, five Photoshop imports and close/cancel/discard/native save/reopen.');await browser.close();
 })().then(()=>process.exit(0)).catch(async e=>{console.error(e);fs.writeFileSync(path.join(out,'failure-result.json'),JSON.stringify({status:'FAIL',error:String(e),stack:e.stack,completed:rows},null,2),{flag:'wx'});if(page){await page.screenshot({path:path.join(out,'failure-window.png')}).catch(()=>{});fs.writeFileSync(path.join(out,'failure-dom.txt'),await page.locator('body').innerText().catch(String));}process.exit(1);});

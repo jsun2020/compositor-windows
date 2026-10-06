@@ -27,7 +27,7 @@ export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
-  | { kind: "selectionAmount"; operation: SelectionAmountOperation };
+  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" };
 
 /** The selection tools' settings, kept per app session as the Mac keeps them per session
  * (EditorSession.swift:232-285): the options bar's mode, Anti-alias, the Marquee's and the Lasso's
