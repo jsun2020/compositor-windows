@@ -141,3 +141,23 @@ was issued, the user's older application was untouched, and the owned process
 was stopped. Do not infer an unlocked/locked desktop or claim OS input acceptance
 from the successful CDP protocol. The Windows manual checklist, Mac returns and
 real camera RAW remain required. Phase 7 is still incomplete.
+
+## PSD counterpart return: file order correction
+
+The supplied Mac and Windows project returns exposed an importer defect: layer
+pixels, placement, visibility and blend settings matched, but Windows reversed
+the file records. An opaque background then covered the Screen overlay. The Mac
+1.4.5 reader consumes records bottom-first, including type-3 group dividers
+before children and their type-1/2 folder. The Windows importer now preserves
+that order. Synthetic PSD/PSB generators and browser fixtures use the same order;
+old generated probes and failed receipts remain retained, not rewritten.
+
+A new regression uses independently colored opaque background and Screen layers
+and checks composited pixels plus save/reopen for PSD/PSB, raw and PackBits. It
+failed against the prior reader, then passed with the fix. All 13 reader tests
+passed, including group/clipping and adjustment checks. The corrected native
+engine export of the supplied PSD is pixel-exact with its Mac-returned PNG.
+This proves this sample's composition; other Photoshop features and Phase 7
+gates remain separate. A new production portable must validate the correction
+before it replaces the 1531 development package. Private sample content and
+fingerprints stay in ignored local evidence.

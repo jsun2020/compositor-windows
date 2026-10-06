@@ -186,7 +186,9 @@ pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImp
     }
     let mut reserved_images=records.iter().filter(|r|r.section==0).filter_map(|r|r.pixels.as_ref()).map(|p|p.width as u64*p.height as u64).sum::<u64>();
     let mut document=Document::new(width,height);document.resolution=resolution;let mut conversions=Vec::new();let mut groups=Vec::new();let mut bases=BTreeMap::new();let mut converted_masks=0u64;
-    for mut r in records.into_iter().rev() {
+    // Compositor 1.4.5 consumes Photoshop records bottom-first: divider, children,
+    // then folder. Preserve file order so an opaque background cannot cover its overlays.
+    for mut r in records {
         if r.section==3 {if groups.len()>=MAX_NESTING {return Err(error("folder nesting exceeds 64"));}groups.push(Uuid::new_v4());continue;}
         let group=r.section==1||r.section==2;
         let mut layer=if let Some(p)=r.pixels.take().filter(|_|!group) {Layer::with_pixels(&r.name,p,r.retained.origin())}else{Layer::blank(&r.name,document.size())};

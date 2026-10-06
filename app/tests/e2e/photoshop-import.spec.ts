@@ -7,7 +7,8 @@ function photoshop(big:boolean,unsupported=false):Buffer{
   const length=(n:number)=>{if(!big)return u32(n);const b=Buffer.alloc(8);b.writeBigUInt64BE(BigInt(n));return b;};
   const block=(key:string,data:Buffer)=>concat([Buffer.from("8BIM"+key),u32(data.length),data,Buffer.alloc(data.length%2)]);
   const records:Buffer[]=[],planes:Buffer[]=[];
-  for(const [index,name] of ["Top 中文","Bottom"].entries()){
+  // Preserve each record's properties while emitting the oracle's bottom-first file order.
+  for(const [index,name] of Array.from(["Top 中文","Bottom"].entries()).reverse()){
     const channels=[-1,0,1,2,...(index===0&&!unsupported?[-2]:[])];
     const data=channels.map(id=>concat([u16(0),Buffer.from(id===-2?[0,255,128,255]:Array(4).fill(id===-1?128:80+id*30))]));
     let mask=Buffer.alloc(0);if(channels.includes(-2))mask=concat([[0,0,2,2].map(u32).reduce((a,b)=>concat([a,b])),Buffer.from([255,0,0,0])]);

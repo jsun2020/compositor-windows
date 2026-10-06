@@ -44,7 +44,8 @@ def main():
     mask=bytes(255 if x<150 else 80 for y in range(120) for x in range(300))
     base={'name':'Masked blue 基底','bounds':(40,50,300,120),'pixels':solid(300,120,[35,100,220,220]),'mask':mask}
     clip={'name':'Clipped orange','bounds':(100,100,270,120),'pixels':solid(270,120,[235,120,35,180]),'clip':1,'blend':b'mul ','opacity':200}
-    layers=[{'name':'Folder','section':1},clip,base,{'name':'Folder end','section':3},{'name':'Hidden green','bounds':(20,20,90,90),'pixels':solid(90,90,[20,220,60,255]),'hidden':True},background]
+    # File order matches the Mac 1.4.5 oracle: bottom-to-top, divider before children/folder.
+    layers=[background,{'name':'Hidden green','bounds':(20,20,90,90),'pixels':solid(90,90,[20,220,60,255]),'hidden':True},{'name':'Folder end','section':3},base,clip,{'name':'Folder','section':1}]
     for big in [False,True]:write(a.output/('01-groups-masks-clipping.'+('psb' if big else 'psd')),big,layers)
     color=descriptor([('Rd  ','doub',F64(240)),('Grn ','doub',F64(70)),('Bl  ','doub',F64(40))]);fill=block('SoCo',versioned([('Clr ','Objc',color)]))
     box=descriptor([(key,'UntF',b'#Pxl'+F64(n)) for key,n in [('Left',50),('Top ',50),('Rght',250),('Btom',180)]])
@@ -56,9 +57,9 @@ def main():
     image=Image.new('RGBA',(260,45));draw=ImageDraw.Draw(image);draw.text((0,0),'Editable ABC',font=ImageFont.truetype('C:/Windows/Fonts/arial.ttf',28),fill=(25,25,25,255))
     text={'name':'Editable text','bounds':(50,234,260,45),'pixels':image.tobytes(),'extra':block('TySh',tysh)}
     shape={'name':'Editable rectangle','bounds':(50,50,200,130),'pixels':solid(200,130,[240,70,40,255]),'extra':fill+origin}
-    write(a.output/'02-editable-text-shape.psd',False,[text,shape,background])
+    write(a.output/'02-editable-text-shape.psd',False,[background,shape,text])
     levels=U16(2)+b''.join(U16(n) for _ in range(29) for n in [0,255,0,255,100])
-    write(a.output/'03-adjustment-conversions.psd',False,[{'name':'Unsupported posterize','extra':block('post',U16(3))},{'name':'Levels','extra':block('levl',levels)},background])
+    write(a.output/'03-adjustment-conversions.psd',False,[background,{'name':'Levels','extra':block('levl',levels)},{'name':'Unsupported posterize','extra':block('post',U16(3))}])
     (a.output/'README.json').write_text(json.dumps({'size':[512,320],'files':{'01-groups-masks-clipping.psd':'groups, Unicode, clipping, visibility, opacity, mask, Multiply','01-groups-masks-clipping.psb':'same semantics, PSB 64-bit lengths and 32-bit PackBits rows','02-editable-text-shape.psd':'ArialMT point text and live rectangle','03-adjustment-conversions.psd':'editable neutral Levels and explicit skipped Posterize notice'}},indent=2),encoding='utf8')
     print('Created four synthetic Photoshop probes:',a.output)
 if __name__=='__main__':main()
