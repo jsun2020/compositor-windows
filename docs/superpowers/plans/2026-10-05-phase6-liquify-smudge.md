@@ -439,3 +439,23 @@ budgets and 256 MiB history policy. Their ignored logs are
 Fresh complete hosted regression, rebuilt portable checks and actual Mac
 returns are still required; earlier package passes are not evidence for this
 changed controller.
+
+### Runtime and initial Mac return checkpoint — 2026-10-06
+
+Exact-source hosted regression and rebuilt portable checks now pass for
+`a01c7ed`. Two independent supplemental production WebView2 runs passed
+24/100 MP responsiveness and small-canvas cancellation/history checks.
+The earlier experimental visual predicate failure remains retained; the
+supplemental reply/render protocol does not alter original CI gates.
+
+Actual Mac 1.4.5 returns were received and checked. All three projects
+import and round-trip through the current Windows WASM without losing
+styling or masks. However, all decoded saved layer pixels are unchanged
+from their original probes; the Smudge export is JPG, with its PNG missing.
+The return does not yet establish persistence of a committed warp edit.
+Requested visibly edited saved copies, PNGs and explicit omitted gesture
+outcomes. Windows actual OS mouse evidence also remains pending.
+
+See [the measured runtime checkpoint](../research/phase6-runtime-checkpoint-2026-10-06.md)
+for source hashes, comparisons, retained failures and remaining gates.
+Phase 6 remains open; PR #8 is not merged and published 0.8.0 is unchanged.
