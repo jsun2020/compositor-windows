@@ -364,14 +364,16 @@ export const useEditor = create<EditorStore>((set, get) => ({
   contentFill:null,
   brushOptions: DEFAULT_BRUSH, brushDraft: null,
   setBrushOptions: (patch) => {
+    if(get().brushDraft)cancelBrush();
     const next = { ...get().brushOptions };
-    for (const key of ["diameter","hardness","opacity","smoothing","blurRadius"] as const) {
+    for (const key of ["diameter","hardness","opacity","strength","smoothing","blurRadius"] as const) {
       const v=patch[key]; if (v===undefined || !Number.isFinite(v)) continue;
-      const [lo,hi]=key==="diameter"?[1,2000]:key==="opacity"?[0.01,1]:key==="hardness"?[0,1]:key==="blurRadius"?[0.5,50]:[0,100];
+      const [lo,hi]=key==="diameter"?[1,2000]:key==="opacity"||key==="strength"?[0.01,1]:key==="hardness"?[0,1]:key==="blurRadius"?[0.5,50]:[0,100];
       next[key]=Math.min(hi,Math.max(lo,v));
     }
     if(typeof patch.aligned==="boolean")next.aligned=patch.aligned;
     if(typeof patch.allLayers==="boolean")next.allLayers=patch.allLayers;
+    if(patch.smearMode&&["Blur","Liquify","Smudge"].includes(patch.smearMode))next.smearMode=patch.smearMode;
     if(patch.healingMode&&["Content-Aware","Create Texture","Proximity Match"].includes(patch.healingMode))next.healingMode=patch.healingMode;
     set({brushOptions:next});
   },
@@ -592,6 +594,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setBusy: (busy) => set({ busy }),
   bumpRecent: () => set((s) => ({ recentTick: s.recentTick + 1 })),
   openDocument: (id) => {
+    if(get().brushDraft)cancelBrush();
     // Leaving the current document commits its pending edit rather than dropping it, as
     // ProjectWorkspace.select/newCanvas do on macOS.
     get().commitTransform();
@@ -604,6 +607,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
       selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null, selectionDraft: null, outlineMove: null }));
   },
   closeDocument: (id) => {
+    if(get().brushDraft?.document===id)cancelBrush();
     get().commitTransform();
     // A pending gradient belongs to the document on screen: closing it drops it, closing another applies it.
     if (get().activeId === id) set({ gradientEdit: null }); else get().commitGradient();
@@ -625,6 +629,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   setActive: (id) => {
     // Clicking the tab already on screen changes nothing, and so must not cancel its panel.
     if (id === get().activeId) return;
+    if(get().brushDraft)cancelBrush();
     get().commitTransform();
     get().commitGradient();
     dropOpenPanel();

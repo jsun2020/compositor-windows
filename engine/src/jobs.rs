@@ -111,7 +111,7 @@ impl JobInput {
     /// The document a job works on: the canvas, the selection and the one layer, active. The layer
     /// keeps its id, so a command names it as the app did. `points` is the selection's flat buffer
     /// (`JobSelection::flatten`'s shape), required exactly when `self.selection` is.
-    fn document(&self, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>) -> Result<Document, CommandError> {
+    pub(crate) fn document(&self, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>) -> Result<Document, CommandError> {
         if pixels.as_ref().map(|p| (p.width, p.height)) != self.pixels || mask.as_ref().map(|m| (m.width, m.height)) != self.mask {
             return Err(CommandError::Argument("a job's buffers do not match its input".into()));
         }
@@ -321,7 +321,7 @@ pub struct WarpTileRect {
     pub height: u32,
 }
 
-fn check_warp_canvas(input: &JobInput, mask_target: bool) -> Result<(), CommandError> {
+pub(crate) fn check_warp_canvas(input: &JobInput, mask_target: bool) -> Result<(), CommandError> {
     if mask_target {
         return Err(CommandError::Refused(ops::warp::MASK_REFUSAL.into()));
     }
@@ -372,6 +372,22 @@ pub fn run_warp_result_job(
 > {
     check_warp_canvas(input, mask_target)?;
     let dabs = ops::warp::footprint(spec)?;
+    check_warp_tiles(input.width, input.height, &tiles)?;
+    let mut document = input.document(pixels.clone(), mask.clone(), points)?;
+    // Still validate the layer for no-op strokes.
+    ops::warp::target(&document, input.layer.id, false)?;
+    let dirty = if dabs.is_empty() || tiles.is_empty() {
+        Dirty::pixels(vec![])
+    } else {
+        let mut bytes = ops::warp::source_plane(&document, input.layer.id)?.into_bytes();
+        overlay_warp_tiles(&mut bytes, input.width, tiles);
+        let result = Raster::from_premultiplied(input.width, input.height, bytes);
+        ops::warp::writeback(&mut document, &SelectionClips::default(), input.layer.id, spec, &dabs, &result, false)?
+    };
+    edit_output(&document, input.layer.id, pixels, mask, dirty, out_per_doc)
+}
+
+pub(crate) fn check_warp_tiles(width: u32, height: u32, tiles: &[(WarpTileRect, Vec<u8>)]) -> Result<(), CommandError> {
     // Bound JSON headers and total readback independently of canvas size.
     if tiles.len() > 4096 {
         return Err(CommandError::Argument("too many warp tiles".into()));
@@ -384,8 +400,8 @@ pub fn run_warp_result_job(
             .ok_or_else(|| CommandError::Argument("invalid warp tiles".into()))?;
         if rect.width == 0
             || rect.height == 0
-            || rect.x as u64 + rect.width as u64 > input.width as u64
-            || rect.y as u64 + rect.height as u64 > input.height as u64
+            || rect.x as u64 + rect.width as u64 > width as u64
+            || rect.y as u64 + rect.height as u64 > height as u64
             || count > 16_777_216
             || area * 4 != bytes.len() as u64
             || bytes
@@ -403,33 +419,17 @@ pub fn run_warp_result_job(
             return Err(CommandError::Argument("overlapping warp tiles".into()));
         }
     }
-    let mut document = input.document(pixels.clone(), mask.clone(), points)?;
-    // Still validate the layer for no-op strokes; source_plane checks the
-    // target, but it is not needed to allocate a full source for a pickup.
-    ops::warp::target(&document, input.layer.id, false)?;
-    let dirty = if dabs.is_empty() || tiles.is_empty() {
-        Dirty::pixels(vec![])
-    } else {
-        let mut bytes = ops::warp::source_plane(&document, input.layer.id)?.into_bytes();
-        for (rect, tile) in tiles {
-            for y in 0..rect.height as usize {
-                let start = ((rect.y as usize + y) * input.width as usize + rect.x as usize) * 4;
-                let row = rect.width as usize * 4;
-                bytes[start..start + row].copy_from_slice(&tile[y * row..(y + 1) * row]);
-            }
+    Ok(())
+}
+
+pub(crate) fn overlay_warp_tiles(bytes: &mut [u8], width: u32, tiles: Vec<(WarpTileRect, Vec<u8>)>) {
+    for (rect, tile) in tiles {
+        for y in 0..rect.height as usize {
+            let start = ((rect.y as usize + y) * width as usize + rect.x as usize) * 4;
+            let row = rect.width as usize * 4;
+            bytes[start..start + row].copy_from_slice(&tile[y * row..(y + 1) * row]);
         }
-        let result = Raster::from_premultiplied(input.width, input.height, bytes);
-        ops::warp::writeback(
-            &mut document,
-            &SelectionClips::default(),
-            input.layer.id,
-            spec,
-            &dabs,
-            &result,
-            false,
-        )?
-    };
-    edit_output(&document, input.layer.id, pixels, mask, dirty, out_per_doc)
+    }
 }
 
 /// Runs a histogram job: the layer's histogram weighted by the selection (`Engine::histogram`).

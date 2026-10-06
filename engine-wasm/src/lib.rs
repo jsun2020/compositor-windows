@@ -13,6 +13,7 @@ pub struct WasmEngine {
     /// F1), only in the worker.
     job: (Option<Raster>, Option<GrayRaster>, Option<Vec<i32>>, Option<Raster>),
     staged: Option<(Vec<u8>,Vec<u8>,Vec<u8>,[usize;3])>,
+    warp: Option<WarpJob>,
 }
 
 /// A buffer's bytes as a raster, when its size is known.
@@ -48,7 +49,7 @@ impl WasmEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
         console_error_panic_hook::set_once();
-        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None, job: (None, None, None, None),staged:None }
+        WasmEngine { engine: Engine::new(), pending_saves: HashMap::new(), drawn: None, job: (None, None, None, None),staged:None,warp:None }
     }
 
     // Jobs (Phase 4b-1, engine `jobs.rs`). On the main thread: `prepare_job` or `prepare_display_job`,
@@ -261,6 +262,37 @@ impl WasmEngine {
         let header = serde_json::json!({"width":source.width,"height":source.height}).to_string();
         self.job = (Some(source), None, None, None);
         Ok(header)
+    }
+    /// Resident snapshot, owned only by a dedicated stroke worker. The source
+    /// is uploaded straight from this job view, then release_job drops that view.
+    pub fn begin_warp_session(&mut self,input_json:&str,pixels:Option<Vec<u8>>,mask:Option<Vec<u8>>,points:Option<Vec<u8>>)->Result<String,JsError>{
+        let input:JobInput=serde_json::from_str(input_json).map_err(js_err)?;
+        let pixels=raster_of(input.pixels,pixels)?;let mask=gray_of(input.mask,mask)?;
+        let points=points_of(input.selection.as_ref().map(JobSelection::point_count),points)?;
+        let warp=WarpJob::new(input,pixels,mask,points.as_deref()).map_err(js_err)?;
+        let source=warp.source();let header=serde_json::json!({"width":source.width,"height":source.height}).to_string();
+        self.job=(Some(source),None,None,None);self.warp=Some(warp);Ok(header)
+    }
+    pub fn update_warp_session(&mut self,warp_json:&str,rects_json:&str,tiles:Array,finish:bool,out_per_doc:f64,cpu:bool)->Result<Option<String>,JsError>{
+        self.release_job();
+        let spec:WarpSpec=serde_json::from_str(warp_json).map_err(js_err)?;
+        let rects:Vec<WarpTileRect>=serde_json::from_str(rects_json).map_err(js_err)?;
+        if rects.len()>4096||rects.len()!=tiles.length() as usize{return Err(JsError::new("invalid warp tiles"));}
+        let mut count=0u64;let mut data=Vec::with_capacity(rects.len());
+        for(i,r)in rects.into_iter().enumerate(){
+            count=count.checked_add(r.width as u64*r.height as u64).ok_or_else(||JsError::new("invalid warp tiles"))?;
+            let t=tiles.get(i as u32).dyn_into::<Uint8Array>().map_err(|_|JsError::new("invalid warp tiles"))?;
+            if count>16_777_216||t.length() as u64!=r.width as u64*r.height as u64*4{return Err(JsError::new("invalid warp tiles"));}
+            data.push((r,t.to_vec()));
+        }
+        let result=if cpu{
+            let result=self.warp.as_ref().ok_or_else(||JsError::new("No warp session"))?.reference(&spec,out_per_doc).map_err(js_err)?;
+            if finish{self.warp=None;}Some(result)
+        }else if finish{Some(self.warp.take().ok_or_else(||JsError::new("No warp session"))?.finish(&spec,data,out_per_doc).map_err(js_err)?)}
+        else{self.warp.as_ref().ok_or_else(||JsError::new("No warp session"))?.preview(&spec,data).map_err(js_err)?};
+        if let Some((output,pixels,mask,display))=result{
+            self.job=(pixels,mask,None,display);Ok(Some(serde_json::to_string(&output).map_err(js_err)?))
+        }else{Ok(None)}
     }
     /// Sparse GPU readback travels as bounded headers and typed arrays, never
     /// pixel JSON. The worker reconstructs and selects the replacement once.

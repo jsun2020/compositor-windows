@@ -37,11 +37,15 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
 - [x] Independent tiled WebGL2 kernels, fractional carry / float offset
   snapshots, allocation checks and explicit disposal/context-loss handling.
 - [x] GPU source/result transport through the same guarded writeback.
-- [ ] WebGL2 live preview without a document-sized upload on each pointer move;
+- [x] WebGL2 live preview without a document-sized upload on each pointer move;
   bounded CPU fallback and safe resource disposal.
-- [ ] Mode controls, brush options, shortcuts and refusal messages.
-- [ ] Native/WASM/unit/browser/packaged-runtime acceptance, 24/100 MP
-  responsiveness and focused actual Mac 1.4.5 gesture/export returns.
+- [x] Mode controls, brush options, shortcuts and refusal messages.
+- [x] Native/WASM/unit/browser source checks, packaged WebView2 supplemental
+  protocols and 24/100 MP responsiveness on the tested hardware.
+- [x] Focused actual Mac 1.4.5 returns with committed edits, PNG comparisons,
+  preserved styling/masks and Windows WASM save/reopen.
+- [x] Windows operator operations and committed project/PNG returns received.
+- [x] Last-tab residual-image fix: rebuilt native checks and development acceptance.
 
 The first implementation increment is the independently tested CPU reference.
 It is a foundation for the GPU and engine integration, not a shipped tool or
@@ -291,3 +295,222 @@ document plane and final layer once; running it on every pointer movement would
 violate the live-preview allocation/latency contract. Actual transformed,
 masked and styled live rendering, bounded fallback, packaged UI timing and
 focused Mac returns remain required before Phase 6 can be accepted.
+
+## Production controller and live preview checkpoint — 2026-10-05
+
+R now exposes Liquify / Blur / Smudge mode controls. Blur stays the Windows
+0.8.0 default; warp modes clamp size to at least 2, hardness to 0.98 and use
+Strength instead of Opacity. Shift does not connect a warp to an unrelated
+previous paint stroke. These changes are development source, not a new release.
+
+Each gesture uses a dedicated worker, independent of the generic effects job
+worker and its heap-reclamation policy. It pins the original JobInput, layer
+and raw document-space source. The source uploads directly from a WASM view;
+no extra JS document-sized source copy is returned. Ordered input positions
+are coalesced while a preview is in flight. Pointer-up waits for preparation
+and pending input. The original stamp is retained through final installation.
+
+Interactive previews sample checked sparse GPU tiles over the immutable source.
+The worker computes the final hard footprint and canvas/selection coverage on
+an original or reduced layer grid, at most 1024 pixels on its longest side.
+Large previews are intentionally reduced and are not claimed byte-identical
+to the final full-resolution image. Small previews, including a rotated growing
+layer with a nonuniform following mask, match final bytes. Existing engine
+preview rendering preserves effects scaling, masks, opacity, clipping and blend
+mode. The painted draft-line overlay is disabled for these warp gestures.
+
+Completion overlays sparse tiles into the resident original source once and
+uses the existing full-resolution replacement/writeback, witness/display and
+stamped one-step history protocol. Readback is bounded before allocating its
+JS arrays. GPU-unavailable fallback runs the bounded CPU reference only on
+canvases and assets at most 4 Mi pixels; larger unsupported canvases refuse
+before source-plane allocation. Mid-stroke GPU failures cancel, not restart.
+
+Escape, Undo, tool/mode/options changes, document switches/close and pointer
+capture loss terminate the worker and clear the preview. Late replies cannot
+install. Source pixels, transforms, canvas, selection and masks remain protected
+by the original LayerStamp, including the final staged installation callback.
+
+Validation is recorded under ignored `build-artifacts/phase6-warp-live-*`.
+The initial new native large-preview fixture incorrectly used the bounded CPU
+kernel to generate a plane above 4 Mi pixels; it now supplies a synthetic tile.
+The initial forced-GPU-unavailable test omitted its wrapper worker's startup
+handshake and timed out; the corrected real worker passes. Typed test imports
+also required Vite's browser ImportMeta types, declared in the new test files
+without changing original tsconfig/CI gates. A first 6 MP preview check timed
+out while native compilation ran concurrently; the independent isolated run
+passed. That failure remains retained and is not declared fixed from one pass.
+
+Five native session cases cover original snapshot isolation, selected exact
+preview/completion, rotated grid/mask growth, bounded large preview, bad tiles
+and bounded CPU fallback, plus shared identity-source bytes with mixed alpha.
+Five client unit cases cover queued positions,
+preparation/pointer-up, coalescing, cancellation, early failure and queue limits.
+Production browser cases cover actual mouse-driven styled Liquify/Smudge,
+preview/storage/history separation, undo/redo, five cancellation paths,
+preparation cancellation and early pointer-up, stale-source refusal, real CPU
+fallback and readback disposal. The 6 MP controller/worker path checks a preview
+no larger than 4 MiB, full-resolution analytic commit and undo; a separate large
+unsupported-GPU case checks the early refusal.
+
+Fresh full-source regression and hosted CI are required before merge. Native
+WebView2 packaged tool behavior, 24/100 MP complete-tool response, focused actual
+Mac 1.4.5 returns and release readiness remain unaccepted. Existing published
+0.8.0 assets must remain unchanged.
+
+### Complete-tool hardware checkpoint
+
+The aligned canvas-sized source now shares the immutable original raster
+instead of reproducing every pixel through CPU composition. A native case
+checks mixed premultiplied colors/alpha and equality with unstyled composition.
+Other transforms retain their existing source-plane path. Live preview reuses
+cached layer reductions on unchanged grids and samples only the brush coverage
+rectangle. Full-resolution completion and original validation gates are unchanged.
+
+The new opt-in `GPU_WARP_UI_PERF` suite exercises the production controller,
+dedicated GPU worker, live previews, full commit and existing history policy.
+It is independent of the original 29 performance cases and raw GPU kernel
+measurements. First, 100 MP preparation exceeded 30 seconds; after sharing the
+identity source, a live preview still exceeded 250 ms (390.7 ms). Both failures
+remain in ignored logs. The cached preview optimization then passed **two
+independent complete runs**, one worker, zero retries, with the same budgets:
+
+| Run / size / mode | First preview ms | Input max ms | Preview max ms | Drag frame gap max ms | Commit ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 / 24 MP / Liquify | 2350 | 1.8 | 66.5 | 17.1 | 990 |
+| 1 / 24 MP / Smudge | 1176 | 1.9 | 65.2 | 19.1 | 936 |
+| 1 / 100 MP / Liquify | 3334 | 0.6 | 80.9 | 29.9 | 3182 |
+| 1 / 100 MP / Smudge | 4574 | 0.5 | 66.6 | 17.1 | 2921 |
+| 2 / 24 MP / Liquify | 820 | 0.9 | 31.7 | 20.1 | 610 |
+| 2 / 24 MP / Smudge | 746 | 0.7 | 47.0 | 18.4 | 445 |
+| 2 / 100 MP / Liquify | 2492 | 0.5 | 44.4 | 20.6 | 1954 |
+| 2 / 100 MP / Smudge | 1953 | 1.6 | 33.4 | 17.1 | 1292 |
+
+Hardware: Intel HD Graphics 520, Edge/ANGLE D3D11. Preview transfers were
+1,500,000 / 1,562,500 bytes. Source fixture construction is excluded from these
+gesture timings; first-preview timing includes snapshot/worker/GPU preparation.
+These are aligned full-canvas fixtures, not transformed 100 MP or native
+WebView2 acceptance. Logs: `phase6-warp-live-preview-cache-performance-{1,2}.log`.
+
+The new benchmark initially expected undo for a 400 MB replacement. That
+expectation contradicted the existing **256 MiB** retained-raster history limit,
+also verified in upstream v1.4.5 `DocumentHistory.swift`. The new case now
+explicitly checks the unchanged limit: 24 MP gets one undo; 100 MP drops the
+unretainable entry, disables undo and leaves the committed result unchanged.
+No original test or history budget was relaxed. This boundary is documented
+in README and the manual instructions.
+
+Latest release-WASM, three TypeScript checks/web build, 21 targeted native cases
+and **45 targeted functional browser cases** passed. The earlier complete local
+functional run was **245 passed**, with opt-ins separate, and units **295 passed**.
+Fresh exact-source hosted regression is still required before merging.
+
+`engine/examples/phase6_warp_probes.rs` generates three synthetic `.comp`
+projects and seed PNGs, checks package round-trips and refuses an existing
+output directory. [Manual instructions](../phase6-manual-checks.md) cover actual
+Mac/Windows preview cancellation, commit, undo/redo, save/reopen, effects/masks,
+selection and mask refusal. Returns must contain edited projects, exported PNGs
+and gesture records. Phase 6 remains open until this real-runtime evidence is
+received and checked; the published 0.8.0 release is unchanged.
+
+### Displayed preview metadata follow-up
+
+Native production WebView2 checks of both modes on a small painted layer
+passed two independent runs on the unchanged `ed27ac1` portable. Earlier
+pointer-capture and source-seeding failures remain retained. Those passes
+did not cover a canvas-sized raster. A 24 MP native diagnostic produced a
+GPU preview without losing pointer capture, but the displayed image stayed
+unchanged and its original 30-second visual gate failed.
+
+The controller installed the engine preview and incremented a render tick,
+while leaving the store's layer dimensions and pixel revision at their
+committed values. The renderer keys uploads and sizes from that store state;
+a canvas-sized preview could therefore retain the existing texture. The
+controller now refreshes displayed document metadata after installing a
+preview and after cancellation. Stored pixels, layer stamps and history
+remain unchanged during a preview.
+
+A new 6 MP browser regression first confirms that the engine received the
+reduced preview, then checks displayed metadata and actual canvas PNG changes.
+On the old controller it failed with store width 3000 despite the engine's
+reduced preview. After the fix it passes and checks that Escape restores the
+original layer metadata, canvas PNG and history depth. All 16 focused tool
+checks, 295 unit checks, three TypeScript projects and web build passed.
+The unchanged 24/100 MP complete-tool hardware cases also passed two
+independent zero-retry runs after this fix, retaining the original response
+budgets and 256 MiB history policy. Their ignored logs are
+`phase6-warp-preview-metadata-performance-{1,2}.log`.
+Fresh complete hosted regression, rebuilt portable checks and actual Mac
+returns are still required; earlier package passes are not evidence for this
+changed controller.
+
+### Runtime and initial Mac return checkpoint — 2026-10-06
+
+Exact-source hosted regression and rebuilt portable checks now pass for
+`a01c7ed`. Two independent supplemental production WebView2 runs passed
+24/100 MP responsiveness and small-canvas cancellation/history checks.
+The earlier experimental visual predicate failure remains retained; the
+supplemental reply/render protocol does not alter original CI gates.
+
+Actual Mac 1.4.5 returns were received and checked. All three projects
+import and round-trip through the current Windows WASM without losing
+styling or masks. However, all decoded saved layer pixels are unchanged
+from their original probes; the Smudge export is JPG, with its PNG missing.
+The return does not yet establish persistence of a committed warp edit.
+Requested visibly edited saved copies, PNGs and explicit omitted gesture
+outcomes. Windows actual OS mouse evidence also remains pending.
+
+See [the measured runtime checkpoint](../research/phase6-runtime-checkpoint-2026-10-06.md)
+for source hashes, comparisons, retained failures and remaining gates.
+Phase 6 remains open; PR #8 is not merged and published 0.8.0 is unchanged.
+
+### Corrected committed Mac return
+
+The user identified that the initial copies had been saved after undo, then
+redid, saved and recopied all three projects. Their saved warp rasters now
+change at 1,897 / 3,053 / 3,361 pixels respectively. Liquify and Smudge Mac
+640×480 PNGs match Windows WASM in every RGBA byte. Styled-mask retains its
+mask/effects/opacity with a maximum one-level RGB rendering residual and
+exact alpha. All three Windows WASM manifest/render save-reopens are exact.
+The received copies and SHA256 receipts are independently preserved under
+`build-artifacts/phase6-mac-return-20261006-recopied`.
+
+The user's completion statement supplements the Mac operator record. It
+does not prove Windows actual OS mouse gestures, which remain the next
+human gate after another two window-capture failures. Phase 6 is still open.
+
+### Windows returns and last-tab correction
+
+Actual Windows operations and three committed project/PNG returns were
+received. They preserve the styled mask and metadata and match current
+release-WASM exports in every RGBA byte. The operator also reported a stale
+image after closing the final tab. Both source rendering paths and the frozen
+2328 production package reproduce this separate defect.
+
+CanvasView now clears the picture and overlay when no document remains,
+using renderer-specific clear operations without creating an `Untitled`
+document. Two before-failing regressions now pass for WebGL and CPU; related
+file/render checks (14), warp checks (16), unit checks (295) and all three
+TypeScript projects/web build pass. New packaged verification and exact-head
+CI remain required. The runtime checkpoint retains the old failures and
+Windows received-file hashes.
+
+### Final development acceptance — 2026-10-06
+
+All delivery steps above are complete on the tested Windows hardware and
+received Mac/Windows probes. Corrected source `1fbe0aa` passes both hosted
+push/PR CI: 661 native, 295 unit and 248 functional cases, with 10 existing
+native ignores and 33 opt-in skips unchanged. The rebuilt development
+portable `0.8.0-20261006-1125` passes build/smoke, ZIP/hash/source/WASM receipts
+and the final native empty-workspace protocol after read-only unlock preflight.
+It clears both picture and overlay, creates no document automatically and
+renders a subsequent explicit File > New. Native inputs are synthetic CDP;
+the earlier received operator returns remain the human evidence.
+
+Native result: `build-artifacts/phase6-native-last-close-20261006-115458-177`.
+Earlier locked preflights, failing package/source checks and experimental
+performance predicates remain retained; no assertion, budget or retry policy
+changed. Earlier performance measurements retain their `a01c7ed` identity;
+the final correction only changes empty-workspace clearing. Published 0.8.0
+is unchanged and PR #8 remains open for review. This closes development
+acceptance, with exact Metal/WebGL kernel equality outside the claim.
