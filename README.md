@@ -107,8 +107,9 @@ See [the acceptance record](docs/superpowers/phase5-acceptance-2026-10-03.md).
 Phase 6 development has passed hosted source checks, supplemental native
 WebView2 protocols and two independent 24/100 MP responsiveness runs. Received
 Mac 1.4.5 committed Liquify/Smudge PNGs match Windows WASM exactly; the styled
-mask probe has a maximum one-level color difference and exact alpha. Actual
-Windows OS mouse acceptance remains pending. See the
+mask probe has a maximum one-level color difference and exact alpha. Windows
+operator projects and PNGs have been verified; final checks of the reported
+last-tab residual-image correction remain pending. See the
 [Phase 6 runtime checkpoint](docs/superpowers/research/phase6-runtime-checkpoint-2026-10-06.md).
 
 ## Build and test

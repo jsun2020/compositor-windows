@@ -580,6 +580,14 @@ export class GlRenderer implements Renderer {
    * reduced one): the perf harness and e2e tests watch a large styled layer's images arrive. */
   textureKey(docId: string, id: string): string | null { return this.textures.get(docId, id)?.key ?? null; }
 
+  clear(): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0.16, 0.16, 0.16, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
   readPixels(): Uint8Array {
     const gl = this.gl; const W = this.canvas.width, H = this.canvas.height;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);

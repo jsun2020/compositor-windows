@@ -44,7 +44,8 @@ and `CompositorTests/MetalWarpTests.swift` at that tag.
   protocols and 24/100 MP responsiveness on the tested hardware.
 - [x] Focused actual Mac 1.4.5 returns with committed edits, PNG comparisons,
   preserved styling/masks and Windows WASM save/reopen.
-- [ ] Actual Windows OS mouse gestures and final release acceptance.
+- [x] Windows operator operations and committed project/PNG returns received.
+- [ ] Last-tab residual-image fix: rebuilt native checks and final acceptance.
 
 The first implementation increment is the independently tested CPU reference.
 It is a foundation for the GPU and engine integration, not a shipped tool or
@@ -477,3 +478,19 @@ The received copies and SHA256 receipts are independently preserved under
 The user's completion statement supplements the Mac operator record. It
 does not prove Windows actual OS mouse gestures, which remain the next
 human gate after another two window-capture failures. Phase 6 is still open.
+
+### Windows returns and last-tab correction
+
+Actual Windows operations and three committed project/PNG returns were
+received. They preserve the styled mask and metadata and match current
+release-WASM exports in every RGBA byte. The operator also reported a stale
+image after closing the final tab. Both source rendering paths and the frozen
+2328 production package reproduce this separate defect.
+
+CanvasView now clears the picture and overlay when no document remains,
+using renderer-specific clear operations without creating an `Untitled`
+document. Two before-failing regressions now pass for WebGL and CPU; related
+file/render checks (14), warp checks (16), unit checks (295) and all three
+TypeScript projects/web build pass. New packaged verification and exact-head
+CI remain required. The runtime checkpoint retains the old failures and
+Windows received-file hashes.

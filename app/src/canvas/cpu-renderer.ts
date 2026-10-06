@@ -47,6 +47,13 @@ export class CpuRenderer implements Renderer {
     scratch.getContext("2d")!.putImageData(image, 0, 0);
     ctx.drawImage(scratch, vx0, vy0);
   }
+  clear(): void {
+    this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.fillStyle = "#292929";
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.restore();
+  }
   readPixels(): Uint8Array {
     const img = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height).data;
     const out = new Uint8Array(img.length);

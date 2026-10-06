@@ -15,6 +15,8 @@ export interface Renderer {
   /** Uploads whatever it needs and draws. There is no separate sync step: the GL renderer's
    * texture upload depends on the render plan and the zoom, so it happens inside `render`. */
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void;
+  /** Clears the visible picture when no document is open, keeping the renderer usable. */
+  clear(): void;
   /** RGBA, top-down, the whole canvas element. */
   readPixels(): Uint8Array;
   dispose(): void;

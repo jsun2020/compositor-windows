@@ -1,10 +1,15 @@
 # Phase 6 runtime checkpoint — 2026-10-06
 
-Phase 6 acceptance remains open pending actual Windows OS mouse gestures.
+Phase 6 acceptance remains open pending final checks of the last-tab fix.
 The corrected Mac return now contains committed edits in all three projects,
 three lossless PNGs and preserved styling/masks. The initial unchanged return
 and intermediate recheck remain retained below. Keep PR #8 open and published
 0.8.0 assets unchanged.
+
+Windows operator returns have now been received and verified. The operator
+also reported a stale picture after closing the final tab. Source regressions
+reproduce and fix this issue in both WebGL and CPU rendering; a rebuilt
+development portable and exact-source hosted checks are the next gates.
 
 ## Frozen Windows development package
 
@@ -140,3 +145,46 @@ channel`; refreshed selection and one retry failed with `window capture
 timed out: timed out waiting on channel`. No actual OS drag was issued or
 declared passed. Requested the human Windows result for both modes' live
 held preview, Escape, release/commit and Ctrl+Z / Ctrl+Shift+Z.
+
+## Windows operator returns and final-tab defect
+
+The user reports Windows operations completed and supplied
+`phase6-warp-probes-20261005-live/Windows-edited`, plus screenshots of a
+residual image after closing the last tab. No Windows `RESULT.txt` was
+received; the conversation provides human operation evidence. Saved files
+alone do not establish each individual held-preview/Escape/undo gesture.
+
+All three edited projects preserve metadata and styling, contain committed
+warp pixels and pass exact release-WASM manifest/render save-reopens:
+
+| Windows return | Changed saved warp pixels | PNG vs release WASM |
+| --- | ---: | --- |
+| 01 Liquify | 1,593 | All RGBA bytes equal |
+| 02 Smudge | 2,086 | All RGBA bytes equal |
+| 03 Styled-mask | 3,050 | All RGBA bytes equal; mask/effects preserved |
+
+All exports are 640×480. Background pixels remain unchanged. The screenshot
+shows strength 100%, so these gestures are not asserted to repeat the Mac's
+parameters or establish exact kernel equality. Files and SHA256 receipts
+are preserved under `phase6-windows-return-20261006-verified`.
+
+Closing the final tab correctly removed its document state, but the persistent
+canvas draw effect returned early instead of clearing its picture and overlay.
+Both WebGL and CPU regressions failed with the active document null while
+the two backing stores still contained pixels. The frozen 2328 production
+WebView2 package also fails the last-tab empty-picture gate; that failure is
+retained under `phase6-native-last-close-20261006-112307-677`.
+
+The renderer now exposes an empty-workspace clear operation in both paths.
+When no document remains, CanvasView clears the visible framebuffer and
+overlay and forgets brush hover. It keeps the renderer available for the next
+document. Closing a background tab retains the active picture; closing the
+last tab creates no new document. An `Untitled` checkerboard requires the
+user to choose File > New.
+
+The same two source regressions pass after the fix, including explicit
+new-canvas rendering afterward. Related file/render checks pass (14 cases),
+warp preview/cancel/commit regressions pass (16 cases), all 295 unit cases
+pass and three TypeScript checks/web build pass. Original assertions, budgets
+and history policy are unchanged. Rebuilt native checks and exact-head CI
+remain required before final acceptance.

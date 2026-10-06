@@ -200,7 +200,17 @@ export function CanvasView() {
   // Draw on every store change that affects the picture.
   useEffect(() => {
     const renderer = rendererRef.current; const gl = glRef.current; const overlay = overlayRef.current;
-    if (!renderer || !gl || !overlay || !state || !viewport || !engine) return;
+    if (!renderer || !gl || !overlay) return;
+    if (!state || !viewport || !engine) {
+      // Closing the last tab leaves these persistent canvas elements mounted.
+      // Clear both backing stores instead of keeping the closed document visible.
+      renderer.clear();
+      const ctx = overlay.getContext("2d")!;
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, overlay.width, overlay.height); ctx.restore();
+      brushHoverRef.current = null;
+      return;
+    }
     const dpr = window.devicePixelRatio || 1;
     renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
     paintOverlay();
