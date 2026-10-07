@@ -1347,23 +1347,33 @@ impl CameraRawGeometry {
         {
             return [0.0; 4];
         }
-        let (fx, fy) = (x - 0.5, y - 0.5);
+        // Core Image samples with single-precision pixel coordinates. Its
+        // RGBA8 texture filter uses eight-bit phases and retains four fractional
+        // bits per source byte before normalizing the filtered sample.
+        let (fx, fy) = ((x as f32 - 0.5) as f64, (y as f32 - 0.5) as f64);
         let (x0, y0) = (fx.floor() as i64, fy.floor() as i64);
-        let (tx, ty) = ((fx - x0 as f64) as f32, (fy - y0 as f64) as f32);
+        let (tx, ty) = (
+            ((fx - x0 as f64) * 256.0).round() as u32,
+            ((fy - y0 as f64) * 256.0).round() as u32,
+        );
         let fetch = |px: i64, py: i64| {
             if px < 0 || py < 0 || px >= w || py >= h {
-                return [0.0; 4];
+                return [0; 4];
             }
             let pixel = raster.pixel(px as u32, py as u32);
-            let alpha = pixel[3] as f32;
-            if alpha == 0.0 {
-                return [0.0; 4];
+            let alpha = pixel[3] as u32;
+            if alpha == 0 {
+                return [0; 4];
             }
+            // Match the straight RGBA8 source reconstructed by the PNG path.
+            // Dividing premultiplied bytes in float keeps colours between byte
+            // levels that are absent from the Mac's texture input.
+            let straight = |value: u8| ((value as u32 * 255 + alpha / 2) / alpha).min(255);
             [
-                pixel[0] as f32 / alpha,
-                pixel[1] as f32 / alpha,
-                pixel[2] as f32 / alpha,
-                alpha / 255.0,
+                straight(pixel[0]),
+                straight(pixel[1]),
+                straight(pixel[2]),
+                alpha,
             ]
         };
         let (a, b, c, d) = (
@@ -1373,8 +1383,10 @@ impl CameraRawGeometry {
             fetch(x0 + 1, y0 + 1),
         );
         let mut sample = std::array::from_fn(|i| {
-            (a[i] * (1.0 - tx) + b[i] * tx) * (1.0 - ty)
-                + (c[i] * (1.0 - tx) + d[i] * tx) * ty
+            let weighted = (a[i] * (256 - tx) + b[i] * tx) * (256 - ty)
+                + (c[i] * (256 - tx) + d[i] * tx) * ty;
+            let sixteenths = (weighted + 2048) / 4096;
+            sixteenths as f32 / 4080.0
         });
         for channel in 0..3 {
             sample[channel] *= sample[3];
@@ -1408,7 +1420,10 @@ impl CameraRawGeometry {
                 let sample = Self::transparent_sample(raster, px, py);
                 let i = (y as usize * w as usize + x as usize) * 4;
                 for c in 0..4 {
-                    data[i + c] = (sample[c] * 255.0).round().clamp(0.0, 255.0) as u8;
+                    // Quantize the normalized float directly. An f32 multiply
+                    // first can turn a value just below an RGBA8 tie into an
+                    // exact tie and change the byte written by Core Image.
+                    data[i + c] = (sample[c] as f64 * 255.0).round().clamp(0.0, 255.0) as u8;
                 }
             }
         }

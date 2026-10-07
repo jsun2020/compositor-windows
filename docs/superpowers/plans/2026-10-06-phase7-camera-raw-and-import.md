@@ -611,3 +611,53 @@ The previous 29/29 hardware suite and 1007 native portable receipt remain tied
 to `0a85e89`. The final rendering source must complete its own delivery checks
 after Geometry is resolved. Phase 7 remains incomplete; the stable 0.8.0 release
 has not been changed or republished.
+
+## Received Geometry precision controls, 2026-10-07
+
+The next actual Mac return is `Mac-geometry-precision-20261007-123334`, under
+`phase7-pixel-attribution-20261007`. All 122 files are inventoried, the three
+reported executable/source hashes match the delivered inputs, and all 69
+required/available precision records decode using their reported component,
+alpha, byte-order and row-stride metadata. Provider allocation padding is not
+interpreted as pixels. All four delivered inputs remain unchanged.
+
+RGBAf output converted directly to bytes equals the actual RGBA8 result for
+every complete recipe. Half-float output does not establish the internal
+sampling format. The default, float-working-format and software-request
+contexts give identical full-float pixels for this recipe; the software request
+does not prove that Core Image used a CPU backend.
+
+The byte-texture observations support eight-bit interpolation phases followed
+by four fractional bits per filtered source byte. Normalizing that value to
+f32, interpolating canonical straight source bytes and premultiplying the
+filtered RGB matches the received ramp/edge controls. Converting that normalized
+f32 to an output byte must not first round the multiply by 255 to f32: doing so
+changes values just below a half-byte boundary. The Camera Raw sampler now
+follows these observed rules. Its companion independent Mac oracle contains
+all 3,840 pixels from fifteen grey-ramp phase rows, with a public Swift
+reproducer and strict exact-RGBA Rust assertions. The received RGB channels were
+independently checked equal before publishing a single `red` array per row.
+All eleven original Camera Raw tests and the new oracle pass unchanged.
+
+A fresh native recomputation preserves the original synthetic source hash and
+all four original recipes. The first three recipes remain exact across all
+163,840 pixels each. Geometry plus Calibration improves from 4,743 differing
+pixels to 27, with a maximum delta of one byte in each RGBA channel. The separate
+geometry-only sampling model also retains 27 differences. This is a measured improvement, not a
+passing counterpart gate. Alternative perspective arithmetic models still
+leave differences and have not been applied as a guessed production fix.
+
+The new `Mac-coordinate-blend` four-file package and ZIP combine float coordinate
+fields, byte-texture checker controls and an expanded Normal/Multiply/Screen
+matrix with explicit copied-input controls. All Geometry parameters are embedded;
+the Chinese `MAC-STEPS.md` requires only one Terminal command, with no Photoshop
+or Compositor edits. The original source PNG hash is unchanged. Bash syntax,
+ZIP CRCs and every archived input byte pass; the new Swift program still needs
+actual Mac compilation/execution. Its diagnostic scope does not replace the
+original application recipe, byte equality, native package or timing gates.
+
+Evidence is retained in `precision-123334-analysis`, alongside
+`mac-coordinate-blend-package.json`. The remaining 27 Geometry pixels and five
+previous full-opacity Multiply controls remain open. Final production and
+original performance verification must use the resolved rendering source.
+Phase 7 remains incomplete, and the stable 0.8.0 release remains unchanged.
