@@ -3,6 +3,7 @@ use js_sys::{Array, Uint8Array};
 use std::collections::HashMap;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
+mod uniform;
 
 #[wasm_bindgen]
 pub struct WasmEngine {
@@ -77,6 +78,11 @@ impl WasmEngine {
     }
     pub fn job_buffer_len(&self, mask: bool) -> usize {
         if mask { self.job.1.as_ref().map_or(0, |m| m.bytes().len()) } else { self.job.0.as_ref().map_or(0, |r| r.bytes().len()) }
+    }
+    /// The worker may replace a large solid Fill's payload with this exact colour.
+    /// A nonuniform result always takes the ordinary byte-buffer path.
+    pub fn job_uniform_pixels(&self) -> Option<Vec<u8>> {
+        self.job.0.as_ref().and_then(|r| uniform::color(r.bytes())).map(|c| c.to_vec())
     }
     /// The kept job's selection points, as raw little-endian `i32` bytes (`JobSelection::flatten`'s
     /// shape); null when the job has no selection. A view on it is valid until the next engine call.
@@ -192,6 +198,12 @@ impl WasmEngine {
         Ok(())
     }
     pub fn cancel_staged_install(&mut self){self.staged=None;}
+    /// Expand a lossless uniform payload in bounded chunks, with the same
+    /// reservation, completeness and final LayerStamp gates as ordinary bytes.
+    pub fn repeat_staged_pixels(&mut self, red:u8, green:u8, blue:u8, alpha:u8, length:usize)->Result<(),JsError>{
+        let Some((p,_,_,sizes))=&mut self.staged else{return Err(JsError::new("no staged edit"));};
+        uniform::append(p,sizes[0],[red,green,blue,alpha],length).map_err(JsError::new)
+    }
     pub fn finish_staged_install(&mut self,doc:&str,layer:&str,stamp:&str,output:&str,preview:bool)->Result<String,JsError>{
         let stamp:LayerStamp=serde_json::from_str(stamp).map_err(js_err)?;let output:JobOutput=serde_json::from_str(output).map_err(js_err)?;
         let Some((p,m,d,sizes))=self.staged.take()else{return Err(JsError::new("no staged edit"));};

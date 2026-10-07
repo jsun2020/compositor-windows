@@ -83,6 +83,68 @@ describe("a slow staged allocation leaves time for the next UI frame", () => {
   });
 });
 
+describe("lossless uniform job installation", () => {
+  function setup() {
+    const clock={value:0},frames:FrameRequestCallback[]=[],calls:string[]=[];
+    let pixels=new Uint8Array(0),offset=0,display=new Uint8Array(0);
+    vi.spyOn(performance,"now").mockImplementation(()=>clock.value);
+    vi.stubGlobal("requestAnimationFrame",(f:FrameRequestCallback)=>{frames.push(f);return frames.length;});
+    const client=Object.create(EngineClient.prototype) as Record<string,unknown>;
+    client.installQueue=Promise.resolve();
+    client.wasm={
+      begin_staged_install:(p:number,_m:number,d:number)=>{pixels=new Uint8Array(p);display=new Uint8Array(d);calls.push("begin");clock.value+=40;},
+      repeat_staged_pixels:(r:number,g:number,b:number,a:number,n:number)=>{for(let i=0;i<n;i+=4)pixels.set([r,g,b,a],offset+i);offset+=n;calls.push("repeat");clock.value+=5;},
+      append_staged_install:(plane:number,bytes:Uint8Array)=>{expect(plane).toBe(2);display.set(bytes);calls.push("display");clock.value+=2;},
+      finish_staged_install:()=>{calls.push("finish");clock.value+=3;return '{"canvas":true}';},
+      cancel_staged_install:()=>calls.push("cancel"),
+    };
+    const output=JSON.stringify({pixels:[1024,1025],uniformPixels:[17,31,43,97]});
+    return {client:client as unknown as EngineClient,clock,frames,calls,output,pixels:()=>pixels,display:()=>display};
+  }
+  async function framesUntilDone(state:ReturnType<typeof setup>,promise:Promise<unknown>) {
+    let done=false;promise.finally(()=>{done=true;}).catch(()=>{});
+    while(!done){await Promise.resolve();if(state.frames.length){state.clock.value+=16;state.frames.shift()!(state.clock.value);}}
+    return promise;
+  }
+  it("expands a translucent colour exactly, retains the worker display and accounts for all CPU work",async()=>{
+    const state=setup();
+    try {
+      const display=new Uint8Array([3,5,7,11]).buffer;
+      const pending=state.client.installJobAsync("D","A",'{"stamp":{}}',state.output,null,null,display,true);
+      await framesUntilDone(state,pending);
+      expect(state.calls).toEqual(["begin","repeat","repeat","display","finish","cancel"]);
+      expect(state.pixels().length).toBe(1024*1025*4);
+      expect(state.pixels().every((v,i)=>v===[17,31,43,97][i%4])).toBe(true);
+      expect(Array.from(state.display())).toEqual([3,5,7,11]);
+      expect(state.client.lastInstallCpuMs).toBe(55);
+    }finally{vi.restoreAllMocks();vi.unstubAllGlobals();}
+  });
+  it("cancellation before expansion releases the reservation without committing",async()=>{
+    const state=setup();let valid=true;
+    try {
+      const pending=state.client.installJobAsync("D","A",'{"stamp":{}}',state.output,null,null,null,true,()=>valid);
+      await vi.waitFor(()=>expect(state.frames).toHaveLength(1));valid=false;state.frames.shift()!(0);
+      await expect(pending).rejects.toThrow("The preview was cancelled");
+      expect(state.calls).toEqual(["begin","cancel"]);
+    }finally{vi.restoreAllMocks();vi.unstubAllGlobals();}
+  });
+  it("rejects malformed or ambiguous encodings before reserving memory",async()=>{
+    const state=setup();
+    try {
+      for(const encoded of [
+        {pixels:[1024,1025],uniformPixels:[1,2,3]},
+        {pixels:[1024,1025],uniformPixels:[1,2,3,256]},
+        {pixels:[1024,1025],uniformPixels:[1,2,3,-1]},
+        {pixels:[1024,1025],uniformPixels:[1,2,3,4.5]},
+        {pixels:[10001,10000],uniformPixels:[1,2,3,4]},
+        {pixels:[0,1],uniformPixels:[1,2,3,4]},
+      ])await expect(state.client.installJobAsync("D","A",'{"stamp":{}}',JSON.stringify(encoded),null,null,null,true)).rejects.toThrow("Invalid uniform job pixels");
+      await expect(state.client.installJobAsync("D","A",'{"stamp":{}}',state.output,new ArrayBuffer(4),null,null,true)).rejects.toThrow("Invalid uniform job pixels");
+      expect(state.calls).toEqual([]);
+    }finally{vi.restoreAllMocks();vi.unstubAllGlobals();}
+  });
+});
+
 describe("pixel views survive a wasm memory growth", () => {
   it("maskPixels reads the buffer after the pointer call, not before", () => {
     const client = growingClient();

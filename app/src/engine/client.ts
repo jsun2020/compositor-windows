@@ -218,7 +218,7 @@ export class EngineClient {
   }
   async installJobAsync(doc:string,layer:string,input:string,output:string,pixels:ArrayBuffer|null,mask:ArrayBuffer|null,display:ArrayBuffer|null=null,preview=false,valid:()=>boolean=()=>true):Promise<Dirty>{
     // One small FFI copy is cheaper than staging; keep the established install path.
-    if(!preview&&(pixels?.byteLength??0)+(mask?.byteLength??0)+(display?.byteLength??0)<=4*1024*1024){if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=this.installJob(doc,layer,input,output,pixels,mask,display);this.lastInstallCpuMs=performance.now()-t;return dirty;}
+    if(!preview&&!output.includes('"uniformPixels"')&&(pixels?.byteLength??0)+(mask?.byteLength??0)+(display?.byteLength??0)<=4*1024*1024){if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=this.installJob(doc,layer,input,output,pixels,mask,display);this.lastInstallCpuMs=performance.now()-t;return dirty;}
     const before=this.installQueue;let release!:()=>void;this.installQueue=new Promise<void>(r=>{release=r;});await before;
     try{
       const dirty=await this.stageJob(doc,layer,input,output,pixels,mask,display,preview,valid);
@@ -232,13 +232,26 @@ export class EngineClient {
     const began=performance.now();this.lastInstallCpuMs=0;
     if(!valid())throw Error("The preview was cancelled");
     const stamp=JSON.stringify((JSON.parse(input) as {stamp:unknown}).stamp),buffers=[pixels,mask,display];
-    this.wasm.begin_staged_install(pixels?.byteLength??0,mask?.byteLength??0,display?.byteLength??0);
+    const encoded=JSON.parse(output) as {uniformPixels?:unknown;pixels?:[number,number]};
+    const uniform=encoded.uniformPixels;
+    let pixelBytes=pixels?.byteLength??0;
+    if(uniform!==undefined){
+      const size=encoded.pixels;
+      if(pixels!==null||!Array.isArray(uniform)||uniform.length!==4||!uniform.every(c=>Number.isInteger(c)&&c>=0&&c<=255)
+        ||!Array.isArray(size)||size.length!==2||!size.every(n=>Number.isInteger(n)&&n>0)||size[0]*size[1]>100_000_000)
+        throw Error("Invalid uniform job pixels");
+      pixelBytes=size[0]*size[1]*4;
+    }
+    this.wasm.begin_staged_install(pixelBytes,mask?.byteLength??0,display?.byteLength??0);
     this.lastInstallCpuMs=performance.now()-began;
     try{
       let start=began;
       if(performance.now()-start>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();if(!valid())throw Error("The preview was cancelled");}
-      for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane];if(!b)continue;
-        for(let at=0;at<b.byteLength;at+=4*1024*1024){const t=performance.now(),length=Math.min(4*1024*1024,b.byteLength-at);this.wasm.append_staged_install(plane,new Uint8Array(b,at,length));this.lastInstallCpuMs+=performance.now()-t;
+      for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane],solid=plane===0&&Array.isArray(uniform)?uniform:null,lengthOfPlane=solid?pixelBytes:b?.byteLength??0;
+        for(let at=0;at<lengthOfPlane;at+=4*1024*1024){const t=performance.now(),length=Math.min(4*1024*1024,lengthOfPlane-at);
+          if(solid)this.wasm.repeat_staged_pixels(solid[0],solid[1],solid[2],solid[3],length);
+          else this.wasm.append_staged_install(plane,new Uint8Array(b!,at,length));
+          this.lastInstallCpuMs+=performance.now()-t;
           if(!valid())throw Error("The preview was cancelled");
           if(performance.now()-start>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();}
         }

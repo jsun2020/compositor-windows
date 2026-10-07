@@ -58,9 +58,15 @@ function run(request: JobRequest): JobResult {
     }
     case "edit": {
       const header = engine!.run_edit_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points), request.command, request.outPerDoc);
-      const result = { header, pixels: kept(false, request.pixels ?? request.outputPixels ?? null), mask: kept(true, request.mask), display: keptDisplay() };
-      engine!.release_job();
-      return result;
+      try {
+        // Verify actual output bytes in the worker; selection edges or a partially
+        // filled layer must never be inferred to be solid from the command alone.
+        const command=JSON.parse(request.command) as {type:string;mask?:boolean};
+        const uniform=command.type==="Fill"&&!command.mask&&engine!.job_buffer_len(false)>4*1024*1024
+          ? engine!.job_uniform_pixels() : undefined;
+        return {header:uniform?JSON.stringify({...JSON.parse(header),uniformPixels:Array.from(uniform)}):header,
+          pixels:uniform?null:kept(false,request.pixels??request.outputPixels??null),mask:kept(true,request.mask),display:keptDisplay()};
+      } finally { engine!.release_job(); }
     }
     case "histogram":
       return { header: engine!.run_histogram_job(request.input, bytes(request.pixels), bytes(request.mask), bytes(request.points)), pixels: null, mask: null };
