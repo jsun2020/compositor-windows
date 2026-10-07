@@ -537,3 +537,77 @@ script contents and Bash syntax, but the Swift program has not yet compiled or
 run on the Mac. No output or guessed rounding rule is treated as accepted proof.
 The returned diagnostic is required before resolving those counterpart pixels
 and writing the final all-gates acceptance receipt.
+
+## Received framework diagnostic and covered-source correction
+
+The actual Mac diagnostic was returned on 2026-10-07 under
+`phase7-pixel-attribution-20261007/Mac-pixel-diagnostic-20261007-110407`.
+Its fifteen received files were independently frozen. The three script/source
+hashes match the original package, all four original diagnostic inputs remain
+unchanged, and all 339 earlier Mac returns and 65 acceptance inputs still match
+their receipts. The Swift execution succeeded on macOS 26.5.2 (25F84). It is
+framework attribution evidence, not a replacement for application gestures.
+
+The 216 one-pixel results show that drawing with opacity materializes a covered
+RGBA8 source before blending. The former floating coverage differs in 72 rows;
+rounding the covered source matches all 180 partial-opacity rows plus 24
+full-opacity Normal/Screen controls. Five full-opacity Multiply rows give a
+different result in Core Graphics. An integer fast path is an attribution
+hypothesis, not an independently observed implementation detail; all twelve
+full-opacity Multiply rows remain in the retained complete diagnostic and are
+not claimed as passing this covered-source correction.
+The public synthetic oracle documents its 204-row scope and includes a Swift
+reproducer, with strict independent CPU and GPU assertions.
+
+Source `e1cfcecb2a79f1f74faeffc83957e8605ee36df3` rounds the covered RGBA source
+in both ordinary CPU layer draws and the WebGL2 layer shader. It changes no
+Geometry sampler, original assertion, tolerance, retry or performance budget.
+Reimporting both original grouped Photoshop inputs now gives zero different
+pixels over 163,840 pixels each. All fourteen returned projects also open,
+save and reopen with outputs pixel-exact to their Mac PNGs. The saved Geometry
+project carries Mac-produced pixels; this does not prove Windows recomputation.
+
+Local checks passed 679 engine tests with the ten original ignores, all 298
+unit tests, the three TypeScript checks and release WASM. The optimized WASM is
+3,710,196 bytes, SHA-256
+`c285b8aec74f9c2b3f9ca64813f8d20bb1a8f7ddc3101aa0a171c20f4b4ba05b`.
+Seven renderer cases pass on an isolated Vite port with one worker and no
+retries, including all 204 exact CPU/GPU oracle rows. The new test's first run
+read an empty region because the import centre was mistaken for an origin;
+its three failures remain retained. Correcting the test placement produced the
+passing run without weakening any pixel assertion. A local full-workspace
+build was stopped during dependency compilation; it establishes no assertion
+result. Exact-source hosted run
+[`37568673577`](https://github.com/jsun2020/compositor-windows/actions/runs/37568673577)
+subsequently passed the complete workspace: 699 native tests, zero failures and
+ten original ignores. All 298 unit tests and 275 functional cases passed, with
+33 original hardware opt-ins skipped. Release WASM, the three TypeScript checks,
+web build, release metadata regressions and actual RAW sensor-helper checks also
+passed. Its conditional production-portable step was skipped; hosted CI does
+not establish a new native package or local hardware-performance result.
+
+Geometry's returned provider bytes equal its drawn premultiplied bytes exactly.
+The current independent sampler differs in 4,747 geometry-only pixels by at
+most one premultiplied byte per channel. The earlier full Camera Raw recipe
+still has 4,743 different pixels after calibration. Neither guessed phase
+quantization nor half precision reproduces the full returned image, so no such
+candidate is applied to production and no tolerance is added.
+
+A new four-file diagnostic and ZIP are prepared under
+`phase7-pixel-attribution-20261007/Mac-geometry-precision`. `MAC-STEPS.md` gives
+Chinese Terminal/Finder steps, with all parameters already embedded. It records
+RGBA8, half and full-float output, a controlled grey-ramp phase sweep and explicit
+straight/premultiplied input controls. The software-renderer option is a request,
+not proof that the Mac actually used a CPU backend. Its inputs/ZIP are hashed,
+the Bash syntax and ZIP CRCs pass, but its new Swift code still requires actual
+Mac execution. The package needs no Photoshop or Compositor UI edits.
+
+The combined local checkpoint is
+`phase7-pixel-attribution-20261007/received-analysis/current-checkpoint.json`.
+The later publication receipt, complete hosted logs and exact-source run
+snapshot are retained separately in `received-analysis`; the earlier local
+checkpoint's pending-CI observation is preserved as a historical snapshot.
+The previous 29/29 hardware suite and 1007 native portable receipt remain tied
+to `0a85e89`. The final rendering source must complete its own delivery checks
+after Geometry is resolved. Phase 7 remains incomplete; the stable 0.8.0 release
+has not been changed or republished.

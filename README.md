@@ -69,8 +69,12 @@ through CDP; that supplemental Point Color check does not establish OS input.
 All 339 returned Mac files were independently checked. Fourteen returned projects
 opened, saved and reopened in the Windows engine with unchanged exports. The
 Light/Color/Curve, Mixer/Grading and Effects/Detail/Optics probes are pixel-exact.
-Geometry's boundary alpha discrepancy was reduced from 127 to 1, but Geometry
-and two grouped PSD/PSB cases still differ in some pixels. Mac Point Color crashed
+The returned framework diagnostic identified RGBA8 source rounding before
+opacity blending. The CPU and GPU correction passes 204 independent Mac pixel
+oracles. Both grouped PSD/PSB imports now match their Mac exports exactly, and
+all fourteen Mac-saved projects export identically after Windows open/save/reopen.
+Recomputing Geometry from the original source still has a precision discrepancy;
+its boundary alpha difference was reduced from 127 to 1. Mac Point Color crashed
 with Visualize Range enabled; its failure report is retained.
 
 After the uniform-fill transport and buffer-reuse correction, a fresh complete
@@ -82,7 +86,14 @@ preceding failed runs remain retained; this pass does not establish a universal
 display/driver fix. Production native checks passed separately on build
 `20261007-1007`. Source `0a85e89` also passed hosted CI: 698 native tests, 298 unit
 tests and 272 functional cases, with original ignores and hardware opt-ins kept
-separate. Phase 7 acceptance still awaits the remaining Mac pixel discrepancies.
+separate. Those package/performance results belong to `0a85e89`; the subsequent
+opacity correction is `e1cfcec`. Its local checks passed 679 engine tests,
+298 unit tests, three TypeScript checks, release WASM and seven renderer cases.
+Its [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37568673577)
+passed 699 native tests, 298 unit tests and 275 functional cases, with the ten
+original native ignores and 33 hardware opt-ins kept separate. Geometry
+attribution and final package/performance checks for the final rendering source
+remain open. Phase 7 is not yet accepted.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.
