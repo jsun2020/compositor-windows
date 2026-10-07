@@ -58,7 +58,8 @@ different decoders.
 - [ ] Complete original hardware performance gates; no changed budgets/retries.
 - [x] Rebuilt production portable with no test API, native real-file checks.
 - [x] Actual Mac 1.4.5 counterpart runs and returned evidence independently received.
-- [ ] Remaining counterpart discrepancies and actual Windows OS gestures.
+- [x] Real Windows native pickers and close/save/reopen via user-authorized scripts.
+- [ ] Remaining counterpart pixel discrepancies.
 - [x] Implementation documentation, commit/push, reviewed CI and main integration.
 - [ ] Final acceptance receipt after all remaining gates pass.
 
@@ -418,3 +419,47 @@ exists. Current local evidence, return integrity, the initial supplemental helpe
 failure and its restoration receipt remain under ignored build-artifacts paths.
 The Mac checklist need not be repeated. Hardware performance, counterpart pixel
 discrepancies and actual Windows OS gestures still prevent final acceptance.
+
+## User-authorized Windows script fallback, 2026-10-07
+
+The user explicitly authorized scripts when Computer Use failed, accepting that
+approach for the Windows checks. A new production 0010 run used CDP for application
+controls and PID/EXE-scoped Win32 control messages for actual native dialogs. It
+did not mock picker responses, synthesize drag/drop events or use a production
+test API. All fourteen Open, Save As and folder-selection dialogs completed.
+
+Five PSD/PSB inputs imported through real Open dialogs, with the text/unsupported
+adjustment conversion notices retained. Cancel Close, Escape and actual Save As
+Cancel kept the dirty document and exact viewport pixels. Discarding the final
+document cleared both layers and actual canvas. Exposure +1, one Undo/Redo,
+native disk save before closing and folder-picker reopen preserved the changed
+PSD viewport exactly. Actual Canon CR2 Cancel, Reset to As Shot, full import,
+native save/close and folder-picker reopen also passed with exact viewport pixels.
+Physical mouse input is not claimed or substituted into the receipt.
+
+The independent post-run audit verified all 64 frozen probe inputs, all 339 Mac
+return files and six imported copies/originals against their receipts. Three
+initial helper failures remain retained: waiting for busy to clear before closing
+the conversion report, the modern Save As edit's different control structure,
+and the standalone Folder edit. The corrected complete script passed in a fresh
+directory. Evidence and executable helpers are under
+`build-artifacts/phase7-script-dialogs-20261007`; the final run is
+`complete-folder-dialog-fixed`. No application source changed for this fallback.
+
+After the external display was disabled, the byte-identical retained frame
+diagnostic with unchanged browser assets measured a maximum 17.5 ms frame and
+11.8 ms readPixels wait; the preceding hundreds-of-milliseconds waits were not
+observed in that run. It is supplemental evidence and does not establish that
+dual screens caused the earlier failures.
+
+That concrete environment change and measurement justified one fresh complete
+original 29-case run, using the same immutable release WASM/browser assets and
+clean source `af6b0ce13b254472da4f435b32b85ba7ebbe7531` (runtime unchanged from
+98fa5a4). All 380 frozen source/assets/helper inputs verified before and after;
+all original assertions/budgets match f463b62. With one worker and zero retries,
+28 passed and one failed. The remaining strict assertion is 100 MP blank-layer
+fill result installation: 454 ms, required <450 ms. It remains a failure; no
+retry or budget change was added. The 25/4, 18/11 and 16/13 runs are preserved.
+The complete result is in `phase7-single-screen-performance-20261007/performance`.
+Actual Windows scripted dialog acceptance is complete; the remaining performance
+assertion and counterpart pixels still prevent declaring all Phase 7 complete.

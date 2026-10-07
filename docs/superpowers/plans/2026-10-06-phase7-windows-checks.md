@@ -1,10 +1,21 @@
-# Phase 7 Windows 人工验收
+# Phase 7 Windows 验收步骤
+
+2026-10-07：用户已授权用脚本完成 Windows 检查。真实系统文件选择器、
+取消保存、放弃并关闭、修改后保存重开、真实 Canon CR2 导入与保存重开已通过。
+脚本实际操作了 14 个原生对话框，应用内控件通过 CDP 操作，原生窗口通过
+仅限测试进程的控件消息操作；没有模拟文件选择器返回值，不声称物理鼠标输入。
+证据和可执行脚本保存在 `build-artifacts/phase7-script-dialogs-20261007`，
+最终完整运行是 `complete-folder-dialog-fixed`。下面保留具体操作步骤，用户无需重跑。
+
+当前开发包标记是 `COMPOSITOR_BUILD_0.8.0_20261007-0010`。完整原始 29 项性能
+最新结果为 28 通过 / 1 失败，一个 worker、零重试、原预算。剩余 100 MP 空白
+图层填充结果安装为 454 ms，要求小于 450 ms；跨平台像素差异也仍待处理。
 
 使用本次 Phase 7 开发便携包，完整解压，运行其中的 `Compositor.exe`。
 文件夹中必须保留 `CompositorRaw.exe`、三个 DLL 和 `LibRaw-notices`。
 旧的 0.8.0 发布包不包含这些新功能。
 
-测试文件位于 `build-artifacts/phase7-acceptance-20261006`。所有操作使用副本，
+测试文件位于 `build-artifacts/phase7-acceptance-20261006-order-fixed`。所有操作使用副本，
 输出保存到新建的 `Windows-return` 文件夹，不覆盖原 PSD、DNG 或 source.comp。
 将下面每项实际操作的成功、失败或缺少按钮记录在 `WINDOWS-RESULT.txt` 中。
 

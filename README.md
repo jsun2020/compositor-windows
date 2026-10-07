@@ -12,8 +12,9 @@ Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
 Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
 sensor RAW development. Mac counterparts have been received and independently
-checked; remaining pixel discrepancies, hardware performance and actual Windows
-OS gestures are still open. These features await a future release.
+checked; remaining pixel discrepancies and hardware performance are still open.
+Windows native file dialogs have passed the user-authorized scripted checks.
+These features await a future release.
 
 ## Download
 
@@ -50,12 +51,17 @@ The tested development portable has no test API. Native checks passed Camera Raw
 preview/cancel/history, Photoshop conversion notices, project close choices and
 real Canon EOS 40D sensor import. As Shot and Exposure +1 saved and reopened at
 3908 × 2602 with unchanged exported pixels. The supplied real PSD also matched
-its Mac export after correcting layer order. These checks use native file APIs
-with automated dialog input; actual OS picker gestures remain a separate gate.
+its Mac export after correcting layer order. Those earlier checks use native file
+APIs with supplied picker responses. Subsequent user-authorized scripts operated
+14 real Windows Open, Save As and folder-selection dialogs without mocking their
+responses. Five Photoshop imports, cancellation, discard/clear, edited PSD and
+actual CR2 save/close/reopen passed; reopened viewport pixels were unchanged.
+Application controls use CDP and native dialogs use process-scoped control
+messages, so these results do not claim physical mouse input.
 The new production portable also passed Point Color eyedropper, Visualize Range,
 OK, Undo/Redo and native disk save/reopen on an isolated working copy. The range
 overlay is excluded from the committed image. These controls were exercised
-through CDP; they do not establish actual OS mouse or picker gestures.
+through CDP; that supplemental Point Color check does not establish OS input.
 
 All 339 returned Mac files were independently checked. Fourteen returned projects
 opened, saved and reopened in the Windows engine with unchanged exports. The
@@ -64,9 +70,12 @@ Geometry's boundary alpha discrepancy was reduced from 127 to 1, but Geometry
 and two grouped PSD/PSB cases still differ in some pixels. Mac Point Color crashed
 with Visualize Range enabled; its failure report is retained.
 
-The latest complete original hardware suite passed 16 and failed 13 of 29 cases.
-The preceding 25/4 and 18/11 runs remain retained; timing budgets and the
-zero-retry policy are unchanged. Phase 7 acceptance is incomplete.
+After the user disabled the external display, a fresh complete original hardware
+suite passed 28 and failed one of 29 cases. The remaining 100 MP blank-layer fill
+result installation measured 454 ms against the original strict <450 ms budget.
+All 380 frozen inputs verified before and after; one worker and zero retries were
+used. The preceding 25/4, 18/11 and 16/13 runs remain retained. The improvement
+does not establish a single display/driver cause. Phase 7 acceptance is incomplete.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.
