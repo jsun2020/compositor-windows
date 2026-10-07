@@ -131,8 +131,27 @@ pub fn compose(dst: [f32; 4], src: [f32; 4], mode: BlendMode) -> [f32; 4] {
     out
 }
 
-pub fn compose_u8(dst: &mut [u8], src: [f32; 4], mode: BlendMode) {
+/// Single final quantization for covered sources and surface composition.
+/// `compose` retains the floating-point W3C/Core Image blend contract.
+pub fn compose_covered_u8(dst: &mut [u8], src: [f32; 4], mode: BlendMode) {
     let d = [dst[0] as f32 / 255.0, dst[1] as f32 / 255.0, dst[2] as f32 / 255.0, dst[3] as f32 / 255.0];
     let out = compose(d, src, mode);
     for i in 0..4 { dst[i] = (out[i] * 255.0).round().clamp(0.0, 255.0) as u8; }
+}
+
+/// Ordinary image layers at full coverage follow Core Graphics' RGBA8 Multiply
+/// draw: round the overlap separately from the combined non-overlap. This also
+/// applies to alpha. Partial coverage and surfaces use `compose_covered_u8`.
+/// The independent Mac matrix covers 1,296 full-coverage byte pairs.
+pub fn compose_u8(dst: &mut [u8], src: [f32; 4], mode: BlendMode) {
+    if mode != BlendMode::Multiply {
+        compose_covered_u8(dst, src, mode);
+        return;
+    }
+    let ad = dst[3] as f32;
+    for i in 0..4 {
+        let overlap = (src[i] * dst[i] as f32).round();
+        let non_overlap = (src[i] * (255.0 - ad) + dst[i] as f32 * (1.0 - src[3])).round();
+        dst[i] = (overlap + non_overlap).clamp(0.0, 255.0) as u8;
+    }
 }

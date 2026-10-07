@@ -303,7 +303,11 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         // the existing interpolation path; adjustments use their own kernels.
         for v in &mut s { *v = if k < 1.0 { (*v * k * 255.0).round() / 255.0 } else { *v * k }; }
         let i = ((oy * target.w + ox) * 4) as usize;
-        compose_u8(&mut target.data[i..i + 4], s, blend);
+        if k == 1.0 {
+            compose_u8(&mut target.data[i..i + 4], s, blend);
+        } else {
+            compose_covered_u8(&mut target.data[i..i + 4], s, blend);
+        }
     }}
 }
 
@@ -445,7 +449,7 @@ fn draw_stack(doc: &Document, plan: &RenderPlan, target: &mut Target, base: &Lay
         let k = coverages_at(doc, folder, p);
         if k <= 0.0 { continue; }
         let s = [temp[i] as f32 / 255.0 * k, temp[i + 1] as f32 / 255.0 * k, temp[i + 2] as f32 / 255.0 * k, temp[i + 3] as f32 / 255.0 * k];
-        compose_u8(&mut target.data[i..i + 4], s, base.blend);
+        compose_covered_u8(&mut target.data[i..i + 4], s, base.blend);
     }}
 }
 

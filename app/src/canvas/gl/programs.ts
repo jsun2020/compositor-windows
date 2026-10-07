@@ -156,7 +156,15 @@ void main() {
   // undefined; the value feeds compose() and would corrupt clipping coverage on any backend
   // that does not happen to return zero.
   vec4 d = useBackdrop ? texelFetch(backdrop, at, 0) : vec4(0.0);
-  color = compose(d, s, mode);
+  // Full-coverage ordinary Multiply rounds the overlap and combined non-overlap
+  // separately, including alpha (independent Core Graphics byte oracle).
+  if (k == 1.0 && mode == 1) {
+    vec4 overlap = floor(s * d * 255.0 + 0.5);
+    vec4 nonOverlap = floor((s * (1.0 - d.a) + d * (1.0 - s.a)) * 255.0 + 0.5);
+    color = clamp((overlap + nonOverlap) / 255.0, 0.0, 1.0);
+  } else {
+    color = compose(d, s, mode);
+  }
 }`;
 const FRAG_COVERAGE = `#version 300 es
 precision highp float;

@@ -661,3 +661,58 @@ Evidence is retained in `precision-123334-analysis`, alongside
 previous full-opacity Multiply controls remain open. Final production and
 original performance verification must use the resolved rendering source.
 Phase 7 remains incomplete, and the stable 0.8.0 release remains unchanged.
+
+## Received coordinate and blend controls, 2026-10-07 14:07
+
+`Mac-coordinate-blend-20261007-140755` contains 27 received files, 18 image
+records and 7,776 independent blend cases. All three reported input hashes match
+the four-file delivered package; its ZIP and every packaged byte are unchanged.
+The float-field identity retains its original row orientation. The two original
+PNG controls exactly match the previous precision return, and all 72 repeated
+blend cases exactly match the first pixel diagnostic. Copy controls confirm all
+39 distinct premultiplied source/backdrop tuples materialize unchanged.
+
+The complete full-opacity Multiply matrix supports rounding the overlap and the
+combined non-overlap independently, including alpha. This general formula
+matches all 1,296 full-opacity pairs. At opacity 254/255 the covered source and
+single final rounding match all 1,296 Multiply pairs instead. Normal and Screen
+remain exact at both opacity values. No tuple exception or expected pixel
+generated from Windows is used.
+
+The CPU byte draw and WebGL ordinary layer shader now follow this distinction.
+`compose_u8` applies the full-coverage byte contract; `compose_covered_u8` preserves
+the single final quantization for covered sources and surface composition, and
+the floating-point `compose` contract is preserved. The first full native run
+retained one existing effects assertion failure: its expected byte draw still
+used the old public byte helper. Unifying the helper and full-coverage layer
+draw corrected that inconsistency without editing the existing effects test or
+its assertions. The corrected full engine run passes 681 tests, zero failures
+and ten original ignores. All 298 unit tests and three TypeScript checks pass.
+
+The new public synthetic oracle and Swift reproducer contain all 7,776 received
+cases. Six browser matrix tests check every CPU/GPU result and independently
+verify that importing their PNGs preserves each premultiplied input. Together
+with the three original opacity-oracle tests, the final release-WASM build after
+the byte-helper API refactor passes nine cases with one worker and zero retries.
+Its build, browser logs and exact-source hosted verification are recorded
+separately in `coordinate-140755-analysis-v2`. Fresh PSD and PSB imports remain exact across
+163,840 pixels each. Fourteen returned Mac projects remain pixel-exact across
+22,121,472 pixels after native disk save/reopen; these saved pixels do not prove
+recomputation of Geometry from the original source.
+
+The returned float field and byte checker share the same quantized sample phases:
+the interior coordinate field itself only measures a 1/256-pixel grid. Candidate
+perspective arithmetic fits therefore remain diagnostic and are not promoted
+to production. The new `Mac-generator-coordinates` package uses a public color
+kernel without an input texture alongside bitmap and original-PNG controls.
+Its translation control will measure whether kernel concatenation supplies
+continuous coordinates; neither fusion nor its precision is assumed. All
+parameters are embedded, and its Chinese instructions require one Terminal
+command. ZIP CRC, every archived byte and Bash syntax pass; actual Swift
+execution remains a Mac-side requirement.
+
+The five earlier full-opacity Multiply controls are resolved by the independent
+matrix. Original Geometry still has 27 differing pixels with a maximum delta of
+one byte. Final production-package and original hardware-performance checks must
+use the resolved rendering source. Phase 7 remains incomplete; stable 0.8.0 is
+unchanged, and no original pixel assertion, timing budget or retry was relaxed.

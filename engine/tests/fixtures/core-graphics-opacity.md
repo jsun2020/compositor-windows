@@ -15,3 +15,7 @@ as passing the floating-point blend contract here. The tested matrix covers all
 The CPU and GPU tests require exact RGBA8 equality to these independent results.
 Do not regenerate expected bytes from the Windows renderer or relax assertions
 to hide a mismatch. Preserve the original Mac diagnostic when changing an oracle.
+
+The later [full-coverage matrix](core-graphics-full-coverage.md) independently
+resolves those twelve excluded controls, including the five differing cases.
+The original 204 rows and their assertions remain unchanged.
