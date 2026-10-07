@@ -149,7 +149,8 @@ void main() {
     sampled = texture(tex, uv);
 #endif
   }
-  vec4 s = sampled * k;
+  // The covered source is RGBA8 before blend, as in the CPU layer draw.
+  vec4 s = k < 1.0 ? floor(sampled * k * 255.0 + 0.5) / 255.0 : sampled * k;
   // Without a backdrop the target is a cleared buffer, so the destination is known to be zero.
   // Fetching it anyway would read outside the 1x1 placeholder, which GLSL ES 3.00 leaves
   // undefined; the value feeds compose() and would corrupt clipping coverage on any backend

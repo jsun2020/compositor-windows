@@ -297,7 +297,11 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
         if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
         if k <= 0.0 { continue; }
-        for v in &mut s { *v *= k; }
+        // Core Graphics draws the opacity/mask-covered source through RGBA8
+        // before source-over. Keeping fractional source bytes changes a later
+        // Multiply (and even Normal) result by one level. Full coverage keeps
+        // the existing interpolation path; adjustments use their own kernels.
+        for v in &mut s { *v = if k < 1.0 { (*v * k * 255.0).round() / 255.0 } else { *v * k }; }
         let i = ((oy * target.w + ox) * 4) as usize;
         compose_u8(&mut target.data[i..i + 4], s, blend);
     }}
