@@ -101,6 +101,15 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       if (request.kind === "edit") unused.push(request.outputPixels ?? null);
       if (request.kind === "warpResult") unused.push(...request.tiles.map(t => t.pixels));
     }
+    if (request.kind === "edit" && result.pixels === null && result.header) {
+      const output=JSON.parse(result.header) as {uniformPixels?:number[];pixels?:[number,number]};
+      if(output.uniformPixels&&output.pixels){
+        const size=output.pixels[0]*output.pixels[1]*4;
+        // Preserve the ordinary result's exact-size spare without copying pixels
+        // into it. Later edits borrow it only as output capacity, never as input.
+        if(![request.pixels,request.outputPixels??null].some(b=>b?.byteLength===size))unused.push(new ArrayBuffer(size));
+      }
+    }
     const recycled = [...new Set(unused)].filter((b): b is ArrayBuffer =>
       b !== null && b.byteLength >= 4 * 1024 * 1024 && !returned.includes(b));
     const transfer = [...new Set([...returned, ...recycled].filter((b): b is ArrayBuffer => b !== null))];
