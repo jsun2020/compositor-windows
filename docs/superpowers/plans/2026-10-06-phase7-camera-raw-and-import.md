@@ -55,7 +55,7 @@ different decoders.
 - [x] Supplied real PSD and its Mac project/export counterpart verified.
 - [x] Actual public camera RAW sensor development, bounded preview and full import.
 - [x] Complete original source gates and exact-source hosted CI.
-- [ ] Complete original hardware performance gates; no changed budgets/retries.
+- [x] Complete original hardware performance gates; no changed budgets/retries.
 - [x] Rebuilt production portable with no test API, native real-file checks.
 - [x] Actual Mac 1.4.5 counterpart runs and returned evidence independently received.
 - [x] Real Windows native pickers and close/save/reopen via user-authorized scripts.
@@ -463,3 +463,77 @@ retry or budget change was added. The 25/4, 18/11 and 16/13 runs are preserved.
 The complete result is in `phase7-single-screen-performance-20261007/performance`.
 Actual Windows scripted dialog acceptance is complete; the remaining performance
 assertion and counterpart pixels still prevent declaring all Phase 7 complete.
+
+## Uniform-fill correction and current Windows acceptance, 2026-10-07
+
+Source `0a85e8976ca8d260a0a3269841d3d63c1646ed18` completes the current Windows
+checkpoint. A worker Fill result is encoded as four RGBA bytes only after every
+actual result pixel has been checked equal. The client expands it cooperatively
+into the existing staged allocation, retaining the original dimensions, display
+halving, stamp, cancellation and history checks. Partial/nonuniform fills keep
+their ordinary payload. The worker also preserves the original exact-size spare
+as output capacity, without treating its untouched contents as input pixels.
+
+Hosted run [37560460816](https://github.com/jsun2020/compositor-windows/actions/runs/37560460816)
+passed 698 native workspace cases, 298 unit cases in 43 files and 272 functional
+cases. Ten native ignores and 33 hardware opt-ins remain separate. Release WASM,
+three type checks, the actual sensor helper and packaging regressions passed.
+The preceding `3bbf010` hosted run failed the original spare-buffer assertion;
+that failure is retained and the assertion was unchanged for the correction.
+The two new actual-worker cases verify every filled/selected/unselected pixel
+and one Undo/Redo. A local integration run also retained a first-test engine
+startup timeout; an earlier static-preview helper could not load the original
+GPU tests' source modules and was stopped. Neither run is claimed as a complete
+functional pass or substituted for the successful full hosted suite.
+
+The clean production portable `COMPOSITOR_BUILD_0.8.0_20261007-1007` uses this
+source and release WASM SHA256
+`2261eb46d52786265a24bd2c9ee692d43aa5fe7810029bff10bec077f6c273e5`.
+All eleven ZIP entries passed CRC, size, hash, native component, dependency and
+license checks. A production run with no test API completed sixteen real Open,
+Save As and folder-selection dialogs, the original Photoshop conversion notices,
+close/cancel/discard/clear, Exposure +1 with one Undo/Redo, and actual Canon CR2
+Cancel/As Shot/native save/reopen. A 2560 x 2560 keyboard Fill also passed one
+Undo/Redo and actual native save/reopen; all 6,553,600 stored RGBA pixels were
+exactly opaque black.
+
+The new native helpers initially failed a Save As cancellation and then an Open
+button action. Both control-message failures remain retained. The corrected
+helper invokes the observed PID/EXE-scoped native button's UI Automation pattern
+once, while the file-name Edit uses Win32 messages. All original process, path,
+button, closure and application-state assertions remain. The reused protocol's
+generic Win32 scope label is clarified by each dialog's `actionMessage` and the
+final receipt. Application controls use CDP; physical mouse input is not claimed.
+The final audit verified the four helpers, all portable entries, 64 frozen probe
+inputs, all 339 original Mac return files and six imported originals/copies.
+All 17,178,711 decoded RAW and edited-PSD layer pixels also matched the preceding
+accepted native checkpoint.
+
+After the owned build and native process had finished, a fresh complete original
+29-case performance run passed 29, failed zero and skipped zero in 492.8 seconds.
+All 381 frozen source/assets/helper inputs verified before and after. The five
+original specification files match `f463b62`; workers remained one, retries zero,
+and every assertion/budget was unchanged. Both environment snapshots measured
+one active logical display and zero compilers. The browser worker bytes match
+the production worker; the timing run uses frozen browser assets and release
+WASM, while production native acceptance remains a separate receipt. The 100 MP
+blank-layer Fill install took 244 ms against the original strict <450 ms budget.
+Earlier 28/1, 27/2, 22/7 and other failed complete runs remain unchanged. This
+checkpoint does not establish a universal cause or cure for intermittent stalls.
+
+Evidence is retained under `build-artifacts/phase7-uniform-capacity-*`; the
+combined receipt is `phase7-uniform-capacity-build-20261007/final-checkpoint.json`.
+The stable 0.8.0 release remains immutable. The original hardware and current
+production Windows gates are complete; Phase 7 is still incomplete because
+Geometry and the grouped PSD/PSB pixel discrepancies remain open.
+
+An automatic Mac diagnostic is prepared under
+`build-artifacts/phase7-pixel-attribution-20261007/Mac-diagnostic`, with Chinese
+instructions and a ZIP alongside the folder. It requires no Photoshop or manual
+Compositor parameter edits. Three Geometry probes record Core Image provider and
+drawn premultiplied bytes; 216 single-pixel Core Graphics cases isolate opacity
+and blend rounding. Its four input files remain unchanged. Windows checked the
+script contents and Bash syntax, but the Swift program has not yet compiled or
+run on the Mac. No output or guessed rounding rule is treated as accepted proof.
+The returned diagnostic is required before resolving those counterpart pixels
+and writing the final all-gates acceptance receipt.

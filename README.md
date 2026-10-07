@@ -12,7 +12,8 @@ Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
 Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
 sensor RAW development. Mac counterparts have been received and independently
-checked; remaining pixel discrepancies and hardware performance are still open.
+checked; remaining pixel discrepancies are still open. The complete original
+hardware performance suite passed on the tested single-display Windows desktop.
 Windows native file dialogs have passed the user-authorized scripted checks.
 These features await a future release.
 
@@ -53,12 +54,14 @@ real Canon EOS 40D sensor import. As Shot and Exposure +1 saved and reopened at
 3908 × 2602 with unchanged exported pixels. The supplied real PSD also matched
 its Mac export after correcting layer order. Those earlier checks use native file
 APIs with supplied picker responses. Subsequent user-authorized scripts operated
-14 real Windows Open, Save As and folder-selection dialogs without mocking their
+16 real Windows Open, Save As and folder-selection dialogs without mocking their
 responses. Five Photoshop imports, cancellation, discard/clear, edited PSD and
 actual CR2 save/close/reopen passed; reopened viewport pixels were unchanged.
-Application controls use CDP and native dialogs use process-scoped control
-messages, so these results do not claim physical mouse input.
-The new production portable also passed Point Color eyedropper, Visualize Range,
+The current package also passed a 6.5 MP keyboard fill, one Undo/Redo and real
+save/reopen; all 6,553,600 saved pixels were checked exactly. Application controls
+use CDP; process-scoped Win32 edits and UI Automation button invocation operate
+native dialogs. These results do not claim physical mouse input.
+The earlier 0010 production portable also passed Point Color eyedropper, Visualize Range,
 OK, Undo/Redo and native disk save/reopen on an isolated working copy. The range
 overlay is excluded from the committed image. These controls were exercised
 through CDP; that supplemental Point Color check does not establish OS input.
@@ -70,12 +73,16 @@ Geometry's boundary alpha discrepancy was reduced from 127 to 1, but Geometry
 and two grouped PSD/PSB cases still differ in some pixels. Mac Point Color crashed
 with Visualize Range enabled; its failure report is retained.
 
-After the user disabled the external display, a fresh complete original hardware
-suite passed 28 and failed one of 29 cases. The remaining 100 MP blank-layer fill
-result installation measured 454 ms against the original strict <450 ms budget.
-All 380 frozen inputs verified before and after; one worker and zero retries were
-used. The preceding 25/4, 18/11 and 16/13 runs remain retained. The improvement
-does not establish a single display/driver cause. Phase 7 acceptance is incomplete.
+After the uniform-fill transport and buffer-reuse correction, a fresh complete
+original hardware suite passed **29/29** on one active Windows display. The
+100 MP blank-layer fill result installation measured 244 ms against the original
+strict <450 ms budget. All 381 frozen inputs verified before and after; one
+worker and zero retries were used, with unchanged assertions and budgets. The
+preceding failed runs remain retained; this pass does not establish a universal
+display/driver fix. Production native checks passed separately on build
+`20261007-1007`. Source `0a85e89` also passed hosted CI: 698 native tests, 298 unit
+tests and 272 functional cases, with original ignores and hardware opt-ins kept
+separate. Phase 7 acceptance still awaits the remaining Mac pixel discrepancies.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.
