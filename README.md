@@ -10,15 +10,11 @@ Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
 tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
 Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
-Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
-sensor RAW development. Mac counterparts have been received and independently
-checked; the four original Camera Raw recipes and grouped PSD/PSB exports now
-match exactly. The corrected production package and Windows native file dialogs
-passed the user-authorized scripted checks. Its complete original hardware suite
-passed 21 cases and failed eight timing assertions on the tested single-display
-Windows desktop; performance acceptance remains open. The earlier 29/29 pass
-belongs to the preceding uniform-fill checkpoint.
-These features await a future release.
+Phase 7 development acceptance is complete on the tested single-display
+Windows desktop and received Compositor for Mac 1.4.5 samples. Camera Raw,
+layered PSD/PSB import and camera sensor RAW development passed their scoped
+checks. The corrected source passed the original 29-case hardware suite and
+separate native production-package checks. These features await a future release.
 
 ## Download
 
@@ -109,12 +105,41 @@ and Canon CR2 save/reopen. Its Geometry export matches the independently
 Mac-verified native export byte for byte. These package checks are separate
 from CI's skipped portable step.
 
-The corrected-source hardware run retained all 587 frozen inputs before and
-after, one worker, zero retries and every original assertion/budget. It passed
-21/29; eight timing failures remain recorded. Supplemental frame attribution
-captured a 517 ms GPU readback wait with approximately 0.7 ms in application
-rendering, without establishing a cause for all failures. Performance acceptance
-remains open. Phase 7 is not yet accepted.
+The earlier corrected-Geometry hardware run retained all 587 frozen inputs
+before and after, one worker, zero retries and every original assertion/budget.
+It passed 21/29; all eight timing failures remain recorded. Supplemental frame
+attribution captured a 517 ms GPU readback wait with approximately 0.7 ms in
+application rendering, without establishing a cause for all failures. Later
+source checkpoints and their timing failures are retained separately.
+
+The final runtime source `f6b244e` passed [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37793833855):
+713 native tests, 301 unit tests and 285 functional cases, retaining ten native
+ignores and 33 hardware opt-ins. The original complete local hardware suite
+passed **29/29** with 597 frozen source/assets/helper inputs verified before and
+after, one worker, zero retries and unchanged assertions and budgets. An
+independent read-only monitor recorded 1716 unlocked
+session samples covering the complete wrapper run; state between samples is
+not claimed.
+
+The rebuilt production portable `20261008-2247` passed all
+11-file package, ZIP CRC/hash, decoder/license and clean-source receipt checks.
+Four original Camera Raw exports remain exactly equal between release WASM and
+the independently Mac-verified native PNGs. Its production WebView2 has no test
+API. Camera Raw Geometry Apply/Undo/Redo/export, fourteen real native dialogs,
+Photoshop edit/save/reopen and real Canon sensor RAW development/save/reopen
+passed separately; all 64 original probes retain their hashes.
+
+Exact uniform and bounded-palette transport, bulk copies of repeated indices,
+opaque painting and reuse of unchanged GPU composition avoid unnecessary work
+while retaining every stored byte. Mixed indices keep the tight decoder loop.
+The 192 independent pre-optimization paint references and seven indexed decoder
+boundary/atomicity cases pass. Earlier 21/29, 27/29, 26/29 and 25/29 runs,
+startup and supplemental diagnostic failures remain retained. The stable
+0.8.0 release has not been replaced.
+
+Development package: `Compositor-portable-0.8.0-20261008-2247.zip`.
+ZIP SHA256: `5a6af7176740409755cd07239bc2a27005a478b53525d25451c41e8d8c1f4c3b`.
+
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.

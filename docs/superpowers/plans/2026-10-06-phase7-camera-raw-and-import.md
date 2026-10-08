@@ -56,13 +56,13 @@ different decoders.
 - [x] Actual public camera RAW sensor development, bounded preview and full import.
 - [x] Complete original source gates and exact-source hosted CI.
 - [x] Original hardware performance checkpoint `0a85e89`; no changed budgets/retries.
-- [ ] Complete original hardware gates on the corrected Geometry source.
+- [x] Complete original hardware gates on the corrected Geometry source.
 - [x] Rebuilt production portable with no test API, native real-file checks.
 - [x] Actual Mac 1.4.5 counterpart runs and returned evidence independently received.
 - [x] Real Windows native pickers and close/save/reopen via user-authorized scripts.
 - [x] Remaining counterpart pixel discrepancies.
 - [x] Implementation documentation, commit/push, reviewed CI and main integration.
-- [ ] Final acceptance receipt after all remaining gates pass.
+- [x] Final acceptance receipt after all remaining gates pass.
 
 Each checkpoint must state what passed and what is still open. Do not mark
 Phase 7 complete from source tests alone. Preserve user files, old failures,
@@ -827,3 +827,80 @@ Package/pixel/native receipts are under
 `build-artifacts/phase7-final-frame-diagnostic-20261008-baseline`. Corrected-source
 hardware acceptance and the final all-gates receipt remain open. Phase 7 is not
 accepted, and the immutable stable 0.8.0 release remains unchanged.
+
+
+## Final scoped Phase 7 acceptance, 2026-10-08
+
+Runtime source `f6b244ea2f53464e6002338cfd4cba336647c863` completes the remaining corrected-source hardware
+and final-receipt gates. [Exact-source CI](https://github.com/jsun2020/compositor-windows/actions/runs/37793833855) passed 713 native,
+301 unit and 285 functional cases. Ten original native ignores and 33
+hardware opt-ins remain separate; the hosted production-portable step was
+skipped and local package/runtime checks were completed independently.
+
+The complete original hardware suite passed 29/29 with one worker, zero
+retries and all original assertions/budgets unchanged. All 597 frozen source,
+release-WASM/browser and helper inputs verified before and after. The
+independent nominal-200-ms WTS monitor recorded 1716
+unlocked samples covering the complete wrapper run. Both environment snapshots
+reported one logical display, zero compilers and no owned native debug port.
+State between samples is not claimed.
+
+The source checkpoints specialize general pixel loops without changing camera
+arithmetic: canvas bounds proved once per edit, fully opaque paint, bounded
+lossless uniform/palette transport, bulk copies of repeated indices and reuse
+of unchanged GPU composition. Changing-index blocks retain the tight word-store
+loop. The 192 pre-optimization complete paint references and seven index-depth,
+chunk, run/raw-boundary and malformed-tail cases pass. Supplemental diagnostics
+are retained separately and are not substitutes for the original suite.
+
+The initial 43889c0 startup refused two displays before any case ran. After
+restoring the user-requested single display, its complete original suite retained
+25 passes and four failures with 597 inputs intact: Levels installation 490 ms,
+24 MP worker frame gap 460 ms, gradient-tool installation 532 ms and blank-layer
+gradient installation 474 ms. Its 720-second monitor recorded only unlocked
+samples but ended before the 17.3-minute wrapper completed. It is retained as
+failed/incomplete evidence. The new wrapper uses the unchanged monitor's
+supported 1800-second observation window and stops after covering the run;
+no application assertion or timing budget changed. The first bulk-decoder
+candidate's changing-index diagnostic regression was fixed in a subsequent
+source commit. Its diagnostic setup and reporter-argument failures are retained.
+
+Current production package: `COMPOSITOR_BUILD_0.8.0_20261008-2247`.
+ZIP: `Compositor-portable-0.8.0-20261008-2247.zip`.
+ZIP SHA256: `5a6af7176740409755cd07239bc2a27005a478b53525d25451c41e8d8c1f4c3b`.
+WASM SHA256: `fa5532fc43b43fc1d88d6163e4706038082c4d375e95743ed55c7ef1d4ff6f4b`.
+All eleven staged entries, CRCs, source identity, decoder/runtime licenses and
+production/browser WASM/worker equality pass. The package has no test API.
+The original Camera Raw/native protocol, Geometry seven-parameter Apply/
+Undo/Redo/export and fourteen actual file dialogs pass. Five Photoshop imports,
+Save As cancellation, discard/clear, edited PSD and real Canon CR2 development/
+save/close/reopen pass; 64 probe files are unchanged. Application controls use
+CDP and dialogs use PID-scoped Win32/UI Automation, rather than a claim of
+physical mouse input.
+
+All four original Camera Raw recipes remain Mac/Rust byte-exact over 655,360
+pixels and current release-WASM PNG bytes equal native output. The independent
+14-project disk-reopen and two grouped Photoshop comparisons remain retained;
+339 original Mac returns, 65 acceptance inputs, 15 first-diagnostic return files
+and four later diagnostic inputs retain their hashes. Core Image arithmetic
+keeps its documented measured hardware/domain limits. LibRaw sensor development
+does not claim Apple CIRAWFilter byte equality or universal camera coverage.
+
+Full JSON/Markdown receipts are retained in
+`build-artifacts/phase7-indexed-runs-20261008`; complete original timing evidence
+is in `build-artifacts/phase7-final-performance-20261008-indexed-single-screen`.
+The current f6b244e startup also refused two active displays before any
+performance case ran; the independent final run follows a captured restoration
+to the user-requested internal display.
+
+The current native protocol first retained a folder-picker control-message
+failure after the PSD save completed. An independent same-package diagnostic
+confirmed that invoking the observed Select Folder button through PID-scoped
+native UI Automation closes the picker and loads the saved two-layer project.
+A subsequent Open button also ignored the old message action. Native Invoke
+is used for all observed buttons. The corrected helper preserves the complete
+original fourteen-dialog protocol
+and all pixel/input assertions; the failure and both diagnostic records remain.
+
+All earlier failures remain intact. Phase 7 is accepted within this measured
+scope. Stable 0.8.0 remains immutable; Phase 6/7 features await a future release.
