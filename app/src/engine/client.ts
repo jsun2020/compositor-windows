@@ -1,6 +1,7 @@
 import init, { WasmEngine } from "./pkg/compositor_engine.js";
 import {releaseJobResult} from "./jobs";
 import {takeJobBuffer} from "./job-buffers";
+import {validatePalettePixels} from "./palette-pixels";
 import type { Command, Dirty, DocumentState, LayerAdjustment, LayerTransform, LevelsAuto, LevelsSample, LevelsSettings, PackageFiles, PixelRect, PreviewEdit, PreviewRequest, RenderPlan, SpatialBlur, SpatialGrid } from "./types";
 
 /** `[x, y, width, height]` from the engine as a rectangle; an empty array as null (take it whole). */
@@ -218,7 +219,7 @@ export class EngineClient {
   }
   async installJobAsync(doc:string,layer:string,input:string,output:string,pixels:ArrayBuffer|null,mask:ArrayBuffer|null,display:ArrayBuffer|null=null,preview=false,valid:()=>boolean=()=>true):Promise<Dirty>{
     // One small FFI copy is cheaper than staging; keep the established install path.
-    if(!preview&&!output.includes('"uniformPixels"')&&(pixels?.byteLength??0)+(mask?.byteLength??0)+(display?.byteLength??0)<=4*1024*1024){if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=this.installJob(doc,layer,input,output,pixels,mask,display);this.lastInstallCpuMs=performance.now()-t;return dirty;}
+    if(!preview&&!output.includes('"uniformPixels"')&&!output.includes('"palettePixels"')&&(pixels?.byteLength??0)+(mask?.byteLength??0)+(display?.byteLength??0)<=4*1024*1024){if(!valid())throw Error("The preview was cancelled");const t=performance.now(),dirty=this.installJob(doc,layer,input,output,pixels,mask,display);this.lastInstallCpuMs=performance.now()-t;return dirty;}
     const before=this.installQueue;let release!:()=>void;this.installQueue=new Promise<void>(r=>{release=r;});await before;
     try{
       const dirty=await this.stageJob(doc,layer,input,output,pixels,mask,display,preview,valid);
@@ -232,9 +233,17 @@ export class EngineClient {
     const began=performance.now();this.lastInstallCpuMs=0;
     if(!valid())throw Error("The preview was cancelled");
     const stamp=JSON.stringify((JSON.parse(input) as {stamp:unknown}).stamp),buffers=[pixels,mask,display];
-    const encoded=JSON.parse(output) as {uniformPixels?:unknown;pixels?:[number,number]};
+    const encoded=JSON.parse(output) as {uniformPixels?:unknown;palettePixels?:unknown;pixels?:[number,number]};
     const uniform=encoded.uniformPixels;
+    const palette=encoded.palettePixels;
     let pixelBytes=pixels?.byteLength??0;
+    if(uniform!==undefined&&palette!==undefined)throw Error("Ambiguous job pixel encoding");
+    let indexed:{bytes:Uint8Array;depth:1|2}|null=null;
+    if(palette!==undefined){
+      const size=encoded.pixels;
+      if(!Array.isArray(size)||size.length!==2||!size.every(n=>Number.isInteger(n)&&n>0)||size[0]*size[1]>100_000_000)throw Error("Invalid palette job pixels");
+      indexed=validatePalettePixels(palette,pixels,size[0]*size[1]);pixelBytes=size[0]*size[1]*4;
+    }
     if(uniform!==undefined){
       const size=encoded.pixels;
       if(pixels!==null||!Array.isArray(uniform)||uniform.length!==4||!uniform.every(c=>Number.isInteger(c)&&c>=0&&c<=255)
@@ -247,9 +256,10 @@ export class EngineClient {
     try{
       let start=began;
       if(performance.now()-start>=8){await new Promise<void>(r=>requestAnimationFrame(()=>r()));start=performance.now();if(!valid())throw Error("The preview was cancelled");}
-      for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane],solid=plane===0&&Array.isArray(uniform)?uniform:null,lengthOfPlane=solid?pixelBytes:b?.byteLength??0;
+      for(let plane=0;plane<buffers.length;plane++){const b=buffers[plane],solid=plane===0&&Array.isArray(uniform)?uniform:null,table=plane===0?indexed:null,lengthOfPlane=solid||table?pixelBytes:b?.byteLength??0;
         for(let at=0;at<lengthOfPlane;at+=4*1024*1024){const t=performance.now(),length=Math.min(4*1024*1024,lengthOfPlane-at);
           if(solid)this.wasm.repeat_staged_pixels(solid[0],solid[1],solid[2],solid[3],length);
+          else if(table)this.wasm.append_staged_palette(table.bytes,new Uint8Array(b!,at/4*table.depth,length/4*table.depth));
           else this.wasm.append_staged_install(plane,new Uint8Array(b!,at,length));
           this.lastInstallCpuMs+=performance.now()-t;
           if(!valid())throw Error("The preview was cancelled");

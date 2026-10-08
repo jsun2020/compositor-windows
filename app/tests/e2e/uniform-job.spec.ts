@@ -37,7 +37,7 @@ test("uniform and selected Levels worker results match every in-place byte with 
   });
   for (const row of rows) {
     expect(row.error).toBeNull(); expect(row.exact).toBe(true); expect(row.oneStep).toBe(true); expect(row.undoExact).toBe(true); expect(row.redoExact).toBe(true);
-    if (row.selected) { expect(row.receipt.header.uniformPixels).toBeUndefined(); expect(row.receipt.bytes).toBe(2048*513*4); }
+    if (row.selected) { expect(row.receipt.header.uniformPixels).toBeUndefined(); expect(row.receipt.header.palettePixels).toHaveLength(8); expect(row.receipt.bytes).toBe(2048*513); }
     else { expect(row.receipt.header.uniformPixels).toHaveLength(4); expect(row.receipt.bytes).toBe(0); }
   }
 });

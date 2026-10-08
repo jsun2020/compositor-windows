@@ -4,6 +4,7 @@ import { initSync, WasmEngine } from "./pkg/compositor_engine.js";
 import type { FromWorker, JobRequest, JobResult, ToWorker } from "./jobs";
 import { renderText } from "../tools/text-raster";
 import type { TextStyle } from "../tools/text-style";
+import { encodePalettePixels } from "./palette-pixels";
 
 let engine: WasmEngine | null = null;
 let memory: WebAssembly.Memory | null = null;
@@ -63,8 +64,14 @@ function run(request: JobRequest): JobResult {
         // filled layer must never be inferred to be solid from the command alone.
         const uniform=engine!.job_buffer_len(false)>4*1024*1024
           ? engine!.job_uniform_pixels() : undefined;
-        return {header:uniform?JSON.stringify({...JSON.parse(header),uniformPixels:Array.from(uniform)}):header,
-          pixels:uniform?null:kept(false,request.pixels??request.outputPixels??null),mask:kept(true,request.mask),display:keptDisplay()};
+        // Fill retains its established uniform/raw protocol. Other large edits
+        // may use a byte-exact palette after inspecting the complete output.
+        const length=engine!.job_buffer_len(false);
+        const pointer=engine!.job_buffer_ptr(false);
+        const palette=!uniform&&length>4*1024*1024&&(JSON.parse(request.command) as {type:string}).type!=="Fill"
+          ? encodePalettePixels(new Uint8Array(memory!.buffer,pointer,length)) : null;
+        return {header:uniform?JSON.stringify({...JSON.parse(header),uniformPixels:Array.from(uniform)}):palette?JSON.stringify({...JSON.parse(header),palettePixels:palette.palette}):header,
+          pixels:uniform?null:palette?palette.indices:kept(false,request.pixels??request.outputPixels??null),mask:kept(true,request.mask),display:keptDisplay()};
       } finally { engine!.release_job(); }
     }
     case "histogram":

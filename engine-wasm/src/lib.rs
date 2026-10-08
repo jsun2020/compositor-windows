@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 mod uniform;
+mod indexed;
 
 #[wasm_bindgen]
 pub struct WasmEngine {
@@ -198,6 +199,10 @@ impl WasmEngine {
         Ok(())
     }
     pub fn cancel_staged_install(&mut self){self.staged=None;}
+    pub fn append_staged_palette(&mut self,palette:Vec<u8>,indices:Uint8Array)->Result<(),JsError>{
+        let Some((pixels,_,_,sizes))=&mut self.staged else{return Err(JsError::new("no staged edit"));};
+        indexed::append(pixels,sizes[0],&palette,&indices.to_vec()).map_err(JsError::new)
+    }
     /// Expand a lossless uniform payload in bounded chunks, with the same
     /// reservation, completeness and final LayerStamp gates as ordinary bytes.
     pub fn repeat_staged_pixels(&mut self, red:u8, green:u8, blue:u8, alpha:u8, length:usize)->Result<(),JsError>{

@@ -159,16 +159,28 @@ fn paint_grid_channels<const CHANNELS: usize>(doc: &Document, data: &mut [u8], w
 }
 
 fn paint_grid_ramp<const CHANNELS: usize, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
-    // Likewise, the presence of a selection is fixed for the whole grid. The
-    // uncovered loop needs no per-pixel Option branch or coverage lookup.
-    if coverage.is_some() {
-        paint_grid_sample::<CHANNELS, true, F>(doc, data, width, height, transform, coverage, paint, sample)
+    let opaque = match paint {
+        Paint::Fill(_) => true,
+        Paint::Gradient(g) => g.from[3] == 1.0 && g.to[3] == 1.0 && g.opacity == 1.0,
+    };
+    if opaque {
+        paint_grid_coverage::<CHANNELS, true, F>(doc, data, width, height, transform, coverage, paint, sample)
     } else {
-        paint_grid_sample::<CHANNELS, false, F>(doc, data, width, height, transform, coverage, paint, sample)
+        paint_grid_coverage::<CHANNELS, false, F>(doc, data, width, height, transform, coverage, paint, sample)
     }
 }
 
-fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+fn paint_grid_coverage<const CHANNELS: usize, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+    // Likewise, the presence of a selection is fixed for the whole grid. The
+    // uncovered loop needs no per-pixel Option branch or coverage lookup.
+    if coverage.is_some() {
+        paint_grid_sample::<CHANNELS, true, OPAQUE, F>(doc, data, width, height, transform, coverage, paint, sample)
+    } else {
+        paint_grid_sample::<CHANNELS, false, OPAQUE, F>(doc, data, width, height, transform, coverage, paint, sample)
+    }
+}
+
+fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     // These are the exact endpoint expressions used by the loop below. Each
@@ -183,13 +195,13 @@ fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, F: Fn(f64, f64)
         })
     });
     if inside {
-        paint_grid_clipped::<CHANNELS, COVERED, false, F>(doc, data, width, height, m, coverage, paint, sample)
+        paint_grid_clipped::<CHANNELS, COVERED, false, OPAQUE, F>(doc, data, width, height, m, coverage, paint, sample)
     } else {
-        paint_grid_clipped::<CHANNELS, COVERED, true, F>(doc, data, width, height, m, coverage, paint, sample)
+        paint_grid_clipped::<CHANNELS, COVERED, true, OPAQUE, F>(doc, data, width, height, m, coverage, paint, sample)
     }
 }
 
-fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     let w = width as usize;
     let (from, to, opacity) = match paint {
@@ -212,6 +224,16 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
             if CLIPPED && (dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch) { continue; }
             touched = true;
             let t = sample(dx, dy);
+            // With full coverage and finite ramp position, source alpha is
+            // exactly one. Preserve the original channel expression and half
+            // up rounding, while avoiding a destination read and blend. A
+            // non-finite public-kernel sample still takes the original path:
+            // even opaque stops produce NaN through 0 * NaN there.
+            if OPAQUE && k == 255 && t.is_finite() {
+                for c in 0..CHANNELS.min(3) { px[c] = ((from[c] + delta[c] * t) * 255.0 + 0.5) as u8; }
+                if CHANNELS == 4 { px[3] = 255; }
+                continue;
+            }
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
             let keep = 1.0 - s;
