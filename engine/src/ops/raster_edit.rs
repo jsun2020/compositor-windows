@@ -125,14 +125,6 @@ impl Ramp {
             }
         }
     }
-    /// `GradientSpec::position` at (`x`, `y`).
-    fn at(&self, x: f64, y: f64) -> f64 {
-        match self {
-            Ramp::Solid => 0.0,
-            Ramp::Linear { x: sx, y: sy, ux, uy } => ((x - sx) * ux + (y - sy) * uy).clamp(0.0, 1.0),
-            Ramp::Radial { x: sx, y: sy, inverse } => (((x - sx) * (x - sx) + (y - sy) * (y - sy)).sqrt() * inverse).min(1.0),
-        }
-    }
 }
 
 /// Paints `paint` over `data` (premultiplied RGBA, or grey when `grey`) on a `width` x `height` grid
@@ -154,10 +146,32 @@ pub fn paint_grid(doc: &Document, data: &mut [u8], width: u32, height: u32, tran
 }
 
 fn paint_grid_channels<const CHANNELS: usize>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint) -> bool {
+    // The ramp does not change during a stroke. Specialize it once instead of
+    // inspecting its enum for every preview/commit pixel. Keep the original
+    // Float64 expressions and rounding, including the radial path.
+    match Ramp::of(paint) {
+        Ramp::Solid => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint, |_, _| 0.0),
+        Ramp::Linear { x: sx, y: sy, ux, uy } => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
+            |x, y| ((x - sx) * ux + (y - sy) * uy).clamp(0.0, 1.0)),
+        Ramp::Radial { x: sx, y: sy, inverse } => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
+            |x, y| (((x - sx) * (x - sx) + (y - sy) * (y - sy)).sqrt() * inverse).min(1.0)),
+    }
+}
+
+fn paint_grid_ramp<const CHANNELS: usize, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+    // Likewise, the presence of a selection is fixed for the whole grid. The
+    // uncovered loop needs no per-pixel Option branch or coverage lookup.
+    if coverage.is_some() {
+        paint_grid_sample::<CHANNELS, true, F>(doc, data, width, height, transform, coverage, paint, sample)
+    } else {
+        paint_grid_sample::<CHANNELS, false, F>(doc, data, width, height, transform, coverage, paint, sample)
+    }
+}
+
+fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     let w = width as usize;
-    let ramp = Ramp::of(paint);
     let (from, to, opacity) = match paint {
         Paint::Fill(c) => ([c[0], c[1], c[2], 1.0], [c[0], c[1], c[2], 1.0], 1.0),
         Paint::Gradient(g) => (g.from, g.to, g.opacity),
@@ -169,15 +183,15 @@ fn paint_grid_channels<const CHANNELS: usize>(doc: &Document, data: &mut [u8], w
     for y in 0..height as usize {
         // The row's first pixel centre in the document, and the step one pixel to the right.
         let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
-        let cover = coverage.map(|c| &c.bytes()[y * w..(y + 1) * w]);
+        let cover = if COVERED { &coverage.expect("covered paint grid").bytes()[y * w..(y + 1) * w] } else { &[] };
         let line = &mut data[y * w * CHANNELS..(y + 1) * w * CHANNELS];
         for (x, px) in line.chunks_exact_mut(CHANNELS).enumerate() {
-            let k = cover.map_or(255, |c| c[x]);
+            let k = if COVERED { cover[x] } else { 255 };
             if k == 0 { continue; }
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
             if dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch { continue; }
             touched = true;
-            let t = ramp.at(dx, dy);
+            let t = sample(dx, dy);
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
             let keep = 1.0 - s;
