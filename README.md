@@ -12,7 +12,9 @@ Phase 6 Liquify and Smudge development acceptance is complete on the tested
 hardware and received Mac/Windows probes; these tools await a future release.
 Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
 sensor RAW development. Mac counterparts have been received and independently
-checked; remaining pixel discrepancies are still open. The complete original
+checked; the four original Camera Raw recipes and grouped PSD/PSB exports now
+match exactly. Final package and performance checks of this rendering source
+are in progress. The complete original
 hardware performance suite passed on the tested single-display Windows desktop.
 Windows native file dialogs have passed the user-authorized scripted checks.
 These features await a future release.
@@ -73,8 +75,11 @@ The returned framework diagnostic identified RGBA8 source rounding before
 opacity blending. The CPU and GPU correction passes 204 independent Mac pixel
 oracles. Both grouped PSD/PSB imports now match their Mac exports exactly, and
 all fourteen Mac-saved projects export identically after Windows open/save/reopen.
-Recomputing Geometry from the original source still has a precision discrepancy;
-its boundary alpha difference was reduced from 127 to 1. Mac Point Color crashed
+Recomputing all four original Camera Raw recipes from the unchanged source now
+matches every RGBA byte, including Geometry/Calibration. The Geometry correction
+uses actual public kernel matrices and a complete independently measured Float32
+reciprocal domain; see the [arithmetic reference](engine/tests/fixtures/core-image-perspective.md)
+for reproduction and the measured hardware/exponent scope. Mac Point Color crashed
 with Visualize Range enabled; its failure report is retained.
 
 After the uniform-fill transport and buffer-reuse correction, a fresh complete
@@ -92,8 +97,8 @@ opacity correction is `e1cfcec`. Its local checks passed 679 engine tests,
 Its [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37568673577)
 passed 699 native tests, 298 unit tests and 275 functional cases, with the ten
 original native ignores and 33 hardware opt-ins kept separate. Geometry
-attribution and final package/performance checks for the final rendering source
-remain open. Phase 7 is not yet accepted.
+attribution is now resolved. Final package/performance checks for the corrected
+Geometry source remain open. Phase 7 is not yet accepted.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.

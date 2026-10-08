@@ -1314,7 +1314,7 @@ impl CameraRawGeometry {
         let cy = h / 2.0 + sy;
         let a = 1.0 + self.aspect / 200.0;
         let zoom = 1.0 + self.scale / 100.0;
-        let angle = rotate.to_radians();
+        let angle = rotate * std::f64::consts::PI / 180.0;
         // Port Mac's y-up corner calculation, then convert to the engine's y-down grid.
         [
             (-v + sx, h + sy),
@@ -1325,11 +1325,21 @@ impl CameraRawGeometry {
         .map(|(x, y)| {
             let dx = x - cx;
             let dy = y - cy;
-            let rx = dx * angle.cos() - dy * angle.sin();
-            let ry = dx * angle.sin() + dy * angle.cos();
+            let rotated_x = dx * angle.cos() - dy * angle.sin();
+            let rotated_y = dx * angle.sin() + dy * angle.cos();
+            let mut rx = cx + rotated_x;
+            let mut ry = cy + rotated_y;
+            if a != 1.0 {
+                rx = cx + (rx - cx) * a;
+                ry = cy + (ry - cy) / a;
+            }
+            if zoom != 1.0 {
+                rx = cx + (rx - cx) * zoom;
+                ry = cy + (ry - cy) * zoom;
+            }
             crate::Point {
-                x: cx + rx * a * zoom,
-                y: h - (cy + ry / a * zoom),
+                x: rx,
+                y: h - ry,
             }
         })
     }
@@ -1405,18 +1415,13 @@ impl CameraRawGeometry {
                 "Camera Raw geometry would collapse or cross the image corners.".into(),
             ));
         }
-        let inv = crate::Homography::unit_to(&corners)
-            .invert()
+        let y_up = corners.map(|p| crate::Point { x: p.x, y: h as f64 - p.y });
+        let inv = super::camera_geometry::Perspective::from_corners(&y_up, w, h)
             .ok_or_else(|| CommandError::Argument("Invalid Camera Raw geometry.".into()))?;
         let mut data = vec![0u8; w as usize * h as usize * 4];
         for y in 0..h {
             for x in 0..w {
-                let p = inv.apply(crate::Point {
-                    x: x as f64 + 0.5,
-                    y: y as f64 + 0.5,
-                });
-                let px = p.x * w as f64;
-                let py = p.y * h as f64;
+                let (px, py) = inv.coordinate(x, y, h);
                 let sample = Self::transparent_sample(raster, px, py);
                 let i = (y as usize * w as usize + x as usize) * 4;
                 for c in 0..4 {

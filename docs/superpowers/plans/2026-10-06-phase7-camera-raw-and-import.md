@@ -716,3 +716,39 @@ matrix. Original Geometry still has 27 differing pixels with a maximum delta of
 one byte. Final production-package and original hardware-performance checks must
 use the resolved rendering source. Phase 7 remains incomplete; stable 0.8.0 is
 unchanged, and no original pixel assertion, timing budget or retry was relaxed.
+
+## Actual kernel arguments and Geometry correction, 2026-10-08
+
+The `Mac-kernel-arguments-20261008-074405` return contains 37 files. All nine
+unobserved controls equal the previous independent return; all nine observed
+controls equal their unobserved outputs. The identity-kernel sentinel retains
+its pixels and exact host Double arguments. Four public method observers are
+installed in the standalone process, forwarding the original arguments and
+restoring dispatch. Eighteen calls include the sentinel and seventeen actual
+perspective calls. Seven individual/combined inputs and eight additional
+quadrilaterals provide fifteen unique matrix controls. Numeric signed-zero
+parsing was corrected in a separately retained v2 analyzer; the first analyzer
+failure is preserved and did not require a Mac rerun.
+
+These actual rows supersede coordinate-fit matrix estimates. The general model
+uses Float32 corners/differences/products, Double ratios/coefficients/inversion,
+and Float32 kernel rows. Its Float32 matrix results equal all fifteen measured
+controls; this does not claim bit equality of every host Double intermediate.
+The sampling coordinate preserves the observed fused multiply-add order.
+The complete independently measured `[1,2)` reciprocal domain is stored as a
+lossless two-bit IEEE rounding delta per mantissa, adding 2,097,152 source bytes.
+Its application is bounded to the independently replayed positive exponents
+in `[0.5,2)`; other inputs retain IEEE division. The fixture notes document
+the machine/OS scope, hashes, original observer and standalone reproduction.
+No image-coordinate exception, recipe-specific coefficient or Windows-generated
+pixel expectation is used.
+
+The fresh original `phase7_camera_probes` run retains the exact original recipe
+bytes and source PNG hash. All four 512 by 320 comparisons now have zero
+differing pixels and zero maximum byte delta: 655,360 pixels in total. The
+preceding 27-pixel Geometry failure remains recorded. The fifteen matrix tests
+and full 8,388,608-mantissa reciprocal check pass; all 298 unit tests pass.
+Evidence is retained in `build-artifacts/phase7-final-geometry-20261008`.
+Final source, release-WASM, production package and unchanged 29-case hardware
+performance verification are in progress. Phase 7 remains incomplete until
+those resolved-source gates pass; stable 0.8.0 remains unchanged.

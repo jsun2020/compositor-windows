@@ -9,5 +9,6 @@ pub mod prepared;
 pub mod apply;
 pub mod spatial;
 pub mod camera_raw;
+mod camera_geometry;
 pub mod camera_raw_scope;
 mod camera_raw_runtime;
