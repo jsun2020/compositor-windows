@@ -61,9 +61,32 @@ unsafe fn decode<const DEPTH: usize>(destination: *mut u8, words: &[u32; MAX_PAL
                 continue;
             }
         }
-        // SAFETY: this complete index is inside the checked output interval.
-        unsafe { destination.add(at/DEPTH*4).cast::<u32>().write_unaligned(word); }
-        at += DEPTH;
+        // Keep changing indices in the original tight word-store loop. Probe
+        // again after a bounded block so a later long run can still use copies.
+        let length = (indices.len()-at).min(4096*DEPTH);
+        // SAFETY: the complete index block maps into the checked reservation.
+        unsafe { decode_words::<DEPTH>(destination.add(at/DEPTH*4),words,colors,&indices[at..at+length])?; }
+        at += length;
+    }
+    Ok(())
+}
+
+
+/// Same checked table and reserved output contract as decode. The caller keeps
+/// each block aligned to the index depth; palette size is bounded by MAX_PALETTE.
+unsafe fn decode_words<const DEPTH: usize>(destination: *mut u8, words: &[u32; MAX_PALETTE], colors: usize, indices: &[u8]) -> Result<(), &'static str> {
+    if DEPTH == 1 {
+        for (i, &index) in indices.iter().enumerate() {
+            let n=index as usize;
+            if n>=colors {return Err("pixel palette index out of range");}
+            unsafe {destination.add(i*4).cast::<u32>().write_unaligned(*words.get_unchecked(n));}
+        }
+    } else {
+        for (i, index) in indices.chunks_exact(2).enumerate() {
+            let n=u16::from_le_bytes([index[0],index[1]]) as usize;
+            if n>=colors {return Err("pixel palette index out of range");}
+            unsafe {destination.add(i*4).cast::<u32>().write_unaligned(*words.get_unchecked(n));}
+        }
     }
     Ok(())
 }
@@ -131,6 +154,22 @@ mod tests {
             if depth==1 {indices.push(colors as u8);} else {indices.extend_from_slice(&(colors as u16).to_le_bytes());}
             let limit=4+2052*4;let mut out=Vec::with_capacity(limit);out.extend_from_slice(&[9;4]);
             assert!(append(&mut out,limit,&palette,&indices).is_err());assert_eq!(out,[9;4]);
+        }
+    }
+
+    #[test] fn changing_blocks_and_later_runs_preserve_bytes_and_reject_a_raw_block_tail() {
+        for colors in [4,300] {
+            let palette:Vec<u8>=(0..colors).flat_map(|i|[(i%256) as u8,(i/256) as u8,17,255]).collect();
+            let depth=if colors<=256 {1}else{2};let mut indices=Vec::new();let mut expected=Vec::new();
+            for i in 0..65549 {
+                let n=if (4097..45069).contains(&i) {colors-1}else{i%colors};
+                if depth==1 {indices.push(n as u8);}else{indices.extend_from_slice(&(n as u16).to_le_bytes());}
+                expected.extend_from_slice(&palette[n*4..n*4+4]);
+            }
+            let mut out=Vec::with_capacity(expected.len());append(&mut out,expected.len(),&palette,&indices).unwrap();assert_eq!(out,expected);
+            if depth==1 {*indices.last_mut().unwrap()=colors as u8;}else{let last=indices.len()-2;indices[last..].copy_from_slice(&(colors as u16).to_le_bytes());}
+            out.clear();out.extend_from_slice(&[9;4]);out.reserve_exact(expected.len());
+            assert!(append(&mut out,expected.len()+4,&palette,&indices).is_err());assert_eq!(out,[9;4]);
         }
     }
 }
