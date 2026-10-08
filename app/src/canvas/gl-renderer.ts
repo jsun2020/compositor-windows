@@ -48,6 +48,8 @@ export class GlRenderer implements Renderer {
   private placements = new Map<string, { transform: LayerTransform; corners: Corners | null }>();
   /** The effects image a large styled layer's texture holds: its layer pixels and inset, at full size. */
   private shown = new Map<string, { width: number; height: number; inset: number }>();
+  /** The complete composition retained in mainA; presentation still runs every frame. */
+  private compositionKey: string | null = null;
   constructor(private readonly canvas: HTMLCanvasElement, private readonly gl: WebGL2RenderingContext, hooks: RenderHooks = { jobs: () => null, landed: () => {} }) {
     this.textures = new LayerTextures(gl); this.masks = new MaskTextures(gl); this.fbos = new FboPool(gl); this.programs = createPrograms(gl);
     this.adjustTextures = new AdjustTextures(gl);
@@ -216,8 +218,8 @@ export class GlRenderer implements Renderer {
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void {
     const gl = this.gl;
     const W = Math.max(1, Math.round(viewport.viewSize.width * dpr)), H = Math.max(1, Math.round(viewport.viewSize.height * dpr));
-    if (this.canvas.width !== W) this.canvas.width = W;
-    if (this.canvas.height !== H) this.canvas.height = H;
+    if (this.canvas.width !== W) { this.canvas.width = W; this.compositionKey = null; }
+    if (this.canvas.height !== H) { this.canvas.height = H; this.compositionKey = null; }
     this.W = W; this.H = H; this.dpr = dpr;
     const plan = engine.renderPlan(state.id, edit);
     this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);
@@ -227,6 +229,19 @@ export class GlRenderer implements Renderer {
     gl.bindVertexArray(this.programs.vao);
     gl.viewport(0, 0, this.fw(), this.fh());
     gl.disable(gl.BLEND);
+    // Synchronize first: a worker's reduced/full effects image can arrive without
+    // changing the render plan. Texture generations and fallback placements are
+    // part of the key, as are masks, view geometry and explicit sampling modes.
+    const rect = viewport.documentRect(state);
+    const finite = [W, H, dpr, viewport.pointsPerPixel, viewport.viewSize.width, viewport.viewSize.height,
+      rect.x, rect.y, rect.width, rect.height].every(Number.isFinite);
+    const key = finite && !gl.isContextLost() ? JSON.stringify([
+      state.id, state.width, state.height, viewport.viewSize, viewport.pointsPerPixel, rect, dpr, this.frame, plan,
+      this.textures.generation, this.masks.generation, [...this.placements],
+      state.layers.map(layer => [layer.id, layer.transform.sampling]),
+    ]) : null;
+    if (key !== null && key === this.compositionKey) { this.screenPass(state, viewport, dpr, options); return; }
+    this.compositionKey = null;
     const ctx: Ctx = { state, plan, viewport, dpr, engine };
     this.fbos.clear("mainA", "rgba", 0);
     for (const [index, node] of plan.nodes.entries()) {
@@ -245,6 +260,7 @@ export class GlRenderer implements Renderer {
         this.fbos.swap("mainA", "mainB");
       }
     }
+    this.compositionKey = key;
     this.screenPass(state, viewport, dpr, options);
   }
 
@@ -588,6 +604,7 @@ export class GlRenderer implements Renderer {
   textureKey(docId: string, id: string): string | null { return this.textures.get(docId, id)?.key ?? null; }
 
   clear(): void {
+    this.compositionKey = null;
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.SCISSOR_TEST);

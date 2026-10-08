@@ -3,6 +3,8 @@ import type { PixelRect } from "../../engine/types";
 interface Entry { tex: WebGLTexture; revision: number; width: number; height: number; }
 export class MaskTextures {
   private masks = new Map<string, Entry>();
+  private serial = 0;
+  get generation(): number { return this.serial; }
   constructor(private readonly gl: WebGL2RenderingContext) {}
   private key(docId: string, layerId: string): string { return `${docId}:${layerId}`; }
   /** The cached texture, or undefined. Callers that only want what is already uploaded must use
@@ -42,6 +44,7 @@ export class MaskTextures {
           gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
         }
         e.revision = revision;
+        this.serial++;
         return e.tex;
       }
     }
@@ -52,16 +55,16 @@ export class MaskTextures {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, pixels);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.masks.set(k, { tex, revision, width, height }); return tex;
+    this.masks.set(k, { tex, revision, width, height }); this.serial++; return tex;
   }
   setFilter(tex: WebGLTexture, nearest: boolean): void {
     const gl = this.gl; gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
   }
   retainOnly(docId: string, layerIds: Set<string>): void {
-    for (const k of [...this.masks.keys()]) { const [d, l] = k.split(":"); if (d !== docId || !layerIds.has(l)) { this.gl.deleteTexture(this.masks.get(k)!.tex); this.masks.delete(k); } }
+    for (const k of [...this.masks.keys()]) { const [d, l] = k.split(":"); if (d !== docId || !layerIds.has(l)) { this.gl.deleteTexture(this.masks.get(k)!.tex); this.masks.delete(k); this.serial++; } }
   }
-  dispose(): void { for (const e of this.masks.values()) this.gl.deleteTexture(e.tex); this.masks.clear(); }
+  dispose(): void { if (this.masks.size) this.serial++; for (const e of this.masks.values()) this.gl.deleteTexture(e.tex); this.masks.clear(); }
 }
 
 /** Resolves and uploads one coverage's mask texture (`GlRenderer.syncMasks`'s `visit`): asks

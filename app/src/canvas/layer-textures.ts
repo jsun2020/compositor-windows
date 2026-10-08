@@ -61,6 +61,9 @@ function key(docId: string, layerId: string): string { return `${docId}:${layerI
 
 export class LayerTextures {
   private layers = new Map<string, LayerTexture>();
+  private serial = 0;
+  /** Changes whenever retained GPU content or its sampling changes. */
+  get generation(): number { return this.serial; }
   constructor(private readonly gl: WebGL2RenderingContext) {}
 
   get(docId: string, id: string): LayerTexture | undefined { return this.layers.get(key(docId, id)); }
@@ -113,6 +116,7 @@ export class LayerTextures {
     gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     this.layers.set(k, { key: bytesKey, revision, level, width: size.width, height: size.height, nearest, chunks });
+    this.serial++;
   }
   /** Uploads `region`, the bytes of `rect` (in the texture's own pixels, at its level; the engine's
    * `layer_region`), into every chunk the rectangle meets: `texSubImage2D` with the region's row length
@@ -138,6 +142,7 @@ export class LayerTextures {
       gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     }
     t.key = bytesKey; t.revision = revision;
+    this.serial++;
   }
   remove(docId: string, id: string): void {
     const k = key(docId, id);
@@ -145,6 +150,7 @@ export class LayerTextures {
     if (!t) return;
     for (const c of t.chunks) this.gl.deleteTexture(c.texture);
     this.layers.delete(k);
+    this.serial++;
   }
   /** Keeps only `${docId}:${id}` entries for the given document's current layer ids, dropping
    * every other document's textures too -- each document only ever retains its own keys. */
@@ -155,9 +161,11 @@ export class LayerTextures {
       const t = this.layers.get(k)!;
       for (const c of t.chunks) this.gl.deleteTexture(c.texture);
       this.layers.delete(k);
+      this.serial++;
     }
   }
   dispose(): void {
+    if (this.layers.size) this.serial++;
     for (const t of this.layers.values()) for (const c of t.chunks) this.gl.deleteTexture(c.texture);
     this.layers.clear();
   }

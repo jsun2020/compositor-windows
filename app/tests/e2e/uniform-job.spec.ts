@@ -1,5 +1,47 @@
 import {test,expect} from "@playwright/test";
 
+test("uniform and selected Levels worker results match every in-place byte with one Undo/Redo", async ({page}) => {
+  test.setTimeout(120_000);
+  await page.goto("/"); await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const rows = await page.evaluate(async () => {
+    const api = (window as any).__compositor, e = api.engine, s = () => api.store.getState(), rows = [];
+    api.store.setState({jobPixels: 0});
+    for (const selected of [false, true]) {
+      const make = () => {
+        const doc = e.newDocument(2048, 513, true), layer = e.state(doc).layers[0].id;
+        e.execute(doc, {type: "Fill", id: layer, mask: false, color: [.2, .4, .6]});
+        if (selected) e.execute(doc, {type: "SelectShape", kind: "Rectangle", points: [[0,0],[1024,0],[1024,513],[0,513]], mode: "Replace", antialiased: false});
+        return {doc, layer};
+      };
+      const actual = make(), reference = make(); s().openDocument(actual.doc);
+      const before = new Uint8Array(e.layerPixels(actual.doc, actual.layer)).slice(), depth = e.state(actual.doc).undoDepth;
+      const client = s().jobs, run = client.run.bind(client); let receipt: any = null;
+      client.run = async (...args: any[]) => { const result = await run(...args); if (args[1].kind === "edit") receipt = {header: JSON.parse(result.header), bytes: result.pixels?.byteLength ?? 0}; return result; };
+      try {
+        s().beginAdjust({kind: "Levels"});
+        while (s().adjustEdit?.histogram === null) await new Promise<void>(r => requestAnimationFrame(() => r()));
+        const adjustment = JSON.parse(JSON.stringify(s().adjustEdit.adjustment)); adjustment.levels.ranges[0].outputWhite = 190;
+        s().updateAdjust({adjustment});
+        while (s().previewSettling()) await new Promise<void>(r => requestAnimationFrame(() => r()));
+        s().commitAdjust();
+        while (s().working) await new Promise<void>(r => requestAnimationFrame(() => r()));
+        e.execute(reference.doc, {type: "ApplyAdjustment", id: reference.layer, adjustment});
+        const expected = e.layerPixels(reference.doc, reference.layer).slice() as Uint8Array;
+        const equals = (bytes: Uint8Array) => { const p = e.layerPixels(actual.doc, actual.layer); return p.length === bytes.length && p.every((v: number, i: number) => v === bytes[i]); };
+        const exact = equals(expected), oneStep = e.state(actual.doc).undoDepth === depth + 1;
+        s().undo(); const undoExact = equals(before); s().redo();
+        rows.push({selected, receipt, exact, oneStep, undoExact, redoExact: equals(expected), error: s().error});
+      } finally { client.run = run; s().closeDocument(actual.doc); e.closeDocument(reference.doc); }
+    }
+    return rows;
+  });
+  for (const row of rows) {
+    expect(row.error).toBeNull(); expect(row.exact).toBe(true); expect(row.oneStep).toBe(true); expect(row.undoExact).toBe(true); expect(row.redoExact).toBe(true);
+    if (row.selected) { expect(row.receipt.header.uniformPixels).toBeUndefined(); expect(row.receipt.bytes).toBe(2048*513*4); }
+    else { expect(row.receipt.header.uniformPixels).toHaveLength(4); expect(row.receipt.bytes).toBe(0); }
+  }
+});
+
 test("a worker's uniform fill restores every pixel and one Undo/Redo",async({page})=>{
   test.setTimeout(120_000);
   await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
