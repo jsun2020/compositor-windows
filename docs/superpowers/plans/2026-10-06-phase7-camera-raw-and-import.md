@@ -55,11 +55,12 @@ different decoders.
 - [x] Supplied real PSD and its Mac project/export counterpart verified.
 - [x] Actual public camera RAW sensor development, bounded preview and full import.
 - [x] Complete original source gates and exact-source hosted CI.
-- [x] Complete original hardware performance gates; no changed budgets/retries.
+- [x] Original hardware performance checkpoint `0a85e89`; no changed budgets/retries.
+- [ ] Complete original hardware gates on the corrected Geometry source.
 - [x] Rebuilt production portable with no test API, native real-file checks.
 - [x] Actual Mac 1.4.5 counterpart runs and returned evidence independently received.
 - [x] Real Windows native pickers and close/save/reopen via user-authorized scripts.
-- [ ] Remaining counterpart pixel discrepancies.
+- [x] Remaining counterpart pixel discrepancies.
 - [x] Implementation documentation, commit/push, reviewed CI and main integration.
 - [ ] Final acceptance receipt after all remaining gates pass.
 
@@ -752,3 +753,77 @@ Evidence is retained in `build-artifacts/phase7-final-geometry-20261008`.
 Final source, release-WASM, production package and unchanged 29-case hardware
 performance verification are in progress. Phase 7 remains incomplete until
 those resolved-source gates pass; stable 0.8.0 remains unchanged.
+
+## Corrected-source package checkpoint and retained timing failures, 2026-10-08
+
+Runtime source `4221beb75e6ef4d2248a81454397706cded2fa64` passed
+[complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37707364360):
+704 native cases, 298 unit cases and 281 functional cases. Ten original native
+ignores and 33 hardware opt-ins were retained. CI's production portable step
+was skipped; the independently built and exercised local package is recorded
+below. A duplicate local workspace run was ended after this exact-source hosted
+pass, rather than claimed as a completed local workspace result.
+
+All four original Camera Raw recipes have zero differing pixels against the
+independent Mac exports. Their release-WASM exports also equal native Rust PNG
+bytes exactly. The portable `COMPOSITOR_BUILD_0.8.0_20261008-0830` contains all
+eleven required entries. ZIP CRC, component hashes, decoder/runtime licenses,
+clean source identity and receipt checks pass. ZIP SHA256 is
+`344d8bc8d9d01c6c84c05ca059e7511cf83b90707fa03eb136bb011e3f6aaf39`;
+release WASM SHA256 is
+`400d4df605b6f7bedc93b6903d68d3a6d02af32ab5379564e6bd30e397fbd0db`.
+The first standalone receipt-validator invocation lacked its required source
+and version environment and is retained; supplying those independently read
+values passed every unchanged receipt assertion.
+
+The production WebView2 has no test API. Its original native protocol passed
+RAW development, Camera Raw preview/cancel/history, five Photoshop imports,
+conversion notices and disk save/reopen. An added original Geometry/Calibration
+UI check enters Rotate 3, Vertical 12, Horizontal -6, Aspect 8, Shadow Tint 10,
+Red Hue 15 and Blue Saturation -10. Apply, one Undo/Redo and PNG export match
+the Mac-verified native PNG bytes exactly. That protocol supplies picker
+responses and synthetic drops and is not substituted for native dialog proof.
+The separate real-dialog protocol passed fourteen actual Windows Open, Save As
+and folder pickers, Save As cancellation, discard/clear, edited PSD and actual
+Canon CR2 development/save/close/reopen. All 64 original probe files and six
+supplied/imported originals/copies retain their hashes. Application controls use
+CDP; PID/executable-scoped Win32 edits and UI Automation button invocation
+operate dialogs. Physical mouse input is not claimed.
+
+The complete original 29-case hardware run on this source passed 21 and failed
+eight, with zero skipped/flaky cases, one worker and zero retries. All 587 frozen
+source/assets/helper inputs verified before and after; the five specification
+files remain equal to `f463b62`, including every assertion and timing budget.
+Both environment snapshots measured one logical display and zero compilers.
+The failures are retained in
+`build-artifacts/phase7-final-performance-20261008-single-screen/performance`:
+
+| Original timing assertion | Measured failure | Original strict budget |
+| --- | ---: | ---: |
+| F1 result frame | 130 ms | <100 ms |
+| Add Mask result frame | 419 ms | <400 ms |
+| Growing mask gradient result frame | 393 ms | <150 ms |
+| Small-layer mask fill result frame | 346 ms | <150 ms |
+| Gradient-tool worker frame gap | 139 ms | <100 ms |
+| Small-layer mask gradient result frame | 438 ms | <150 ms |
+| Blank-layer gradient worker frame gap | 189 ms | <100 ms |
+| 24 MP Content Fill frame gap | 284.8 ms | <100 ms |
+
+A supplemental frame diagnostic uses byte-identical corrected browser assets.
+One frame measured 518 ms total, including 517.3 ms in synchronous GPU readback
+and approximately 0.7 ms in application rendering. It adds instrumentation,
+is not an original performance retry/pass and does not establish a shared cause
+for the eight failures. Its other eleven frames took 4.9 to 20.6 ms. The earlier
+29/29 checkpoint and every preceding failed run remain separate.
+
+The C drive has approximately 450 MB free after the run. The user was asked to
+restore at least 5 GB of free space before further builds/deep diagnostics.
+Automatic approval rejected the guarded cleanup of unused ignored Rust
+incremental cache with `blocked by policy`; that cache was preserved. No user
+files, source, packages, Mac returns or acceptance evidence were deleted.
+
+Package/pixel/native receipts are under
+`build-artifacts/phase7-final-geometry-20261008`; frame attribution is under
+`build-artifacts/phase7-final-frame-diagnostic-20261008-baseline`. Corrected-source
+hardware acceptance and the final all-gates receipt remain open. Phase 7 is not
+accepted, and the immutable stable 0.8.0 release remains unchanged.

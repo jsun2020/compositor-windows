@@ -13,10 +13,11 @@ hardware and received Mac/Windows probes; these tools await a future release.
 Phase 7 is integrated into `main`: Camera Raw, layered PSD/PSB import and camera
 sensor RAW development. Mac counterparts have been received and independently
 checked; the four original Camera Raw recipes and grouped PSD/PSB exports now
-match exactly. Final package and performance checks of this rendering source
-are in progress. The complete original
-hardware performance suite passed on the tested single-display Windows desktop.
-Windows native file dialogs have passed the user-authorized scripted checks.
+match exactly. The corrected production package and Windows native file dialogs
+passed the user-authorized scripted checks. Its complete original hardware suite
+passed 21 cases and failed eight timing assertions on the tested single-display
+Windows desktop; performance acceptance remains open. The earlier 29/29 pass
+belongs to the preceding uniform-fill checkpoint.
 These features await a future release.
 
 ## Download
@@ -59,7 +60,7 @@ APIs with supplied picker responses. Subsequent user-authorized scripts operated
 16 real Windows Open, Save As and folder-selection dialogs without mocking their
 responses. Five Photoshop imports, cancellation, discard/clear, edited PSD and
 actual CR2 save/close/reopen passed; reopened viewport pixels were unchanged.
-The current package also passed a 6.5 MP keyboard fill, one Undo/Redo and real
+The `20261007-1007` package also passed a 6.5 MP keyboard fill, one Undo/Redo and real
 save/reopen; all 6,553,600 saved pixels were checked exactly. Application controls
 use CDP; process-scoped Win32 edits and UI Automation button invocation operate
 native dialogs. These results do not claim physical mouse input.
@@ -96,9 +97,24 @@ opacity correction is `e1cfcec`. Its local checks passed 679 engine tests,
 298 unit tests, three TypeScript checks, release WASM and seven renderer cases.
 Its [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37568673577)
 passed 699 native tests, 298 unit tests and 275 functional cases, with the ten
-original native ignores and 33 hardware opt-ins kept separate. Geometry
-attribution is now resolved. Final package/performance checks for the corrected
-Geometry source remain open. Phase 7 is not yet accepted.
+original native ignores and 33 hardware opt-ins kept separate.
+
+The corrected Geometry source `4221beb` passed [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37707364360):
+704 native tests, 298 unit tests and 281 functional cases, retaining ten native
+ignores and 33 hardware opt-ins. All four original Camera Raw exports also match
+between native Rust and release WASM. The rebuilt production portable
+`20261008-0830` passed package provenance, native Camera Raw Geometry Apply/
+Undo/Redo/export, and fourteen real Windows file dialogs including Photoshop
+and Canon CR2 save/reopen. Its Geometry export matches the independently
+Mac-verified native export byte for byte. These package checks are separate
+from CI's skipped portable step.
+
+The corrected-source hardware run retained all 587 frozen inputs before and
+after, one worker, zero retries and every original assertion/budget. It passed
+21/29; eight timing failures remain recorded. Supplemental frame attribution
+captured a 517 ms GPU readback wait with approximately 0.7 ms in application
+rendering, without establishing a cause for all failures. Performance acceptance
+remains open. Phase 7 is not yet accepted.
 
 For modified projects, **Save and Close** saves before closing, **Don't Save and
 Close** discards the changes, and **Cancel Close** keeps the project open.
