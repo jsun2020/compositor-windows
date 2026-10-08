@@ -171,6 +171,26 @@ fn paint_grid_ramp<const CHANNELS: usize, F: Fn(f64, f64) -> f64>(doc: &Document
 fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
+    // These are the exact endpoint expressions used by the loop below. Each
+    // coordinate is monotone in x and y, including Float64 rounding, so finite
+    // endpoints inside the canvas prove every pixel centre is inside. Overhangs
+    // and non-finite transforms retain the original per-pixel clipping path.
+    let inside = width > 0 && height > 0 && [0, height - 1].into_iter().all(|y| {
+        let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
+        [0, width - 1].into_iter().all(|x| {
+            let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
+            dx.is_finite() && dy.is_finite() && dx >= 0.0 && dy >= 0.0 && dx < cw && dy < ch
+        })
+    });
+    if inside {
+        paint_grid_clipped::<CHANNELS, COVERED, false, F>(doc, data, width, height, m, coverage, paint, sample)
+    } else {
+        paint_grid_clipped::<CHANNELS, COVERED, true, F>(doc, data, width, height, m, coverage, paint, sample)
+    }
+}
+
+fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+    let (cw, ch) = (doc.width as f64, doc.height as f64);
     let w = width as usize;
     let (from, to, opacity) = match paint {
         Paint::Fill(c) => ([c[0], c[1], c[2], 1.0], [c[0], c[1], c[2], 1.0], 1.0),
@@ -189,7 +209,7 @@ fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, F: Fn(f64, f64)
             let k = if COVERED { cover[x] } else { 255 };
             if k == 0 { continue; }
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
-            if dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch { continue; }
+            if CLIPPED && (dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch) { continue; }
             touched = true;
             let t = sample(dx, dy);
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];

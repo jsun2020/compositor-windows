@@ -229,11 +229,11 @@ export class GlRenderer implements Renderer {
     gl.disable(gl.BLEND);
     const ctx: Ctx = { state, plan, viewport, dpr, engine };
     this.fbos.clear("mainA", "rgba", 0);
-    for (const node of plan.nodes) {
-      if (node.kind === "layer") this.drawInto(ctx, "main", node.draw, node.draw.blend, true, 0);
+    for (const [index, node] of plan.nodes.entries()) {
+      if (node.kind === "layer") this.drawInto(ctx, "main", node.draw, node.draw.blend, true, 0, index === 0);
       else {
         this.fbos.clear("stackA", "rgba", 0);
-        this.drawInto(ctx, "stack", node.base, "Normal", true, 0);
+        this.drawInto(ctx, "stack", node.base, "Normal", true, 0, true);
         this.pass(this.programs.alphaOf, "baseAlpha", "r8", { src: this.fbos.get("stackA", "rgba").tex });
         this.pass(this.programs.opaque, "stackB", "rgba", { src: this.fbos.get("stackA", "rgba").tex }); this.fbos.swap("stackA", "stackB");
         for (const child of node.children) this.drawInto(ctx, "stack", child, child.blend, false, 0);
@@ -337,7 +337,7 @@ export class GlRenderer implements Renderer {
     gl.disable(gl.BLEND);
   }
 
-  private drawInto(ctx: Ctx, pair: "main" | "stack", draw: LayerDraw, blend: string, useClip: boolean, level: number): void {
+  private drawInto(ctx: Ctx, pair: "main" | "stack", draw: LayerDraw, blend: string, useClip: boolean, level: number, empty = false): void {
     const hasCoverage = draw.coverages.length > 0 || (useClip && !!draw.clip);
     if (draw.adjustment) {
       if (hasCoverage) { this.buildCoverage(ctx, draw.coverages, level); if (useClip && draw.clip) this.applyClip(ctx, draw.clip, level); }
@@ -349,6 +349,13 @@ export class GlRenderer implements Renderer {
     const t = this.textures.get(ctx.state.id, draw.id);
     if (!t) return;
     if (hasCoverage) { this.buildCoverage(ctx, draw.coverages, level); if (useClip && draw.clip) this.applyClip(ctx, draw.clip, level); }
+    // The first raster draws onto the buffer just cleared by render. Reading a
+    // zero backdrop and copying it into the other FBO would produce the same
+    // bytes; draw directly, retaining the shader's blend/coverage/rounding rules.
+    if (empty) {
+      this.drawLayer(ctx, `${pair}A`, null, draw, BLEND_INDEX[blend as keyof typeof BLEND_INDEX], hasCoverage ? level : null);
+      return;
+    }
     this.fbos.blit(`${pair}A`, `${pair}B`);
     const backdrop = this.fbos.get(`${pair}A`, "rgba").tex;
     this.drawLayer(ctx, `${pair}B`, backdrop, draw, BLEND_INDEX[blend as keyof typeof BLEND_INDEX], hasCoverage ? level : null);

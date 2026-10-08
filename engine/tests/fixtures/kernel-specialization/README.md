@@ -13,3 +13,15 @@ and multiple reduction levels. Both references are entirely synthetic.
 
 - paint.rgba: 66,168 bytes; SHA256 ef92921c7ce2a03f9cd5a0a6cbb71687088291b1186c51972c67e8036b13b876
 - spatial.rgba: 71,440 bytes; SHA256 92ba2e0f12ee7f4015e21d9b28ef15a92ab9d0edddac2dd56f01baf7b828ae90
+
+The additional `paint-canvas.rgba` reference was captured before the canvas
+bounds optimization from production release source
+`23e01b4df79639e258f339d9d9d3301aea90da23`, using its release library
+(SHA256 `546a93c9c7c33c3911be53458be5aa0386b04b53029006d08ff2fe3f6ca6c739`).
+Inputs are defined in `../../support/paint_canvas_probe.rs`: 72 complete
+outputs cover Fill/Linear/Radial, gray/RGBA, partial/absent coverage, four
+interior rotated/flipped placements, canvas overhang and the public kernel's
+non-finite fallback. The latter does not imply that document commands accept
+non-finite transforms.
+
+- paint-canvas.rgba: 25,812 bytes; SHA256 0a9cde62ad7a7c21190ef5c1ba76a2378337cc7a523bdbcbb41f5124ba02d698
