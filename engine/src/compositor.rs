@@ -181,17 +181,82 @@ fn copied_edge_coverage(draw: &LayerDraw, p: Point, out_x: f64, out_y: f64) -> f
     ((coverage * 255.0).floor() / 255.0) as f32
 }
 
+/// Core Graphics soft rectangle edges use the pixel's projected footprint along
+/// each local axis. This is the same fwidth-based coverage used by the GL path;
+/// it is not the area of the polygon clipped to the output pixel.
+fn affine_edge_coverage(transform: &LayerTransform, px: Point, width: u32, height: u32, out_x: f64, out_y: f64, p: Point, clip: bool) -> f32 {
+    let radians = transform.radians();
+    let (sin, cos) = radians.sin_cos();
+    let dx = width as f64 / transform.size.width * (cos.abs() / out_x + sin.abs() / out_y);
+    let dy = height as f64 / transform.size.height * (sin.abs() / out_x + cos.abs() / out_y);
+    // A whole and a panned partial frame can differ by a few f64 ulps at
+    // the fully covered edge. Do not truncate that numerical noise to 254;
+    // it otherwise propagates through a spatial adjustment over the frame.
+    let edge = |distance: f64, footprint: f64| {
+        let coverage = distance / footprint + 0.5;
+        if coverage >= 1.0 - 1e-10 { 1.0 } else { coverage.clamp(0.0, 1.0) }
+    };
+    let x = edge(px.x.min(width as f64 - px.x), dx);
+    let y = edge(px.y.min(height as f64 - px.y), dy);
+    // The projected local-axis footprint also covers a false triangle past
+    // a rotated corner. Rectangle/pixel SAT needs the two document axes too.
+    if x < 1.0 && y < 1.0 && !affine_document_overlap(transform, p, out_x, out_y) { return 0.0; }
+    let levels = if clip || transform.rotation % 90.0 == 0.0 { 255.0 } else { 256.0 };
+    ((x * y * levels).floor().min(255.0) / 255.0) as f32
+}
+
+fn affine_document_overlap(transform: &LayerTransform, p: Point, out_x: f64, out_y: f64) -> bool {
+    let b = transform.bounds();
+    p.x + 0.5 / out_x > b.x && p.x - 0.5 / out_x < b.max_x() &&
+        p.y + 0.5 / out_y > b.y && p.y - 0.5 / out_y < b.max_y()
+}
+
+/// CG's rotated no-antialias image rasterizer covers every intersecting pixel
+/// at full strength. Texel choice remains floor(source coordinate), clamped.
+/// The upright copy path uses its original centre-based extent.
+fn rotated_nearest_intersects(draw: &LayerDraw, px: Point, p: Point, out_x: f64, out_y: f64) -> bool {
+    let (sin, cos) = draw.transform.radians().sin_cos();
+    let dx = draw.pixels_width as f64 / draw.transform.size.width * (cos.abs() / out_x + sin.abs() / out_y) * 0.5;
+    let dy = draw.pixels_height as f64 / draw.transform.size.height * (sin.abs() / out_x + cos.abs() / out_y) * 0.5;
+    px.x >= -dx && px.x < draw.pixels_width as f64 + dx &&
+        px.y >= -dy && px.y < draw.pixels_height as f64 + dy &&
+        affine_document_overlap(&draw.transform, p, out_x, out_y)
+}
+
+/// CG clips its byte filter to the image extent using half an output pixel's
+/// projected source footprint. The lower boundary is inclusive in the filter;
+/// the upper boundary belongs to the clamped endpoint.
+fn affine_filter_position(transform: &LayerTransform, px: Point, width: u32, height: u32, out_x: f64, out_y: f64) -> Point {
+    let (sin, cos) = transform.radians().sin_cos();
+    let half_x = width as f64 / transform.size.width * (cos.abs() / out_x + sin.abs() / out_y) * 0.5;
+    let half_y = height as f64 / transform.size.height * (sin.abs() / out_x + cos.abs() / out_y) * 0.5;
+    let axis = |at: f64, size: u32, half: f64| {
+        // An exact two-source-pixel footprint retains its two half-weight
+        // taps, including at the final pair. Snapping it to the last texel
+        // would discard half the prefiltered clipping coverage.
+        if (half - 1.0).abs() < 1e-10 { return at; }
+        if at < half - 1e-10 { 0.5 } else if at >= size as f64 - half - 1e-10 { size as f64 - 0.5 } else { at }
+    };
+    Point { x: axis(px.x, width, half_x), y: axis(px.y, height, half_y) }
+}
+
 fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: f64, nearest: bool, out_x: f64, out_y: f64, enlargement_phases: bool) -> [f32; 4] {
     let antialiased_copy = nearest && draw.transform.sampling != Sampling::Nearest;
-    let coverage = if antialiased_copy { copied_edge_coverage(draw, p, out_x, out_y) } else { 1.0 };
+    let affine_antialias = enlargement_phases && draw.corners.is_none() && draw.transform.sampling != Sampling::Nearest;
+    let rotated_nearest = enlargement_phases && draw.corners.is_none() && draw.transform.sampling == Sampling::Nearest && draw.transform.rotation % 360.0 != 0.0;
+    if rotated_nearest && !rotated_nearest_intersects(draw, px, p, out_x, out_y) { return [0.0; 4]; }
+    let coverage = if antialiased_copy { copied_edge_coverage(draw, p, out_x, out_y) }
+        else if affine_antialias { affine_edge_coverage(&draw.transform, px, draw.pixels_width, draw.pixels_height, out_x, out_y, p, false) }
+        else { 1.0 };
     if coverage <= 0.0 { return [0.0; 4]; }
-    if !antialiased_copy && (px.x < 0.0 || px.y < 0.0 || px.x >= draw.pixels_width as f64 || px.y >= draw.pixels_height as f64) { return [0.0; 4]; }
-    let (x, y) = if antialiased_copy {
+    if !antialiased_copy && !affine_antialias && !rotated_nearest && (px.x < 0.0 || px.y < 0.0 || px.x >= draw.pixels_width as f64 || px.y >= draw.pixels_height as f64) { return [0.0; 4]; }
+    let (x, y) = if antialiased_copy || affine_antialias || rotated_nearest {
         ((px.x * scale).clamp(0.0, source.width as f64 - 0.0001), (px.y * scale).clamp(0.0, source.height as f64 - 0.0001))
     } else { (px.x * scale, px.y * scale) };
-    let enlarged = enlargement_phases && draw.corners.is_none() && draw.transform.size.width * out_x / draw.pixels_width as f64 / scale > 1.001;
-    let mut color = sample_with_phase(source, x, y, nearest, enlarged);
-    if antialiased_copy && coverage < 1.0 {
+    let cg_phases = enlargement_phases && draw.corners.is_none() && !nearest;
+    let at = if cg_phases { affine_filter_position(&draw.transform, Point { x, y }, source.width, source.height, out_x, out_y) } else { Point { x, y } };
+    let mut color = sample_with_phase(source, at.x, at.y, nearest, cg_phases);
+    if (antialiased_copy || affine_antialias) && coverage < 1.0 {
         // Core Graphics materializes the covered premultiplied source as bytes
         // before source-over. Keeping fractional bytes until after blending
         // changes overlapping edges by a channel (Mac-created return oracle).
@@ -223,16 +288,54 @@ pub(crate) fn gray_sample(mask: &GrayRaster, x: f64, y: f64, nearest: bool) -> f
     (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty
 }
 
+/// CG clips resample affine mask bytes with the same measured phases as colour.
+/// Perspective masks use their separate Core Image path.
+fn gray_sample_cg(mask: &GrayRaster, x: f64, y: f64) -> f32 {
+    const WEIGHTS: [f32; 9] = [0.0, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875, 0.9375, 1.0];
+    let fetch = |px: i64, py: i64| mask.bytes()[(py.clamp(0, mask.height as i64 - 1) * mask.width as i64 + px.clamp(0, mask.width as i64 - 1)) as usize] as f32;
+    let interpolate = |a: f32, b: f32, t: f64| {
+        let (near, far, minor) = if t > 0.5 + 1e-10 { (b, a, 1.0 - t) } else { (a, b, t) };
+        let weight = WEIGHTS[(minor * 8.0).round().clamp(0.0, 8.0) as usize];
+        near + (far * weight).floor() - (near * weight).floor()
+    };
+    let fx = x - 0.5; let fy = y - 0.5;
+    let ix = fx.floor() as i64; let iy = fy.floor() as i64;
+    let left = interpolate(fetch(ix, iy), fetch(ix, iy + 1), fy - iy as f64);
+    let right = interpolate(fetch(ix + 1, iy), fetch(ix + 1, iy + 1), fy - iy as f64);
+    interpolate(left, right, fx - ix as f64) / 255.0
+}
+
 /// One coverage mask's value at a document point: its pixels inside, its background outside.
 pub fn coverage_at(doc: &Document, cov: &Coverage, p: Point) -> f32 {
     let Some(mask) = doc.layer(cov.layer_id).and_then(|l| l.mask.as_ref()) else { return 1.0; };
     let Some(px) = to_pixels(&cov.placement, cov.corners.as_ref(), cov.width, cov.height, p) else { return 1.0; };
     if px.x < 0.0 || px.y < 0.0 || px.x >= cov.width as f64 || px.y >= cov.height as f64 { return cov.background as f32 / 255.0; }
-    gray_sample(&mask.pixels, px.x, px.y, cov.nearest)
+    if cov.corners.is_none() && !cov.nearest { gray_sample_cg(&mask.pixels, px.x, px.y) }
+    else { gray_sample(&mask.pixels, px.x, px.y, cov.nearest) }
+}
+
+fn coverage_at_scaled(doc: &Document, cov: &Coverage, p: Point, out_x: f64, out_y: f64) -> f32 {
+    let Some(layer) = doc.layer(cov.layer_id) else { return 1.0; };
+    let Some(mask) = &layer.mask else { return 1.0; };
+    // LayerRenderer clips an unplaced own mask directly into the image draw.
+    // Placed, uniform and folder masks retain their separate background path.
+    if layer.is_group || mask.placement.is_some() || mask.is_uniform() || cov.nearest || cov.corners.is_some() {
+        return coverage_at(doc, cov, p);
+    }
+    let Some(px) = to_pixels(&cov.placement, None, cov.width, cov.height, p) else { return 1.0; };
+    let edge = affine_edge_coverage(&cov.placement, px, cov.width, cov.height, out_x, out_y, p, true);
+    if edge <= 0.0 { return 0.0; }
+    let at = affine_filter_position(&cov.placement, px, cov.width, cov.height, out_x, out_y);
+    // A CG clip is itself a byte mask, before the image draw's separate AA.
+    (gray_sample_cg(&mask.pixels, at.x, at.y) * edge * 255.0 + 1e-5).floor() / 255.0
 }
 
 fn coverages_at(doc: &Document, covs: &[Coverage], p: Point) -> f32 {
     covs.iter().fold(1.0, |k, c| k * coverage_at(doc, c, p))
+}
+
+fn coverages_at_scaled(doc: &Document, covs: &[Coverage], p: Point, out_x: f64, out_y: f64) -> f32 {
+    covs.iter().fold(1.0, |k, c| k * coverage_at_scaled(doc, c, p, out_x, out_y))
 }
 
 /// A clipping source's coverage at a document point: its alpha times opacity, own mask and its own
@@ -242,7 +345,7 @@ pub fn source_coverage_at(doc: &Document, plan: &RenderPlan, source: Uuid, p: Po
     fn inner(doc: &Document, plan: &RenderPlan, source: Uuid, p: Point, depth: u32, reduced: &SourceRasters) -> f32 {
         if depth > 256 { return 1.0; }
         let Some(draw) = plan.sources.iter().find(|s| s.id == source) else { return 1.0; };
-        let a = sample_draw_reduced(draw, p, reduced.get(&source))[3] * draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        let a = sample_draw_reduced(draw, p, reduced.get(&source))[3] * draw.opacity as f32 * reduced.get(&source).map_or_else(|| coverages_at(doc, &draw.coverages, p), |r| coverages_at_scaled(doc, &draw.coverages, p, r.3, r.4));
         match draw.clip { Some(c) => a * inner(doc, plan, c, p, depth + 1, reduced), None => a }
     }
     inner(doc, plan, source, p, 0, reduced)
@@ -294,7 +397,7 @@ fn draw_layer(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: &Lay
         let Some(px) = to_pixels(&draw.transform, draw.corners.as_ref(), raster.width, raster.height, p) else { continue; };
         let mut s = sample_placed(draw, &source, px, p, scale, nearest, out_per_doc, target.h as f64 / target.region.height, target.enlargement_phases);
         if s[3] <= 0.0 { continue; }
-        let mut k = draw.opacity as f32 * coverages_at(doc, &draw.coverages, p);
+        let mut k = draw.opacity as f32 * if target.enlargement_phases { coverages_at_scaled(doc, &draw.coverages, p, out_per_doc, target.h as f64 / target.region.height) } else { coverages_at(doc, &draw.coverages, p) };
         if use_clip { if let Some(c) = draw.clip { k *= source_coverage_at(doc, plan, c, p, &clip_sources); } }
         if k <= 0.0 { continue; }
         // Core Graphics draws the opacity/mask-covered source through RGBA8

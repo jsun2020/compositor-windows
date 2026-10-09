@@ -94,7 +94,17 @@ in vec2 uv;
 uniform vec4 uvRect;
 uniform vec2 edgePadding;
 uniform vec4 copyGrid;
+uniform bool useCopyGrid;
 uniform float copyHeight;
+uniform mat3 deviceToUnit;
+uniform vec2 coordinateOrigin;
+uniform bool useDeviceCoordinates;
+uniform bool hardEdges;
+uniform bool conservativeEdges;
+uniform vec4 imageBounds;
+uniform float coverageLevels;
+uniform bool flipX;
+uniform bool flipY;
 uniform sampler2D tex;
 uniform sampler2D backdrop;
 uniform sampler2D coverage;
@@ -118,8 +128,16 @@ vec4 interpolateBytes(vec4 a, vec4 b, float t) {
 vec4 enlargedTexel(ivec2 at, ivec2 size) {
   return floor(texelFetch(tex, clamp(at, ivec2(0), size - 1), 0) * 255.0 + 0.5);
 }
-vec4 enlargedSample(vec2 at) {
+vec4 enlargedSample(vec2 at, vec2 reach) {
   ivec2 size = textureSize(tex, 0);
+  vec2 fullSize = vec2(size) / uvRect.zw;
+  vec2 unitPoint = uvRect.xy + at * uvRect.zw;
+  // Preserve both half-weight taps at an exact 2:1 final reduction.
+  bvec2 pair = lessThan(abs(reach * fullSize - 1.0), vec2(1e-6));
+  bvec2 low = lessThan(unitPoint, reach - 1e-7), high = greaterThanEqual(unitPoint, vec2(1.0) - reach - 1e-7);
+  unitPoint = mix(unitPoint, 0.5 / fullSize, bvec2(low.x && !pair.x, low.y && !pair.y));
+  unitPoint = mix(unitPoint, vec2(1.0) - 0.5 / fullSize, bvec2(high.x && !pair.x, high.y && !pair.y));
+  at = (unitPoint - uvRect.xy) / uvRect.zw;
   vec2 p = at * vec2(size) - 0.5, fraction = fract(p);
   ivec2 lo = ivec2(floor(p));
   // Match CG's byte order: vertical interpolation, then horizontal.
@@ -132,21 +150,47 @@ void main() {
   ivec2 at = ivec2(gl_FragCoord.xy);
   float k = opacity * (useCoverage ? texelFetch(coverage, at, 0).r : 1.0);
   vec4 sampled;
-  if (edgePadding.x > 0.0 || edgePadding.y > 0.0) {
-    vec2 f = uvRect.xy + uv * uvRect.zw;
+  vec2 sampleUv = uv;
+  vec2 sourceUnit = uvRect.xy + uv * uvRect.zw;
+  // The rasterizer quantizes triangle vertices. CG byte phases and rectangle
+  // coverage must instead use the actual output pixel, like the CPU and masks.
+  if (useDeviceCoordinates) {
+    vec3 unitPoint = deviceToUnit * vec3(gl_FragCoord.xy - coordinateOrigin, 1.0);
+    vec2 placedUnit = unitPoint.xy / unitPoint.z;
+    sourceUnit = vec2(flipX ? 1.0 - placedUnit.x : placedUnit.x, flipY ? 1.0 - placedUnit.y : placedUnit.y);
+    sampleUv = (sourceUnit - uvRect.xy) / uvRect.zw;
+  }
+  vec2 halfFootprint = fwidth(sourceUnit) * 0.5;
+  vec2 hardReach = conservativeEdges ? halfFootprint : vec2(0.0);
+  bool touchesBounds = all(greaterThan(gl_FragCoord.xy + 0.5, imageBounds.xy)) && all(lessThan(gl_FragCoord.xy - 0.5, imageBounds.zw));
+  if (hardEdges && (any(lessThan(sourceUnit, -hardReach)) || any(greaterThanEqual(sourceUnit, vec2(1.0) + hardReach)) || !touchesBounds)) {
+    sampled = vec4(0.0);
+  } else if (!hardEdges && (edgePadding.x > 0.0 || edgePadding.y > 0.0)) {
+    vec2 f = sourceUnit;
     vec2 edge = clamp(min(f, vec2(1.0) - f) / max(fwidth(f), vec2(1e-8)) + 0.5, 0.0, 1.0);
-    float edgeCoverage = floor(edge.x * edge.y * 255.0) / 255.0;
+    float edgeCoverage = touchesBounds ? min(255.0, floor(edge.x * edge.y * coverageLevels)) / 255.0 : 0.0;
     // Interpolated UVs can land one float below a texel boundary at a half-pixel
     // origin. Derive copy coordinates from device pixels to keep those ties exact.
-    vec2 pixel = (vec2(gl_FragCoord.x, copyHeight - gl_FragCoord.y) - copyGrid.xy) / copyGrid.zw;
-    sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
+    if (useCopyGrid) {
+      vec2 pixel = (vec2(gl_FragCoord.x, copyHeight - gl_FragCoord.y) - copyGrid.xy) / copyGrid.zw;
+      sampled = texelFetch(tex, clamp(ivec2(floor(pixel)), ivec2(0), textureSize(tex, 0) - 1), 0);
+    } else {
+#ifdef QUANTIZED_ENLARGEMENT
+      sampled = enlargedSample(sampleUv, halfFootprint);
+#else
+      sampled = texture(tex, uv);
+#endif
+    }
     // Covered source bytes are rounded before blending with the backdrop.
     sampled = floor(sampled * edgeCoverage * 255.0 + 0.5) / 255.0;
   } else {
 #ifdef QUANTIZED_ENLARGEMENT
-    sampled = enlargedSample(uv);
+    sampled = enlargedSample(sampleUv, halfFootprint);
 #else
-    sampled = texture(tex, uv);
+    if (hardEdges) {
+      ivec2 size = textureSize(tex, 0);
+      sampled = texelFetch(tex, clamp(ivec2(floor(sampleUv * vec2(size))), ivec2(0), size - 1), 0);
+    } else { sampled = texture(tex, uv); }
 #endif
   }
   // The covered source is RGBA8 before blend, as in the CPU layer draw.
@@ -172,11 +216,46 @@ uniform mat3 deviceToMask;
 uniform vec2 maskSize;
 uniform float background;
 uniform sampler2D mask;
+uniform bool cgPhases;
+uniform bool directClip;
+uniform vec4 maskBounds;
+float maskPhase(float t) {
+  const float weights[9] = float[9](0.0, 0.0625, 0.125, 0.25, 0.5, 0.75, 0.875, 0.9375, 1.0);
+  return weights[int(clamp(floor(t * 8.0 + 0.5), 0.0, 8.0))];
+}
+float interpolateMaskBytes(float a, float b, float t) {
+  bool upper = t > 0.5;
+  float near = upper ? b : a, far = upper ? a : b;
+  float weight = maskPhase(upper ? 1.0 - t : t);
+  return near + floor(far * weight) - floor(near * weight);
+}
+float maskByte(ivec2 at) {
+  return floor(texelFetch(mask, clamp(at, ivec2(0), textureSize(mask, 0) - 1), 0).r * 255.0 + 0.5);
+}
+float cgMaskSample(vec2 m) {
+  vec2 p = m - 0.5, fraction = fract(p); ivec2 lo = ivec2(floor(p));
+  float left = interpolateMaskBytes(maskByte(lo), maskByte(lo + ivec2(0, 1)), fraction.y);
+  float right = interpolateMaskBytes(maskByte(lo + ivec2(1, 0)), maskByte(lo + ivec2(1, 1)), fraction.y);
+  return interpolateMaskBytes(left, right, fraction.x) / 255.0;
+}
 out vec4 color;
 void main() {
   vec3 p = deviceToMask * vec3(gl_FragCoord.xy, 1.0);
   vec2 m = p.xy / p.z;
-  float v = (m.x < 0.0 || m.y < 0.0 || m.x >= maskSize.x || m.y >= maskSize.y) ? background : texture(mask, m / maskSize).r;
+  float v;
+  if (directClip) {
+    vec2 footprint = max(fwidth(m), vec2(1e-8));
+    vec2 edge = clamp(min(m, maskSize - m) / footprint + 0.5, 0.0, 1.0);
+    bool touchesBounds = all(greaterThan(gl_FragCoord.xy + 0.5, maskBounds.xy)) && all(lessThan(gl_FragCoord.xy - 0.5, maskBounds.zw));
+    float edgeCoverage = touchesBounds ? floor(edge.x * edge.y * 255.0) / 255.0 : 0.0;
+    bvec2 pair = lessThan(abs(footprint * 0.5 - 1.0), vec2(1e-6));
+    bvec2 low = lessThan(m, footprint * 0.5 - 1e-7), high = greaterThanEqual(m, maskSize - footprint * 0.5 - 1e-7);
+    vec2 filtered = mix(m, vec2(0.5), bvec2(low.x && !pair.x, low.y && !pair.y));
+    filtered = mix(filtered, maskSize - 0.5, bvec2(high.x && !pair.x, high.y && !pair.y));
+    v = floor(cgMaskSample(filtered) * edgeCoverage * 255.0 + 1e-5) / 255.0;
+  } else {
+    v = (m.x < 0.0 || m.y < 0.0 || m.x >= maskSize.x || m.y >= maskSize.y) ? background : (cgPhases ? cgMaskSample(m) : texture(mask, m / maskSize).r);
+  }
   color = vec4(v, v, v, 1.0);
 }`;
 const FRAG_ALPHA_OF = `#version 300 es
@@ -555,7 +634,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
     layer: compile(gl, VERT_UNIT, FRAG_LAYER, LAYER_UNIFORMS),
-    coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask"]),
+    coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask", "cgPhases", "directClip", "maskBounds"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
     restore: compile(gl, VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
@@ -576,7 +655,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   return programs;
 }
 
-const LAYER_UNIFORMS = ["unitToClip", "uvRect", "edgePadding", "copyGrid", "copyHeight", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"];
+const LAYER_UNIFORMS = ["unitToClip", "uvRect", "edgePadding", "copyGrid", "useCopyGrid", "copyHeight", "deviceToUnit", "coordinateOrigin", "useDeviceCoordinates", "hardEdges", "conservativeEdges", "imageBounds", "coverageLevels", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"];
 
 /** Keep ordinary draws on their original shader. Compile the byte-interpolation
  * variant only when an affine enlargement needs it, then reuse it. */

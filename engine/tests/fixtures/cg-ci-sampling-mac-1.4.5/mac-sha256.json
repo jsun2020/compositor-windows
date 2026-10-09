@@ -1,0 +1,222 @@
+[
+  {
+    "file": "mac/affine-high-r25-100.rgba8",
+    "sha256": "f7bf170387ce8cb986f70c1bd5a395dbfa1d7da5ebd2fc932401ee52065dbabc",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-high-r25-150.rgba8",
+    "sha256": "510a5dbdcef8c11d189fa9096fcce00004493883e97168fc2511237e35cb2973",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-high-r25-300.rgba8",
+    "sha256": "5bc3907f32f15163b744b92dcc2967ee3e6d657652da945f71cc4eeff0508e68",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-high-rminus37-65.rgba8",
+    "sha256": "5833c707b919a62b10b5bdcaf536befaaf4d4f370e3f795c1a20c179fe2861c8",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-high-r90-100.rgba8",
+    "sha256": "254b798cfbaae9c336a999e5e92c287d55bfbbd29c9bef8354c08d63d57ad50c",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-high-r45-flipped.rgba8",
+    "sha256": "49f9812001901f3a986677a770175744729b387485d48f84def3949cb41a78bf",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-r25-100.rgba8",
+    "sha256": "f7bf170387ce8cb986f70c1bd5a395dbfa1d7da5ebd2fc932401ee52065dbabc",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-r25-150.rgba8",
+    "sha256": "510a5dbdcef8c11d189fa9096fcce00004493883e97168fc2511237e35cb2973",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-r25-300.rgba8",
+    "sha256": "5bc3907f32f15163b744b92dcc2967ee3e6d657652da945f71cc4eeff0508e68",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-rminus37-65.rgba8",
+    "sha256": "5833c707b919a62b10b5bdcaf536befaaf4d4f370e3f795c1a20c179fe2861c8",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-r90-100.rgba8",
+    "sha256": "254b798cfbaae9c336a999e5e92c287d55bfbbd29c9bef8354c08d63d57ad50c",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-smooth-r45-flipped.rgba8",
+    "sha256": "49f9812001901f3a986677a770175744729b387485d48f84def3949cb41a78bf",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-r25-100.rgba8",
+    "sha256": "e4472d37cb3b34d76ca2be38beb5372307d6a010af109d25b68b11b5b374d328",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-r25-150.rgba8",
+    "sha256": "2048673764300753622fe051445e039052bdd2916bf1b2d472e7a41528628c45",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-r25-300.rgba8",
+    "sha256": "9b3a23aa80b817d8cdb3624db03dd73f2744d29f5ce15d54c1af38e7e33cada1",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-rminus37-65.rgba8",
+    "sha256": "5b5d59dbe890381a8fbe2211f6baac354878ec12377adead105671c33c8f41f1",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-r90-100.rgba8",
+    "sha256": "6a07dfa4d8b0320d0401a8326627a90624171c3a48050d23fb9bac11e8f32a38",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/affine-nearest-r45-flipped.rgba8",
+    "sha256": "42c959869db85967ec15a768747390aa058a563305ad4936417938e5f2fc4c40",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-high-150.rgba8",
+    "sha256": "d7dc521de99049268ac9c93d7361e2ef23a3f8478877974b8791193228af745e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-high-400.rgba8",
+    "sha256": "30d9d1c29521e8f88b8cf44b4d95d48c450cab8a927d9bfaf725d1297d262b7e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-high-mask-400.rgba8",
+    "sha256": "f182d7ee7feed11b070b66d268c143c4974728e42a3baf575e619576880f0a6e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-high-rotated.rgba8",
+    "sha256": "b53f539959d0c1dd2b70f20023a7edbd085a135e1821a39fb6696be2e3652253",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-high-shrink-65.rgba8",
+    "sha256": "535a1c42449a6d9cdc02b0c603a84afc7477fdbc84101e01fb18d730748b97d0",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-nearest-400.rgba8",
+    "sha256": "f851804b4d8f89f5e4837dc7e1be54979bb31163daf2a859ac3db302b0dd167b",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-smooth-400.rgba8",
+    "sha256": "30d9d1c29521e8f88b8cf44b4d95d48c450cab8a927d9bfaf725d1297d262b7e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-steps-high-1600.rgba8",
+    "sha256": "fdac6462e61b3edf31cd597fc577a8568f3adae003d8077db42f392d80621f7e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-steps-high-700.rgba8",
+    "sha256": "37614f56fbb1ad5ca03dd1366233747439aa97a6fe489bfabec5e9f744e6fc08",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/sampling-steps-smooth-1600.rgba8",
+    "sha256": "fdac6462e61b3edf31cd597fc577a8568f3adae003d8077db42f392d80621f7e",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/perspective-inset-high.rgba8",
+    "sha256": "9e42c54e9a3918c97c7b0015460ea0e72bac1e441f7e328ac7523a8a0fe30452",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-inset-nearest.rgba8",
+    "sha256": "9e42c54e9a3918c97c7b0015460ea0e72bac1e441f7e328ac7523a8a0fe30452",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-mirror-high.rgba8",
+    "sha256": "ffb6ad80b4d5a115587cc817e3194ad8cd97d519335f270a63688c58f2888c7e",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-mirror-nearest.rgba8",
+    "sha256": "ffb6ad80b4d5a115587cc817e3194ad8cd97d519335f270a63688c58f2888c7e",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-reduce-high.rgba8",
+    "sha256": "4f506e5c6af5d1554f54a8f5be98849a0e70d574689d382c1f18ce4ac47ec523",
+    "bytes": 308
+  },
+  {
+    "file": "mac/perspective-reduce-nearest.rgba8",
+    "sha256": "4f506e5c6af5d1554f54a8f5be98849a0e70d574689d382c1f18ce4ac47ec523",
+    "bytes": 308
+  },
+  {
+    "file": "mac/perspective-affine-high.rgba8",
+    "sha256": "b0aa8622205cc29179755aedd77436ca98858871925b8a71263f4626f00dddfd",
+    "bytes": 10260
+  },
+  {
+    "file": "mac/perspective-affine-nearest.rgba8",
+    "sha256": "b0aa8622205cc29179755aedd77436ca98858871925b8a71263f4626f00dddfd",
+    "bytes": 10260
+  },
+  {
+    "file": "mac/mask-rotated.rgba8",
+    "sha256": "a7eaae843d83c6e16d07a2a98edc0583dc1f4601b54ecf29d08bf9afaa2b5b10",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/mask-reduced.rgba8",
+    "sha256": "43089e8c594a78fc6a5e134774692a1667a21571c4f90d0873dc6fab7426d502",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/mask-flipped.rgba8",
+    "sha256": "809a6c2d5335a68ee8c308e1fde04045dc736feba819ba73bc7269f4588d3aab",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/mask-nonuniform.rgba8",
+    "sha256": "13943c91bbfa786853e6801c1dcc5ea9b2ab46024a31fbc94bd0b71a14b85219",
+    "bytes": 27648
+  },
+  {
+    "file": "mac/perspective-mask-high.rgba8",
+    "sha256": "4fedc75264b3423bf6d33cb37e31093a402a95b97b154a5addc1fc2a2bf09f70",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-mask-high-mask.gray8",
+    "sha256": "3ef54d203c5449cbdbeaaf1f47be78ef6573f4ad930a4bf68106fb43d106893f",
+    "bytes": 2040
+  },
+  {
+    "file": "mac/perspective-mask-nearest.rgba8",
+    "sha256": "4fedc75264b3423bf6d33cb37e31093a402a95b97b154a5addc1fc2a2bf09f70",
+    "bytes": 8160
+  },
+  {
+    "file": "mac/perspective-mask-nearest-mask.gray8",
+    "sha256": "3ef54d203c5449cbdbeaaf1f47be78ef6573f4ad930a4bf68106fb43d106893f",
+    "bytes": 2040
+  }
+]
