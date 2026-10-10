@@ -69,7 +69,7 @@ function run(request: JobRequest): JobResult {
         const length=engine!.job_buffer_len(false);
         const pointer=engine!.job_buffer_ptr(false);
         const palette=!uniform&&length>4*1024*1024&&(JSON.parse(request.command) as {type:string}).type!=="Fill"
-          ? encodePalettePixels(new Uint8Array(memory!.buffer,pointer,length)) : null;
+          ? encodePalettePixels(new Uint8Array(memory!.buffer,pointer,length),length>=16*1024*1024?64:1) : null;
         return {header:uniform?JSON.stringify({...JSON.parse(header),uniformPixels:Array.from(uniform)}):palette?JSON.stringify({...JSON.parse(header),palettePixels:palette.palette}):header,
           pixels:uniform?null:palette?palette.indices:kept(false,request.pixels??request.outputPixels??null),mask:kept(true,request.mask),display:keptDisplay()};
       } finally { engine!.release_job(); }

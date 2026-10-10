@@ -29,6 +29,7 @@ try {
   Step "Marker: $marker"
 
   if (-not $SkipWasm) { Step 'Building wasm engine'; & pnpm wasm; if ($LASTEXITCODE -ne 0) { throw 'wasm build failed' } }
+  Step 'Verifying wasm binary and glue exports'; & node (Join-Path $root 'scripts\verify-wasm-output.mjs'); if ($LASTEXITCODE -ne 0) { throw 'wasm output verification failed' }
   Step 'Building web app'; & pnpm build; if ($LASTEXITCODE -ne 0) { throw 'web build failed' }
 
   Step 'Verifying marker is bundled'

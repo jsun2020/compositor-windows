@@ -94,6 +94,23 @@ unsafe fn decode_words<const DEPTH: usize>(destination: *mut u8, words: &[u32; M
 /// length is a nonzero whole-pixel interval in the caller's reservation.
 /// Sources are initialized and disjoint from the destination of each copy.
 unsafe fn repeat_word(destination: *mut u8, word: u32, length: usize) {
+    #[cfg(target_arch = "wasm32")]
+    if length >= 16 * 1024 && destination as usize % 4 == 0 {
+        use wasm_bindgen::JsCast;
+        // The caller checked every index in this equal run and proved the
+        // complete destination interval fits the reservation. Fill the actual
+        // WASM storage directly; no Rust reference exposes uninitialized bytes.
+        let pattern = js_sys::Uint8Array::new_with_length(4);
+        for (i, byte) in word.to_ne_bytes().into_iter().enumerate() { pattern.set_index(i as u32, byte); }
+        let pixel = js_sys::Uint32Array::new(&pattern.buffer()).get_index(0);
+        let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
+        // No WASM allocation occurs after taking the view. Native byte order is
+        // derived from the RGBA pattern instead of assuming JS host endianness.
+        let output = js_sys::Uint32Array::new_with_byte_offset_and_length(
+            &memory.buffer(), destination as u32, (length / 4) as u32);
+        output.fill(pixel, 0, (length / 4) as u32);
+        return;
+    }
     unsafe { destination.cast::<u32>().write_unaligned(word); }
     let mut written = 4;
     while written < length {
@@ -106,6 +123,28 @@ unsafe fn repeat_word(destination: *mut u8, word: u32, length: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn narrow_bands_preserve_bytes_across_short_run_and_chunk_boundaries() {
+        for colors in [256, 300] {
+            let palette: Vec<u8> = (0..colors).flat_map(|i| [(i%256) as u8, (i/256) as u8, 73, 255]).collect();
+            let depth = if colors <= 256 { 1 } else { 2 };
+            let mut indices = Vec::new();
+            let mut expected = vec![9; 4];
+            for row in 0..7 {
+                for (band, count) in [7,8,9,15,16,17,31,32,33,65].into_iter().enumerate() {
+                    let color = (colors-1-row*11-band) % colors;
+                    for _ in 0..count {
+                        if depth == 1 { indices.push(color as u8); }
+                        else { indices.extend_from_slice(&(color as u16).to_le_bytes()); }
+                        expected.extend_from_slice(&palette[color*4..color*4+4]);
+                    }
+                }
+            }
+            let mut output = Vec::with_capacity(expected.len());
+            output.extend_from_slice(&[9; 4]);
+            for chunk in indices.chunks(257*depth) { append(&mut output, expected.len(), &palette, chunk).unwrap(); }
+            assert_eq!(output, expected);
+        }
+    }
     #[test] fn byte_indices_preserve_all_channels_and_chunk_boundaries() {
         let palette=[17,31,43,97, 0,0,0,0, 91,37,13,255];
         let mut out=Vec::with_capacity(24);

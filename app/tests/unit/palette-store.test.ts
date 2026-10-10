@@ -92,4 +92,38 @@ describe("the palette", () => {
     s().resetPalette();
     expect(s().palette).toEqual(unchanged);
   });
+  it("reads every sample but publishes only a changed foreground", () => {
+    let rgb: [number, number, number] = [1, 0, 0], reads = 0;
+    useEditor.setState({ gradientEdit: null, engine: { sampleColor: () => { reads++; return rgb; } } as never });
+    s().sampleForeground({ x: 1, y: 1 });
+    const palette = s().palette, tick = s().overlayTick;
+    s().sampleForeground({ x: 2, y: 1 });
+    expect(reads).toBe(2);
+    expect(s().palette).toBe(palette);
+    expect(s().overlayTick).toBe(tick);
+    // The same location can change after an edit; sampling is never cached.
+    rgb = [0, 0.5, 0.5];
+    s().sampleForeground({ x: 2, y: 1 });
+    expect(reads).toBe(3);
+    expect(s().palette.foreground).toEqual(TEAL);
+    expect(s().overlayTick).toBeGreaterThan(tick);
+  });
+  it("repaints the sample ring only when its position or either colour changes", () => {
+    useEditor.setState({ sampleRing: null });
+    const ring = { at: { x: 10, y: 20 }, sampled: RED, original: BLACK };
+    s().setSampleRing(ring);
+    const tick = s().overlayTick;
+    s().setSampleRing({ at: { ...ring.at }, sampled: { ...RED }, original: { ...BLACK } });
+    expect(s().sampleRing).toBe(ring);
+    expect(s().overlayTick).toBe(tick);
+    s().setSampleRing({ ...ring, at: { x: 11, y: 20 } });
+    s().setSampleRing({ ...ring, sampled: TEAL });
+    s().setSampleRing({ ...ring, original: WHITE });
+    expect(s().overlayTick).toBe(tick + 3);
+    s().setSampleRing(null);
+    expect(s().sampleRing).toBeNull();
+    expect(s().overlayTick).toBe(tick + 4);
+    s().setSampleRing(null);
+    expect(s().overlayTick).toBe(tick + 4);
+  });
 });

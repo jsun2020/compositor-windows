@@ -50,3 +50,58 @@ test("malformed, cancelled and stale palette transfers preserve the document and
   expect(results.map(r=>r.kind)).toEqual(["invalid-index","short-plane","ambiguous","cancelled","stale"]);
   for(const row of results){expect(row.rejected,row.kind).toBe(true);expect(row.unchanged,row.kind).toBe(true);expect(row.depthSame,row.kind).toBe(true);}
 });
+
+test("a large short-band gradient uses raw transfer with exact pixels and one Undo/Redo",async({page})=>{
+  test.setTimeout(120_000);
+  await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const result=await page.evaluate(async()=>{
+    const a=(window as any).__compositor,e=a.engine,s=()=>a.store.getState(),w=4096,h=1025;
+    const make=()=>{const doc=e.newDocument(w,h,true),id=e.state(doc).layers[0].id;e.execute(doc,{type:"Fill",id,mask:false,color:[.2,.4,.6]});return{doc,id};};
+    const actual=make(),reference=make();s().openDocument(actual.doc);
+    const before=e.layerPixels(actual.doc,actual.id).slice(),depth=e.state(actual.doc).undoDepth;
+    const command={type:"Gradient",id:actual.id,mask:false,gradient:{shape:"Linear",start:[0,0],end:[w,0],from:[1,0,0,1],to:[0,1,1,1],opacity:1}};
+    const client=s().jobs,run=client.run.bind(client);let receipt:any=null;
+    client.run=async(...args:any[])=>{const r=await run(...args);if(args[1].kind==="edit")receipt={header:JSON.parse(r.header),bytes:r.pixels?.byteLength??0};return r;};
+    try{
+      const applied=await s().runEditJob(command,actual.id);
+      e.execute(reference.doc,{...command,id:reference.id});const expected=e.layerPixels(reference.doc,reference.id).slice();
+      const equals=(bytes:Uint8Array)=>{const p=e.layerPixels(actual.doc,actual.id);return p.length===bytes.length&&p.every((v:number,i:number)=>v===bytes[i]);};
+      const exact=equals(expected),oneStep=e.state(actual.doc).undoDepth===depth+1;
+      s().undo();const undo=equals(before);s().redo();
+      return{applied,receipt,exact,oneStep,undo,redo:equals(expected),error:s().error};
+    }finally{client.run=run;s().closeDocument(actual.doc);e.closeDocument(reference.doc);}
+  });
+  expect(result.error).toBeNull();expect(result.applied).toBe(true);expect(result.exact).toBe(true);expect(result.oneStep).toBe(true);expect(result.undo).toBe(true);expect(result.redo).toBe(true);
+  expect(result.receipt.header.uniformPixels).toBeUndefined();
+  expect(result.receipt.header.palettePixels).toBeUndefined();
+  expect(result.receipt.bytes).toBe(4096*1025*4);
+});
+
+test("long palette runs retain translucent bytes across chunks in both index depths",async({page})=>{
+  test.setTimeout(120_000);
+  await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const results=await page.evaluate(async()=>{
+    const a=(window as any).__compositor,e=a.engine,s=()=>a.store.getState(),w=2051,h=517,rows=[];
+    for(const colors of [2,300]){
+      const doc=e.newDocument(w,h,true),id=e.state(doc).layers[0].id;
+      e.execute(doc,{type:"Fill",id,mask:false,color:[.2,.4,.6]});s().openDocument(doc);
+      const before=e.layerPixels(doc,id).slice(),depth=e.state(doc).undoDepth,input=e.jobHeader(doc,id),header=JSON.parse(input);
+      const palette=Array.from({length:colors},(_,i)=>[i%90,Math.floor(i/90),17,97]).flat();
+      const indexDepth=colors<=256?1:2,indices=new Uint8Array(w*h*indexDepth),expected=new Uint8Array(w*h*4);
+      for(let i=0;i<w*h;i++){
+        const n=i<13?0:Math.floor((i-13)/31011)%colors;
+        indices[i*indexDepth]=n&255;if(indexDepth===2)indices[i*2+1]=n>>8;
+        expected.set(palette.slice(n*4,n*4+4),i*4);
+      }
+      const output={transform:header.layer.transform,maskPlacement:null,pixels:[w,h],mask:null,regions:[],display:null,palettePixels:palette};
+      await e.installJobAsync(doc,id,input,JSON.stringify(output),indices.buffer,null);
+      const equals=(bytes:Uint8Array)=>{const p=e.layerPixels(doc,id);return p.length===bytes.length&&p.every((v:number,i:number)=>v===bytes[i]);};
+      const exact=equals(expected),oneStep=e.state(doc).undoDepth===depth+1;
+      s().undo();const undo=equals(before);s().redo();rows.push({colors,exact,oneStep,undo,redo:equals(expected)});
+      s().closeDocument(doc);
+    }
+    return rows;
+  });
+  expect(results.map(r=>r.colors)).toEqual([2,300]);
+  for(const row of results){expect(row.exact).toBe(true);expect(row.oneStep).toBe(true);expect(row.undo).toBe(true);expect(row.redo).toBe(true);}
+});

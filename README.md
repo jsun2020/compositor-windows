@@ -3,154 +3,15 @@
 [![Windows CI](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml)
 [![Windows Release](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml)
 
-A free, open-source Windows image editor, ported from Compositor for macOS.
-Built with Tauri 2, a Rust/WebAssembly engine, WebGL2 and React/TypeScript.
+A free, open-source Windows image editor ported from Compositor for macOS, built with Tauri 2, Rust/WebAssembly, WebGL2 and React/TypeScript.
 
-**Current release: 0.8.0. Phase 4 and Phase 5 are implemented and accepted on the
-tested Windows desktop with received Compositor for Mac 1.4.5 projects.**
-Phase 6 Liquify and Smudge development acceptance is complete on the tested
-hardware and received Mac/Windows probes; these tools await a future release.
-Phase 7 development acceptance is complete on the tested single-display
-Windows desktop and received Compositor for Mac 1.4.5 samples. Camera Raw,
-layered PSD/PSB import and camera sensor RAW development passed their scoped
-checks. The corrected source passed the original 29-case hardware suite and
-separate native production-package checks. These features await a future release.
+**Version 0.9.0 includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections.** The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
 
 ## Download
 
-Get the portable Windows x64 ZIP from [Releases](https://github.com/jsun2020/compositor-windows/releases/latest),
-extract it and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required;
-Rust and Node are only needed for development. Projects are `.comp` folders:
-keep their manifest and asset files together.
+Get the portable Windows x64 ZIP from [Releases](https://github.com/jsun2020/compositor-windows/releases/latest), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
 
-Automated releases include `SHA256SUMS.txt` and `release-manifest.json` with
-the exact source commit, build marker and artifact hashes.
-
-The Phase 7 development package must be extracted in full: it also includes
-`CompositorRaw.exe`, three MSVC runtime DLLs and `LibRaw-notices`. The packaging
-gate checks every file and rejects missing decoder components or license notices.
-
-## Phase 7 development
-
-- **Camera Raw filter:** Light, Color, parametric/point curves, Color Mixer,
-  Point Color, Color Grading, Effects, Detail, Optics, Geometry and Calibration.
-  Group resets/bypass, white-balance/Point Color sampling and diagnostic previews
-  preserve the original pixels until Apply; Apply records one undo step.
-- **Photoshop import:** bounded RGB 8-bit PSD/PSB raw/PackBits decoding, groups,
-  visibility/opacity, blend modes, clipping, raster masks, supported Levels/Curves/
-  Hue-Saturation adjustments, first-style editable text and supported live shapes.
-  Text retains its cached Photoshop raster until edited. Unsupported records are
-  reported. ZIP compression, 16/32-bit and non-RGB Photoshop documents are refused.
-- **Camera RAW import:** a pinned LibRaw 0.22.2 helper develops the sensor data,
-  with As Shot reset, exposure, estimated temperature, tint, tone curve, bounded
-  preview, cancellation and full-size import. Embedded JPEGs are never substituted
-  for sensor processing. Apple CIRAWFilter and LibRaw can produce different colour
-  and tone results; camera coverage depends on the decoder.
-
-The tested development portable has no test API. Native checks passed Camera Raw
-preview/cancel/history, Photoshop conversion notices, project close choices and
-real Canon EOS 40D sensor import. As Shot and Exposure +1 saved and reopened at
-3908 × 2602 with unchanged exported pixels. The supplied real PSD also matched
-its Mac export after correcting layer order. Those earlier checks use native file
-APIs with supplied picker responses. Subsequent user-authorized scripts operated
-16 real Windows Open, Save As and folder-selection dialogs without mocking their
-responses. Five Photoshop imports, cancellation, discard/clear, edited PSD and
-actual CR2 save/close/reopen passed; reopened viewport pixels were unchanged.
-The `20261007-1007` package also passed a 6.5 MP keyboard fill, one Undo/Redo and real
-save/reopen; all 6,553,600 saved pixels were checked exactly. Application controls
-use CDP; process-scoped Win32 edits and UI Automation button invocation operate
-native dialogs. These results do not claim physical mouse input.
-The earlier 0010 production portable also passed Point Color eyedropper, Visualize Range,
-OK, Undo/Redo and native disk save/reopen on an isolated working copy. The range
-overlay is excluded from the committed image. These controls were exercised
-through CDP; that supplemental Point Color check does not establish OS input.
-
-All 339 returned Mac files were independently checked. Fourteen returned projects
-opened, saved and reopened in the Windows engine with unchanged exports. The
-Light/Color/Curve, Mixer/Grading and Effects/Detail/Optics probes are pixel-exact.
-The returned framework diagnostic identified RGBA8 source rounding before
-opacity blending. The CPU and GPU correction passes 204 independent Mac pixel
-oracles. Both grouped PSD/PSB imports now match their Mac exports exactly, and
-all fourteen Mac-saved projects export identically after Windows open/save/reopen.
-Recomputing all four original Camera Raw recipes from the unchanged source now
-matches every RGBA byte, including Geometry/Calibration. The Geometry correction
-uses actual public kernel matrices and a complete independently measured Float32
-reciprocal domain; see the [arithmetic reference](engine/tests/fixtures/core-image-perspective.md)
-for reproduction and the measured hardware/exponent scope. Mac Point Color crashed
-with Visualize Range enabled; its failure report is retained.
-
-After the uniform-fill transport and buffer-reuse correction, a fresh complete
-original hardware suite passed **29/29** on one active Windows display. The
-100 MP blank-layer fill result installation measured 244 ms against the original
-strict <450 ms budget. All 381 frozen inputs verified before and after; one
-worker and zero retries were used, with unchanged assertions and budgets. The
-preceding failed runs remain retained; this pass does not establish a universal
-display/driver fix. Production native checks passed separately on build
-`20261007-1007`. Source `0a85e89` also passed hosted CI: 698 native tests, 298 unit
-tests and 272 functional cases, with original ignores and hardware opt-ins kept
-separate. Those package/performance results belong to `0a85e89`; the subsequent
-opacity correction is `e1cfcec`. Its local checks passed 679 engine tests,
-298 unit tests, three TypeScript checks, release WASM and seven renderer cases.
-Its [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37568673577)
-passed 699 native tests, 298 unit tests and 275 functional cases, with the ten
-original native ignores and 33 hardware opt-ins kept separate.
-
-The corrected Geometry source `4221beb` passed [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37707364360):
-704 native tests, 298 unit tests and 281 functional cases, retaining ten native
-ignores and 33 hardware opt-ins. All four original Camera Raw exports also match
-between native Rust and release WASM. The rebuilt production portable
-`20261008-0830` passed package provenance, native Camera Raw Geometry Apply/
-Undo/Redo/export, and fourteen real Windows file dialogs including Photoshop
-and Canon CR2 save/reopen. Its Geometry export matches the independently
-Mac-verified native export byte for byte. These package checks are separate
-from CI's skipped portable step.
-
-The earlier corrected-Geometry hardware run retained all 587 frozen inputs
-before and after, one worker, zero retries and every original assertion/budget.
-It passed 21/29; all eight timing failures remain recorded. Supplemental frame
-attribution captured a 517 ms GPU readback wait with approximately 0.7 ms in
-application rendering, without establishing a cause for all failures. Later
-source checkpoints and their timing failures are retained separately.
-
-The final runtime source `f6b244e` passed [complete hosted CI](https://github.com/jsun2020/compositor-windows/actions/runs/37793833855):
-713 native tests, 301 unit tests and 285 functional cases, retaining ten native
-ignores and 33 hardware opt-ins. The original complete local hardware suite
-passed **29/29** with 597 frozen source/assets/helper inputs verified before and
-after, one worker, zero retries and unchanged assertions and budgets. An
-independent read-only monitor recorded 1716 unlocked
-session samples covering the complete wrapper run; state between samples is
-not claimed.
-
-The rebuilt production portable `20261008-2247` passed all
-11-file package, ZIP CRC/hash, decoder/license and clean-source receipt checks.
-Four original Camera Raw exports remain exactly equal between release WASM and
-the independently Mac-verified native PNGs. Its production WebView2 has no test
-API. Camera Raw Geometry Apply/Undo/Redo/export, fourteen real native dialogs,
-Photoshop edit/save/reopen and real Canon sensor RAW development/save/reopen
-passed separately; all 64 original probes retain their hashes.
-
-Exact uniform and bounded-palette transport, bulk copies of repeated indices,
-opaque painting and reuse of unchanged GPU composition avoid unnecessary work
-while retaining every stored byte. Mixed indices keep the tight decoder loop.
-The 192 independent pre-optimization paint references and seven indexed decoder
-boundary/atomicity cases pass. Earlier 21/29, 27/29, 26/29 and 25/29 runs,
-startup and supplemental diagnostic failures remain retained. The stable
-0.8.0 release has not been replaced.
-
-Development package: `Compositor-portable-0.8.0-20261008-2247.zip`.
-ZIP SHA256: `5a6af7176740409755cd07239bc2a27005a478b53525d25451c41e8d8c1f4c3b`.
-
-
-For modified projects, **Save and Close** saves before closing, **Don't Save and
-Close** discards the changes, and **Cancel Close** keeps the project open.
-Cancelling the Save As picker keeps the project open as well.
-
-The implementation and outstanding acceptance gates are recorded in
-[the Phase 7 plan](docs/superpowers/plans/2026-10-06-phase7-camera-raw-and-import.md).
-LibRaw is distributed under its CDDL-1.0 option with upstream notices and a pinned
-[SDK source archive](https://www.libraw.org/data/LibRaw-0.22.2-Win64.zip).
-The included Microsoft runtime files are unmodified redistributables from Visual
-Studio's `VC/Redist` directory; see [Microsoft's redistribution list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution).
+Keep `CompositorRaw.exe`, the three MSVC runtime DLLs and `LibRaw-notices` beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
 
 ## Features
 
@@ -167,6 +28,7 @@ Studio's `VC/Redist` directory; see [Microsoft's redistribution list](https://le
 - **Clipboard:** Windows PNG/DIB Cut, Copy, Copy Merged and Paste; Layer via Copy;
   floating-selection move/resize/rotate/distort; cancellation and one undo per
   gesture. Internal copies retain editable metadata; external PNGs carry pixels.
+- **Liquify and Smudge:** press **R** and choose **Mode** in the tool options. Size, Hardness and Strength control each stroke; Escape cancels it and mouse-up commits one undo step. Large live previews use bounded copies.
 - **Painting and retouching:** Brush/Eraser size, hardness, opacity and smoothing,
   Shift straight lines, Blur, aligned Clone Stamp, three Spot Healing modes and
   Content-Aware Fill with Preview, Cancel and Apply. Healing/fill compile the
@@ -200,70 +62,46 @@ and established undo/memory budgets.
 | Apply / cancel text editing | Ctrl+Enter / Escape |
 | Clone source | Alt-click |
 
-## Mac interoperability and limits
 
-Reads `.comp` versions 1–11 and writes version 11, as Mac 1.4.5 does.
-Supported unknown manifest fields and text runs are preserved. The Mac
-regenerates its Quick Look preview after a Windows save.
+## Camera Raw and Photoshop import
 
-Nine complete PNG exports from the received Mac projects match every RGBA
-byte; text/shapes remain editable and saved Stroke/Shadow parameters persist.
-This validates those fixtures, not every possible document.
+- **Camera Raw filter:** Light, Color, parametric/point curves, Color Mixer, Point Color, Color Grading, Effects, Detail, Optics, Geometry and Calibration. Resets, group bypass, sampling and diagnostic previews preserve the original pixels until Apply. Apply records one undo step.
+- **PSD/PSB:** bounded RGB 8-bit raw/PackBits decoding, folders, visibility/opacity, supported blend modes and clipping, raster masks, supported adjustments, first-style editable text and supported live shapes. Text keeps its cached Photoshop raster until edited. Unsupported records are reported; ZIP compression, 16/32-bit and non-RGB documents are refused.
+- **Camera RAW:** pinned LibRaw 0.22.2 sensor development, As Shot reset, exposure, estimated temperature, tint, tone curve, bounded preview and cancellation. An embedded JPEG is never substituted for sensor processing. LibRaw and Apple CIRAWFilter can produce different colour and tone; supported cameras depend on the decoder.
 
-- Projects are limited to 100 megapixels of layer images and masks.
-- Windows/Mac fonts and fallback can draw glyphs differently.
-- Upright fractional 1:1 copies and measured affine enlargement now follow
-  the Mac's sampled behavior. Rotated-edge/distortion resampling remains
-  separate Phase 3.5d work.
-- Very large blur/effect previews use reduced copies; research records describe
-  their tolerances and padded-image limits.
-- Liquify/Smudge are Phase 6. Camera Raw and PSD/RAW import are Phase 7.
+For modified projects, **Save and Close** saves first, **Don't Save and Close** discards changes, and **Cancel Close** keeps the project open. Cancelling the Save As picker also keeps it open. Closing the last tab clears the canvas and shows an empty dark workspace; use File > New to create another canvas.
+
+## Interoperability and limits
+
+Reads `.comp` versions 1–11 and writes version 11, as Compositor for Mac 1.4.5 does. Supported unknown manifest fields and text runs survive a round trip. Mac regenerates its Quick Look preview after a Windows save.
+
+- Layer images and masks are limited to 100 megapixels. History retains at most 256 MiB of distinct rasters; a whole 100 MP replacement cannot retain its previous raster for Undo.
+- Windows/Mac fonts and fallback can draw different glyphs.
+- CG affine rotation, reduction and mask sampling are checked against independently returned synthetic Mac images. All ordinary affine and ten convex-distortion RGBA records are byte exact; six mask-related records differ by at most one byte.
+- The four fixed Camera Raw recipes, including Geometry/Calibration, match the Mac exports byte for byte. The [perspective arithmetic reference](engine/tests/fixtures/core-image-perspective.md) records the measured hardware and exponent scope; those results do not establish equality for every possible image or GPU.
+- Large blur/effect and warp previews use reduced images. Liquify/Smudge without a GPU uses a fallback limited to 4 Mi pixels. Exact Metal/WebGL retouch-kernel equality is not claimed.
+- The v1 scope excludes Vision-based selection, HEIC, auto-update, installers/signing and single-file project containers.
 
 ## Validation
 
-| Accepted local 0.8.0 checkpoint | Result |
-| --- | --- |
-| Rust workspace | 628 passed, zero failed, 10 existing ignored |
-| TypeScript / Vitest | Three type checks; 287 unit tests |
-| Complete functional browser suite | 199 passed; 29 performance opt-ins exercised separately |
-| Complete original performance suite | 29/29; one worker, zero automatic retries |
-| Native production UI | Eight original groups |
-| Native Mac returns | 11 reads, 10 atomic saves, nine complete RGBA-exact PNGs |
-| Native clipboard | Four protected protocols, 16 full image comparisons, original clipboard restored |
+Source tests, hardware timing, production WebView2, native clipboard and actual Mac execution are separate gates. Hardware checks use one worker, zero retries and the original timing assertions/budgets. Historical failures and hardware qualifications remain in the acceptance records.
 
-Assertions and budgets are unchanged. Historical failures, the initial menu
-timeout and the independently repaired wrapper exit-status error remain
-recorded. The current pass does not establish a universal intermittent fix.
-See [the acceptance record](docs/superpowers/phase5-acceptance-2026-10-03.md).
-
-Phase 6 development acceptance is complete. It has passed hosted source checks,
-supplemental native WebView2 protocols and two independent 24/100 MP
-responsiveness runs. Received
-Mac 1.4.5 committed Liquify/Smudge PNGs match Windows WASM exactly; the styled
-mask probe has a maximum one-level color difference and exact alpha. Windows
-operator projects and PNGs have been verified. The rebuilt production WebView2
-package also clears the picture and tool overlay after closing the last tab,
-and renders an explicitly created new canvas afterward. Closing the last tab
-shows an empty dark workspace. Exact-source CI passed 661 native, 295 unit
-and 248 functional cases; existing ignores and opt-in skips are unchanged. See
-the
-[Phase 6 runtime checkpoint](docs/superpowers/research/phase6-runtime-checkpoint-2026-10-06.md).
+- [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md) and [Phase 5 acceptance](docs/superpowers/phase5-acceptance-2026-10-03.md).
+- [Phase 6 runtime acceptance](docs/superpowers/research/phase6-runtime-checkpoint-2026-10-06.md).
+- [Phase 7 plan and evidence](docs/superpowers/plans/2026-10-06-phase7-camera-raw-and-import.md).
+- [Final sampling and stable-release gates](docs/superpowers/plans/2026-10-09-phase35d-and-final-release.md).
 
 ## Build and test
 
-Windows prerequisites: Rust **1.95.0** with `wasm32-unknown-unknown`, Node 22,
-pnpm **10.34.5**, Visual Studio C++ Build Tools, LLVM (`clang` and `llvm-ar`)
-and WebView2. Install `wasm-pack` with
-`cargo install wasm-pack --version 0.15.0 --locked`; its pin lives in
-`package.json` under `config.wasmPackVersion`.
+Windows prerequisites: Rust **1.95.0** with `wasm32-unknown-unknown`, Node 22, pnpm **10.34.5**, Visual Studio C++ Build Tools, LLVM (`clang` and `llvm-ar`) and WebView2. Install the pinned WASM tool with `cargo install wasm-pack --version 0.15.0 --locked`.
 
 ```powershell
 pnpm install --frozen-lockfile
 pnpm wasm:dev             # development WASM
 pnpm dev                  # browser with mock shell
 pnpm tauri:dev            # native desktop development
-pnpm wasm                # release WASM
-pnpm build               # three type checks and frontend
+pnpm wasm                # production WASM plus binary/export verification
+pnpm build               # three type checks and frontend build
 pnpm test
 cargo test --workspace --locked
 pnpm exec playwright install chromium
@@ -271,52 +109,14 @@ pnpm exec playwright test --workers 1 --retries 0
 pnpm build:portable
 ```
 
-Portable outputs live in `build-artifacts/windows-x64/`. Packaging preserves
-the original build-info file and refuses to overwrite an existing portable.
+Portable outputs are in `build-artifacts/windows-x64/`. Packaging restores the original build-info file and refuses to overwrite an existing portable. The WASM gate rejects invalid/truncated binaries and JavaScript/export mismatches, including when packaging with `-SkipWasm`.
 
 ## Automatic releases
 
-Windows CI runs on main/development pushes and pull requests. A new stable
-version on `main`, a matching `vX.Y.Z` tag, or a manual Windows Release run
-starts release validation. Keep `package.json`, the Cargo workspace version
-and `src-tauri/tauri.conf.json` aligned; add `docs/releases/X.Y.Z.md`.
+CI runs on main/development pushes and pull requests. A new stable version on `main`, its matching `vX.Y.Z` tag, or a manual Windows Release run starts validation. Keep package, Cargo and Tauri versions aligned and add `docs/releases/X.Y.Z.md`.
 
-Original native/unit/functional gates run before a production portable build.
-ZIP CRCs, staged bytes, hashes and the downloaded artifact's source receipt
-are checked before publishing the ZIP, checksums and manifest. Published
-versions remain immutable; an existing failed draft requires inspection.
-Only the final publishing job has write permission. Actions are pinned to
-reviewed commit SHAs.
+Native/unit/functional tests run before the production portable build. ZIP CRCs, required decoder/runtime/license files, hashes and the downloaded artifact's source receipt are verified before publication. Published releases are immutable. Only the publishing job has write permission; actions are pinned to reviewed commits. Hosted CI does not replace local hardware, native clipboard or Mac evidence.
 
-Hosted CI does not replace local hardware timing, native clipboard or Mac
-gesture acceptance; these remain separate recorded checks.
+## Scope and credits
 
-## Roadmap and credits
-
-- [Design and scope](docs/superpowers/specs/2026-09-20-windows-port-design.md)
-- [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md)
-- [Phase 6 plan](docs/superpowers/plans/2026-10-05-phase6-liquify-smudge.md)
-
-Phase 6 development exposes Liquify/Smudge through **R**, then **Mode** in the
-tool options. Blur remains the default; warp modes use Size, Hardness and
-Strength. A dedicated worker owns each stroke's original snapshot and GPU
-resources. Live previews retain layer effects, masks and selection, with a
-bounded image on large layers; mouse-up commits the original resolution as
-one history edit, subject to the existing 256 MiB undo budget. A 100 MP whole
-layer replacement exceeds that budget and cannot retain its previous raster.
-Escape, document/tool/mode switches and pointer cancellation
-discard the preview. GPU-unavailable fallback is limited to 4 Mi pixels.
-
-The raw kernels and complete tool have separate local 24/100 MP hardware
-measurements. Two independent complete-tool runs met the unchanged response
-budgets on aligned full-canvas fixtures. Packaged-runtime checks and received
-Mac/Windows committed project/PNG checks are complete within the measured
-boundaries above; see the
-[manual checks](docs/superpowers/phase6-manual-checks.md).
-This development checkpoint is not part of the published
-0.8.0 release. See the runtime checkpoint for package/source identities and
-retained failures; exact Metal/WebGL kernel equality is not claimed.
-
-Original Mac sources and retouch kernels use MIT. Icons use
-[Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are licensed for
-Apple platforms and are not used here.
+[Original design and scope](docs/superpowers/specs/2026-09-20-windows-port-design.md). Original Mac sources and retouch kernels use MIT. Icons use [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are not used in this Windows port.

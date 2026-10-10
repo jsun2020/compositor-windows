@@ -23,10 +23,10 @@ fn reciprocal(value: f32) -> f32 {
     f32::from_bits(bits)
 }
 
-pub(super) struct Perspective([[f32; 3]; 3]);
+pub(crate) struct Perspective([[f32; 3]; 3]);
 
 impl Perspective {
-    pub(super) fn from_corners(corners: &[Point; 4], width: u32, height: u32) -> Option<Self> {
+    pub(crate) fn from_corners(corners: &[Point; 4], width: u32, height: u32) -> Option<Self> {
         // Input and output are y-up; square order is bottom-left, bottom-right,
         // top-right, top-left. Each f32 operation is intentional.
         let [a, b, c, d] = [3, 2, 1, 0].map(|i| [corners[i].x as f32, corners[i].y as f32]);
@@ -83,12 +83,17 @@ impl Perspective {
         Some(Self(rows))
     }
 
-    pub(super) fn coordinate(&self, x: u32, y: u32, height: u32) -> (f64, f64) {
+    pub(crate) fn coordinate(&self, x: u32, y: u32, height: u32) -> (f64, f64) {
+        self.coordinate_in_extent(x, y, height, height)
+    }
+
+    pub(crate) fn coordinate_in_extent(&self, x: u32, y: u32, output_height: u32, source_height: u32) -> (f64, f64) {
+        let height = output_height;
         let px = x as f32 + 0.5;
         let py = height as f32 - (y as f32 + 0.5);
         let [qx, qy, qz] = self.0.map(|r| r[1].mul_add(py, r[0] * px) + r[2]);
         let r = reciprocal(qz);
-        ((qx * r) as f64, (height as f32 - qy * r) as f64)
+        ((qx * r) as f64, (source_height as f32 - qy * r) as f64)
     }
 }
 
