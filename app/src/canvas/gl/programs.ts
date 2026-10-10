@@ -634,6 +634,10 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const programs: Programs = {
     layer: compile(gl, VERT_UNIT, FRAG_LAYER, LAYER_UNIFORMS),
+    // Compile the precise affine sampler alongside the other canvas programs.
+    // Linking it on the first fitted draw can stall that frame for over a second
+    // on ANGLE, after the document is already visible.
+    enlargedLayer: compile(gl, VERT_UNIT, FRAG_LAYER.replace("precision highp float;", "precision highp float;\n#define QUANTIZED_ENLARGEMENT"), LAYER_UNIFORMS),
     coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask", "cgPhases", "directClip", "maskBounds"]),
     alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
     opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
@@ -648,7 +652,7 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
     spatialMix: compile(gl, VERT_SCREEN, FRAG_SPATIAL_MIX, ["original", "adjusted", "coverage", "useCoverage", "opacity", "mode", "keepsAlpha", "level", "adjustedSize", "beyond"]),
     vao, buffer,
   };
-  for (const p of [programs.layer, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust,
+  for (const p of [programs.layer, programs.enlargedLayer!, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust,
     programs.halve, programs.gaussian, programs.motion, programs.spatialMix]) {
     const loc = gl.getAttribLocation(p.program, "unit"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   }
@@ -657,8 +661,9 @@ export function createPrograms(gl: WebGL2RenderingContext): Programs {
 
 const LAYER_UNIFORMS = ["unitToClip", "uvRect", "edgePadding", "copyGrid", "useCopyGrid", "copyHeight", "deviceToUnit", "coordinateOrigin", "useDeviceCoordinates", "hardEdges", "conservativeEdges", "imageBounds", "coverageLevels", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"];
 
-/** Keep ordinary draws on their original shader. Compile the byte-interpolation
- * variant only when an affine enlargement needs it, then reuse it. */
+/** Ordinary draws keep their original shader; precise affine draws use the
+ * variant linked during canvas initialization. The fallback supports callers
+ * supplying an older or partial Programs object. */
 export function layerProgram(gl: WebGL2RenderingContext, programs: Programs, enlarged: boolean): Program {
   if (!enlarged) return programs.layer;
   if (!programs.enlargedLayer) {

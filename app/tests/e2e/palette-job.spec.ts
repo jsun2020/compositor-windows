@@ -76,3 +76,32 @@ test("a large short-band gradient uses raw transfer with exact pixels and one Un
   expect(result.receipt.header.palettePixels).toBeUndefined();
   expect(result.receipt.bytes).toBe(4096*1025*4);
 });
+
+test("long palette runs retain translucent bytes across chunks in both index depths",async({page})=>{
+  test.setTimeout(120_000);
+  await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const results=await page.evaluate(async()=>{
+    const a=(window as any).__compositor,e=a.engine,s=()=>a.store.getState(),w=2051,h=517,rows=[];
+    for(const colors of [2,300]){
+      const doc=e.newDocument(w,h,true),id=e.state(doc).layers[0].id;
+      e.execute(doc,{type:"Fill",id,mask:false,color:[.2,.4,.6]});s().openDocument(doc);
+      const before=e.layerPixels(doc,id).slice(),depth=e.state(doc).undoDepth,input=e.jobHeader(doc,id),header=JSON.parse(input);
+      const palette=Array.from({length:colors},(_,i)=>[i%90,Math.floor(i/90),17,97]).flat();
+      const indexDepth=colors<=256?1:2,indices=new Uint8Array(w*h*indexDepth),expected=new Uint8Array(w*h*4);
+      for(let i=0;i<w*h;i++){
+        const n=i<13?0:Math.floor((i-13)/31011)%colors;
+        indices[i*indexDepth]=n&255;if(indexDepth===2)indices[i*2+1]=n>>8;
+        expected.set(palette.slice(n*4,n*4+4),i*4);
+      }
+      const output={transform:header.layer.transform,maskPlacement:null,pixels:[w,h],mask:null,regions:[],display:null,palettePixels:palette};
+      await e.installJobAsync(doc,id,input,JSON.stringify(output),indices.buffer,null);
+      const equals=(bytes:Uint8Array)=>{const p=e.layerPixels(doc,id);return p.length===bytes.length&&p.every((v:number,i:number)=>v===bytes[i]);};
+      const exact=equals(expected),oneStep=e.state(doc).undoDepth===depth+1;
+      s().undo();const undo=equals(before);s().redo();rows.push({colors,exact,oneStep,undo,redo:equals(expected)});
+      s().closeDocument(doc);
+    }
+    return rows;
+  });
+  expect(results.map(r=>r.colors)).toEqual([2,300]);
+  for(const row of results){expect(row.exact).toBe(true);expect(row.oneStep).toBe(true);expect(row.undo).toBe(true);expect(row.redo).toBe(true);}
+});
