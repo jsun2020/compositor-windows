@@ -31,8 +31,8 @@ pub(crate) fn append(target: &mut Vec<u8>, expected: usize, palette: &[u8], indi
 }
 
 /// The caller proved the complete destination interval fits reserved storage.
-/// DEPTH is 1 or 2; every index is checked before a table read. Eight equal
-/// pixels already benefit from bulk stores, including narrow gradient bands.
+/// DEPTH is 1 or 2; every index is checked before a table read. Run detection
+/// reads only complete eight-byte blocks and complete indices from the input.
 unsafe fn decode<const DEPTH: usize>(destination: *mut u8, words: &[u32; MAX_PALETTE], colors: usize, indices: &[u8]) -> Result<(), &'static str> {
     let mut at = 0;
     while at < indices.len() {
@@ -41,15 +41,15 @@ unsafe fn decode<const DEPTH: usize>(destination: *mut u8, words: &[u32; MAX_PAL
         if index >= colors { return Err("pixel palette index out of range"); }
         let word = words[index];
         // A pair of equal indices is a cheap rejection for changing palettes.
-        if indices.len()-at >= 8*DEPTH && indices[at+DEPTH] == indices[at]
+        if indices.len()-at >= 32 && indices[at+DEPTH] == indices[at]
             && (DEPTH == 1 || indices[at+DEPTH+1] == indices[at+1]) {
             let pattern = if DEPTH == 1 { [indices[at];8] }
                 else { [indices[at],indices[at+1],indices[at],indices[at+1],indices[at],indices[at+1],indices[at],indices[at+1]] };
             let repeated = u64::from_ne_bytes(pattern);
-            // SAFETY: DEPTH blocks contain eight complete checked indices.
-            let same = (0..DEPTH).all(|block| unsafe { indices.as_ptr().add(at+block*8).cast::<u64>().read_unaligned() } == repeated);
+            // SAFETY: four blocks are inside the checked 32-byte interval.
+            let same = (0..4).all(|block| unsafe { indices.as_ptr().add(at+block*8).cast::<u64>().read_unaligned() } == repeated);
             if same {
-                let mut end = at+8*DEPTH;
+                let mut end = at+32;
                 while indices.len()-end >= 8 && unsafe { indices.as_ptr().add(end).cast::<u64>().read_unaligned() } == repeated { end += 8; }
                 while indices.len()-end >= DEPTH && indices[end] == indices[at]
                     && (DEPTH == 1 || indices[end+1] == indices[at+1]) { end += DEPTH; }
@@ -63,7 +63,7 @@ unsafe fn decode<const DEPTH: usize>(destination: *mut u8, words: &[u32; MAX_PAL
         }
         // Keep changing indices in the original tight word-store loop. Probe
         // again after a bounded block so a later long run can still use copies.
-        let length = (indices.len()-at).min(32*DEPTH);
+        let length = (indices.len()-at).min(4096*DEPTH);
         // SAFETY: the complete index block maps into the checked reservation.
         unsafe { decode_words::<DEPTH>(destination.add(at/DEPTH*4),words,colors,&indices[at..at+length])?; }
         at += length;
@@ -94,18 +94,6 @@ unsafe fn decode_words<const DEPTH: usize>(destination: *mut u8, words: &[u32; M
 /// length is a nonzero whole-pixel interval in the caller's reservation.
 /// Sources are initialized and disjoint from the destination of each copy.
 unsafe fn repeat_word(destination: *mut u8, word: u32, length: usize) {
-    // Short bands avoid several tiny memcpy calls. The unaligned paired store
-    // repeats the same native-endian four bytes on either host byte order.
-    if length <= 64 {
-        let pair = word as u64 | ((word as u64) << 32);
-        let mut written = 0;
-        while length-written >= 8 {
-            unsafe { destination.add(written).cast::<u64>().write_unaligned(pair); }
-            written += 8;
-        }
-        if written < length { unsafe { destination.add(written).cast::<u32>().write_unaligned(word); } }
-        return;
-    }
     unsafe { destination.cast::<u32>().write_unaligned(word); }
     let mut written = 4;
     while written < length {

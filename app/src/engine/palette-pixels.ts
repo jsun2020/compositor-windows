@@ -2,22 +2,28 @@
 export const MAX_PIXEL_PALETTE = 1024;
 const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 
-export function encodePalettePixels(source: Uint8Array): { palette: number[]; indices: ArrayBuffer } | null {
+export function encodePalettePixels(source: Uint8Array, minimumRunPixels = 1): { palette: number[]; indices: ArrayBuffer } | null {
   if (!source.length || source.length % 4) return null;
   const count = source.length / 4;
   const words = LITTLE_ENDIAN && source.byteOffset % 4 === 0 ? new Uint32Array(source.buffer, source.byteOffset, count) : null;
   const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
   const word = (i: number) => words ? words[i] : view.getUint32(i * 4, true);
   const indices = new Map<number, number>(), palette: number[] = [];
-  let previous = -1;
+  let previous = -1, runs = 0;
+  const runLimit = count / minimumRunPixels;
   // Establish the complete palette before allocating a full index plane. A
   // result with too many colours exits early and keeps the existing raw path.
   for (let i = 0; i < count; i++) {
     const value = word(i);
-    if (value !== previous && !indices.has(value)) {
-      if (indices.size === MAX_PIXEL_PALETTE) return null;
-      indices.set(value, indices.size);
-      palette.push(...source.subarray(i * 4, i * 4 + 4));
+    if (value !== previous) {
+      // Large results with short colour bands are cheaper to transfer as raw
+      // RGBA into the existing buffer than to expand pixel indices on the UI.
+      if (++runs > runLimit) return null;
+      if (!indices.has(value)) {
+        if (indices.size === MAX_PIXEL_PALETTE) return null;
+        indices.set(value, indices.size);
+        palette.push(...source.subarray(i * 4, i * 4 + 4));
+      }
     }
     previous = value;
   }
