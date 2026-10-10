@@ -50,6 +50,14 @@ The product correction avoids publishing identical foreground/ring state while s
 
 The locally validated 473eab6 ZIP has SHA256 1115ec559715b280a0e011e577dded5de3c9ce47ee7b3f179432f7c778073b5a. Local and hosted WASM hashes are recorded independently; different compilation bytes are not claimed identical. Four compiled Camera Raw PNG exports are exact against the original independently Mac-verified references.
 
+## Physically single-screen verification and uniform installation
+
+The user physically disconnected the external display cable. Source c062e165 then completed the entire original 29-case protocol: 28 passed and one failed, with zero retries or skipped cases and all 730 inputs unchanged. The remaining failure is the 100 MP blank Fill installation, 457 ms against the unchanged <450 ms limit. All 2055 original session samples are unlocked; an additional independent read-only observer records 931 samples, all with one display and an unlocked session. The old dual-display restoration records remain retained separately. The outer paired controller stopped on a PowerShell native-command error after the CPU failure, before starting GPU tests.
+
+The independent original four-case GPU protocol then passes completely, with all 729 inputs unchanged and all 488 original session samples unlocked. The additional display/session observer records 255 single-display/unlocked samples. Its outer wrapper incorrectly receives a null Process.ExitCode and reports failure; that wrapper record is retained alongside the successful original controlled result, complete four-case report and empty child stderr. This does not turn the separate 28/29 CPU result into acceptance.
+
+A separate full-pixel diagnostic attributes 272 ms of a 278 ms 100 MP Fill installation to uniform expansion. Ordinary native chunk copying improves it only modestly. The next product correction uses native typed-array word fill directly in checked reserved WASM storage, with RGBA interpreted through byte storage to preserve JS endianness. It retains the existing 4 MiB cooperative chunks, bounds, cancellation and LayerStamp contract, and the initialized doubling fallback for unaligned/native storage. A real release-WASM browser regression covers translucent RGBA, a partial last chunk and exact Undo/Redo. The rebuilt release binary passes the binary/glue gate (5,659,773 bytes; SHA256 70035bc66228d4d358d3c85935a350d6c487207d20d10f198b427d03a782e6ae). All 304 frontend units, three type checks and seven actual browser transport cases pass locally. The complete original hardware/native/hosted gates remain required; no original timing assertion or budget is changed.
+
 ## Completion rule
 
 Do not mark the port complete or publish stable 0.9.0 until final native/unit/functional checks, the original hardware budgets, native portable verification and actual GitHub delivery pass. Record source/build identities, hardware qualifications and retained failures.
