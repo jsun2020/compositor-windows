@@ -1,4 +1,7 @@
 # Files produced by the macOS app are compared byte for byte; never convert their line endings.
+# The pinned Tauri CLI serializes this manifest with LF. Keep Windows checkouts
+# byte-identical so packaging does not rewrite tracked source before the receipt gate.
+src-tauri/Cargo.toml text eol=lf
 engine/tests/fixtures/mac-1.2.6/** -text
 engine/tests/fixtures/mac-1.2.10-probes/** -text
 engine/tests/fixtures/mac-4b1-probes/** -text

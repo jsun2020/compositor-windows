@@ -43,6 +43,7 @@ jobs:
           $taskDump = & cmd.exe /d /s /c "`"$taskDev`" -arch=x64 -host_arch=x64 >nul && set"
           foreach ($taskLine in $taskDump) { if ($taskLine -match '^(.*?)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') } }
           Record-Source 'msvc'
+          $taskManifestBefore = (Get-FileHash -LiteralPath src-tauri/Cargo.toml).Hash
           $taskFrontend = Join-Path $taskOutput 'frontend'
           New-Item -ItemType Directory -Path $taskFrontend | Out-Null
           'Diagnostic frontend' | Set-Content -LiteralPath (Join-Path $taskFrontend 'index.html')
@@ -52,9 +53,13 @@ jobs:
           & node node_modules/@tauri-apps/cli/tauri.js build --no-bundle --ci --runner (Join-Path $taskOutput 'stop-runner.cmd') --config (Join-Path $taskOutput 'config.json') *> (Join-Path $taskOutput 'cli.log')
           $taskExit = $LASTEXITCODE
           $ErrorActionPreference = 'Stop'
+          $taskImmediateStatus = & node -e "console.log(require('node:child_process').execFileSync('git',['status','--porcelain','--untracked-files=no'],{encoding:'utf8'}).trim())"
+          $taskManifestAfter = (Get-FileHash -LiteralPath src-tauri/Cargo.toml).Hash
+          @{manifestBeforeSHA256=$taskManifestBefore;manifestAfterSHA256=$taskManifestAfter;immediateStatus=($taskImmediateStatus -join "`n");noNativeCompilation=$true;sourceCommit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskOutput 'manifest-identity.json')
           Get-Content -LiteralPath (Join-Path $taskOutput 'cli.log')
           Record-Source 'cli'
           if ($taskExit -eq 0 -or -not (Select-String -LiteralPath (Join-Path $taskOutput 'cli.log') -SimpleMatch 'DIAGNOSTIC_RUNNER_REACHED_NO_COMPILATION')) { throw 'Expected diagnostic stop did not occur' }
+          if ($taskManifestBefore -ne $taskManifestAfter -or ($taskImmediateStatus -join '').Trim()) { throw 'Pinned CLI changed tracked source; original clean-source gate remains required' }
           Write-Output 'Diagnostic only: original tests, hardware budgets and portable publication were not run or waived.'
           exit 0
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
