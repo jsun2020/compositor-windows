@@ -1,5 +1,5 @@
 import {expect,it} from "vitest";
-import {encodePalettePixels,validatePalettePixels} from "../../src/engine/palette-pixels";
+import {encodePalettePixels,validatePalettePixels,validatePaletteRuns} from "../../src/engine/palette-pixels";
 
 function image(colors:number, offset=0):Uint8Array {
   const out=new Uint8Array(new ArrayBuffer(colors*4*3+offset),offset);
@@ -43,4 +43,26 @@ it("selects raw bytes for short bands while preserving both depths of long-band 
       bands.set(changing.subarray(pixel*4,pixel*4+4),(pixel*64+repeat)*4);
     expect(decoded(bands,64)).toEqual(bands);
   }
+});
+
+it("round-trips long flat runs without a per-pixel index plane, including unaligned translucent input",()=>{
+  for(const colors of [2,300]){
+    const count=colors*4101+13,source=new Uint8Array(new ArrayBuffer(count*4+1),1);
+    for(let i=0;i<count;i++){const n=Math.min(colors-1,Math.floor(i/4101));source.set([n%90,Math.floor(n/90),17,97],i*4);}
+    const before=source.slice(),encoded=encodePalettePixels(source,64)!;
+    expect(encoded.runs).toBe(true);expect(encoded.indices.byteLength).toBe(colors*8);
+    const {bytes,records}=validatePaletteRuns(encoded.palette,encoded.indices,count),out=new Uint8Array(source.length);
+    let at=0;
+    for(let r=0;r<records.byteLength;r+=8){const index=records.getUint32(r,true),length=records.getUint32(r+4,true),color=bytes.subarray(index*4,index*4+4);for(let i=0;i<length;i++)out.set(color,(at+i)*4);at+=length;}
+    expect(at).toBe(count);expect(out.every((value,i)=>value===before[i])).toBe(true);expect(source.every((value,i)=>value===before[i])).toBe(true);
+  }
+});
+
+it("rejects invalid run indices, zero counts, truncated records and incomplete or overflowing output sizes",()=>{
+  const palette=[17,31,43,97,0,0,0,0];
+  const records=(pairs:number[][])=>{const b=new ArrayBuffer(pairs.length*8),v=new DataView(b);pairs.forEach(([index,length],i)=>{v.setUint32(i*8,index,true);v.setUint32(i*8+4,length,true);});return b;};
+  expect(validatePaletteRuns(palette,records([[0,7],[1,3]]),10).records.byteLength).toBe(16);
+  for(const b of [null,new ArrayBuffer(0),new ArrayBuffer(7),records([[0,9]]),records([[0,11]]),records([[0,10],[1,0]]),records([[0,7],[2,3]]),records([[0,7],[1,0xffffffff]])])
+    expect(()=>validatePaletteRuns(palette,b,10)).toThrow("Invalid palette job runs");
+  for(const count of [0,-1,.5,100_000_001])expect(()=>validatePaletteRuns(palette,records([[0,10]]),count)).toThrow();
 });
