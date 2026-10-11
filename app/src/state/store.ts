@@ -659,6 +659,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const target = id ?? get().activeId;
     if (!target) return;
     const state = get().engine!.state(target);
+    const previous = get().documents[target], viewport = get().viewports[target];
+    // Fit follows the document's dimensions through both edits and history.
+    // A manually zoomed or panned viewport retains the user's chosen view.
+    if (viewport?.followsFit && previous &&
+        (previous.width !== state.width || previous.height !== state.height)) viewport.fit(state);
     // `selectedLayerIds` and `maskSelected` belong to the document on screen. A background
     // document finishing a slow import must not rewrite them, or the visible panel loses its
     // selection and Delete/opacity become silent no-ops on ids the active document never had.
@@ -712,7 +717,6 @@ export const useEditor = create<EditorStore>((set, get) => ({
       engine.execute(activeId, command);
       if(command.type==="ApplyFilter")set({lastFilter:structuredClone(command.params)});
       get().refresh(activeId);
-      if(command.type==="RotateCanvas")get().viewports[activeId]?.fit(get().documents[activeId]);
       if (REVEALING_COMMANDS.has(command.type)) get().revealActiveLayer();
       return true;
     } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }

@@ -15,17 +15,38 @@ pub fn stage_dir(final_path: &Path) -> std::io::Result<PathBuf> {
     Ok(stage)
 }
 
+/// Windows save dialogs and scanners can briefly retain a non-delete-sharing
+/// handle after the picker closes. Retry only a rename rejected by that class
+/// of OS error; a real permission failure still returns within 250 ms.
+fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+        loop {
+            match fs::rename(from, to) {
+                Err(e) if matches!(e.raw_os_error(), Some(5 | 32 | 33))
+                    && std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                result => return result,
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    fs::rename(from, to)
+}
+
 /// Swaps the staged directory into place. Either the old package or the new one survives a failure.
 pub fn commit(stage: &Path, final_path: &Path) -> std::io::Result<()> {
     let backup = if final_path.exists() {
         let b = sibling(final_path, "bak");
-        fs::rename(final_path, &b)?;
+        rename(final_path, &b)?;
         Some(b)
     } else { None };
-    if let Err(e) = fs::rename(stage, final_path) {
+    if let Err(e) = rename(stage, final_path) {
         let _ = fs::remove_dir_all(stage);
         if let Some(b) = &backup {
-            if let Err(restore_err) = fs::rename(b, final_path) {
+            if let Err(restore_err) = rename(b, final_path) {
                 // Neither the new package nor the restore made it; say exactly where the
                 // old package still lives so it isn't mistaken for lost data.
                 return Err(std::io::Error::other(format!(
@@ -125,5 +146,51 @@ mod tests {
         assert_eq!(fs::read(final_path.join("manifest.json")).unwrap(), b"new");
         let leftovers: Vec<_> = fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
         assert_eq!(leftovers, vec!["A.comp".to_string()], "no backup directory should be left behind when there was nothing to back up");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn commit_waits_for_a_short_windows_directory_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = temp();
+        let final_path = root.join("A.comp");
+        fs::create_dir(&final_path).unwrap();
+        fs::write(final_path.join("manifest.json"), b"old").unwrap();
+        let stage = stage_dir(&final_path).unwrap();
+        fs::write(stage.join("manifest.json"), b"new").unwrap();
+        let lock = fs::OpenOptions::new().read(true).share_mode(0)
+            .open(final_path.join("manifest.json")).unwrap();
+        // Establish that this is a real OS sharing failure before exercising
+        // the production operation; no simulated success or relaxed assertion.
+        let direct = fs::rename(&final_path, root.join("direct.comp")).unwrap_err();
+        assert!(matches!(direct.raw_os_error(), Some(5 | 32 | 33)));
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            drop(lock);
+        });
+        commit(&stage, &final_path).unwrap();
+        release.join().unwrap();
+        assert_eq!(fs::read(final_path.join("manifest.json")).unwrap(), b"new");
+        assert_eq!(fs::read_dir(root).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn commit_does_not_discard_a_project_under_a_persistent_windows_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = temp();
+        let final_path = root.join("A.comp");
+        fs::create_dir(&final_path).unwrap();
+        fs::write(final_path.join("manifest.json"), b"old").unwrap();
+        let stage = stage_dir(&final_path).unwrap();
+        fs::write(stage.join("manifest.json"), b"new").unwrap();
+        let lock = fs::OpenOptions::new().read(true).share_mode(0)
+            .open(final_path.join("manifest.json")).unwrap();
+        let start = std::time::Instant::now();
+        assert!(commit(&stage, &final_path).is_err());
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        drop(lock);
+        assert_eq!(fs::read(final_path.join("manifest.json")).unwrap(), b"old");
+        assert_eq!(fs::read(stage.join("manifest.json")).unwrap(), b"new");
     }
 }

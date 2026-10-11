@@ -47,9 +47,10 @@ if args.action != "inspect":
             # 1152 next to "Folder:", rather than a file-name ComboBox.
             edits = [c for c in controls if c.class_name() == "Edit" and c.control_id() == 1152 and c.is_visible() and c.is_enabled()]
         assert len(edits) == 1, f"Expected one observed file-name edit, found {len(edits)}"
-        edits[0].set_edit_text(args.path)
-        assert edits[0].window_text() == args.path, "Native file-name control did not retain path"
-        result["selectedPath"] = args.path
+        target = os.path.normpath(args.path)
+        edits[0].set_edit_text(target)
+        assert edits[0].window_text() == target, "Native file-name control did not retain path"
+        result["selectedPath"] = target
         candidates = [c for c in controls if c.class_name() == "Button" and c.control_id() == 1 and c.is_visible() and c.is_enabled()]
     assert len(candidates) == 1, f"Expected one action button, found {len(candidates)}"
     result["button"] = {"id": candidates[0].control_id(), "text": candidates[0].window_text()}

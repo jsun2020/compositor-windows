@@ -24,8 +24,14 @@ test("New Canvas converts physical units, retains DPI/background and reuses the 
 
 test("Rotate Canvas menu swaps dimensions and remains a single reversible placement edit",async({page})=>{
   await ready(page);await page.evaluate(()=>{const a=(window as any).__compositor;a.store.getState().openDocument(a.engine.newDocument(20,10));});
+  const view=()=>page.evaluate(()=>{const s=(window as any).__compositor.store.getState(),v=s.viewports[s.activeId];return {zoom:v.zoom,pan:{...v.pan},followsFit:v.followsFit};});
+  const initial=await view();expect(initial.followsFit).toBe(true);
   await clickMenu(page,"Image","rotate-cw");expect(await state(page)).toMatchObject({width:10,height:20,undoDepth:1});
+  const rotated=await view();expect(rotated.zoom).not.toBe(initial.zoom);
   await page.keyboard.press("Control+z");expect(await state(page)).toMatchObject({width:20,height:10,undoDepth:0});
+  await expect.poll(view).toEqual(initial);await page.keyboard.press("Control+Shift+z");await expect.poll(view).toEqual(rotated);
+  await page.evaluate(()=>{const s=(window as any).__compositor.store.getState(),v=s.viewports[s.activeId];v.setZoom(2,v.center,s.documents[s.activeId]);v.translate({width:12,height:9});s.invalidate();});
+  const manual=await view();await clickMenu(page,"Image","rotate-ccw");await expect.poll(view).toEqual(manual);await page.keyboard.press("Control+z");await expect.poll(view).toEqual(manual);
 });
 
 test("command search exposes disabled commands and selects a tool mode with the keyboard",async({page})=>{

@@ -4,7 +4,7 @@ const {spawnSync}=require('node:child_process');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const [marker,out,port,pid,exe,probes,rawSource]=process.argv.slice(2);
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
-let browser,page,dialogIndex=0;
+let browser,page,dialogIndex=0,pictureIndex=0;
 const rows=[],errors=[];
 const json=(name,value)=>fs.writeFileSync(path.join(out,name),JSON.stringify(value,null,2),{flag:'wx'});
 function verifyInputs(){
@@ -23,9 +23,9 @@ function nativeDialog(action,target){
  return JSON.parse(fs.readFileSync(receipt,'utf8'));
 }
 async function menu(title,id){await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await page.getByTestId('menubar-'+title.toLowerCase()).click();await page.getByTestId('menu-'+id).click();}
-async function picture(){await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));return page.getByTestId('canvas-view').locator('canvas').first().evaluate(c=>c.toDataURL('image/png'));}
+async function picture(){await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));const image=await page.getByTestId('canvas-view').locator('canvas').first().evaluate(async c=>{const gl=c.getContext('webgl2'),rgba=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,rgba);const digest=await crypto.subtle.digest('SHA-256',rgba);return {pixels:c.width+'x'+c.height+':'+Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join(''),png:c.toDataURL('image/png')};});fs.writeFileSync(path.join(out,'view-'+String(++pictureIndex).padStart(3,'0')+'.png'),Buffer.from(image.png.split(',')[1],'base64'));return image.pixels;}
 async function capture(name){await page.screenshot({path:path.join(out,name+'.png')});fs.writeFileSync(path.join(out,name+'.txt'),await page.locator('body').innerText(),{flag:'wx'});}
-async function save(name){const target=path.join(out,name+'.comp');await menu('File','save-as');nativeDialog('select',target);await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await expect(page.getByTestId('project-tab')).not.toContainText('•');assert(fs.existsSync(path.join(target,'manifest.json')));return JSON.parse(fs.readFileSync(path.join(target,'manifest.json'),'utf8'));}
+async function save(name){const target=path.join(out,name+'.comp');await menu('File','save-as');nativeDialog('select',target);await expect.poll(async()=>fs.existsSync(path.join(target,'manifest.json'))||(await page.getByTestId('error-banner').count())>0,{timeout:30000}).toBe(true);await expect(page.getByTestId('error-banner')).toHaveCount(0);await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await expect(page.getByTestId('project-tab')).not.toContainText('•');assert(fs.existsSync(path.join(target,'manifest.json')));return JSON.parse(fs.readFileSync(path.join(target,'manifest.json'),'utf8'));}
 async function close(){await menu('File','close');const sheet=page.getByRole('dialog',{name:'Close project',exact:true});if(await sheet.isVisible())await sheet.getByRole('button',{name:"Don't Save and Close",exact:true}).click();await expect(page.getByTestId('project-tab')).toHaveCount(0);}
 async function field(name,value){await page.getByLabel(name,{exact:true}).fill(String(value));await page.getByLabel(name,{exact:true}).press('Enter');}
 async function nativeState(){return page.evaluate(async()=>{const i=window.__TAURI_INTERNALS__,label=i.metadata.currentWindow.label;return {fullscreen:await i.invoke('plugin:window|is_fullscreen',{label}),position:await i.invoke('plugin:window|outer_position',{label}),size:await i.invoke('plugin:window|outer_size',{label}),maximized:await i.invoke('plugin:window|is_maximized',{label})};});}
