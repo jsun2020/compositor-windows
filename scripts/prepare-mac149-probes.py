@@ -57,7 +57,16 @@ def main():
         if source.suffix != ".bin": sources[source.name] = source.read_text(encoding="utf-8")
     shutil.copyfile(args.source / "LICENSE", root / "LICENSE-Compositor.txt")
     for name in ["input.rgba", "input16.rgba", "input.png", "cases.json"]: shutil.copyfile(args.outputs / name, root / name)
-    for name in ["effects-opaque.comp", "effects-alpha.comp"]: shutil.copytree(args.outputs / name, root / name)
+    for name in ["effects-opaque.comp", "effects-alpha.comp"]:
+        package = args.outputs / name
+        manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["format"] == "com.compositor.project" and manifest["version"] == 11
+        for layer in manifest["layers"]:
+            for key in ("imageFile", "maskFile"):
+                asset = layer.get(key)
+                if asset:
+                    assert Path(asset).name == asset and (package / "images" / asset).is_file(), f"Invalid project asset layout: {name}/{asset}"
+        shutil.copytree(package, root / name)
     # Keep all selected pixel functions unchanged. Exclude application/session UI and
     # unexercised geometry only, and remove isolation annotations for older Swift CLIs.
     raw = sources["CameraRaw.swift"].split("/// Histogram or the vectorscope")[0]

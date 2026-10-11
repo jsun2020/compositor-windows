@@ -258,10 +258,12 @@ fn main() {
         };
         let folder = root.join(format!("{name}.comp"));
         fs::create_dir(&folder).unwrap();
+        let images = folder.join("images");
+        fs::create_dir(&images).unwrap();
         let p = e.save_package(id).unwrap();
         fs::write(folder.join("manifest.json"), p.manifest_json).unwrap();
         for (name, bytes) in p.images {
-            let path = folder.join(name);
+            let path = images.join(name);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, bytes).unwrap();
         }
