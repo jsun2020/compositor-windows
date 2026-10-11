@@ -5,11 +5,11 @@
 
 A free, open-source Windows image editor ported from Compositor for macOS, built with Tauri 2, Rust/WebAssembly, WebGL2 and React/TypeScript.
 
-**Version 0.9.0 includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections.** The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
+**The original v1 Windows port is complete in version 0.9.0.** It includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections. The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
 
 ## Download
 
-Get the portable Windows x64 ZIP from [Releases](https://github.com/jsun2020/compositor-windows/releases/latest), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
+Get the portable Windows x64 ZIP from [the verified 0.9.0 release](https://github.com/jsun2020/compositor-windows/releases/tag/v0.9.0), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
 
 Keep `CompositorRaw.exe`, the three MSVC runtime DLLs and `LibRaw-notices` beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
 
