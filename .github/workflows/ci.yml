@@ -74,8 +74,20 @@ jobs:
           VITE_BRIDGE: ''
           VITE_TEST_API: ''
         run: |
+          git status --porcelain --untracked-files=no
+          git diff --stat
+          Get-Command git | Select-Object Source
+          git --version
+          git config --show-origin --get-regexp 'core\.(autocrlf|eol|filemode)'
           & ./scripts/build-windows-x64.ps1 -NoSmoke
           if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
+          git status --porcelain --untracked-files=no
+          git diff --stat
+          git diff --numstat
+          git ls-files --eol -- app/src/build-info.ts Cargo.lock src-tauri/Cargo.toml
+          Get-Command git | Select-Object Source
+          git --version
+          git config --show-origin --get-regexp 'core\.(autocrlf|eol|filemode)'
           $zips = @(Get-ChildItem build-artifacts/windows-x64 -Filter '*.zip' -File)
           if ($zips.Count -ne 1) { throw 'Expected exactly one fresh portable ZIP' }
           node scripts/verify-portable-release.mjs $zips[0].FullName build-artifacts/release-upload

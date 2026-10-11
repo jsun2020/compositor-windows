@@ -94,8 +94,9 @@ function prepare(zipPath, output) {
   assert(entries.find(e => e.name === 'README.txt').bytes.toString('utf8').includes(`Compositor for Windows ${version} (${marker})`));
   assert(entries.find(e => e.name === 'LICENSE-Compositor.txt').bytes.equals(fs.readFileSync('engine/native/LICENSE-Compositor.txt')));
   const sourceCommit = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  const sourceDirty=Boolean(execFileSync('git',['status','--porcelain','--untracked-files=no'],{encoding:'utf8'}).trim());
-  if(process.env.GITHUB_ACTIONS==='true')assert.equal(sourceDirty,false,'CI portable source must be clean');
+  const sourceStatus=execFileSync('git',['status','--porcelain','--untracked-files=no'],{encoding:'utf8'}).trim();
+  const sourceDirty=Boolean(sourceStatus);
+  if(process.env.GITHUB_ACTIONS==='true')assert.equal(sourceDirty,false,'CI portable source must be clean:\n'+sourceStatus);
   assert(/^[a-f0-9]{40}$/.test(sourceCommit), 'Invalid source commit');
   const assetNames = fs.readdirSync('app/dist/assets').filter(n => /^compositor_engine_bg-.*\.wasm$/.test(n));
   assert.equal(assetNames.length, 1);

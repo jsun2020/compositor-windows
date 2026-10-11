@@ -1,0 +1,66 @@
+name: Windows packaging source diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compare Git and manifests around actual pinned CLI setup
+        run: |
+          $taskOutput = Join-Path (Get-Location) 'build-artifacts/source-diagnostic'
+          New-Item -ItemType Directory -Path $taskOutput | Out-Null
+          function Record-Source([string]$label) {
+            Get-Command git | Select-Object Source
+            git --version
+            git config --show-origin --get-regexp 'core\.(autocrlf|eol|filemode)'
+            git status --porcelain --untracked-files=no
+            git diff --stat
+            git diff --numstat
+            git ls-files --eol -- app/src/build-info.ts Cargo.lock src-tauri/Cargo.toml
+            Copy-Item -LiteralPath src-tauri/Cargo.toml -Destination (Join-Path $taskOutput ($label + '-Cargo.toml'))
+            Copy-Item -LiteralPath Cargo.lock -Destination (Join-Path $taskOutput ($label + '-Cargo.lock'))
+          }
+          Record-Source 'checkout'
+          $taskVswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+          $taskInstall = & $taskVswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (-not $taskInstall) { throw 'C++ environment missing' }
+          $taskDev = Join-Path $taskInstall 'Common7\Tools\VsDevCmd.bat'
+          $taskDump = & cmd.exe /d /s /c "`"$taskDev`" -arch=x64 -host_arch=x64 >nul && set"
+          foreach ($taskLine in $taskDump) { if ($taskLine -match '^(.*?)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') } }
+          Record-Source 'msvc'
+          $taskFrontend = Join-Path $taskOutput 'frontend'
+          New-Item -ItemType Directory -Path $taskFrontend | Out-Null
+          'Diagnostic frontend' | Set-Content -LiteralPath (Join-Path $taskFrontend 'index.html')
+          @{build=@{beforeBuildCommand='';frontendDist=$taskFrontend}} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskOutput 'config.json')
+          "@echo off`r`necho DIAGNOSTIC_RUNNER_REACHED_NO_COMPILATION`r`nexit /b 91`r`n" | Set-Content -LiteralPath (Join-Path $taskOutput 'stop-runner.cmd') -Encoding ascii
+          $ErrorActionPreference = 'Continue'
+          & node node_modules/@tauri-apps/cli/tauri.js build --no-bundle --ci --runner (Join-Path $taskOutput 'stop-runner.cmd') --config (Join-Path $taskOutput 'config.json') *> (Join-Path $taskOutput 'cli.log')
+          $taskExit = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          Get-Content -LiteralPath (Join-Path $taskOutput 'cli.log')
+          Record-Source 'cli'
+          if ($taskExit -eq 0 -or -not (Select-String -LiteralPath (Join-Path $taskOutput 'cli.log') -SimpleMatch 'DIAGNOSTIC_RUNNER_REACHED_NO_COMPILATION')) { throw 'Expected diagnostic stop did not occur' }
+          Write-Output 'Diagnostic only: original tests, hardware budgets and portable publication were not run or waived.'
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: packaging-source-diagnostic
+          path: build-artifacts/source-diagnostic/
+          if-no-files-found: error
+          retention-days: 14
