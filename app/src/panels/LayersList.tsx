@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react";
+import { useState, useEffect, useRef, type DragEvent } from "react";
 import { useEditor } from "../state/store";
 import type { LayerState } from "../engine/types";
 import { layerRows, dropTarget, type Row } from "./layer-rows";
@@ -28,6 +28,8 @@ function zoneFor(e: DragEvent, row: Row): Zone {
 export function LayersList() {
   const s = useEditor();
   const doc = s.activeId ? s.documents[s.activeId] : null;
+  const list=useRef<HTMLDivElement>(null);
+  useEffect(()=>{ if(doc?.activeLayerId)list.current?.querySelector<HTMLElement>(`[data-layer-id="${doc.activeLayerId}"]`)?.scrollIntoView?.({block:"nearest"}); },[doc?.activeLayerId,s.activeId,s.collapsed]);
   const collapsed = s.activeId ? s.collapsed[s.activeId] ?? [] : [];
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -77,7 +79,7 @@ export function LayersList() {
   return (
     <div className="layers">
       <div className="layers-header"><span>Layers</span></div>
-      <div className="layer-rows" onDragLeave={() => setOver(null)}>
+      <div className="layer-rows" ref={list} onDragLeave={() => setOver(null)}>
         {rows.map((row, index) => {
           const l = row.layer; const selected = s.selectedLayerIds.includes(l.id);
           return (

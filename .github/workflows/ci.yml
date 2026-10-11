@@ -48,6 +48,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Release metadata and packaging regressions
         run: node --test scripts/tests/release.test.mjs scripts/tests/wasm-output.test.mjs
+      - name: Fixed Mac 1.4.9 LUT and kernel provenance
+        run: node scripts/verify-mac149-inputs.mjs
       - name: Pinned RAW helper and actual sensor development without a JPEG preview
         run: |
           & ./scripts/build-raw-helper.ps1 -OutputDirectory build-artifacts/raw-helper-ci

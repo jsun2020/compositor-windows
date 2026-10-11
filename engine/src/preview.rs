@@ -138,7 +138,7 @@ pub fn preview_limit(request: &PreviewRequest) -> u32 {
         PreviewRequest::Shape{..}=>1536,
         PreviewRequest::Adjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_PREVIEW_LIMIT },
         PreviewRequest::DragAdjustment { adjustment, .. } => if matches!(adjustment.kind, AdjustmentKind::Grain | AdjustmentKind::AddNoise) { u32::MAX } else { COLOUR_DRAG_LIMIT },
-        PreviewRequest::Filter { params, .. } => if matches!(params, FilterParams::AddNoise { .. }) { u32::MAX } else { FILTER_PREVIEW_LIMIT },
+        PreviewRequest::Filter { params, .. } => if matches!(params, FilterParams::AddNoise { .. } | FilterParams::Scanlines { .. }) { u32::MAX } else { FILTER_PREVIEW_LIMIT },
         PreviewRequest::CameraRawView{..}=>FILTER_PREVIEW_LIMIT,
         PreviewRequest::Gradient { dragging, .. } => if *dragging { GRADIENT_DRAG_LIMIT } else { GRADIENT_SETTLED_LIMIT },
     }

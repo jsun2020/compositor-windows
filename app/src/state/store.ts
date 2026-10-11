@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterKind, LayerTransform, LevelsAuto, PreviewEdit, SelectionMode, WandSettings } from "../engine/types";
+import type { AdjustmentKind, BlendMode, Command, Corners, DocumentState, FilterParams, FilterKind, LayerTransform, LevelsAuto, PreviewEdit, SelectionMode, WandSettings } from "../engine/types";
 import { DEFAULT_WAND } from "../engine/types";
 import type { EngineClient, JobInputCopy } from "../engine/client";
 import {releaseJobResult,type JobClient,type JobResult} from "../engine/jobs";
@@ -27,7 +27,7 @@ export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
-  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" };
+  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" } | { kind: "searchCommands" } | { kind: "exportAs" };
 
 /** The selection tools' settings, kept per app session as the Mac keeps them per session
  * (EditorSession.swift:232-285): the options bar's mode, Anti-alias, the Marquee's and the Lasso's
@@ -91,6 +91,10 @@ export const JOB_PIXELS = 4_000_000;
 export const BUSY_MESSAGE = "Wait for the current edit to finish.";
 
 export interface EditorStore {
+  untitledNames: Record<string,string>;
+  lastFilter: FilterParams | null;
+  canvasOnly: boolean;
+  showsNavigator: boolean;
   textEdit:TextEdit|null;
   effectsEdit:EffectsEdit|null;
   cloneSource:{document:string;point:[number,number]}|null;
@@ -379,6 +383,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   invalidateOverlay: () => set(s=>({overlayTick:s.overlayTick+1})),
   engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
+  untitledNames: {}, lastFilter: null, canvasOnly: false, showsNavigator: false,
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(),
   blendPreview: null,
@@ -584,6 +589,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
       if (!result || !get().documents[doc]) return false;
       await engine.installJobAsync(doc, layerId, copy.input, result.header!, result.pixels, result.mask, result.display ?? null);
       installed = true;
+      if(command.type==="ApplyFilter")set({lastFilter:structuredClone(command.params)});
       return true;
     } catch (e) {
       set({ error: String(e instanceof Error ? e.message : e) });
@@ -611,8 +617,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     dropOpenPanel();
     const state = get().engine!.state(id);
     const viewport = new Viewport();
+    const used = new Set(get().order.filter(k=>!get().documents[k].path).map(k=>get().untitledNames[k]));
+    let number=1; while(used.has(number===1?"Untitled":`Untitled ${number}`))number++;
+    const title=get().untitledNames[id]??(number===1?"Untitled":`Untitled ${number}`);
     set((s) => ({ documents: { ...s.documents, [id]: state }, order: s.order.includes(id) ? s.order : [...s.order, id],
-      viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
+      untitledNames: {...s.untitledNames,[id]:title}, viewports: { ...s.viewports, [id]: viewport }, activeId: id, cropRect: null,
       selectedLayerIds: state.activeLayerId ? [state.activeLayerId] : [], maskSelected: false, transformEdit: null, selectionDraft: null, outlineMove: null }));
   },
   closeDocument: (id) => {
@@ -626,10 +635,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     set((s) => {
       const { [id]: _d, ...documents } = s.documents;
       const { [id]: _v, ...viewports } = s.viewports;
+      const { [id]: _n, ...untitledNames } = s.untitledNames;
       const order = s.order.filter((o) => o !== id);
       const activeId = s.activeId === id ? order[order.length - 1] ?? null : s.activeId;
       const active = activeId ? documents[activeId] : null;
-      return { documents, viewports, order, activeId, cropRect: null,
+      return { documents, viewports, untitledNames, order, activeId, cropRect: null,
         selectedLayerIds: active?.activeLayerId ? [active.activeLayerId] : [], maskSelected: false, transformEdit: null,
         ...(s.activeId === id ? { selectionDraft: null, outlineMove: null } : {}) };
     });
@@ -700,7 +710,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!engine || !activeId) return false;
     try {
       engine.execute(activeId, command);
+      if(command.type==="ApplyFilter")set({lastFilter:structuredClone(command.params)});
       get().refresh(activeId);
+      if(command.type==="RotateCanvas")get().viewports[activeId]?.fit(get().documents[activeId]);
       if (REVEALING_COMMANDS.has(command.type)) get().revealActiveLayer();
       return true;
     } catch (e) { set({ error: String(e instanceof Error ? e.message : e) }); return false; }
@@ -771,6 +783,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (active !== state.activeLayerId) { engine.execute(activeId, { type: "SetActiveLayer", id: active }); }
     set({ selectedLayerIds: valid, maskSelected: false });
     get().refresh(activeId);
+    get().revealActiveLayer();
   },
   // Quiet: the chip handlers that call this have just had `selectLayers` raise the banner. Targeting a
   // mask closes a picker open on a swatch: a mask's palette is black and white (ColorPaletteControls.swift:53-56).

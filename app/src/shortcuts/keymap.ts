@@ -1,5 +1,5 @@
 export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "export-jpeg" | "close" | "undo" | "redo" | "new-layer"
-  | "tool-text"
+  | "tool-text" | "search-commands" | "last-filter" | "fullscreen" | "export-as"
   | "copy" | "copy-merged" | "cut" | "paste" | "transform" | "tool-brush" | "tool-eraser" | "tool-blur" | "tool-clone" | "tool-healing"
   | "canvas-size" | "image-size" | "zoom-in" | "zoom-out" | "fit" | "actual" | "tool-move" | "tool-hand" | "tool-zoom" | "tool-crop" | "apply" | "cancel"
   | "nudge-left" | "nudge-right" | "nudge-up" | "nudge-down"
@@ -12,6 +12,8 @@ export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "exp
 export interface Shortcut { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean; }
 
 export const SHORTCUTS = {
+  "search-commands":[{key:"f",ctrl:true}], "last-filter":[{key:"f",ctrl:true,alt:true}],
+  "fullscreen":[{key:"f"}], "export-as":[{key:"w",ctrl:true,shift:true,alt:true}],
   "tool-text":[{key:"t"}],
   "tool-brush": [{key:"b"}], "tool-eraser": [{key:"e"}],
   "tool-blur":[{key:"r"}],"tool-clone":[{key:"s"}],"tool-healing":[{key:"j"}],

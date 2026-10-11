@@ -4,6 +4,7 @@ import { JobClient } from "./engine/jobs";
 import { BUILD_MARKER } from "./build-info";
 import { installTestApi } from "./test-api";
 import { useEditor } from "./state/store";
+import { toggleFullscreen } from "./actions/view";
 import { getBridge } from "./shell/bridge";
 import { importImages, openProject } from "./actions/files";
 import { useShortcuts } from "./shortcuts/useShortcuts";
@@ -14,6 +15,8 @@ import { LayersList } from "./panels/LayersList";
 import { LayerProperties } from "./panels/LayerProperties";
 import { ToolRail } from "./panels/ToolRail";
 import { NewCanvasSheet } from "./sheets/NewCanvasSheet";
+import { CommandSearchSheet } from "./sheets/CommandSearchSheet";
+import { ExportAsSheet } from "./sheets/ExportAsSheet";
 import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
 import { JpegExportSheet } from "./sheets/JpegExportSheet";
@@ -39,6 +42,9 @@ export function App() {
   // below for why a second live wasm call at the wrong moment is unsafe here).
   const [version, setVersion] = useState("");
   const sheet = useEditor((s) => s.sheet);
+  const canvasOnly=useEditor(s=>s.canvasOnly);
+  const activeId=useEditor(s=>s.activeId);
+  useEffect(()=>{if(canvasOnly&&!activeId)void toggleFullscreen();},[canvasOnly,activeId]);
   const banner = useEditor((s) => s.error);
   // File operations also block edits until their guarded work has finished.
   // Keep that lock visible, including the final recent-file registration.
@@ -102,7 +108,7 @@ export function App() {
   if (error) return <div data-testid="engine-error">Engine failed to load: {error}</div>;
   if (!ready) return <div data-testid="engine-loading">Loading engine...</div>;
   return (
-    <div className="app">
+    <div className={"app"+(canvasOnly?" canvas-only":"")}>
       <MenuBar />
       <ProjectTabs />
       <CropOptions />
@@ -128,6 +134,8 @@ export function App() {
       <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){working && <span data-testid="working"> - Working...</span>}</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}
+      {sheet?.kind === "searchCommands" && <CommandSearchSheet />}
+      {sheet?.kind === "exportAs" && <ExportAsSheet />}
       {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}
       {sheet?.kind === "imageSize" && <ImageSizeSheet />}
       {sheet?.kind === "jpeg" && <JpegExportSheet />}

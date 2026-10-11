@@ -2,16 +2,23 @@
 use crate::{Raster,CommandError};
 use super::camera_raw::CameraRawSettings;
 use serde::Serialize;
-#[derive(Serialize)]
+use std::cell::RefCell;
+thread_local! { static LAST: RefCell<Option<(Raster, CameraRawSettings, CameraRawScope)>> = const { RefCell::new(None) }; }
+pub(crate) fn clear_cache(){LAST.with(|c|*c.borrow_mut()=None);}
+
+#[derive(Clone, Serialize)]
 pub struct CameraRawScope {pub red:Vec<f64>,pub green:Vec<f64>,pub blue:Vec<f64>,pub vectorscope:Vec<f64>}
 pub fn graded_scope(source:&Raster,settings:&CameraRawSettings)->Result<CameraRawScope,CommandError>{
+    let settings=settings.normalized();
+    if let Some(cached)=LAST.with(|c|c.borrow().as_ref().and_then(|(old,s,result)| (old.same_pixels(source)&&*s==settings).then(||result.clone()))){return Ok(cached);}
     // Sample directly from storage: do not copy/halve a 100 MP layer on the UI thread.
     let step=source.width.max(source.height).div_ceil(512).max(1);
     let (w,h)=(source.width.div_ceil(step),source.height.div_ceil(step));
     let mut bytes=Vec::with_capacity(w as usize*h as usize*4);
     for y in (0..source.height).step_by(step as usize){for x in (0..source.width).step_by(step as usize){bytes.extend(source.pixel(x,y));}}
     let sampled=Raster::from_premultiplied(w,h,bytes);let mut scaled=settings.normalized();scaled.pixel_scale/=step as f64;
-    let grade=scaled.apply(&sampled)?;Ok(make(&grade))
+    let grade=scaled.apply(&sampled)?;let result=make(&grade);
+    LAST.with(|c|*c.borrow_mut()=Some((source.clone(),settings,result.clone())));Ok(result)
 }
 pub fn make(raster:&Raster)->CameraRawScope{
     let mut out=CameraRawScope{red:vec![0.;256],green:vec![0.;256],blue:vec![0.;256],vectorscope:vec![0.;4096]};

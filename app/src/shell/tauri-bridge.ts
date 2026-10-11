@@ -5,6 +5,7 @@ import type { PackageFiles } from "../engine/types";
 import { baseName, type ShellBridge, type RawInfo,type RawDevelopSettings } from "./bridge";
 
 export class TauriBridge implements ShellBridge {
+  async setFullscreen(value:boolean):Promise<void> { const {getCurrentWindow}=await import("@tauri-apps/api/window");await getCurrentWindow().setFullscreen(value); }
   rawInspect(path:string,token:string):Promise<RawInfo> {return invoke("raw_inspect",{path,token});}
   async rawDevelop(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array> {return new Uint8Array(await invoke<ArrayBuffer>("raw_develop",{path,settings,preview,token}));}
   rawCancel(token:string):Promise<void> {return invoke("raw_cancel",{token});}
@@ -33,8 +34,8 @@ export class TauriBridge implements ShellBridge {
     const picked = await open({ multiple: true, filters: [{ name: "Images, Photoshop and Camera RAW", extensions: ["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "psd", "psb", "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "rw2", "orf", "pef", "ptx", "raw", "rwl", "srw", "3fr", "fff", "iiq", "kdc", "dcr", "mos", "mef", "erf", "x3f"] }] });
     return Array.isArray(picked) ? picked : picked ? [picked] : [];
   }
-  async pickExportFile(suggested: string, ext: "png" | "jpg"): Promise<string | null> {
-    return (await save({ defaultPath: `${suggested}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: ext === "jpg" ? ["jpg", "jpeg"] : ["png"] }] })) ?? null;
+  async pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf"): Promise<string | null> {
+    return (await save({ defaultPath: `${suggested}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: ext === "jpg" ? ["jpg", "jpeg"] : [ext] }] })) ?? null;
   }
   async readPackage(path: string): Promise<PackageFiles> {
     const header = await invoke<{ manifest: string; image_names: string[] }>("read_package_manifest", { path });

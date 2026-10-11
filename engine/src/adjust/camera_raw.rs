@@ -1,4 +1,4 @@
-//! Camera Raw settings and pixel pipeline from Compositor v1.4.5.
+//! Camera Raw settings and pixel pipeline from Compositor v1.4.9.
 //! The C algorithm bodies are preserved; Swift settings/curve orchestration is ported here.
 use super::settings::{CurvePoint, CurvesSettings};
 use crate::{CommandError, Raster};
@@ -690,7 +690,7 @@ impl CameraRawCurve {
             .collect();
         std::array::from_fn(|i| {
             let t = i as f64 / 255.0;
-            let p = if [self.shadows, self.darks, self.lights, self.highlights]
+            let p = if !super::camera_raw_tables::measured_curve(self) && [self.shadows, self.darks, self.lights, self.highlights]
                 .iter()
                 .any(|x| *x != 0.0)
             {
@@ -708,17 +708,8 @@ extern "C" {
         width: usize,
         height: usize,
         stride: usize,
-        red_gain: f64,
-        green_gain: f64,
-        blue_gain: f64,
-        exposure: f64,
-        contrast: f64,
-        highlights: f64,
-        shadows: f64,
-        whites: f64,
-        blacks: f64,
-        vibrance: f64,
-        saturation: f64,
+        table: *const f32,
+        grid: i32,
         clipping: i32,
     );
     fn adjust_camera_raw_effects(
@@ -759,6 +750,9 @@ extern "C" {
         blending: f64,
         balance: f64,
         visualize: i32,
+        mixer_table: *const f32,
+        grade_table: *const f32,
+        grid: i32,
     );
     fn adjust_camera_raw_detail(
         rgba: *mut u8,
@@ -796,6 +790,8 @@ extern "C" {
         vignette_amount: f64,
         vignette_midpoint: f64,
         scale: f64,
+        exposure_tables: *const u8,
+        table_size: i32,
     );
     fn adjust_camera_raw_calibration(
         rgba: *mut u8,
@@ -883,7 +879,7 @@ impl CameraRawSettings {
         .iter()
         .any(|v| *v != 0.0)
     }
-    fn curve_color(&self) -> bool {
+    pub(super) fn curve_color(&self) -> bool {
         let c = &self.curve;
         let m = &self.mixer;
         let g = &self.grading;
@@ -978,7 +974,7 @@ impl CameraRawSettings {
         let stride = w * 4;
         super::camera_raw_runtime::begin();
         unsafe {
-            if clipping == 0 && !sharpen_mask && s.calibration_active() {
+            if clipping == 0 && !sharpen_mask && s.calibration.shadow_tint != 0.0 {
                 let c = &s.calibration;
                 adjust_camera_raw_calibration(
                     p,
@@ -986,38 +982,22 @@ impl CameraRawSettings {
                     h,
                     stride,
                     c.shadow_tint,
-                    c.red_hue,
-                    c.red_saturation,
-                    c.green_hue,
-                    c.green_saturation,
-                    c.blue_hue,
-                    c.blue_saturation,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
                     c.process.kernel(),
                 );
             }
-            if s.light_color() || clipping != 0 {
-                let warm = s.temperature / 100.0;
-                let tint = s.tint / 100.0;
-                adjust_camera_raw(
-                    p,
-                    w,
-                    h,
-                    stride,
-                    1.0 + 0.35 * warm + 0.15 * tint,
-                    1.0 - 0.30 * tint,
-                    1.0 - 0.35 * warm + 0.15 * tint,
-                    s.exposure,
-                    s.contrast,
-                    s.highlights,
-                    s.shadows,
-                    s.whites,
-                    s.blacks,
-                    s.vibrance,
-                    s.saturation,
-                    clipping,
-                );
-            }
-            if clipping == 0 && !sharpen_mask && (s.curve_color() || visualize >= 0) {
+            let folds_color = clipping == 0 && !sharpen_mask && visualize < 0 && s.mixer.points.is_empty() && s.curve.refine_saturation == 0.0;
+            let c = &s.curve;
+            let tone = c.tone_table();
+            let channels: [[f32;256];3] = [&c.red, &c.green, &c.blue].map(|points| std::array::from_fn(|i| point(i as f64 / 255.0, points) as f32));
+            let lut=super::camera_raw_tables::lookup(&s,&source,folds_color,&tone,&channels);
+            if lut.is_some() || clipping != 0 { adjust_camera_raw(p,w,h,stride,super::camera_raw_tables::ptr(&lut),super::camera_raw_tables::GRID,clipping); }
+            if !folds_color && clipping == 0 && !sharpen_mask && (s.curve_color() || visualize >= 0) {
                 let c = &s.curve;
                 let tone = c.tone_table();
                 let table = |points: &[CurvePoint]| -> [f32; 256] {
@@ -1027,13 +1007,8 @@ impl CameraRawSettings {
                 let green = table(&c.green);
                 let blue = table(&c.blue);
                 let m = &s.mixer;
-                let mixer: Vec<f32> = m
-                    .hue
-                    .iter()
-                    .chain(m.saturation.iter())
-                    .chain(m.luminance.iter())
-                    .map(|v| (*v / 100.0) as f32)
-                    .collect();
+                let mixer = [0f32;24];
+                let mixer_table = super::camera_raw_tables::compose(&super::camera_raw_tables::mixer_stages(m));
                 let points: Vec<f32> = m
                     .points
                     .iter()
@@ -1053,12 +1028,8 @@ impl CameraRawSettings {
                     })
                     .collect();
                 let g = &s.grading;
-                let grade: Vec<f32> = [&g.shadows, &g.midtones, &g.highlights, &g.global]
-                    .iter()
-                    .flat_map(|q| {
-                        [q.hue / 360.0, q.saturation / 100.0, q.luminance / 100.0].map(|v| v as f32)
-                    })
-                    .collect();
+                let grade = [0f32;12];
+                let grade_table = super::camera_raw_tables::compose(&super::camera_raw_tables::grading_stages(g));
                 adjust_camera_raw_curve_color(
                     p,
                     w,
@@ -1076,6 +1047,9 @@ impl CameraRawSettings {
                     g.blending / 100.0,
                     g.balance / 100.0,
                     visualize,
+                    super::camera_raw_tables::ptr(&mixer_table),
+                    super::camera_raw_tables::ptr(&grade_table),
+                    super::camera_raw_tables::GRID,
                 );
             }
             if clipping == 0 && !sharpen_mask && s.effects() {
@@ -1164,6 +1138,8 @@ impl CameraRawSettings {
                             o.vignette_amount,
                             o.vignette_midpoint,
                             s.pixel_scale,
+                            super::camera_raw_tables::exposure_tables(),
+                            super::camera_raw_tables::SIZE,
                         );
                     }
                     if s.detail_active() {
@@ -1216,23 +1192,7 @@ impl CameraRawSettings {
         {
             return None;
         }
-        let a1 = 0.35 * red;
-        let b1 = 0.15 * red + 0.30 * green;
-        let c1 = green - red;
-        let a2 = -0.35 * blue;
-        let b2 = 0.15 * blue + 0.30 * green;
-        let c2 = green - blue;
-        let det = a1 * b2 - a2 * b1;
-        if det.abs() <= 1e-8 {
-            return None;
-        }
-        let warm = (c1 * b2 - c2 * b1) / det;
-        let tint = (a1 * c2 - a2 * c1) / det;
-        if !warm.is_finite() || !tint.is_finite() {
-            None
-        } else {
-            Some((warm * 100.0, tint * 100.0))
-        }
+        super::camera_raw_tables::neutralize([red, green, blue])
     }
     pub fn auto_balance(raster: &Raster) -> Option<(f64, f64)> {
         let mut sum = [0.0; 3];
@@ -1254,7 +1214,7 @@ impl CameraRawSettings {
         if count == 0.0 {
             None
         } else {
-            Self::neutralize(sum[0] / count, sum[1] / count, sum[2] / count)
+            { let encode = |v: f64| if v <= 0.0031308 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }; Self::neutralize(encode(sum[0] / count), encode(sum[1] / count), encode(sum[2] / count)) }
         }
     }
 }

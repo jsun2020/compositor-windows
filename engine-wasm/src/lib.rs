@@ -400,6 +400,10 @@ impl WasmEngine {
     pub fn new_document(&mut self, width: u32, height: u32, empty_layer: bool) -> Result<String, JsError> {
         self.engine.new_document(width, height, empty_layer).map(|id| ids::upper_string(&id)).map_err(js_err)
     }
+    pub fn new_canvas(&mut self, width: u32, height: u32, resolution: f64, background: Option<u8>) -> Result<String, JsError> {
+        if background.is_some_and(|b| b > 1) { return Err(JsError::new("invalid background")); }
+        self.engine.new_canvas(width,height,resolution,background.map(|b| [b as f64;3])).map(|id|ids::upper_string(&id)).map_err(js_err)
+    }
     pub fn open_package(&mut self, manifest: String, names: Vec<String>, blobs: Array, path: Option<String>) -> Result<String, JsError> {
         let images = names.into_iter().enumerate().map(|(i, name)| {
             let arr = Uint8Array::new(&blobs.get(i as u32));
@@ -458,6 +462,10 @@ impl WasmEngine {
     }
     pub fn export_png(&self, doc: &str) -> Result<Uint8Array, JsError> {
         Ok(Uint8Array::from(self.engine.export_png(parse_id(doc)?).map_err(js_err)?.as_slice()))
+    }
+    pub fn export_as(&self,doc:&str,options:&str,preview:u32)->Result<Uint8Array,JsError>{
+        let options=serde_json::from_str(options).map_err(js_err)?;
+        Ok(Uint8Array::from(self.engine.export_as(parse_id(doc)?,&options,preview).map_err(js_err)?.as_slice()))
     }
     pub fn export_jpeg(&self, doc: &str, quality: f64, r: f64, g: f64, b: f64) -> Result<Uint8Array, JsError> {
         Ok(Uint8Array::from(self.engine.export_jpeg(parse_id(doc)?, quality, [r, g, b]).map_err(js_err)?.as_slice()))
@@ -519,7 +527,7 @@ impl WasmEngine {
     }
     pub fn camera_raw_white_balance(&self, doc: &str, layer: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
         let rgb=self.engine.sample_camera_raw_color(parse_id(doc)?,parse_id(layer)?,Point{x,y},false).map_err(js_err)?;
-        let value=rgb.and_then(|rgb| {let [r,g,b]=rgb.map(|v|if v<=0.04045 {v/12.92}else{((v+0.055)/1.055).powf(2.4)});compositor_engine::adjust::camera_raw::CameraRawSettings::neutralize(r,g,b)});
+        let value=rgb.and_then(|[r,g,b]| compositor_engine::adjust::camera_raw::CameraRawSettings::neutralize(r,g,b));
         value.map(|v|serde_json::to_string(&v).map_err(js_err)).transpose()
     }
     pub fn camera_raw_sample_color(&self,doc:&str,layer:&str,x:f64,y:f64,prepared:bool)->Result<Option<String>,JsError>{

@@ -39,5 +39,5 @@ foreach($name in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')){
 $notice=Join-Path $taskOutput 'LibRaw-notices'
 New-Item -ItemType Directory -Path $notice -Force|Out-Null
 foreach($name in @('COPYRIGHT','LICENSE.CDDL','LICENSE.LGPL')){Copy-Item -LiteralPath (Join-Path $sdk $name) -Destination (Join-Path $notice $name)}
-@{version='0.22.2';license='CDDL-1.0';source='https://www.libraw.org/data/LibRaw-0.22.2-Win64.zip';sourceSHA256=$expected;helperSHA256=(Get-FileHash -LiteralPath $exe).Hash;msvcRuntimeVersion=$crtVersion.Name;msvcRuntime=$crtReceipt}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $notice 'provenance.json') -Encoding utf8
+@{version='0.22.2';license='CDDL-1.0';source='https://www.libraw.org/data/LibRaw-0.22.2-Win64.zip';sourceSHA256=$expected;helperSHA256=(Get-FileHash -LiteralPath $exe).Hash;helperSourceSHA256=(Get-FileHash -LiteralPath $source).Hash;quantizerSourceSHA256=(Get-FileHash -LiteralPath (Join-Path $taskRoot 'src-tauri/native/RawQuantize.h')).Hash;outputBits=8;developBits=16;quantization='Compositor-v1.4.9-triangular-dither';msvcRuntimeVersion=$crtVersion.Name;msvcRuntime=$crtReceipt}|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $notice 'provenance.json') -Encoding utf8
 Write-Output $exe

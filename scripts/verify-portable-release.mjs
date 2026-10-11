@@ -89,6 +89,9 @@ function prepare(zipPath, output) {
   assert.equal(raw.version,'0.22.2');assert.equal(raw.license,'CDDL-1.0');
   assert.equal(raw.sourceSHA256,'AC64FA12BB00A7581332D4C6AB918C0533FB3F119D6B668D47A6875410DCA948');
   assert.equal(raw.helperSHA256.toLowerCase(),sha256(entries.find(e=>e.name==='CompositorRaw.exe').bytes));
+  assert.equal(raw.helperSourceSHA256.toLowerCase(),sha256(fs.readFileSync('src-tauri/native/raw-develop.cpp')),'RAW helper source provenance differs');
+  assert.equal(raw.quantizerSourceSHA256.toLowerCase(),sha256(fs.readFileSync('src-tauri/native/RawQuantize.h')),'RAW quantizer source provenance differs');
+  assert.equal(raw.developBits,16);assert.equal(raw.outputBits,8);assert.equal(raw.quantization,'Compositor-v1.4.9-triangular-dither');
   assert.deepEqual(raw.msvcRuntime.map(e=>e.name).sort(),['msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll'].sort());
   for(const dll of raw.msvcRuntime)assert.equal(dll.sha256.toLowerCase(),sha256(entries.find(e=>e.name===dll.name).bytes));
   assert(entries.find(e => e.name === 'README.txt').bytes.toString('utf8').includes(`Compositor for Windows ${version} (${marker})`));

@@ -15,6 +15,7 @@
 #define labs compositor_labs
 #define pow compositor_pow
 #define exp2 compositor_exp2
+#define exp compositor_exp
 #define fmod compositor_fmod
 #define tanh compositor_tanh
 #define hypot compositor_hypot
@@ -44,6 +45,19 @@ long compositor_lround(double x);
 long compositor_labs(long x);
 double compositor_pow(double x, double y);
 double compositor_exp2(double x);
+double compositor_exp(double x);
 double compositor_fmod(double x, double y);
 double compositor_tanh(double x);
 double compositor_hypot(double x, double y);
+
+#define sqrtf(x) ((float)compositor_sqrt(x))
+#define powf(x,y) ((float)compositor_pow(x,y))
+#define exp2f(x) ((float)compositor_exp2(x))
+#define sinf(x) ((float)compositor_sin(x))
+#define cosf(x) ((float)compositor_cos(x))
+#define fmodf(x,y) ((float)compositor_fmod(x,y))
+#define lroundf(x) compositor_lround(x)
+#define floorf __builtin_floorf
+#define ceilf __builtin_ceilf
+
+#define expf(x) ((float)compositor_exp(x))

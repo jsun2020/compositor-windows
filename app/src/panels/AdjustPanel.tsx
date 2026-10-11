@@ -45,7 +45,7 @@ export function AdjustPanel() {
   else if (!edit.params && edit.adjustment!.kind === "Hue/Saturation") body = <HueSaturationPanel />;
   else body = <FilterPanel />;
   return (
-    <div className={`adjust-panel${edit.params?.filter === "CameraRaw" ? " camera-raw-panel" : ""}`} data-testid="adjust-panel" role="dialog" aria-label={adjustTitle(edit)}>
+    <div className={`adjust-panel${edit.params?.filter === "CameraRaw" ? " camera-raw-panel" : edit.params?.filter === "Scanlines" ? " scanlines-panel" : ""}`} data-testid="adjust-panel" role="dialog" aria-label={adjustTitle(edit)}>
       <div className="adjust-header" data-testid="adjust-title">{adjustTitle(edit)}</div>
       <div className="adjust-body">{body}</div>
       <div className="adjust-footer">

@@ -15,6 +15,7 @@ pub enum FilterParams {
     /// Remove Distortion, -100 to 100: positive straightens barrel, negative pincushion.
     LensCorrection { distortion: f64 },
     CameraRaw { settings: Box<super::camera_raw::CameraRawSettings> },
+    Scanlines {settings:super::scanlines::ScanlinesSettings},
 }
 
 /// Remove Distortion at +/-100 moves the corners by this share of their distance from the centre.
@@ -22,11 +23,12 @@ pub const LENS_STRENGTH: f64 = 0.35;
 
 impl FilterParams {
     pub fn name(&self) -> &'static str {
-        match self { FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
+        match self { FilterParams::Scanlines{..}=>"Scanlines", FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
             FilterParams::AddNoise { .. } => "Add Noise", FilterParams::LensCorrection { .. } => "Lens Correction", FilterParams::CameraRaw { .. } => "Camera Raw" }
     }
     pub fn normalized(&self) -> FilterParams {
         match *self {
+            FilterParams::Scanlines{ref settings}=>FilterParams::Scanlines{settings:settings.normalized()},
             FilterParams::CameraRaw { ref settings } => FilterParams::CameraRaw { settings: Box::new(settings.normalized()) },
             FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: clamp_or(radius, 0.1, 250.0, 1.0) },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle: clamp_or(angle, -90.0, 90.0, 0.0), distance: clamp_or(distance, 1.0, 2000.0, 10.0) },
@@ -52,6 +54,7 @@ impl FilterParams {
     /// lens correction are relative to the raster's own size, so they do not scale.
     pub fn scaled(&self, factor: f64) -> FilterParams {
         match *self {
+            FilterParams::Scanlines{ref settings}=>FilterParams::Scanlines{settings:settings.clone()},
             FilterParams::CameraRaw { ref settings } => {let mut settings=settings.normalized();settings.pixel_scale*=factor;FilterParams::CameraRaw{settings:Box::new(settings)}},
             FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: radius * factor },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle, distance: distance * factor },
@@ -295,6 +298,7 @@ pub fn lens_distort(raster: &Raster, k: f64) -> Raster {
 pub fn apply_filter(raster: &Raster, params: &FilterParams) -> Result<Raster,crate::CommandError> {
     Ok(match params.normalized() {
         FilterParams::CameraRaw { settings } => return settings.apply(raster),
+        FilterParams::Scanlines{settings}=>return settings.apply(raster),
         FilterParams::GaussianBlur { radius } => gaussian_blur(raster, radius),
         FilterParams::MotionBlur { angle, distance } => motion_blur(raster, angle, distance),
         FilterParams::AddNoise { amount, gaussian, monochromatic, seed } => add_noise(raster, amount, gaussian, monochromatic, seed),

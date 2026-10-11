@@ -7,6 +7,12 @@ A free, open-source Windows image editor ported from Compositor for macOS, built
 
 **The original v1 Windows port is complete in version 0.9.0.** It includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections. The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
 
+## Mac 1.4.9 catch-up (development)
+
+The `codex/mac-1-4-9` branch implements the next increment described in [prd.md](prd.md): measured Camera Raw LUTs and revised detail algorithms, alpha-preserving inner effects, 16-bit RAW dithering, physical canvas units/backgrounds, quarter-turn canvas rotation, command search, Last Filter, fullscreen, Navigator, Export As with PDF, Scanlines and Ctrl+middle-button zoom. These changes are not in the published 0.9.0 ZIP. The project schema remains version 11, but Camera Raw and translucent inner-effect rendering follow 1.4.9 and can differ from previous 1.4.5 output.
+
+The [fixed-version delta report](docs/superpowers/research/mac-1.4.9-delta.md) records the source commits. Acceptance remains separate for source tests, browser/native Windows behavior, unchanged performance budgets and actual Mac 1.4.9 output. The planned 0.10.0 version and release notes will be finalized after those gates pass. Previous 1.4.5 evidence and releases stay available.
+
 ## Download
 
 Get the portable Windows x64 ZIP from [the verified 0.9.0 release](https://github.com/jsun2020/compositor-windows/releases/tag/v0.9.0), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.

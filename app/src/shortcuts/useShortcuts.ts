@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { repeatLastFilter, toggleFullscreen } from "../actions/view";
 import { matchShortcut, type ActionId } from "./keymap";
 import { useEditor } from "../state/store";
 import { closeActive, exportPng, openProject, saveProject, saveProjectAs } from "../actions/files";
@@ -53,6 +54,10 @@ export function runAction(id: ActionId, shift = false): void {
     return;
   }
   switch (id) {
+    case "search-commands": if(!s.panelOwnsDocument())s.openSheet({kind:"searchCommands"});break;
+    case "last-filter": repeatLastFilter();break;
+    case "fullscreen": void toggleFullscreen();break;
+    case "export-as": if(doc)s.openSheet({kind:"exportAs"});break;
     case "tool-text":s.setTool("text");break;
     case "tool-brush": s.setTool("brush"); break;
     case "tool-eraser": s.setTool("eraser"); break;
@@ -119,8 +124,9 @@ export function runAction(id: ActionId, shift = false): void {
       if (s.selectionDraft) s.setSelectionDraft(null);
       else if (s.gradientEdit) s.cancelGradient();
       else if (s.shapeDraft) s.setShapeDraft(null);
-      else if (s.tool === "crop") s.setCropRect(null);
+      else if (s.tool === "crop" && s.cropRect) s.setCropRect(null);
       else if (s.transformEdit) s.cancelTransform();
+      else if (s.canvasOnly) void toggleFullscreen();
       break;
     case "new-folder": addFolder(); break;
     case "duplicate": void layerViaCopy(); break;

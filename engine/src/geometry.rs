@@ -59,6 +59,15 @@ impl LayerTransform {
         Point { x: self.origin.x + self.size.width / 2.0, y: self.origin.y + self.size.height / 2.0 }
     }
     pub fn radians(&self) -> f64 { (self.rotation % 360.0) * std::f64::consts::PI / 180.0 }
+    pub fn quarter_turned(&self, clockwise: bool, canvas: Size) -> Self {
+        let mut result = *self;
+        let p = self.center();
+        let middle = if clockwise { Point { x: canvas.height - p.y, y: p.x } }
+            else { Point { x: p.y, y: canvas.width - p.x } };
+        result.origin = Point { x: middle.x - self.size.width / 2.0, y: middle.y - self.size.height / 2.0 };
+        result.rotation = (self.rotation + if clockwise { 90.0 } else { -90.0 }) % 360.0;
+        result
+    }
     pub fn is_valid(&self) -> bool {
         [self.origin.x, self.origin.y, self.size.width, self.size.height, self.rotation].iter().all(|v| v.is_finite())
             && (1.0..=300_000.0).contains(&self.size.width) && (1.0..=300_000.0).contains(&self.size.height)

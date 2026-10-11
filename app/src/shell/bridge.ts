@@ -3,6 +3,7 @@ export interface RawInfo {decoder:string;width:number;height:number;make:string;
 export interface RawDevelopSettings {exposure:number;temperature:number;tint:number;tone:number}
 
 export interface ShellBridge {
+  setFullscreen?(value:boolean):Promise<void>;
   rawInspect?(path:string,token:string):Promise<RawInfo>;
   rawDevelop?(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array>;
   rawCancel?(token:string):Promise<void>;
@@ -14,7 +15,7 @@ export interface ShellBridge {
   pickOpenPackage(): Promise<string | null>;
   pickSavePackage(suggested: string): Promise<string | null>;
   pickImportImages(): Promise<string[]>;
-  pickExportFile(suggested: string, ext: "png" | "jpg"): Promise<string | null>;
+  pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf"): Promise<string | null>;
   readPackage(path: string): Promise<PackageFiles>;
   writePackage(path: string, files: PackageFiles): Promise<void>;
   readFile(path: string): Promise<Uint8Array>;

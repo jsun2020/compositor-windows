@@ -2,7 +2,7 @@ import { useEditor, type Tool } from "../state/store";
 import { ToolIcon, toolIconName } from "./tool-icons";
 import { PaletteSwatches } from "./PaletteSwatches";
 
-const TOOLS: { id: Tool; label: string; key: string }[] = [
+export const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: "move", label: "Move", key: "V" }, { id: "marquee", label: "Marquee", key: "M" },
   {id:"text",label:"Type",key:"T"},
   { id: "lasso", label: "Lasso", key: "L" }, { id: "wand", label: "Magic Wand", key: "W" },

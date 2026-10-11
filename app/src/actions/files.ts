@@ -22,9 +22,9 @@ async function guarded(work: () => Promise<void>): Promise<void> {
   finally { useEditor.getState().setBusy(false); }
 }
 
-export function newCanvas(width: number, height: number): void {
+export function newCanvas(width: number, height: number, resolution = 72, background: number | undefined = undefined): void {
   const { s, engine } = ctx();
-  const id = engine.newDocument(width, height, true);
+  const id = resolution === 72 && background === undefined ? engine.newDocument(width,height,true) : engine.newCanvas(width, height, resolution, background);
   s.openDocument(id);
   s.closeSheet();
 }
@@ -67,7 +67,7 @@ async function saveAsFlow(id: string): Promise<void> {
   const { s, bridge } = ctx();
   const doc = s.documents[id];
   if (!doc) return;
-  const suggested = doc.path ? bridge.baseName(doc.path) : "Untitled";
+  const suggested = doc.path ? bridge.baseName(doc.path) : s.untitledNames[id] ?? "Untitled";
   const path = await bridge.pickSavePackage(suggested);
   if (path) await saveTo(id, path);
 }
@@ -149,7 +149,7 @@ export async function closeProject(id: string): Promise<boolean> {
     const doc = current.documents[id];
     const activeDraft = current.activeId === id && (current.transformEdit || current.gradientEdit || current.panelOwnsDocument());
     if (doc.isModified || activeDraft) {
-      const choice = await chooseProjectClose(doc.path ? s.bridge!.baseName(doc.path) : "Untitled");
+      const choice = await chooseProjectClose(doc.path ? s.bridge!.baseName(doc.path) : s.untitledNames[id] ?? "Untitled");
       if (choice === "cancel") return;
       if (choice === "save") {
         const state = useEditor.getState();

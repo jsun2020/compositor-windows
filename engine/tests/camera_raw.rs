@@ -40,23 +40,26 @@ fn identity_keeps_exact_premultiplied_pixels_and_ignores_idle_controls() {
     assert_eq!(s.apply(&image).unwrap().bytes(), image.bytes());
 }
 #[test]
-fn upstream_exposure_and_contrast_oracles() {
+fn fixed_149_exposure_and_contrast_tables() {
     let mut s = CameraRawSettings::default();
     s.exposure = 1.0;
     let p = s.apply(&gray(128)).unwrap().pixel(0, 0);
-    assert!(p[0].abs_diff(176) <= 2);
+    assert!(p[0].abs_diff(measured(&[(93,1.)],[128.;3])[0]) <= 1);
     assert_eq!(p, [p[0], p[0], p[0], 255]);
     s = CameraRawSettings::default();
     s.contrast = 100.0;
     let p = s
         .apply(&rgba(&[[64, 64, 64, 255], [192, 192, 192, 255]]))
         .unwrap();
-    assert!(p.pixel(0, 0)[0] < 10 && p.pixel(1, 0)[0] > 250);
+    let brightness=encode_srgb((decode_srgb(64./255.)+decode_srgb(192./255.))/2.)*255.;
+    let parts=adaptive_parts(138,100.,brightness);
+    for (i,v) in [64.,192.].into_iter().enumerate(){assert!(p.pixel(i as u32,0)[0].abs_diff(measured(&parts,[v;3])[0])<=1);}
     s.contrast = -100.0;
     let p = s
         .apply(&rgba(&[[64, 64, 64, 255], [192, 192, 192, 255]]))
         .unwrap();
-    assert!(p.pixel(0, 0)[0].abs_diff(128) <= 2 && p.pixel(1, 0)[0].abs_diff(128) <= 2);
+    let parts=adaptive_parts(138,-100.,brightness);
+    for (i,v) in [64.,192.].into_iter().enumerate(){assert!(p.pixel(i as u32,0)[0].abs_diff(measured(&parts,[v;3])[0])<=1);}
 }
 #[test]
 fn white_balance_gains_and_alpha_are_preserved() {
@@ -87,14 +90,18 @@ fn clipping_is_a_preview_and_does_not_mutate_source() {
     assert_eq!(out.pixel(1, 0), [0, 0, 0, 255]);
     assert_eq!(image.bytes(), original);
     let normal = s.apply(&image).unwrap();
-    assert!(normal.pixel(1, 0)[0].abs_diff(128) <= 2);
+    assert!(normal.pixel(1,0)[0].abs_diff(measured(&[(110,1.)],[128.;3])[0])<=1);
 }
 #[test]
-fn parametric_curve_is_monotone_and_uses_upstream_bend() {
+fn measured_parametric_curve_and_custom_dividers_are_distinct() {
     let mut s = CameraRawSettings::default();
     s.curve.darks = -51.0;
     let t = s.curve.tone_table();
-    assert!((t[64] as f64 - 0.15).abs() < 0.025);
+    // Default dividers now use the measured stage, leaving the point-curve table neutral.
+    assert_eq!(t[64],64./255.);
+    assert!(s.apply(&gray(64)).unwrap().pixel(0,0)[0].abs_diff(measured(&[(440,0.02),(441,0.98)],[64.;3])[0])<=1);
+    let mut moved=s.clone();moved.curve.shadow_split=24.;
+    assert!((moved.curve.tone_table()[64] as f64-0.15).abs()<0.025);
     assert_eq!(t[0], 0.0);
     assert_eq!(t[255], 1.0);
     assert!(t.windows(2).all(|p| p[0] <= p[1]));
@@ -129,13 +136,12 @@ fn settings_normalization_repairs_nonfinite_ranges_and_curves() {
     assert_eq!(n, n.normalized());
 }
 #[test]
-fn auto_balance_solves_the_same_linear_gains() {
+fn auto_balance_minimizes_the_measured_white_balance_cast() {
     let (r, g, b) = (0.2, 0.3, 0.4);
     let (temp, tint) = CameraRawSettings::neutralize(r, g, b).unwrap();
-    let red = r * (1.0 + 0.35 * temp / 100.0 + 0.15 * tint / 100.0);
-    let green = g * (1.0 - 0.30 * tint / 100.0);
-    let blue = b * (1.0 - 0.35 * temp / 100.0 + 0.15 * tint / 100.0);
-    assert!((red - green).abs() < 1e-12 && (green - blue).abs() < 1e-12);
+    let cast=|t:f64,i:f64|{let color=lookup_blend(&white_parts(t,i),[r,g,b]);color.into_iter().fold(0f64,f64::max)-color.into_iter().fold(1f64,f64::min)};
+    assert!(cast(temp,tint)<cast(0.,0.)*0.1);
+    for dt in [-0.5,0.,0.5] {for di in [-0.5,0.,0.5] {if (temp+dt).abs()<=100.&&(tint+di).abs()<=100.{assert!(cast(temp,tint)<=cast(temp+dt,tint+di)+1e-7);}}}
     assert!(CameraRawSettings::auto_balance(&rgba(&[[0, 0, 0, 0]])).is_none());
 }
 #[test]
@@ -199,3 +205,7 @@ fn serialized_filter_settings_roundtrip_and_reject_unknown_keys() {
     assert_eq!(serde_json::from_str::<CameraRawSettings>(&json).unwrap(), s);
     assert!(serde_json::from_str::<CameraRawSettings>(r#"{"bogus":1}"#).is_err());
 }
+
+#[path = "support/mac149_camera_raw_reference.rs"]
+mod measured149;
+use measured149::*;

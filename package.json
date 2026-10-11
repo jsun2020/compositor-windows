@@ -9,7 +9,7 @@
     "build-info": "powershell -ExecutionPolicy Bypass -File scripts/write-build-info.ps1",
     "dev": "vite",
     "build": "tsc --noEmit && tsc --noEmit -p app/tests/unit && tsc --noEmit -p app/tests/e2e && vite build",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers 1",
     "e2e": "playwright test",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FILTER_TITLES } from "../state/adjust-edit";
 import { useEditor } from "../state/store";
 import { importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
@@ -14,10 +15,9 @@ import { beginContentFill,canContentFill } from "../actions/content-fill";
 import {canEditText,editActiveText} from "../actions/text";
 import {canEditEffects,beginEffects} from "../actions/effects";
 
-type Item = { id: string; label: string; run(): void; enabled?: boolean } | "separator";
+export type Item = { id: string; label: string; run(): void; enabled?: boolean; checked?: boolean } | "separator";
 
-export function MenuBar() {
-  const s = useEditor();
+export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: string[] = []): {title:string;items:Item[]}[] {
   const hasDoc = s.activeId !== null;
   // Computed once, guarded, and reused below so an item's `enabled` flag never has to
   // index `s.documents` with a possibly-null activeId (which threw when no document was open).
@@ -27,13 +27,13 @@ export function MenuBar() {
   // An open panel owns the document (store.panelOwnsDocument): every item that would record
   // history, change the layers or open a sheet greys out until it is applied or cancelled.
   const editable = hasDoc && !s.panelOwnsDocument();
-  const [recent, setRecent] = useState<string[]>([]);
+
   // Refetch only when the bridge changes, the open-document list changes, or a file
   // action explicitly records a new recent package (`recentTick`) - not on every store
   // update via `s.documents`, which changed on nearly every edit and refetched recents
   // far more often than they could actually change.
-  useEffect(() => { s.bridge?.recentPackages().then(setRecent); }, [s.bridge, s.order, s.recentTick]);
-  const menus: { title: string; items: Item[] }[] = [
+
+  return [
     { title: "File", items: [
       { id: "new", label: "New Canvas...", run: () => runAction("new"), enabled: !s.panelOwnsDocument() },
       { id: "open", label: "Open Project...", run: () => runAction("open") },
@@ -44,12 +44,14 @@ export function MenuBar() {
       "separator",
       { id: "save", label: "Save", run: () => runAction("save"), enabled: hasDoc },
       { id: "save-as", label: "Save As...", run: () => runAction("save-as"), enabled: hasDoc },
+      { id: "export-as", label: "Export As...", run: () => runAction("export-as"), enabled: editable },
       { id: "export-png", label: "Export PNG...", run: () => runAction("export-png"), enabled: hasDoc },
       { id: "export-jpeg", label: "Export JPEG...", run: () => runAction("export-jpeg"), enabled: editable },
       "separator",
       { id: "close", label: "Close", run: () => runAction("close"), enabled: hasDoc },
     ] },
     { title: "Edit", items: [
+      {id:"search-commands",label:"Search Commands...",run:()=>runAction("search-commands"),enabled:!s.panelOwnsDocument()},
       // A pending transform owns the gesture: macOS's `canUseHistory` requires
       // `transformEdit == nil`, so both items grey out until it commits or cancels. An open panel
       // makes both inert as well (store.undo/redo), so they grey out for it too.
@@ -116,6 +118,9 @@ export function MenuBar() {
       })),
     ] },
     { title: "Filter", items: [
+      {id:"filter-scanlines",label:"Scanlines...",run:()=>s.beginAdjust({kind:"Scanlines"}),enabled:s.canAdjust()},
+      {id:"last-filter",label:s.lastFilter?`Last Filter: ${FILTER_TITLES[s.lastFilter.filter]}`:"Last Filter",run:()=>runAction("last-filter"),enabled:!!s.lastFilter&&s.canAdjust()},
+      "separator",
       { id: "filter-camera-raw", label: "Camera Raw...", run: () => s.beginAdjust({ kind: "CameraRaw" }), enabled: s.canAdjust() },
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
       { id: "filter-motion-blur", label: "Motion Blur...", run: () => s.beginAdjust({ kind: "MotionBlur" }), enabled: s.canAdjust() },
@@ -138,10 +143,14 @@ export function MenuBar() {
       "separator",
       // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
       // command directly, same as Import above.
+      {id:"rotate-cw",label:"Rotate Canvas 90° Clockwise",run:()=>s.run({type:"RotateCanvas",clockwise:true}),enabled:editable},
+      {id:"rotate-ccw",label:"Rotate Canvas 90° Counterclockwise",run:()=>s.run({type:"RotateCanvas",clockwise:false}),enabled:editable},
       { id: "flip-h", label: "Flip Canvas Horizontal", run: () => s.run({ type: "FlipCanvas", horizontal: true }), enabled: editable },
       { id: "flip-v", label: "Flip Canvas Vertical", run: () => s.run({ type: "FlipCanvas", horizontal: false }), enabled: editable },
     ] },
     { title: "View", items: [
+      {id:"fullscreen",label:s.canvasOnly?"Exit Fullscreen":"Toggle Fullscreen",checked:s.canvasOnly,run:()=>runAction("fullscreen"),enabled:hasDoc},
+      {id:"navigator",label:s.showsNavigator?"Hide Navigator":"Show Navigator",checked:s.showsNavigator,run:()=>useEditor.setState({showsNavigator:!s.showsNavigator}),enabled:hasDoc},
       { id: "zoom-in", label: "Zoom In", run: () => runAction("zoom-in"), enabled: hasDoc },
       { id: "zoom-out", label: "Zoom Out", run: () => runAction("zoom-out"), enabled: hasDoc },
       { id: "fit", label: "Fit on Screen", run: () => runAction("fit"), enabled: hasDoc },
@@ -149,6 +158,13 @@ export function MenuBar() {
       { id: "view-guides", label: s.showGuides ? "Hide Guides" : "Show Guides", run: () => s.toggleGuides(), enabled: hasDoc },
     ] },
   ];
+}
+
+export function MenuBar() {
+  const s=useEditor();
+  const [recent,setRecent]=useState<string[]>([]);
+  useEffect(()=>{s.bridge?.recentPackages().then(setRecent);},[s.bridge,s.order,s.recentTick]);
+  const menus=commandMenus(s,recent);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   return (
     <div className="menubar" onMouseLeave={() => setOpenMenu(null)}>
@@ -158,7 +174,7 @@ export function MenuBar() {
           {openMenu === m.title && (
             <div className="menu-items">
               {m.items.map((it, i) => it === "separator" ? <hr key={i} /> : (
-                <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy || s.working} onClick={() => { setOpenMenu(null); it.run(); }}>{it.label}</button>
+                <button key={it.id} data-testid={`menu-${it.id}`} disabled={it.enabled === false || s.busy || s.working} onClick={() => { setOpenMenu(null); it.run(); }}>{it.checked !== undefined && <span aria-hidden="true" className="command-check">{it.checked ? "✓ " : "　"}</span>}{it.label}</button>
               ))}
             </div>
           )}

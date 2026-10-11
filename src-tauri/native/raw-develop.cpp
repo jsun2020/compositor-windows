@@ -1,6 +1,7 @@
 // Isolated camera-sensor decoder using the unmodified LibRaw 0.22.2 Win64 SDK.
 // LibRaw is distributed under its CDDL 1.0 option; see the bundled notices/source.
 #include <libraw/libraw.h>
+#include "RawQuantize.h"
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
@@ -53,7 +54,7 @@ int wmain(int argc,wchar_t** argv) {
     std::ostringstream metadata;metadata<<"{\"decoder\":\"LibRaw "<<LibRaw::version()<<"\",\"width\":"<<s.width<<",\"height\":"<<s.height<<",\"make\":"<<quote(raw.imgdata.idata.make)<<",\"model\":"<<quote(raw.imgdata.idata.model)<<",\"asShotTemperature\":"<<shot<<",\"asShotTint\":0,\"whiteBalanceEstimate\":true,\"sensorDecoded\":"<<(inspect?"false":"true")<<"}";
     if(inspect){std::cout<<metadata.str();return 0;}
     double exposure=number(argv[4],-5,5),temperature=number(argv[5],2000,15000),tint=number(argv[6],-150,150),tone=number(argv[7],0,1);bool preview=number(argv[8],0,1)!=0;
-    auto& p=raw.imgdata.params;p.output_color=1;p.output_bps=8;p.no_auto_bright=1;p.use_camera_wb=1;p.user_qual=3;
+    auto& p=raw.imgdata.params;p.output_color=1;p.output_bps=16;p.no_auto_bright=1;p.use_camera_wb=1;p.user_qual=3;
     p.half_size=preview&&std::max(s.width,s.height)>2048;p.bright=float(std::exp2(exposure));
     // Windows interpretation of tone strength, not Apple's proprietary boost curve.
     p.gamm[0]=1./(1.+1.4*tone);p.gamm[1]=tone>0?12.92:1.;
@@ -61,14 +62,14 @@ int wmain(int argc,wchar_t** argv) {
     check(raw.unpack());check(raw.dcraw_process());int status=0;libraw_processed_image_t* image=raw.dcraw_make_mem_image(&status);check(status);
     if(!image)throw std::runtime_error("RAW decoder produced no image");
     try {
-      if(image->type!=LIBRAW_IMAGE_BITMAP||image->colors!=3||image->bits!=8)throw std::runtime_error("Unsupported decoded RAW layout");
+      if(image->type!=LIBRAW_IMAGE_BITMAP||image->colors!=3||image->bits!=16)throw std::runtime_error("Unsupported decoded RAW layout");
       size_check(image->width,image->height);uint64_t pixels=uint64_t(image->width)*image->height;
-      if(image->data_size!=pixels*3)throw std::runtime_error("Decoded RAW pixel length is inconsistent");
+      if(image->data_size!=pixels*3*2)throw std::runtime_error("Decoded RAW pixel length is inconsistent");
       HANDLE output=CreateFileW(argv[3],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
       if(output==INVALID_HANDLE_VALUE)throw std::runtime_error("Cannot create a new RAW output");
       auto write=[&](const void* bytes,DWORD size){DWORD written=0;if(!WriteFile(output,bytes,size,&written,nullptr)||written!=size)throw std::runtime_error("RAW output write failed");};
       try {uint32_t header[4]={0x37574152,image->width,image->height,0};write(header,sizeof(header));std::vector<unsigned char> row(size_t(image->width)*4);
-        for(unsigned y=0;y<image->height;++y){for(unsigned x=0;x<image->width;++x){size_t src=(size_t(y)*image->width+x)*3;row[x*4]=image->data[src];row[x*4+1]=image->data[src+1];row[x*4+2]=image->data[src+2];row[x*4+3]=255;}write(row.data(),DWORD(row.size()));}CloseHandle(output);
+        for(unsigned y=0;y<image->height;++y){for(unsigned x=0;x<image->width;++x){size_t src=(size_t(y)*image->width+x)*3;for(uint32_t c=0;c<3;++c){uint16_t wide;memcpy(&wide,image->data+(src+c)*2,sizeof(wide));row[x*4+c]=raw_quantize16(wide,x,y,c);}row[x*4+3]=255;}write(row.data(),DWORD(row.size()));}CloseHandle(output);
       }catch(...){CloseHandle(output);throw;}
       std::cout<<metadata.str();LibRaw::dcraw_clear_mem(image);return 0;
     }catch(...){LibRaw::dcraw_clear_mem(image);throw;}

@@ -172,6 +172,31 @@ fn blur_line(k: &Kernel, src: &[f32], out: &mut [f32], zeros: &mut Vec<u32>, one
 struct ExactBlur { k: Kernel, width: usize, height: usize, ring: Vec<f32>, slots: usize, next: usize, low: usize,
     zeros: Vec<u32>, ones: Vec<u32>, line_zeros: Vec<u32>, line_ones: Vec<u32>, input: Vec<f32> }
 
+/// Scanlines' clamp-to-edge bloom, reduced on its own integer scale (Scanlines.swift).
+/// At most a 4-pixel sigma runs on this grid; the output keeps no full float frame.
+pub(crate) fn blur_rgba_clamped(raster: &crate::Raster, sigma: f64) -> crate::Raster {
+    let shrink=(sigma/4.0).floor().max(1.0) as u32;
+    let w=raster.width.div_ceil(shrink);let h=raster.height.div_ceil(shrink);
+    let mut reduced=vec![0u8;w as usize*h as usize*4];
+    for y in 0..h {for x in 0..w {
+        let p=crate::core_image::sample(raster,((x as f64+0.5)*shrink as f64).clamp(0.5,raster.width as f64-0.5),((y as f64+0.5)*shrink as f64).clamp(0.5,raster.height as f64-0.5));
+        reduced[((y*w+x)*4)as usize..((y*w+x)*4+4)as usize].copy_from_slice(&p);
+    }}
+    let mut blurred=vec![0u8;reduced.len()];
+    for channel in 0..4 {
+        let mut blur=ExactBlur::new(Kernel::new((sigma/shrink as f64)as f32),w as usize,h as usize);
+        let mut row=vec![0.;w as usize];
+        let mut source=|y:usize,line:&mut[f32]|{for (x,v)in line.iter_mut().enumerate(){*v=reduced[(y*w as usize+x)*4+channel]as f32/255.;}};
+        for y in 0..h as usize {blur.row(y,&mut source,&mut row);for(x,v)in row.iter().enumerate(){blurred[(y*w as usize+x)*4+channel]=(v*255.).round().clamp(0.,255.)as u8;}}
+    }
+    let small=crate::Raster::from_premultiplied(w,h,blurred);let mut output=vec![0u8;raster.bytes().len()];
+    for y in 0..raster.height {for x in 0..raster.width {
+        let p=crate::core_image::sample(&small,((x as f64+0.5)/shrink as f64).clamp(0.5,w as f64-0.5),((y as f64+0.5)/shrink as f64).clamp(0.5,h as f64-0.5));
+        output[((y*raster.width+x)*4)as usize..((y*raster.width+x)*4+4)as usize].copy_from_slice(&p);
+    }}
+    crate::Raster::from_premultiplied(raster.width,raster.height,output)
+}
+
 impl ExactBlur {
     fn new(k: Kernel, width: usize, height: usize) -> ExactBlur {
         let slots = (2 * k.radius + 1).min(height);
@@ -495,25 +520,28 @@ pub fn render_passes(padded: &Padded, passes: &EffectPasses) -> Vec<u8> {
         }
         if let (Some(_), Some(plane)) = (passes.inner_shadow, &mut inner_plane) {
             plane.row(padded, y, &mut inner);
-            // `effects_inside`: what lies outside, moved and softened, kept to the shape.
-            for x in 0..w { inner[x] = (shape[x] * (1.0 - inner[x])).clamp(0.0, 1.0); }
+            // Mac 1.4.9: strength before source alpha, used to recolor the source itself.
+            for x in 0..w { inner[x] = (1.0 - inner[x]).clamp(0.0, 1.0); }
         }
         if let (Some(_), Some(plane)) = (passes.inner_glow, &mut inner_glow_plane) {
             plane.row(padded, y, &mut inner_glow);
-            for x in 0..w { inner_glow[x] = (shape[x] * (1.0 - inner_glow[x])).clamp(0.0, 1.0); }
+            for x in 0..w { inner_glow[x] = (1.0 - inner_glow[x]).clamp(0.0, 1.0); }
         }
         if y >= padded.inset && y < padded.inset + padded.height {
             let from = (y - padded.inset) * padded.width * 4;
             let row = &padded.pixels[from..from + padded.width * 4];
             let layer = &mut color[x0..x1];
             for (x, px) in layer.iter_mut().enumerate() {
-                let s = [0, 1, 2, 3].map(|c| unit[row[x * 4 + c] as usize]);
+                let mut s = [0, 1, 2, 3].map(|c| unit[row[x * 4 + c] as usize]);
+                let mut recolor = |rgb: [f32; 3], amount: f32| {
+                    for k in 0..3 { s[k] = mix(s[k], rgb[k] * s[3], amount); }
+                };
+                if let Some(o) = passes.overlay { recolor(o.color, o.opacity); }
+                if let Some(g) = passes.inner_glow { recolor(g.color, (inner_glow[x0 + x] * g.opacity).clamp(0.0, 1.0)); }
+                if let Some(i) = passes.inner_shadow { recolor(i.color, (inner[x0 + x] * i.opacity).clamp(0.0, 1.0)); }
                 for k in 0..3 { px[k] = s[k] + px[k] * (1.0 - s[3]); }
                 px[3] = s[3] + px[3] * (1.0 - s[3]);
             }
-            if let Some(o) = passes.overlay { over(layer, o.color, o.opacity, |x| shape[x0 + x]); }
-            if let Some(g) = passes.inner_glow { over(layer, g.color, g.opacity, |x| inner_glow[x0 + x]); }
-            if let Some(s) = passes.inner_shadow { over(layer, s.color, s.opacity, |x| inner[x0 + x]); }
             if let Some(s) = passes.stroke { if s.inside { over(layer, s.color, s.opacity, |x| ring[x0 + x]); } }
         }
         let bytes = &mut out[y * w * 4..(y + 1) * w * 4];

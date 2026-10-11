@@ -68,7 +68,7 @@ export function ProjectTabs() {
     <div className="tabs" ref={strip}>
       {s.order.map((id) => {
         const d = s.documents[id];
-        const title = d.path ? s.bridge!.baseName(d.path) : "Untitled";
+        const title = d.path ? s.bridge!.baseName(d.path) : s.untitledNames[id] ?? "Untitled";
         const slot = press.current?.layout.find((l) => l.id === id);
         const offset = reorder && slot ? renderX(reorder, id, slot.x, contentWidth) - slot.x : 0;
         const isDragged = reorder?.id === id;

@@ -45,6 +45,16 @@ unsafe extern "C" fn phase7_malloc(n: usize) -> *mut c_void {
     p.add(16).cast()
 }
 #[no_mangle]
+unsafe extern "C" fn phase7_calloc(count: usize, size: usize) -> *mut c_void {
+    let Some(n) = count.checked_mul(size) else {
+        FAILED.with(|f| f.set(true));
+        return std::ptr::null_mut();
+    };
+    let p = phase7_malloc(n);
+    if !p.is_null() { p.cast::<u8>().write_bytes(0, n); }
+    p
+}
+#[no_mangle]
 unsafe extern "C" fn phase7_free(p: *mut c_void) {
     if p.is_null() {
         return;
@@ -74,6 +84,8 @@ mod math {
     extern "C" fn compositor_exp2(x: f64) -> f64 {
         x.exp2()
     }
+    #[no_mangle]
+    extern "C" fn compositor_exp(x: f64) -> f64 { x.exp() }
     #[no_mangle]
     extern "C" fn compositor_fmod(x: f64, y: f64) -> f64 {
         x % y

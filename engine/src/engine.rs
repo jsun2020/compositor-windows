@@ -203,6 +203,22 @@ impl Engine {
         Ok(self.insert(doc, None))
     }
 
+    pub fn new_canvas(&mut self, width: u32, height: u32, resolution: f64, background: Option<[f64;3]>) -> Result<Uuid, CommandError> {
+        check_dimensions(width, height)?;
+        if width as u64*height as u64>MAX_PIXELS { return Err(CommandError::Argument("canvas exceeds 100 megapixels".into())); }
+        if !resolution.is_finite() || !(1.0..=9600.0).contains(&resolution) || background.is_some_and(|c| c.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))) {
+            return Err(CommandError::Argument("invalid resolution or background".into()));
+        }
+        let mut doc = Document::new(width, height); doc.resolution = resolution;
+        let mut layer = Layer::blank(if background.is_some() { "Background" } else { "Layer 1" }, doc.size());
+        if let Some(color) = background {
+            let pixel = [color[0],color[1],color[2]].map(|v| (v*255.0).round() as u8);
+            layer.pixels = Some(Raster::from_premultiplied(width,height,[pixel[0],pixel[1],pixel[2],255].repeat(width as usize*height as usize)));
+        }
+        doc.active_layer_id=Some(layer.id); doc.layers.push(layer);
+        Ok(self.insert(doc,None))
+    }
+
     pub fn open_package(&mut self, pkg: &Package, path: Option<String>) -> Result<Uuid, CommandError> {
         // `Document.id` is kept exactly as read from the manifest (stable across save/open,
         // to match the macOS format); the session handle from `insert` is what keeps two
@@ -219,6 +235,7 @@ impl Engine {
         if let Some(s) = self.sessions.get_mut(&id) { s.history.mark_saved(); if path.is_some() { s.path = path; } }
     }
     pub fn close_document(&mut self, id: Uuid) {
+        adjust::camera_raw_tables::clear_cache();
         if let Some(s) = self.sessions.remove(&id) { self.clips.forget(s.document.id); }
         self.order.retain(|d| *d != id);
         self.effects.prune();
@@ -531,6 +548,10 @@ impl Engine {
                 ops::selection::flip_selection(doc, horizontal);
                 Ok(Dirty::structure())
             }
+            Command::RotateCanvas { clockwise } => {
+                ops::rotate::rotate_canvas(doc, clockwise);
+                Ok(Dirty::everything())
+            }
             Command::ImageSize { width, height, resolution, sampling } => {
                 *doc = ops::image_size::image_size(doc, ops::image_size::ImageSizeOptions { width, height, resolution, sampling })?;
                 doc.selection = None;
@@ -791,6 +812,11 @@ impl Engine {
 
     // Exports and every render below find effects images in, and leave them in, the engine's cache.
     pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png_with(&self.session(id)?.document, &self.effects)?) }
+    pub fn export_as(&self,id:Uuid,options:&export_as::ExportOptions,preview:u32)->Result<Vec<u8>,CommandError>{
+        let doc=&self.session(id)?.document;
+        let raster=export_as::render(doc,&self.effects,options,preview)?;
+        export_as::encode(raster,doc.resolution,options,preview>0)
+    }
     pub fn export_jpeg(&self, id: Uuid, quality: f64, matte: [f64; 3]) -> Result<Vec<u8>, CommandError> {
         Ok(compositor::export_jpeg_with(&self.session(id)?.document, quality, matte, &self.effects)?)
     }

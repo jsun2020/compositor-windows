@@ -1,3 +1,4 @@
+import {Navigator} from "./Navigator";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
@@ -291,7 +292,7 @@ export function CanvasView() {
   // them at all -- no tool gesture starts.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    const down = (e: PointerEvent) => {
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return;
       const s = useEditor.getState();
       if (!s.adjustEdit?.sampleMode || !s.activeId) return;
       const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
@@ -309,25 +310,26 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = tool==="text"?"text":sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
+    el.style.cursor = tool==="hand"?"grab":tool==="text"?"text":sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
   }, [sampleMode, tool, picking]);
 
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
     let last: { x: number; y: number } | null = null;
-    const down = (e: PointerEvent) => { const s = useEditor.getState(); if (s.tool === "hand" || spaceRef.current || e.button === 1) { last = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); } };
-    const move = (e: PointerEvent) => { if (!last) return; const s = useEditor.getState(); if (!s.activeId) return; s.viewports[s.activeId].translate({ width: e.clientX - last.x, height: e.clientY - last.y }); last = { x: e.clientX, y: e.clientY }; s.invalidate(); };
-    const up = () => { last = null; };
-    el.addEventListener("pointerdown", down); el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
-    return () => { el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); };
+    let zoomAnchor: {x:number;y:number}|null=null, pointer:number|null=null;
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return; const s=useEditor.getState();if(!s.activeId || !(s.tool==="hand"||spaceRef.current||e.button===1))return;last={x:e.clientX,y:e.clientY};pointer=e.pointerId;const r=el.getBoundingClientRect();zoomAnchor=e.button===1&&(e.ctrlKey||e.metaKey)?{x:e.clientX-r.left,y:e.clientY-r.top}:null;el.style.cursor=zoomAnchor?"zoom-in":"grabbing";el.setPointerCapture(e.pointerId);e.preventDefault(); };
+    const move = (e: PointerEvent) => {if(!last||e.pointerId!==pointer)return;const s=useEditor.getState();if(!s.activeId)return;const vp=s.viewports[s.activeId];if(zoomAnchor)vp.setZoom(vp.zoom*Math.exp((last.y-e.clientY)*.01),zoomAnchor,s.documents[s.activeId]);else vp.translate({width:e.clientX-last.x,height:e.clientY-last.y});last={x:e.clientX,y:e.clientY};s.invalidate();};
+    const up = () => {last=null;zoomAnchor=null;pointer=null;el.style.cursor=useEditor.getState().tool==="hand"?"grab":"";};
+    el.addEventListener("pointerdown",down);el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",up);el.addEventListener("lostpointercapture",up);
+    return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",up);el.removeEventListener("lostpointercapture",up);};
   }, []);
 
   // Zoom tool: a click (no drag) zooms in at the pointer by 1.5x; Alt-click zooms out.
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
     let start: { x: number; y: number } | null = null;
-    const down = (e: PointerEvent) => { if (useEditor.getState().tool === "zoom" && e.button === 0) start = { x: e.clientX, y: e.clientY }; };
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return; if (useEditor.getState().tool === "zoom" && e.button === 0) start = { x: e.clientX, y: e.clientY }; };
     const up = (e: PointerEvent) => {
       if (!start) return;
       const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
@@ -348,7 +350,7 @@ export function CanvasView() {
   useEffect(()=>{
     const el=glRef.current?.parentElement;if(!el)return;let start:{point:[number,number];document:string;pointer:number}|null=null;
     const point=(e:PointerEvent):[number,number]=>{const s=useEditor.getState(),id=s.activeId!,d=s.documents[id],r=el.getBoundingClientRect(),p=s.viewports[id].documentPoint({x:e.clientX-r.left,y:e.clientY-r.top},d);return[p.x,p.y];};
-    const down=(e:PointerEvent)=>{const s=useEditor.getState();if(s.tool!=="text"||!s.activeId||s.working||s.panelOwnsDocument()||spaceRef.current||e.button!==0)return;start={point:point(e),document:s.activeId,pointer:e.pointerId};el.setPointerCapture(e.pointerId);e.preventDefault();};
+    const down=(e:PointerEvent)=>{ if((e.target as Element).closest?.('[data-testid="navigator"]'))return;const s=useEditor.getState();if(s.tool!=="text"||!s.activeId||s.working||s.panelOwnsDocument()||spaceRef.current||e.button!==0)return;start={point:point(e),document:s.activeId,pointer:e.pointerId};el.setPointerCapture(e.pointerId);e.preventDefault();};
     const up=(e:PointerEvent)=>{if(!start||e.pointerId!==start.pointer)return;const a=start;start=null;if(useEditor.getState().activeId!==a.document)return;const p=point(e),w=Math.abs(p[0]-a.point[0]),h=Math.abs(p[1]-a.point[1]);beginText(w>=16&&h>=16?[Math.min(a.point[0],p[0]),Math.min(a.point[1],p[1])]:a.point,w>=16&&h>=16?[Math.round(w),Math.round(h)]:undefined);};
     const cancel=()=>{start=null;};el.addEventListener("pointerdown",down);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",cancel);
     return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",cancel);};
@@ -359,7 +361,7 @@ export function CanvasView() {
     const el = glRef.current?.parentElement; if (!el) return;
     let session: CropSession | null = null;
     const point = (e: PointerEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-    const down = (e: PointerEvent) => {
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return;
       const s = useEditor.getState();
       if (s.tool !== "crop" || spaceRef.current || e.button !== 0 || !s.activeId) return;
       const vp = s.viewports[s.activeId]; const d = s.documents[s.activeId];
@@ -394,7 +396,7 @@ export function CanvasView() {
       const s=useEditor.getState(),id=s.activeId!,vp=s.viewports[id],d=s.documents[id],r=el.getBoundingClientRect();
       const p=vp.documentPoint({x:e.clientX-r.left,y:e.clientY-r.top},{width:d.width,height:d.height});return[p.x,p.y];
     };
-    const down=(e:PointerEvent)=>{const s=useEditor.getState();if(e.button!==0||spaceRef.current||!s.activeId||!isBrushTool(s.tool))return;
+    const down=(e:PointerEvent)=>{ if((e.target as Element).closest?.('[data-testid="navigator"]'))return;const s=useEditor.getState();if(e.button!==0||spaceRef.current||!s.activeId||!isBrushTool(s.tool))return;
       if(e.altKey){const [x,y]=point(e);if(s.tool==="clone"){useEditor.setState({cloneSource:{document:s.activeId,point:[x,y]},cloneOffset:null});s.invalidateOverlay();}else s.sampleForeground({x,y});return;}
       if(beginBrush(point(e),e.shiftKey)){pointer=e.pointerId;el.setPointerCapture(e.pointerId);e.preventDefault();}
     };
@@ -419,7 +421,7 @@ export function CanvasView() {
       const r = el.getBoundingClientRect();
       return vp.documentPoint({ x: e.clientX - r.left, y: e.clientY - r.top }, { width: d.width, height: d.height });
     };
-    const down = (e: PointerEvent) => {
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return;
       const s0 = useEditor.getState();
       if (s0.tool !== "move" || e.button !== 0 || spaceRef.current || !s0.activeId) return;
       const d = s0.documents[s0.activeId]; const vp = s0.viewports[s0.activeId];
@@ -501,7 +503,7 @@ export function CanvasView() {
       if (moveStart) { moveStart = null; s.setOutlineMove(null); }
       if (s.selectionDraft && s.selectionDraft.kind !== "Polygonal") s.setSelectionDraft(null);
     };
-    const down = (e: PointerEvent) => {
+    const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return;
       forget();
       const s = useEditor.getState();
       if (!isSelectionTool(s.tool) || e.button !== 0 || spaceRef.current || !s.activeId || !s.engine) return;
@@ -586,6 +588,7 @@ export function CanvasView() {
     <div data-testid="canvas-view" style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", background: "#292929" }}>
       <canvas ref={glRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
       <canvas ref={overlayRef} data-testid="overlay" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
+      <Navigator />
       {!state && <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "#999" }}>Open an image or create a new canvas</div>}
     </div>
   );

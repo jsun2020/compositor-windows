@@ -39,6 +39,7 @@ export function defaultAdjustment(kind: AdjustmentKind): LayerAdjustment {
 
 export function defaultFilterParams(kind: FilterKind): FilterParams {
   switch (kind) {
+    case "Scanlines":return {filter:"Scanlines",settings:{lineSpacing:4,thickness:70,glow:0,dots:0,wobble:0,displace:0,smoothness:50,threshold:0,split:0,density:0,contrast:0,blackLevel:0,colors:"Black & White",dark:[0,0,0],light:[1,1,1]}};
     case "CameraRaw": return { filter: "CameraRaw", settings: freshCameraRaw() };
     case "GaussianBlur": return { filter: "GaussianBlur", radius: 1 };
     case "MotionBlur": return { filter: "MotionBlur", angle: 0, distance: 10 };
@@ -48,6 +49,7 @@ export function defaultFilterParams(kind: FilterKind): FilterParams {
 }
 
 export const FILTER_TITLES: Record<FilterKind, string> = {
+  Scanlines:"Scanlines",
   CameraRaw: "Camera Raw",
   GaussianBlur: "Gaussian Blur", MotionBlur: "Motion Blur", AddNoise: "Add Noise", LensCorrection: "Lens Correction",
 };

@@ -20,3 +20,5 @@ i_overlay = "9"
 
 [build-dependencies]
 cc = "1"
+lzma-rs = "0.3"
+sha2 = "0.10"

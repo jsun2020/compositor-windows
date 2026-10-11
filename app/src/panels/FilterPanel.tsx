@@ -28,6 +28,14 @@ export function FilterPanel() {
   if (edit.params) {
     const p = edit.params;
     if (p.filter === "CameraRaw") return <CameraRawPanel />;
+    if(p.filter==="Scanlines"){
+      const fields=[["Line Spacing","lineSpacing",2,32],["Thickness","thickness",5,100],["Glow","glow",0,100],["Dots","dots",0,100],["Wobble","wobble",0,64],["Displace","displace",-100,100],["Smoothness","smoothness",0,100],["Threshold","threshold",0,100],["Color Split","split",0,16],["Density","density",-100,100],["Contrast","contrast",-100,100],["Black Level","blackLevel",0,100]] as const;
+      const update=(patch:Partial<typeof p.settings>)=>s.updateAdjust({params:{...p,settings:{...p.settings,...patch}}});
+      const hexColor=(c:number[])=>"#"+c.map(v=>Math.round(v*255).toString(16).padStart(2,"0")).join("");
+      return <>{fields.map(([label,key,min,max])=><NumberField key={key} label={label} value={p.settings[key]} min={min} max={max} step={1} onChange={v=>update({[key]:v})}/>)}
+        <label>Colors <select aria-label="Colors" value={p.settings.colors} onChange={e=>update({colors:e.target.value as typeof p.settings.colors})}>{["Black & White","Original","Two Colors"].map(c=><option key={c}>{c}</option>)}</select></label>
+        {p.settings.colors==="Two Colors"&&(["dark","light"]as const).map(key=><label key={key}>{key==="dark"?"Dark":"Light"}<input type="color" aria-label={key==="dark"?"Dark Color":"Light Color"} value={hexColor(p.settings[key])} onChange={e=>update({[key]:[1,3,5].map(i=>parseInt(e.target.value.slice(i,i+2),16)/255) as [number,number,number]})}/></label>)}</>;
+    }
     const set = (patch: Partial<FilterParams>) => s.updateAdjust({ params: { ...p, ...patch } as FilterParams });
     if (p.filter === "GaussianBlur") return <NumberField label="Radius" value={p.radius} min={0.1} max={250} step={0.1} onChange={(radius) => set({ radius } as never)} />;
     if (p.filter === "MotionBlur") return (<>

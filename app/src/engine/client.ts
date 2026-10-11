@@ -38,6 +38,7 @@ export class EngineClient {
   /** The engine's wasm memory in bytes. It only grows; the perf harness reads its high-water mark. */
   wasmBytes(): number { return this.memory.buffer.byteLength; }
   newDocument(width: number, height: number, emptyLayer: boolean): string { return this.wasm.new_document(width, height, emptyLayer); }
+  newCanvas(width: number, height: number, resolution: number, background: number | undefined): string { return this.wasm.new_canvas(width,height,resolution,background); }
   openPackage(files: PackageFiles, path: string | null): string {
     return this.wasm.open_package(files.manifest, files.images.map((i) => i.name), files.images.map((i) => i.bytes), path ?? undefined);
   }
@@ -68,6 +69,7 @@ export class EngineClient {
     return this.wasm.import_image(doc ?? undefined, bytes, name, at?.x, at?.y);
   }
   exportPng(doc: string): Uint8Array { return this.wasm.export_png(doc); }
+  exportAs(doc:string,options:{width:number;height:number;format:"PNG"|"JPEG"|"PDF";quality:number;background:[number,number,number]|null},preview=0):Uint8Array{return this.wasm.export_as(doc,JSON.stringify(options),preview);}
   exportJpeg(doc: string, quality: number, matte: [number, number, number]): Uint8Array { return this.wasm.export_jpeg(doc, quality, ...matte); }
   /** Composites and encodes the document scaled to fit `maxSide` (aspect preserved), for a
    * fast quality/matte preview image that does not need a full-resolution encode. */

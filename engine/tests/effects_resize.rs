@@ -1,6 +1,6 @@
 //! Layer effects through Image Size, Canvas Size, Crop and reduced previews (Phase 3.5c rulings).
-//! The Mac drops effects on Image Size, Canvas Size, Crop and Trim (R 5, 1.2.10 delta 3); this port
-//! keeps them looking as they did.
+//! Mac v1.4.9 ImageResizer.swift retains effects and scales lengths by sqrt(sx*sy),
+//! keeping effect angles after rasterization. This replaces the earlier Windows full-map offset rule.
 use compositor_engine::*;
 use serde_json::json;
 
@@ -41,75 +41,63 @@ fn image_size_scales_every_effect_with_the_layer() {
     assert_eq!(now.color_overlay, was.color_overlay, "no length, no change");
 }
 
-/// Fix round 1 (task-6-review.md): every fixture above resizes by the same factor on both axes, so
-/// a `resampled` that swapped `sx` and `sy`, or scaled both axes by one of them, would pass
-/// unnoticed. `sx` and `sy` are made clearly different (2 and 1.5) below.
+/// Unequal factors distinguish geometric-mean styles from either individual canvas axis.
 #[test]
-fn image_size_with_a_non_uniform_scale_resamples_each_axis_by_its_own_factor() {
-    let (doc_w, doc_h) = (300u32, 100u32);
-    let (new_w, new_h) = (600u32, 150u32);
-    let (sx, sy) = (new_w as f64 / doc_w as f64, new_h as f64 / doc_h as f64);
-    assert_ne!(sx, sy, "the point of this test is a resize that is not uniform");
-
-    // A square, unrotated, unflipped layer: `Layer::with_pixels` gives it a transform whose size
-    // equals its raster (LayerTransform::axis_aligned), so its own pixel_to_document is the
-    // identity map (a = d = 1, b = c = 0, no translation in the linear part). What resamples the
-    // effects is then sx and sy alone.
-    let mut doc = Document::new(doc_w, doc_h);
-    let mut layer = Layer::with_pixels("L", solid(100, 100, [10, 20, 30, 255]), Point { x: 100.0, y: 0.0 });
-    let (angle, distance, blur, stroke_size) = (30.0f64, 20.0, 8.0, 6.0);
-    layer.extra.effects = Some(effects(json!({
-        "stroke": { "blue": 0, "green": 1, "inside": false, "opacity": 1, "red": 0, "size": stroke_size },
-        "shadow": { "angle": angle, "blue": 0, "blur": blur, "distance": distance, "green": 0, "opacity": 0.5, "red": 0 } })));
+fn image_size_nonuniform_styles_use_mac149_geometric_mean_and_keep_angle() {
+    let mut doc = Document::new(300, 100);
+    let mut layer = Layer::with_pixels(
+        "L",
+        solid(100, 100, [10, 20, 30, 255]),
+        Point { x: 100., y: 0. },
+    );
+    layer.extra.effects = Some(effects(
+        json!({"stroke":{"red":0,"green":1,"blue":0,"size":6,"opacity":1,"inside":false},"shadow":{"red":0,"green":0,"blue":0,"angle":30,"distance":20,"blur":8,"opacity":0.5}}),
+    ));
     doc.layers = vec![layer];
-    let now = resize(&doc, new_w, new_h).layers[0].extra.effects.clone().unwrap();
-
-    // A length with no direction (stroke size, a shadow's blur) scales by the square root of the
-    // area sx * sy: neither axis factor alone would give this value unless sx happened to equal sy.
-    let factor = (sx * sy).sqrt();
-    assert_eq!(now.stroke.as_ref().unwrap().size, stroke_size * factor);
-    assert_eq!(now.shadow.as_ref().unwrap().blur, blur * factor);
-
-    // The shadow's offset goes through the diagonal map [[sx, 0], [0, sy]] whole: each axis scaled
-    // by its own factor, then reassembled into a new angle and distance. Swapping sx and sy here
-    // would send this offset off at a different angle and a different length (unless it happened
-    // to land on a multiple of 90 degrees, which 30 degrees does not).
-    let r = angle.to_radians();
-    let (ox, oy) = (-r.cos() * distance, r.sin() * distance);
-    let (nx, ny) = (sx * ox, sy * oy);
-    let (want_angle, want_distance) = (ny.atan2(-nx).to_degrees(), nx.hypot(ny));
-    let s = now.shadow.as_ref().unwrap();
-    assert!((s.angle - want_angle).abs() < 1e-6, "angle: {} vs {want_angle}", s.angle);
-    assert!((s.distance - want_distance).abs() < 1e-6, "distance: {} vs {want_distance}", s.distance);
+    let now = resize(&doc, 600, 150).layers[0]
+        .extra
+        .effects
+        .clone()
+        .unwrap();
+    let factor = 3f64.sqrt();
+    assert_eq!(now.stroke.as_ref().unwrap().size, 6. * factor);
+    let shadow = now.shadow.as_ref().unwrap();
+    assert_eq!(shadow.angle, 30.);
+    assert_eq!(shadow.distance, 20. * factor);
+    assert_eq!(shadow.blur, 8. * factor);
 }
 
-/// The same non-uniform resize, through a layer that is also flipped or turned, so the linear map
-/// `resampled` receives is not diagonal: it exercises `[m.a * sx, m.b * sy, m.c * sx, m.d * sy]`
-/// with every one of its four entries doing real work, not just the two on the diagonal.
+/// v1.4.9 bakes flips/rotations into pixels, retaining the effect parameter direction.
 #[test]
-fn image_size_with_a_non_uniform_scale_carries_a_flipped_or_turned_shadow_through_the_full_map() {
-    let (doc_w, doc_h) = (120u32, 120u32);
-    let (new_w, new_h) = (360u32, 120u32);
-    let (sx, sy) = (new_w as f64 / doc_w as f64, new_h as f64 / doc_h as f64);
-    assert_ne!(sx, sy, "the point of this test is a resize that is not uniform");
-
-    let mut flipped = bar(30.0); flipped.transform.flip_x = true;
-    let mut turned = bar(0.0); turned.transform.rotation = 90.0;
+fn image_size_nonuniform_rotated_flipped_layers_keep_mac149_effect_parameter_direction() {
+    let mut flipped = bar(30.);
+    flipped.transform.flip_x = true;
+    let mut turned = bar(0.);
+    turned.transform.rotation = 90.;
     for (name, layer) in [("flipped", flipped), ("turned", turned)] {
-        let s = layer.extra.effects.as_ref().unwrap().shadow.clone().unwrap();
-        let r = s.angle.to_radians();
-        let m = layer.transform.pixel_to_document(30, 10);
-        let (a, b, c, d) = (m.a * sx, m.b * sy, m.c * sx, m.d * sy);
-        let (ox, oy) = (-r.cos() * s.distance, r.sin() * s.distance);
-        let (vx, vy) = (a * ox + c * oy, b * ox + d * oy);
-        let mut doc = Document::new(doc_w, doc_h);
+        let original = layer
+            .extra
+            .effects
+            .as_ref()
+            .unwrap()
+            .shadow
+            .clone()
+            .unwrap();
+        let mut doc = Document::new(120, 120);
         doc.layers = vec![layer];
-        let big = resize(&doc, new_w, new_h);
-        let now = big.layers[0].extra.effects.as_ref().unwrap().shadow.clone().unwrap();
-        let now_r = now.angle.to_radians();
-        let (nx, ny) = (-now_r.cos() * now.distance, now_r.sin() * now.distance);
-        assert!((nx - vx).abs() < 1e-6 && (ny - vy).abs() < 1e-6, "{name}: offset ({nx}, {ny}), want ({vx}, {vy})");
-        assert!((-360.0..=360.0).contains(&now.angle), "{name}: a valid angle");
+        let big = resize(&doc, 360, 120);
+        let now = big.layers[0]
+            .extra
+            .effects
+            .as_ref()
+            .unwrap()
+            .shadow
+            .clone()
+            .unwrap();
+        assert_eq!(now.angle, original.angle, "{name}");
+        assert_eq!(now.distance, original.distance * 3f64.sqrt(), "{name}");
+        assert_eq!(big.layers[0].transform.rotation, 0.);
+        assert!(!big.layers[0].transform.flip_x);
     }
 }
 
@@ -121,37 +109,57 @@ fn bar(angle: f64) -> Layer {
 }
 
 #[test]
-fn image_size_keeps_a_flipped_or_turned_layers_shadow_falling_where_it_fell() {
-    let mut flipped = bar(30.0); flipped.transform.flip_x = true;
-    let mut turned = bar(0.0); turned.transform.rotation = 90.0;
+fn image_size_bakes_pixel_transform_and_keeps_mac149_style_angle_after_uniform_resize() {
+    let mut flipped = bar(30.);
+    flipped.transform.flip_x = true;
+    let mut turned = bar(0.);
+    turned.transform.rotation = 90.;
     for (name, layer) in [("flipped", flipped), ("turned", turned)] {
-        // Where the shadow falls on the canvas: its layer-pixel offset through the layer's transform.
-        let s = layer.extra.effects.as_ref().unwrap().shadow.clone().unwrap();
-        let r = s.angle.to_radians();
-        let m = layer.transform.pixel_to_document(30, 10);
-        let (ox, oy) = (-r.cos() * s.distance, r.sin() * s.distance);
-        let (vx, vy) = (2.0 * (m.a * ox + m.c * oy), 2.0 * (m.b * ox + m.d * oy));
+        let old = layer
+            .extra
+            .effects
+            .as_ref()
+            .unwrap()
+            .shadow
+            .clone()
+            .unwrap();
         let mut doc = Document::new(120, 120);
         doc.layers = vec![layer];
         let big = resize(&doc, 240, 240);
-        let now = big.layers[0].extra.effects.as_ref().unwrap().shadow.clone().unwrap();
-        let now_r = now.angle.to_radians();
-        let (nx, ny) = (-now_r.cos() * now.distance, now_r.sin() * now.distance);
-        assert!((nx - vx).abs() < 1e-6 && (ny - vy).abs() < 1e-6, "{name}: offset ({nx}, {ny}), want ({vx}, {vy})");
-        assert!((-360.0..=360.0).contains(&now.angle), "{name}: a valid angle");
+        let now = big.layers[0]
+            .extra
+            .effects
+            .as_ref()
+            .unwrap()
+            .shadow
+            .clone()
+            .unwrap();
+        assert_eq!(now.angle, old.angle, "{name}");
+        assert_eq!(now.distance, old.distance * 2., "{name}");
+        assert_eq!(big.layers[0].transform.rotation, 0.);
+        assert!(!big.layers[0].transform.flip_x);
     }
-    // Pixels: the flipped bar's shadow is centred on the bar's centre plus its canvas offset, and
-    // on the doubled canvas at twice both; the mirror image of that point stays empty.
-    let mut flipped = bar(30.0); flipped.transform.flip_x = true;
+    let mut flipped = bar(30.);
+    flipped.transform.flip_x = true;
+    let center = flipped.transform.center();
     let r = 30f64.to_radians();
-    let (vx, vy) = (r.cos() * 12.0, r.sin() * 12.0); // (-cos, sin) x 12, mirrored by flip_x
-    let c = flipped.transform.center();
+    let (vx, vy) = (r.cos() * 12., r.sin() * 12.);
     let mut doc = Document::new(120, 120);
     doc.layers = vec![flipped];
-    let (before, after) = (full(&doc), full(&resize(&doc, 240, 240)));
-    assert_eq!(before.pixel((c.x + vx) as u32, (c.y + vy) as u32), [0, 0, 0, 255], "before");
-    assert_eq!(after.pixel((2.0 * (c.x + vx)) as u32, (2.0 * (c.y + vy)) as u32), [0, 0, 0, 255], "after: the same place, doubled");
-    assert_eq!(after.pixel((2.0 * (c.x - vx)) as u32, (2.0 * (c.y + vy)) as u32), [0, 0, 0, 0], "not mirrored back");
+    assert_eq!(
+        full(&doc).pixel((center.x + vx) as u32, (center.y + vy) as u32),
+        [0, 0, 0, 255]
+    );
+    let after = full(&resize(&doc, 240, 240));
+    assert_eq!(
+        after.pixel((2. * (center.x - vx)) as u32, (2. * (center.y + vy)) as u32),
+        [0, 0, 0, 255],
+        "v1.4.9 keeps the style angle on the rasterized layer"
+    );
+    assert_eq!(
+        after.pixel((2. * (center.x + vx)) as u32, (2. * (center.y + vy)) as u32),
+        [0, 0, 0, 0]
+    );
 }
 
 #[test]

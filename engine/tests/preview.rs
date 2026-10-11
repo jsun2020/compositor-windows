@@ -1,4 +1,7 @@
 use compositor_engine::*;
+#[allow(dead_code)]
+#[path = "support/mac149_camera_raw_reference.rs"]
+mod measured149;
 
 fn seeded() -> (Engine, uuid::Uuid, uuid::Uuid) {
     let mut e = Engine::new();
@@ -18,7 +21,9 @@ fn camera_raw_diagnostic_preview_is_never_reused_by_apply(){
     e.set_preview(doc,Some(PreviewRequest::CameraRawView{layer,settings:Box::new(settings.clone()),clipping:1,visualize:-1,sharpen_mask:false,shadow_overlay:false,highlight_overlay:false})).unwrap();
     assert_eq!(middle(&e,doc),[0,0,0,255]);assert_eq!(e.state(doc).unwrap().undo_depth,depth);
     e.execute(doc,Command::ApplyFilter{id:layer,params:FilterParams::CameraRaw{settings:Box::new(settings)}}).unwrap();
-    let result=middle(&e,doc);assert!(result[0].abs_diff(176)<=2);assert_eq!(e.state(doc).unwrap().undo_depth,depth+1);
+    // Fixed Mac 1.4.9 +1 Exposure table (93), independently interpolated.
+    let result=middle(&e,doc);let expected=measured149::measured(&[(93,1.)],[128.;3]);
+    for c in 0..3 {assert!(result[c].abs_diff(expected[c])<=1);}assert_eq!(result[3],255);assert_eq!(e.state(doc).unwrap().undo_depth,depth+1);
     e.undo(doc).unwrap();assert_eq!(middle(&e,doc),[128,128,128,255]);
 }
 

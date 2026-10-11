@@ -71,12 +71,14 @@ export interface LayerAdjustment {
 }
 
 export type FilterParams =
+  | {filter:"Scanlines";settings:ScanlinesSettings}
   | { filter: "CameraRaw"; settings: import("./camera-raw").CameraRawSettings }
   | { filter: "GaussianBlur"; radius: number }
   | { filter: "MotionBlur"; angle: number; distance: number }
   | { filter: "AddNoise"; amount: number; gaussian: boolean; monochromatic: boolean; seed: number }
   | { filter: "LensCorrection"; distortion: number };
 export type FilterKind = FilterParams["filter"];
+export interface ScanlinesSettings {lineSpacing:number;thickness:number;glow:number;dots:number;wobble:number;displace:number;smoothness:number;threshold:number;split:number;density:number;contrast:number;blackLevel:number;colors:"Black & White"|"Original"|"Two Colors";dark:[number,number,number];light:[number,number,number]}
 
 /** A gradient (engine `GradientSpec`): its shape, its line in document pixels, its two stops as
  * straight RGBA 0..1 (a mask reads the first channel as grey), and its opacity, 0.01 to 1. */
@@ -185,6 +187,7 @@ export type Command =
   | { type: "CanvasSize"; width: number; height: number; anchor: number; fill: [number, number, number] | null }
   | { type: "Crop"; x: number; y: number; width: number; height: number }
   | { type: "ImageSize"; width: number; height: number; resolution: number; sampling: Sampling }
+  | { type: "RotateCanvas"; clockwise: boolean }
   | { type: "FlipCanvas"; horizontal: boolean }
   | { type: "SetLayerOpacity"; id: string; opacity: number }
   | { type: "SetLayersOpacity"; ids: string[]; opacity: number }

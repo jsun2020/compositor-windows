@@ -1,0 +1,62 @@
+# Compositor for Windows 产品需求
+
+更新时间：2026-10-11。
+
+## 产品与当前基线
+
+面向 Windows 的免费图像编辑器，使用 Tauri 2、Rust/WASM、WebGL2 和 React。当前稳定版为 0.9.0；原定 Phase 1～7 及 Phase 3.5d 的 v1 移植范围已完成，验收基线是 Mac Compositor 1.4.5。历史验收记录继续保留。
+
+现有项目管理、图层/蒙版、24 种混合模式、选择、绘画/修复、文字/形状、六种效果渲染、Liquify/Smudge、Camera Raw、受限分层 PSD/PSB 与真实相机 RAW 导入属于产品基线。字体、Apple CIRAWFilter 与 LibRaw、超大图预览等已声明限制仍适用。详见 README 和原阶段验收文档。
+
+## 本次增量目标
+
+跟进 Mac **v1.4.9** 的用户可见变化，固定提交 `0ab3ff58a3dcf3d52a455fe3ab0336ac95923edd`。对照起点为 v1.4.5 `086f1631573ccb2b57644e53b52bf1488fc976aa`。研究依据见 [版本差异](docs/superpowers/research/mac-1.4.9-delta.md)。
+
+本次可规划为 Windows 0.10.0 候选版；通过验收前不宣称完整对齐，不改写已发布的 0.9.0。`.comp` 保持读版本 1～11、写版本 11，无格式迁移。
+
+## 范围与验收要求
+
+| 编号 | 需求 | 必须满足的行为 |
+| --- | --- | --- |
+| A01 | Camera Raw LUT 管线 | 同步 1.4.9 实测色表、插值与阶段顺序；包括 Light/Color、白平衡吸管/Auto、Mixer、Calibration、曲线、Grading。Point Color、移动曲线分界、Refine Saturation 等走适用的独立路径。 |
+| A02 | Camera Raw 局部算法 | 同步 Texture/Clarity 引导滤波、画面相关 Dehaze、Sharpening、彩色降噪与暗角；透明像素结果稳定，预览/Apply 参数一致。 |
+| A03 | Camera Raw 预览性能 | 缓存会话统计，组合色表，减少重复计算与 scope 开销。保持有界内存、取消与旧任务丢弃；在 Windows 实测，不承诺直接达到 Mac 宣称的 20 倍提升。 |
+| A04 | 半透明图层效果 | Color Overlay、Inner Glow、Inner Shadow 修改源 RGB 并保留源 alpha，再与底下效果合成；阴影不被错误染色。普通不透明输入保持合理一致。 |
+| A05 | 图层属性保留 | Canvas Size、Crop、仅修改 DPI 时保留 effects/live text/live shape；实际重采样和破坏性像素编辑可栅格化文字/形状，保留图层效果。核对非等比、旋转/翻转图层的 Image Size 效果参数。 |
+| A06 | RAW 导入渐变与状态 | 在真实传感器解码基础上评估 16→8 位抖动量化；导入直到图层就绪始终有状态。保留 LibRaw/Apple 解码差异说明、预算、取消及辅助程序完整性。 |
+| B01 | New Canvas | 支持 px/in/cm/mm，72/300 DPI，透明/白/黑背景；默认透明、px、72 DPI；换算与预算检查正确，DPI 存入项目/导出。 |
+| B02 | Rotate Canvas | Image 菜单提供顺/逆时针 90°；交换宽高，转动所有图层/文件夹/独立蒙版/选区/参考线，保留源像素，一个 Undo。 |
+| B03 | Search Commands | 搜索共享菜单命令、工具及模式；显示禁用/开关状态，支持方向键、Enter、Esc；Windows Ctrl 快捷键，文本输入优先。 |
+| B04 | Last Filter | Filter 菜单重复最近成功 Apply 的滤镜和完整参数，直接执行、一个 Undo；取消不覆盖记录；Image 调整和 Content-Aware Fill 不计入。 |
+| B05 | Fullscreen | F 切换仅画布的全屏显示；Esc 优先取消编辑，再退出全屏；退出恢复窗口/布局，输入框不误触。 |
+| B06 | Navigator | View 开关；300% 起且画面超出视口时显示右上角小地图及视口框；点击/拖动定位，编辑后有界刷新。 |
+| B07 | Export As / PDF | 统一 PNG/JPEG/单页 PDF、输出尺寸/比例与预览；JPEG 质量/底色、PDF 底色；PDF 页面点数=输出像素÷DPI×72。导出副本不改变项目尺寸或保存状态。 |
+| B08 | Scanlines | 独立滤镜：Spacing、Thickness、Glow、Dots、Wobble、Displace、Smoothness、Threshold、Color Split、Density、Contrast、Black Level、颜色；支持 Preview/Cancel/Apply/Undo 和 Last Filter。 |
+| B09 | 中键缩放 | Ctrl+中键拖动缩放并固定锚点；普通中键拖动仍平移。 |
+| B10 | 图层/UI 改进 | 画布点选后展开并滚动定位图层；各工具条窄窗口横向滚动；重命名无跳动，按钮/禁用态清晰；平移期间闭合手形。 |
+| B11 | 标签名称 | 未保存文档使用最低可用 Untitled / Untitled N；关闭最后文档清空工作区，原明确保存/放弃/取消流程保持正确。 |
+| C01 | 已有 WebP 回归 | 验证有损/无损/透明 WebP 导入、拖入、保存重开和预算限制，无重复解码器开发。 |
+| C02 | 分层验证 | 通过 Rust、WASM、前端、浏览器、Windows 原生包、文件选择器及性能检查；原性能断言/预算不得为通过而放宽；上游明确改变的像素语义使用固定新版独立基准，并记录变化、保留旧输入。 |
+| C03 | Mac 1.4.9 对比 | 新建独立 oracle 与回传目录，冻结源/参数/版本；保留旧 1.4.5 记录。尽量一次回传，中文 MAC-STEPS.md 保留英文菜单并写明参数。 |
+| C04 | 发布准备 | 更新 README、兼容性边界、版本与 CI；验证 LUT/RAW helper/portable ZIP 的来源、许可、哈希与完整性；未经授权不发布或推送。 |
+
+## 范围之外
+
+本次不自动扩展到 Vision 智能选择、HEIC、自动更新器/Sparkle、安装器/签名、PSD/PSB 全格式、单文件项目容器，或早于 1.4.5 已有但未纳入 v1 的额外滤镜。其他四种效果的完整编辑 UI 可另行规划；本次必须修复它们已有的渲染/保留行为。
+
+## 实施顺序与完成定义
+
+1. 先更新此 PRD、冻结上游源码/色表与探针；在独立开发分支实施。
+2. 先 A04/A05 和 A01～A03，再 A06；每项使用针对真实边界的回归验证。
+3. 实施 B01～B11，复用已有 engine、Worker、ShellBridge 和菜单/快捷键系统。
+4. 完成 C01～C04，记录源测试、浏览器、原生包、性能和 Mac 对比各自的证据；缺少任一必要层就保留“未完成”状态。
+
+允许逐批提交可审核实现，但不能把部分通过记作全部验收。用户操作仅用于必须在 Mac 或物理桌面进行的验证；Windows 可自动完成的验证由开发方执行。
+
+## 进度
+
+- PRD 与差异研究：已完成。
+- A01～A06：实现已落地；无嵌入预览的合成 Bayer DNG 和真实 Canon EOS 40D CR2 各六组显影检查已通过，源文件保持不变，最终 release WASM 已构建并核对 108 项导出；性能及 Mac 1.4.9 像素对比待验收。
+- B01～B11：实现已落地；完整浏览器功能回归 343 项通过（含新增 8 项），33 项独立性能 opt-in 尚待原硬件协议，Windows 原生包与实际窗口恢复待验收。
+- C01～C04：验收进行中；完整 Rust 工作区 726 项已通过，固定 1.4.9 LUT/内核来源已验证，新的独立 Mac 对比包和中文操作文档已生成。产品版本暂保留 0.9.0，不更新已发布包。
+- 44 个文件的 306 项单位测试已在单 worker 下全部通过，原 5 秒预算不变。早期失败证据继续保留：并发执行时一个单位测试超时、浏览器启动未就绪，以及完整 Rust 构建因磁盘耗尽失败。清理可再生成的编译缓存后继续验证，原时间预算不变；Camera Raw、Image Size 及四个旧效果探针按固定 1.4.9 更新独立语义基准，具体变化见差异研究，原图片和失败记录保留。

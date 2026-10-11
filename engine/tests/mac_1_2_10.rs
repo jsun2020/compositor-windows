@@ -1,9 +1,12 @@
 //! The Mac's own renders of the probe projects this port wrote (Compositor 1.2.10, exported at 100%
 //! as PNG), committed under tests/fixtures/mac-1.2.10-probes (probe results). Each test opens the
 //! probe as the Mac did and compares this port's composite with the Mac PNG in straight RGBA8, the
-//! form the probe results compared.
+//! form the probe results compared. The three inner effects changed upstream in 1.4.9;
+//! their original PNGs remain evidence and their current version-specific checks are below.
 use compositor_engine::*;
 use std::ops::Range;
+#[path = "support/mac149_effects_reference.rs"]
+mod metal;
 
 fn fixtures() -> String { format!("{}/tests/fixtures/mac-1.2.10-probes", env!("CARGO_MANIFEST_DIR")) }
 
@@ -330,8 +333,8 @@ fn the_motion_blur_probe_matches_the_mac_render_as_a_gaussian_along_its_angle() 
 
 #[test]
 fn the_effects_probes_this_port_draws_exactly_match_the_mac_render_bit_for_bit() {
-    for name in ["color-balance-preserve", "effects-stroke-outside", "effects-drop-shadow", "effects-inner-shadow",
-        "effects-outer-glow", "effects-inner-glow", "effects-color-overlay", "effects-masked", "effects-clipping-base",
+    for name in ["color-balance-preserve", "effects-stroke-outside", "effects-drop-shadow",
+        "effects-outer-glow", "effects-masked", "effects-clipping-base",
         "effects-clipped-child", "effects-folder", "effects-invalid"] {
         let (colour, alpha, _) = premultiplied(name);
         assert!(colour == 0 && alpha == 0, "{name}: colour {colour} alpha {alpha}");
@@ -340,9 +343,9 @@ fn the_effects_probes_this_port_draws_exactly_match_the_mac_render_bit_for_bit()
 
 #[test]
 fn the_other_effects_probes_match_the_mac_render_within_their_measured_bounds() {
-    // Measured colour and alpha: an inside stroke 1 and 0; all six effects 1 and 0; a large blur (the
+    // Measured colour and alpha: an inside stroke 1 and 0; a large blur (the
     // halved path) 1 and 1; a placed mask 3 and 2, where Core Graphics resamples it (rulings 14 / OQ3).
-    for (name, colour, alpha) in [("effects-stroke-inside", 1, 0), ("effects-all-six", 1, 0), ("effects-large-blur", 1, 1), ("effects-mask-placed", 3, 2)] {
+    for (name, colour, alpha) in [("effects-stroke-inside", 1, 0), ("effects-large-blur", 1, 1), ("effects-mask-placed", 3, 2)] {
         let (c, a, _) = premultiplied(name);
         assert!(c <= colour && a <= alpha, "{name}: colour {c} alpha {a}, measured {colour} and {alpha}");
     }
@@ -359,4 +362,37 @@ fn the_flipped_layer_of_effects_transformed_matches_the_mac_render_exactly() {
     let (d, at) = worst(&ours("effects-transformed"), &theirs, width, 0..74);
     assert_eq!(d, 0, "worst at {at:?}");
     assert_eq!(width, 200);
+}
+
+// 1.4.9 deliberately changed inner-shadow/inner-glow/overlay composition to preserve source alpha.
+// These unchanged 1.2.10 projects retain their original PNGs as historical evidence;
+// current output is checked against the independent fixed 1.4.9 Metal transcription instead.
+#[test]
+fn the_changed_inner_effects_probes_follow_mac149_and_preserve_the_old_exports() {
+    for name in ["effects-inner-shadow", "effects-inner-glow", "effects-color-overlay", "effects-all-six"] {
+        let mut reference = open(&format!("{}/{name}.comp", fixtures()));
+        for layer in &mut reference.layers {
+            let Some(effects) = layer.extra.effects.as_ref().and_then(LayerEffects::drawn) else { continue };
+            let pixels = layer.pixels.as_ref().unwrap();
+            let (w, h, inset) = (pixels.width, pixels.height, effects.margin());
+            assert_eq!(layer.transform.rotation, 0.0);
+            assert!(!layer.transform.flip_x && !layer.transform.flip_y);
+            assert_eq!(layer.transform.size, Size { width: w as f64, height: h as f64 });
+            assert!(layer.mask.is_none());
+            let passes = EffectPasses::from_effects(&effects);
+            let expected = metal::render(pixels.bytes(), w as usize, h as usize, inset as usize, &passes);
+            layer.pixels = Some(Raster::from_premultiplied(w + 2 * inset, h + 2 * inset, expected));
+            layer.transform = grown_transform(&layer.transform, w, h, inset);
+            layer.extra.effects = None;
+        }
+        let expected = composite(&reference, Rect { x: 0.0, y: 0.0, width: reference.width as f64, height: reference.height as f64 }, reference.width, reference.height);
+        let actual = composite_of(name);
+        let (mut colour, mut alpha) = (0u8, 0u8);
+        for (i, (a, b)) in actual.bytes().iter().zip(expected.bytes()).enumerate() {
+            if i % 4 == 3 { alpha = alpha.max(a.abs_diff(*b)); } else { colour = colour.max(a.abs_diff(*b)); }
+        }
+        assert!(colour <= 1 && alpha == 0, "{name}: fixed 1.4.9 reference colour {colour}, alpha {alpha}");
+        let (old_colour, old_alpha, _) = premultiplied(name);
+        assert!(old_colour > 1 || old_alpha > 0, "{name}: upstream semantic change is visible against the preserved 1.2.10 PNG");
+    }
 }
