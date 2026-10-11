@@ -1,0 +1,456 @@
+{
+  "caseCount" : 42,
+  "metalDevice" : "Apple M5 Pro",
+  "os" : "Version 26.5.2 (Build 25F84)",
+  "records" : [
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-r25-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-r25-150",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-r25-300",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-rminus37-65",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-r90-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-high-r45-flipped",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-r25-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-r25-150",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-r25-300",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-rminus37-65",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-r90-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-smooth-r45-flipped",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-r25-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-r25-150",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-r25-300",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-rminus37-65",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-r90-100",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "affine-nearest-r45-flipped",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-high-150",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-high-400",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-high-mask-400",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-high-rotated",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-high-shrink-65",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-nearest-400",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-smooth-400",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-steps-high-1600",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-steps-high-700",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "sampling-steps-smooth-1600",
+      "width" : 96
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-inset-high",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-inset-nearest",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "Nearest",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-mirror-high",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-mirror-nearest",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "Nearest",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 308,
+      "channels" : 4,
+      "height" : 7,
+      "name" : "perspective-reduce-high",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          31,
+          25
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          11,
+          7
+        ]
+      },
+      "width" : 11
+    },
+    {
+      "bytes" : 308,
+      "channels" : 4,
+      "height" : 7,
+      "name" : "perspective-reduce-nearest",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          31,
+          25
+        ],
+        "rotation" : 0,
+        "sampling" : "Nearest",
+        "size" : [
+          11,
+          7
+        ]
+      },
+      "width" : 11
+    },
+    {
+      "bytes" : 10260,
+      "channels" : 4,
+      "height" : 45,
+      "name" : "perspective-affine-high",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          13,
+          14
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          57,
+          45
+        ]
+      },
+      "width" : 57
+    },
+    {
+      "bytes" : 10260,
+      "channels" : 4,
+      "height" : 45,
+      "name" : "perspective-affine-nearest",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          13,
+          14
+        ],
+        "rotation" : 0,
+        "sampling" : "Nearest",
+        "size" : [
+          57,
+          45
+        ]
+      },
+      "width" : 57
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "mask-rotated",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "mask-reduced",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "mask-flipped",
+      "width" : 96
+    },
+    {
+      "bytes" : 27648,
+      "channels" : 4,
+      "height" : 72,
+      "name" : "mask-nonuniform",
+      "width" : 96
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-mask-high",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "High quality",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 2040,
+      "channels" : 1,
+      "height" : 40,
+      "name" : "perspective-mask-high-mask",
+      "width" : 51
+    },
+    {
+      "bytes" : 8160,
+      "channels" : 4,
+      "height" : 40,
+      "name" : "perspective-mask-nearest",
+      "transform" : {
+        "flipX" : false,
+        "flipY" : false,
+        "origin" : [
+          23,
+          18
+        ],
+        "rotation" : 0,
+        "sampling" : "Nearest",
+        "size" : [
+          51,
+          40
+        ]
+      },
+      "width" : 51
+    },
+    {
+      "bytes" : 2040,
+      "channels" : 1,
+      "height" : 40,
+      "name" : "perspective-mask-nearest-mask",
+      "width" : 51
+    }
+  ],
+  "scope" : "Original Compositor 1.4.5 public CG\/CI sampling methods on fixed synthetic inputs; application export controls are recorded separately."
+}

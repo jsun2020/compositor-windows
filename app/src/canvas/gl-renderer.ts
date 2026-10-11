@@ -304,6 +304,13 @@ export class GlRenderer implements Renderer {
     return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
   }
 
+  private deviceBounds(ctx: Ctx, cornersView: P[]): Float32Array {
+    const f = this.frame ?? { x: 0, y: 0, w: this.W, h: this.H };
+    const xs = cornersView.map(p => p.x * ctx.dpr - f.x);
+    const ys = cornersView.map(p => f.y + f.h - p.y * ctx.dpr);
+    return new Float32Array([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  }
+
   private buildCoverage(ctx: Ctx, coverages: Coverage[], level: number): void {
     const gl = this.gl; const name = `coverage${level}`;
     this.fbos.clear(name, "r8", 1);
@@ -329,6 +336,15 @@ export class GlRenderer implements Renderer {
       gl.uniformMatrix3fv(p.uniforms.deviceToMask, true, new Float32Array(m));
       gl.uniform2f(p.uniforms.maskSize, c.width, c.height);
       gl.uniform1f(p.uniforms.background, c.background / 255);
+      gl.uniform1i(p.uniforms.cgPhases, !c.nearest && !c.corners ? 1 : 0);
+      const layer = ctx.state.layers.find(l => l.id === c.layerId);
+      const directClip = !c.nearest && !c.corners && layer && !layer.isGroup && !layer.maskPlacement && (c.width !== 1 || c.height !== 1);
+      gl.uniform1i(p.uniforms.directClip, directClip ? 1 : 0);
+      if (directClip) {
+        const d2v = this.docToView(ctx.viewport, ctx.state);
+        const points = cornersOf(c.placement).map(p => ({ x: d2v[0] * p.x + d2v[1] * p.y + d2v[2], y: d2v[3] * p.x + d2v[4] * p.y + d2v[5] }));
+        gl.uniform4fv(p.uniforms.maskBounds, this.deviceBounds(ctx, points));
+      }
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms.mask, 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
@@ -542,23 +558,48 @@ export class GlRenderer implements Renderer {
         y: cornersView[0].y * ctx.dpr - (this.frame?.y ?? 0) + (draw.transform.flipY ? t.height - chunk.y : chunk.y) * sy,
         sx: draw.transform.flipX ? -sx : sx, sy: draw.transform.flipY ? -sy : sy,
       } : null;
-      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid, !t.nearest && !draw.corners && Math.hypot(cornersView[1].x - cornersView[0].x, cornersView[1].y - cornersView[0].y) * ctx.dpr / t.width > 1.001);
+      this.composeTexture(ctx, target, chunk.texture, cornersView, rect, draw.transform.flipX, draw.transform.flipY, draw.opacity, mode, coverageLevel, backdrop, grid, !t.nearest && !draw.corners, t.nearest && !draw.corners && !grid, draw.transform.rotation % 360 !== 0, draw.transform.rotation % 90 === 0 ? 255 : 256);
     }
   }
 
   /** Composes `tex` into `target`, reading `backdrop`. Never blits or swaps -- the caller owns that. */
-  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null, quantizedEnlargement = false): void {
+  private composeTexture(ctx: Ctx, target: string, tex: WebGLTexture, cornersView: P[], uvRect: { x: number; y: number; w: number; h: number }, flipX: boolean, flipY: boolean, opacity: number, mode: number, coverageLevel: number | null, backdrop?: WebGLTexture | null, copyGrid: { x: number; y: number; sx: number; sy: number } | null = null, quantizedEnlargement = false, hardEdges = false, conservativeEdges = false, coverageLevels = 255): void {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbos.get(target, "rgba").fbo);
     const p = layerProgram(gl, this.programs, quantizedEnlargement); gl.useProgram(p.program);
     const unitToClip = mat3Mul(this.viewToClip(ctx.viewport), homographyUnitTo(cornersView));
     gl.uniformMatrix3fv(p.uniforms.unitToClip, true, new Float32Array(unitToClip));
     gl.uniform4f(p.uniforms.uvRect, uvRect.x, uvRect.y, uvRect.w, uvRect.h);
+    // Expand only the outer chunk edges by the output pixel's local footprint.
+    // Rotated CG images have the same projected rectangle AA as pixel copies.
+    const ax = cornersView[1].x - cornersView[0].x, ay = cornersView[1].y - cornersView[0].y;
+    const bx = cornersView[3].x - cornersView[0].x, by = cornersView[3].y - cornersView[0].y;
+    const area = Math.max(1e-9, Math.abs(ax * by - ay * bx) * ctx.dpr);
+    // Extra geometry only ensures that the rasterizer invokes the fragment
+    // shader at the true image boundary. Device coordinates determine actual
+    // soft coverage or the Nearest hard rectangle; the guard adds no pixels.
+    const edgeReach = copyGrid ? 0.5 : quantizedEnlargement ? 1.5 : hardEdges ? 1.0 : 0;
     gl.uniform2f(p.uniforms.edgePadding,
-      copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[1].x - cornersView[0].x) * ctx.dpr) : 0,
-      copyGrid ? 0.5 / Math.max(1e-9, Math.abs(cornersView[3].y - cornersView[0].y) * ctx.dpr) : 0);
+      edgeReach * (Math.abs(bx) + Math.abs(by)) / area,
+      edgeReach * (Math.abs(ax) + Math.abs(ay)) / area);
+    gl.uniform1i(p.uniforms.useCopyGrid, copyGrid ? 1 : 0);
     gl.uniform4f(p.uniforms.copyGrid, copyGrid?.x ?? 0, copyGrid?.y ?? 0, copyGrid?.sx ?? 1, copyGrid?.sy ?? 1);
     gl.uniform1f(p.uniforms.copyHeight, this.fh());
+    gl.uniform1i(p.uniforms.useDeviceCoordinates, quantizedEnlargement || hardEdges ? 1 : 0);
+    gl.uniform1i(p.uniforms.hardEdges, hardEdges ? 1 : 0);
+    gl.uniform1i(p.uniforms.conservativeEdges, conservativeEdges ? 1 : 0);
+    gl.uniform1f(p.uniforms.coverageLevels, coverageLevels);
+    gl.uniform4fv(p.uniforms.imageBounds, this.deviceBounds(ctx, cornersView));
+    if (quantizedEnlargement || hardEdges) {
+      const inverse = mat3Invert(homographyUnitTo(cornersView));
+      if (!inverse) return;
+      const f = this.frame ?? { x: 0, y: 0, w: this.W, h: this.H };
+      // Subtract the image origin before multiplying. A large viewport offset
+      // otherwise loses the first half-pixel tie in float shader arithmetic.
+      gl.uniform2f(p.uniforms.coordinateOrigin, cornersView[0].x * ctx.dpr - f.x, f.y + f.h - cornersView[0].y * ctx.dpr);
+      const deviceToView: Mat3 = [1 / ctx.dpr, 0, cornersView[0].x, 0, -1 / ctx.dpr, cornersView[0].y, 0, 0, 1];
+      gl.uniformMatrix3fv(p.uniforms.deviceToUnit, true, new Float32Array(mat3Mul(inverse, deviceToView)));
+    }
     gl.uniform1i(p.uniforms.flipX, flipX ? 1 : 0); gl.uniform1i(p.uniforms.flipY, flipY ? 1 : 0);
     gl.uniform1f(p.uniforms.opacity, opacity); gl.uniform1i(p.uniforms.mode, mode);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(p.uniforms.tex, 0);

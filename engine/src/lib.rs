@@ -9,6 +9,7 @@ pub mod psd;
 pub mod document;
 pub mod package;
 pub mod compositor;
+mod core_image;
 pub mod history;
 pub mod command;
 pub mod engine;

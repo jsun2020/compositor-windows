@@ -1,5 +1,24 @@
 import {test,expect} from "@playwright/test";
 
+test("translucent uniform staging preserves RGBA, its partial final chunk and exact Undo/Redo",async({page})=>{
+  await page.goto("/");await expect(page.getByTestId("engine-ready")).toBeVisible();
+  const result=await page.evaluate(async()=>{
+    const e=(window as any).__compositor.engine,w=2051,h=517,color=[17,31,43,97];
+    const doc=e.newDocument(w,h,true),id=e.state(doc).layers[0].id;
+    e.execute(doc,{type:"Fill",id,mask:false,color:[.2,.4,.6]});
+    const before=e.layerPixels(doc,id).slice(),depth=e.state(doc).undoDepth;
+    const input=e.jobHeader(doc,id),header=JSON.parse(input);
+    const output={transform:header.layer.transform,maskPlacement:null,pixels:[w,h],mask:null,regions:[],display:null,uniformPixels:color};
+    await e.installJobAsync(doc,id,input,JSON.stringify(output),null,null);
+    const exact=()=>{const p=e.layerPixels(doc,id);return p.length===w*h*4&&p.every((v:number,i:number)=>v===color[i%4]);};
+    const applied=exact(),oneStep=e.state(doc).undoDepth===depth+1;
+    e.undo(doc);const p=e.layerPixels(doc,id),undo=p.length===before.length&&p.every((v:number,i:number)=>v===before[i]);
+    e.redo(doc);const redo=exact();e.closeDocument(doc);
+    return{applied,oneStep,undo,redo};
+  });
+  expect(result).toEqual({applied:true,oneStep:true,undo:true,redo:true});
+});
+
 test("uniform and selected Levels worker results match every in-place byte with one Undo/Redo", async ({page}) => {
   test.setTimeout(120_000);
   await page.goto("/"); await expect(page.getByTestId("engine-ready")).toBeVisible();

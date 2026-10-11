@@ -47,7 +47,7 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Release metadata and packaging regressions
-        run: node --test scripts/tests/release.test.mjs
+        run: node --test scripts/tests/release.test.mjs scripts/tests/wasm-output.test.mjs
       - name: Pinned RAW helper and actual sensor development without a JPEG preview
         run: |
           & ./scripts/build-raw-helper.ps1 -OutputDirectory build-artifacts/raw-helper-ci

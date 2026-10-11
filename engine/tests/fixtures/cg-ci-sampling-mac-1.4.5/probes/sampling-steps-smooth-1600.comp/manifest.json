@@ -1,0 +1,31 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "967F5BE9-6C3D-44A7-BCC4-71DFD6F040F4",
+  "format": "com.compositor.project",
+  "height": 72,
+  "layers": [
+    {
+      "id": "896045A2-A99E-4E82-89F5-8C1E0019C8BB",
+      "imageFile": "896045A2-A99E-4E82-89F5-8C1E0019C8BB.png",
+      "isVisible": true,
+      "name": "Steps",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          8,
+          8
+        ],
+        "rotation": 0,
+        "sampling": "Smooth",
+        "size": [
+          64,
+          48
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 96
+}

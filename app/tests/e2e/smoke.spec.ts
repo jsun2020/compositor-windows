@@ -1,8 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const releaseVersion: string = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 test("engine loads in the browser", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("engine-ready")).toContainText("Compositor engine 0.8.0");
+  await expect(page.getByTestId("engine-ready")).toContainText(`Compositor engine ${releaseVersion} (`);
   const ids = await page.evaluate(() => {
     const api = (window as unknown as { __compositor: { engine: { newDocument(w: number, h: number, e: boolean): string; documentIds(): string[] } } }).__compositor;
     api.engine.newDocument(10, 10, true);

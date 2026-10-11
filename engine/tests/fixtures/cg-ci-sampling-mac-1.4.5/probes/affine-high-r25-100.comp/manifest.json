@@ -1,0 +1,31 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "DEF885F1-EE50-46F7-9603-2690E89C6DC9",
+  "format": "com.compositor.project",
+  "height": 72,
+  "layers": [
+    {
+      "id": "29DB8911-8727-44DF-B488-C7C99F93AD21",
+      "imageFile": "29DB8911-8727-44DF-B488-C7C99F93AD21.png",
+      "isVisible": true,
+      "name": "Pattern",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          32.25,
+          24.375
+        ],
+        "rotation": 25,
+        "sampling": "High quality",
+        "size": [
+          16,
+          10
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 96
+}

@@ -499,9 +499,18 @@ export const useEditor = create<EditorStore>((set, get) => ({
   sampleForeground: (at) => {
     const { engine, activeId, working } = get(); if (!engine || !activeId || working) return;
     const rgb = engine.sampleColor(activeId, at);
-    if (rgb) { set({ palette: { ...get().palette, foreground: { red: rgb[0], green: rgb[1], blue: rgb[2] } } }); get().refreshGradient(); }
+    if (rgb) {
+      const palette = get().palette, foreground = { red: rgb[0], green: rgb[1], blue: rgb[2] };
+      if (sameColor(palette.foreground, foreground)) return;
+      set({ palette: { ...palette, foreground } }); get().refreshGradient();
+    }
   },
-  setSampleRing: (sampleRing) => { set({ sampleRing }); get().repaintOverlay(); },
+  setSampleRing: (sampleRing) => {
+    const previous = get().sampleRing;
+    if (previous === sampleRing || (previous && sampleRing && previous.at.x === sampleRing.at.x && previous.at.y === sampleRing.at.y
+      && sameColor(previous.sampled, sampleRing.sampled) && sameColor(previous.original, sampleRing.original))) return;
+    set({ sampleRing }); get().repaintOverlay();
+  },
   maskTargeted: () => {
     const { activeId, documents, maskSelected } = get();
     const doc = activeId ? documents[activeId] : null;

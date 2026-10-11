@@ -2,3 +2,5 @@
 engine/tests/fixtures/mac-1.2.6/** -text
 engine/tests/fixtures/mac-1.2.10-probes/** -text
 engine/tests/fixtures/mac-4b1-probes/** -text
+engine/tests/fixtures/cg-sampling-mac-1.2.10/** -text
+engine/tests/fixtures/cg-ci-sampling-mac-1.4.5/** -text

@@ -11,59 +11,53 @@ fn shape_bounds(corners: &[Point; 4]) -> Result<(f64, f64, u32, u32), ProjectErr
     Ok((min_x, min_y, w as u32, h as u32))
 }
 
-/// Pixel coordinates (in a `w` x `h` grid shown through `transform`, flips applied) for each output pixel of the shape's bounds.
-fn inverse_map(transform: &LayerTransform, corners: &[Point; 4], w: u32, h: u32) -> Option<impl Fn(f64, f64) -> Point> {
-    let inv = Homography::unit_to(corners).invert()?;
-    let (fx, fy) = (transform.flip_x, transform.flip_y);
-    Some(move |x: f64, y: f64| {
-        let u = inv.apply(Point { x, y });
-        let ux = if fx { 1.0 - u.x } else { u.x }; let uy = if fy { 1.0 - u.y } else { u.y };
-        Point { x: ux * w as f64, y: uy * h as f64 }
-    })
+/// CIPerspectiveTransform's corners are y-up and local to the integer output
+/// bounds. Permuting the destination corners applies the layer's saved flips.
+fn inverse_map(transform: &LayerTransform, corners: &[Point; 4], min_x: f64, min_y: f64, output_height: u32, source_width: u32, source_height: u32) -> Option<crate::adjust::camera_geometry::Perspective> {
+    let corners = std::array::from_fn(|i| {
+        let [x, y] = [[0, 0], [1, 0], [1, 1], [0, 1]][i];
+        let u = if transform.flip_x { 1 - x } else { x };
+        let v = if transform.flip_y { 1 - y } else { y };
+        let p = corners[[0, 1, 3, 2][v * 2 + u]];
+        Point { x: p.x - min_x, y: min_y + output_height as f64 - p.y }
+    });
+    crate::adjust::camera_geometry::Perspective::from_corners(&corners, source_width, source_height)
 }
 
-/// `raster`, shown through `transform`, resampled so its corners land on `corners`.
-pub fn warp(raster: &Raster, transform: &LayerTransform, corners: &[Point; 4], nearest: bool) -> Result<(Raster, LayerTransform), ProjectError> {
+/// Resample a convex free distortion through the Mac's Core Image path.
+/// The saved sampling setting is preserved in the placed transform, but this
+/// filter uses its own interpolation even for a layer saved as Nearest.
+/// The nearest flag remains in the API for callers of the earlier port.
+pub fn warp(raster: &Raster, transform: &LayerTransform, corners: &[Point; 4], _nearest: bool) -> Result<(Raster, LayerTransform), ProjectError> {
     let (min_x, min_y, w, h) = shape_bounds(corners)?;
     let mut placed = LayerTransform::axis_aligned(Point { x: min_x, y: min_y }, Size { width: w as f64, height: h as f64 });
     placed.sampling = transform.sampling;
-    let map = inverse_map(transform, corners, raster.width, raster.height).ok_or(ProjectError::Invalid)?;
+    let map = inverse_map(transform, corners, min_x, min_y, h, raster.width, raster.height).ok_or(ProjectError::Invalid)?;
     let mut data = vec![0u8; (w * h * 4) as usize];
     for y in 0..h { for x in 0..w {
-        let p = map(min_x + x as f64 + 0.5, min_y + y as f64 + 0.5);
-        if p.x < 0.0 || p.y < 0.0 || p.x >= raster.width as f64 || p.y >= raster.height as f64 { continue; }
-        let s = compositor::sample(raster, p.x, p.y, nearest);
+        let (sx, sy) = map.coordinate_in_extent(x, y, h, raster.height);
+        let sample = crate::core_image::sample(raster, sx, sy);
         let i = ((y * w + x) * 4) as usize;
-        for c in 0..4 { data[i + c] = (s[c] * 255.0).round().clamp(0.0, 255.0) as u8; }
+        data[i..i + 4].copy_from_slice(&sample);
     }}
     Ok((Raster::from_premultiplied(w, h, data), placed))
 }
 
-/// A mask warped like `warp`, `background` outside the shape; a uniform mask passes through.
-pub fn warp_mask(mask: &GrayRaster, transform: &LayerTransform, corners: &[Point; 4], background: u8) -> Result<(GrayRaster, LayerTransform), ProjectError> {
+/// Core Image's L8 warp has clear black outside its input texture. The separate
+/// affine placed-mask background does not fill the perspective filter's extent.
+/// A uniform 1x1 mask passes through unchanged, as in the Mac source.
+pub fn warp_mask(mask: &GrayRaster, transform: &LayerTransform, corners: &[Point; 4], _background: u8) -> Result<(GrayRaster, LayerTransform), ProjectError> {
     let (min_x, min_y, w, h) = shape_bounds(corners)?;
     let mut placed = LayerTransform::axis_aligned(Point { x: min_x, y: min_y }, Size { width: w as f64, height: h as f64 });
     placed.sampling = transform.sampling;
     if mask.width == 1 && mask.height == 1 { return Ok((mask.clone(), placed)); }
-    let map = inverse_map(transform, corners, mask.width, mask.height).ok_or(ProjectError::Invalid)?;
-    let nearest = transform.sampling == Sampling::Nearest;
-    let mut data = vec![background; (w * h) as usize];
+    let map = inverse_map(transform, corners, min_x, min_y, h, mask.width, mask.height).ok_or(ProjectError::Invalid)?;
+    let mut data = vec![0u8; (w * h) as usize];
     for y in 0..h { for x in 0..w {
-        let p = map(min_x + x as f64 + 0.5, min_y + y as f64 + 0.5);
-        if p.x < 0.0 || p.y < 0.0 || p.x >= mask.width as f64 || p.y >= mask.height as f64 { continue; }
-        let v = if nearest { mask.bytes()[(p.y as u32 * mask.width + p.x as u32) as usize] as f32 }
-                else { gray_bilinear(mask, p.x, p.y) };
-        data[(y * w + x) as usize] = v.round().clamp(0.0, 255.0) as u8;
+        let (sx, sy) = map.coordinate_in_extent(x, y, h, mask.height);
+        data[(y * w + x) as usize] = crate::core_image::sample_mask(mask, sx, sy);
     }}
     Ok((GrayRaster::from_bytes(w, h, data), placed))
-}
-
-fn gray_bilinear(mask: &GrayRaster, x: f64, y: f64) -> f32 {
-    let w = mask.width as i64; let h = mask.height as i64;
-    let fetch = |px: i64, py: i64| mask.bytes()[(py.clamp(0, h - 1) * w + px.clamp(0, w - 1)) as usize] as f32;
-    let fx = x - 0.5; let fy = y - 0.5; let xu = fx.floor() as i64; let yu = fy.floor() as i64;
-    let tx = (fx - xu as f64) as f32; let ty = (fy - yu as f64) as f32;
-    (fetch(xu, yu) * (1.0 - tx) + fetch(xu + 1, yu) * tx) * (1.0 - ty) + (fetch(xu, yu + 1) * (1.0 - tx) + fetch(xu + 1, yu + 1) * tx) * ty
 }
 
 /// A warp cropped to its visible pixels; the crop (x0, y0, x1, y1) is in the warp's pixels.

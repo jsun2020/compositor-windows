@@ -1,0 +1,31 @@
+{
+  "colorSpace": "sRGB",
+  "documentID": "5D53B5F4-6480-4625-AA20-FF2048FDAE67",
+  "format": "com.compositor.project",
+  "height": 72,
+  "layers": [
+    {
+      "id": "10D327D1-E758-4C02-8C6D-48FE4D97B072",
+      "imageFile": "10D327D1-E758-4C02-8C6D-48FE4D97B072.png",
+      "isVisible": true,
+      "name": "Fine",
+      "transform": {
+        "flipX": false,
+        "flipY": false,
+        "origin": [
+          8,
+          8
+        ],
+        "rotation": 0,
+        "sampling": "High quality",
+        "size": [
+          39,
+          26
+        ]
+      }
+    }
+  ],
+  "resolution": 72,
+  "version": 9,
+  "width": 96
+}
