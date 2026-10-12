@@ -96,7 +96,9 @@ New Canvas 单位/背景、画布旋转、Search Commands/Last Filter/Fullscreen
 
 Windows 对照入口：`engine/src/adjust/camera_raw.rs`、`engine/native/AdjustPixels.c`、`engine/src/effects/render.rs`、`engine/src/effects/settings.rs`、`engine/src/ops/image_size.rs`、`engine/src/ops/canvas_size.rs`、`engine/src/codec.rs`、`app/src/panels/MenuBar.tsx`、`app/src/sheets/NewCanvasSheet.tsx`、`app/src/sheets/JpegExportSheet.tsx`、`app/src/canvas/CanvasView.tsx`、`src-tauri/native/raw-develop.cpp`。
 
-上述差异表是实施前的源码研究快照。当前实施与分层验收进度见 `prd.md`；Mac 1.4.9 回传尚待核对。
+上述差异表是实施前的源码研究快照。当前实施与分层验收进度见 `prd.md`。2026-10-12 的 Mac 1.4.9 回传已核对：固定 28 组 RGBA 中 27 组逐字节一致，Scanlines Glow 尚有最大 49 级的 RGB 差异；两组安装版效果导出最大差异 1。实际 Cancel/Undo/Redo/Last Filter Undo/Navigator 像素关系、600×300/300 DPI 保存项目、300×150 PNG/JPEG 和 72×36pt PDF 均已独立读取，PDF RGB 与 PNG 一致。旧结果不覆盖，Glow 和原 CPU 性能失败继续保留。
+
+Glow 的上游先 `clampedToExtent`，再缩小、Gaussian Blur、放大。Windows 当前先截成有限缩小网格再模糊；诊断中保留无限边缘可明显减小差异，但不能代替逐字节验收。Core Image 的默认 [highQualityDownsample](https://developer.apple.com/documentation/coreimage/cicontextoption/highqualitydownsample) 在 macOS 启用多遍缩小，与单遍采样不同。已准备独立中间平面诊断，须由真实 Mac 执行；未据近似结果改写门槛。
 
 ## 验收基准的版本变化
 

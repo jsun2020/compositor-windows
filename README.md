@@ -13,6 +13,8 @@ The `codex/mac-1-4-9` branch implements the next increment described in [prd.md]
 
 The [fixed-version delta report](docs/superpowers/research/mac-1.4.9-delta.md) records the source commits. Acceptance remains separate for source tests, browser/native Windows behavior, unchanged performance budgets and actual Mac 1.4.9 output. The planned 0.10.0 version and release notes will be finalized after those gates pass. Previous 1.4.5 evidence and releases stay available.
 
+The October 12 Mac return matches 27 of 28 frozen RGBA cases exactly; Scanlines Glow still needs correction. Actual Mac project/edit/export checks are retained, including exact Cancel/Undo/Redo pixel relationships and a 300 DPI PDF whose embedded RGB equals the PNG export. Windows production file-dialog/export checks and all four original GPU performance cases pass on the `d06b238` candidate, while the complete 29-case CPU/UI run retains six failures. A subsequent GPU startup/resource-lifetime fix passes 308 unit tests and the frontend build; its hardware and packaged-runtime validation remain separate. This increment is still under acceptance.
+
 ## Download
 
 Get the portable Windows x64 ZIP from [the verified 0.9.0 release](https://github.com/jsun2020/compositor-windows/releases/tag/v0.9.0), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.

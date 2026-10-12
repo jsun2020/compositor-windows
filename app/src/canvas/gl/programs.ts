@@ -618,45 +618,97 @@ export interface Program { program: WebGLProgram; uniforms: Record<string, WebGL
 export interface Programs { layer: Program; enlargedLayer?: Program; coverage: Program; alphaOf: Program; opaque: Program; restore: Program; blit: Program; checker: Program; adjust: Program;
   halve: Program; gaussian: Program; motion: Program; spatialMix: Program; vao: WebGLVertexArrayObject; buffer: WebGLBuffer; }
 
+/** Submit all links before a status query forces the driver to wait. The same
+ * vertex shader is shared by its programs; linked programs keep their executable
+ * after the temporary shader handles are detached and deleted. */
+class ProgramBatch {
+  private shaders = new Map<string, WebGLShader>();
+  private pending: { value: Program; names: string[]; shaders: WebGLShader[] }[] = [];
+  constructor(private readonly gl: WebGL2RenderingContext) {}
+  submit(vert: string, frag: string, names: string[]): Program {
+    const gl = this.gl;
+    const make = (type: number, source: string): WebGLShader => {
+      const key = type + ':' + source;
+      let shader = this.shaders.get(key);
+      if (!shader) {
+        shader = gl.createShader(type) ?? undefined;
+        if (!shader) throw new Error('Could not allocate a canvas shader');
+        this.shaders.set(key, shader);
+        gl.shaderSource(shader, source); gl.compileShader(shader);
+      }
+      return shader;
+    };
+    const shaders = [make(gl.VERTEX_SHADER, vert), make(gl.FRAGMENT_SHADER, frag)];
+    const program = gl.createProgram();
+    if (!program) throw new Error('Could not allocate a canvas program');
+    const value: Program = { program, uniforms: {} };
+    this.pending.push({ value, names, shaders });
+    for (const shader of shaders) gl.attachShader(program, shader);
+    gl.linkProgram(program);
+    return value;
+  }
+  finish(): void {
+    const gl = this.gl;
+    for (const { value } of this.pending) {
+      if (!gl.getProgramParameter(value.program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(value.program) ?? 'Canvas program link failed');
+      }
+    }
+    for (const { value, names, shaders } of this.pending) {
+      for (const name of names) value.uniforms[name] = gl.getUniformLocation(value.program, name);
+      for (const shader of shaders) gl.detachShader(value.program, shader);
+    }
+    for (const shader of this.shaders.values()) gl.deleteShader(shader);
+    this.shaders.clear();
+  }
+  abort(): void {
+    for (const { value } of this.pending) this.gl.deleteProgram(value.program);
+    for (const shader of this.shaders.values()) this.gl.deleteShader(shader);
+    this.shaders.clear(); this.pending = [];
+  }
+}
+
 function compile(gl: WebGL2RenderingContext, vert: string, frag: string, uniforms: string[]): Program {
-  const make = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader"); return s; };
-  const program = gl.createProgram()!;
-  gl.attachShader(program, make(gl.VERTEX_SHADER, vert)); gl.attachShader(program, make(gl.FRAGMENT_SHADER, frag)); gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "link");
-  const u: Record<string, WebGLUniformLocation | null> = {};
-  for (const name of uniforms) u[name] = gl.getUniformLocation(program, name);
-  return { program, uniforms: u };
+  const batch = new ProgramBatch(gl);
+  try { const value = batch.submit(vert, frag, uniforms); batch.finish(); return value; }
+  catch (error) { batch.abort(); throw error; }
 }
 
 export function createPrograms(gl: WebGL2RenderingContext): Programs {
   const vao = gl.createVertexArray()!; gl.bindVertexArray(vao);
   const buffer = gl.createBuffer()!; gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
-  const programs: Programs = {
-    layer: compile(gl, VERT_UNIT, FRAG_LAYER, LAYER_UNIFORMS),
-    // Compile the precise affine sampler alongside the other canvas programs.
-    // Linking it on the first fitted draw can stall that frame for over a second
-    // on ANGLE, after the document is already visible.
-    enlargedLayer: compile(gl, VERT_UNIT, FRAG_LAYER.replace("precision highp float;", "precision highp float;\n#define QUANTIZED_ENLARGEMENT"), LAYER_UNIFORMS),
-    coverage: compile(gl, VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask", "cgPhases", "directClip", "maskBounds"]),
-    alphaOf: compile(gl, VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
-    opaque: compile(gl, VERT_SCREEN, FRAG_OPAQUE, ["src"]),
-    restore: compile(gl, VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
-    blit: compile(gl, VERT_SCREEN, FRAG_BLIT, ["src", "offset"]),
-    checker: compile(gl, VERT_UNIT, FRAG_CHECKER, ["unitToClip", "uvRect", "flipX", "flipY", "sizePx", "cell"]),
-    adjust: compile(gl, VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed",
-      "bwLow", "bwHigh", "bwTint", "cbShadows", "cbMidtones", "cbHighlights", "cbPreserve", "noiseParams", "noiseSeed"]),
-    halve: compile(gl, VERT_SCREEN, FRAG_HALVE, ["src", "size"]),
-    gaussian: compile(gl, VERT_SCREEN, FRAG_GAUSSIAN, ["src", "sigma", "radius", "horizontal", "last", "size"]),
-    motion: compile(gl, VERT_SCREEN, FRAG_MOTION, ["src", "dir", "sigma", "radius", "size"]),
-    spatialMix: compile(gl, VERT_SCREEN, FRAG_SPATIAL_MIX, ["original", "adjusted", "coverage", "useCoverage", "opacity", "mode", "keepsAlpha", "level", "adjustedSize", "beyond"]),
-    vao, buffer,
-  };
-  for (const p of [programs.layer, programs.enlargedLayer!, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust,
-    programs.halve, programs.gaussian, programs.motion, programs.spatialMix]) {
-    const loc = gl.getAttribLocation(p.program, "unit"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const batch = new ProgramBatch(gl);
+  try {
+    const programs: Programs = {
+      layer: batch.submit(VERT_UNIT, FRAG_LAYER, LAYER_UNIFORMS),
+      // Compile the precise affine sampler alongside the other canvas programs.
+      // Linking it on the first fitted draw can stall that frame for over a second
+      // on ANGLE, after the document is already visible.
+      enlargedLayer: batch.submit(VERT_UNIT, FRAG_LAYER.replace("precision highp float;", "precision highp float;\n#define QUANTIZED_ENLARGEMENT"), LAYER_UNIFORMS),
+      coverage: batch.submit(VERT_SCREEN, FRAG_COVERAGE, ["deviceToMask", "maskSize", "background", "mask", "cgPhases", "directClip", "maskBounds"]),
+      alphaOf: batch.submit(VERT_SCREEN, FRAG_ALPHA_OF, ["src"]),
+      opaque: batch.submit(VERT_SCREEN, FRAG_OPAQUE, ["src"]),
+      restore: batch.submit(VERT_SCREEN, FRAG_RESTORE, ["src", "alpha"]),
+      blit: batch.submit(VERT_SCREEN, FRAG_BLIT, ["src", "offset"]),
+      checker: batch.submit(VERT_UNIT, FRAG_CHECKER, ["unitToClip", "uvRect", "flipX", "flipY", "sizePx", "cell"]),
+      adjust: batch.submit(VERT_SCREEN, FRAG_ADJUST, ["src", "coverage", "useCoverage", "lut", "response", "opacity", "mode", "kind", "deviceToDoc", "colorize", "colorizeAmounts", "grain", "grainSeed",
+        "bwLow", "bwHigh", "bwTint", "cbShadows", "cbMidtones", "cbHighlights", "cbPreserve", "noiseParams", "noiseSeed"]),
+      halve: batch.submit(VERT_SCREEN, FRAG_HALVE, ["src", "size"]),
+      gaussian: batch.submit(VERT_SCREEN, FRAG_GAUSSIAN, ["src", "sigma", "radius", "horizontal", "last", "size"]),
+      motion: batch.submit(VERT_SCREEN, FRAG_MOTION, ["src", "dir", "sigma", "radius", "size"]),
+      spatialMix: batch.submit(VERT_SCREEN, FRAG_SPATIAL_MIX, ["original", "adjusted", "coverage", "useCoverage", "opacity", "mode", "keepsAlpha", "level", "adjustedSize", "beyond"]),
+      vao, buffer,
+    };
+    batch.finish();
+    for (const p of [programs.layer, programs.enlargedLayer!, programs.coverage, programs.alphaOf, programs.opaque, programs.restore, programs.blit, programs.checker, programs.adjust,
+      programs.halve, programs.gaussian, programs.motion, programs.spatialMix]) {
+      const loc = gl.getAttribLocation(p.program, "unit"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+    return programs;
+  } catch (error) {
+    batch.abort(); gl.deleteVertexArray(vao); gl.deleteBuffer(buffer); throw error;
   }
-  return programs;
 }
 
 const LAYER_UNIFORMS = ["unitToClip", "uvRect", "edgePadding", "copyGrid", "useCopyGrid", "copyHeight", "deviceToUnit", "coordinateOrigin", "useDeviceCoordinates", "hardEdges", "conservativeEdges", "imageBounds", "coverageLevels", "flipX", "flipY", "tex", "backdrop", "coverage", "useCoverage", "useBackdrop", "opacity", "mode"];
