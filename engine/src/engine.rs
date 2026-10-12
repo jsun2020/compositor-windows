@@ -423,7 +423,7 @@ impl Engine {
             // mask is never sampled against the wrong (un-grown) pixel count.
             if let Some(m) = followed {
                 if let Some(mask) = layer.mask.as_mut() { mask.pixels = m; }
-                layer.mask_revision = preview.revision;
+                layer.mask_revision = preview.followed_revision;
             }
             if let Some(placement)=preview.mask_placement {if let Some(mask)=layer.mask.as_mut(){mask.placement=placement;layer.mask_revision=preview.revision;}}
         }
@@ -443,7 +443,20 @@ impl Engine {
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
         let clips = &self.clips;
-        let next = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
+        let mut next = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
+        if let (Some(old), Some(new)) = (s.preview.as_ref(), next.as_mut()) {
+            // Compare the newly computed mask, rather than assuming the source or
+            // geometry stayed unchanged. Equality includes dimensions and every
+            // byte; different pixels, masks or preview limits keep a fresh revision.
+            if old.layer == new.layer {
+                if let (PreviewTarget::Pixels { followed: Some(before) }, PreviewTarget::Pixels { followed: Some(after) }) = (&old.target, &mut new.target) {
+                    if before == after {
+                        *after = before.clone();
+                        new.followed_revision = old.followed_revision;
+                    }
+                }
+            }
+        }
         record_preview(&mut s.lineage, &s.document, s.preview.as_ref(), next.as_ref());
         s.preview = next;
         Ok(Dirty::pixels(layers))

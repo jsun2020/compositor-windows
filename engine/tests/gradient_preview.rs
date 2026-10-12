@@ -31,6 +31,42 @@ fn document(canvas: (u32, u32), size: (u32, u32), at: Point) -> (Engine, Uuid, U
 fn shown(e: &Engine, id: Uuid, x: u32, y: u32) -> [u8; 4] { e.composite(id, Rect { x: x as f64, y: y as f64, width: 1.0, height: 1.0 }, 1, 1).unwrap().pixel(0, 0) }
 
 #[test]
+fn unchanged_carried_mask_keeps_its_upload_revision_while_gradient_pixels_change() {
+    let mut doc = Document::new(3000, 2000);
+    let mut layer = Layer::with_pixels("Masked", pattern(100, 80), p(1000.0, 700.0));
+    let layer_id = layer.id;
+    let original_mask = GrayRaster::from_bytes(41, 37, (0..41 * 37).map(|i| (i * 13 % 256) as u8).collect());
+    layer.mask = Some(Mask { pixels: original_mask.clone(), enabled: true, placement: None, linked: None });
+    doc.active_layer_id = Some(layer_id);
+    doc.layers = vec![layer];
+    let mut fresh = Engine::new();
+    let fresh_id = fresh.insert_document(doc.clone());
+    let mut e = Engine::new();
+    let id = e.insert_document(doc);
+    let first = GradientSpec { shape: GradientShape::Linear, start: p(300.0, 600.0), end: p(1400.0, 900.0), from: [0.2, 0.4, 0.8, 1.0], to: [0.8, 0.1, 0.3, 0.2], opacity: 0.7 };
+    preview(&mut e, id, layer_id, false, &first, true);
+    let first_state = e.state(id).unwrap().layers[0].clone();
+    let first_mask = e.mask_pixels(id, layer_id).unwrap().unwrap();
+    let second = GradientSpec { end: p(2400.0, 1100.0), ..first };
+    preview(&mut e, id, layer_id, false, &second, true);
+    preview(&mut fresh, fresh_id, layer_id, false, &second, true);
+    let second_state = e.state(id).unwrap().layers[0].clone();
+    assert_ne!(second_state.pixels_revision, first_state.pixels_revision, "the changing gradient still uploads");
+    assert_eq!(second_state.mask_revision, first_state.mask_revision, "the unchanged mask does not upload again");
+    assert!(first_mask.same_pixels(&e.mask_pixels(id, layer_id).unwrap().unwrap()), "no duplicate mask retained");
+    let bounds = Rect { x: 0.0, y: 0.0, width: 3000.0, height: 2000.0 };
+    assert_eq!(e.composite(id, bounds, 120, 80).unwrap(), fresh.composite(fresh_id, bounds, 120, 80).unwrap(), "whole preview matches an independently opened document without a prior preview");
+
+    preview(&mut e, id, layer_id, false, &second, false);
+    let settled = e.state(id).unwrap().layers[0].clone();
+    assert_ne!((settled.mask_width, settled.mask_height), (second_state.mask_width, second_state.mask_height));
+    assert_ne!(settled.mask_revision, second_state.mask_revision, "a different grid must upload its new mask");
+    e.set_preview(id, None).unwrap();
+    assert_eq!(e.mask_pixels(id, layer_id).unwrap().unwrap(), original_mask, "Cancel restores every original mask pixel");
+    assert_eq!(e.state(id).unwrap().undo_depth, 0);
+}
+
+#[test]
 fn a_dragged_gradient_previews_from_a_reduced_copy_of_the_layer_grown_to_the_canvas() {
     // A 1000 x 800 layer at (500, 400) on 3000 x 2000: the grid grows to the canvas, 3000 x 2000.
     let (mut e, id, layer) = document((3000, 2000), (1000, 800), p(500.0, 400.0));

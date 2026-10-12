@@ -75,6 +75,9 @@ pub struct PixelPreview {
     pub layer: Uuid, pub raster: Raster, pub transform: LayerTransform, pub revision: u64, pub request: PreviewRequest, pub source: PreviewSource,
     pub target: PreviewTarget,
     pub mask_placement: Option<Option<LayerTransform>>,
+    /// A carried mask can stay byte-identical while the gradient pixels change.
+    /// Keep its own upload revision so every drag tick need not upload it again.
+    pub followed_revision: u64,
     /// A patch drawn over the stored pixels, made once and only when something reads the pixels whole
     /// (the CPU compositor, a whole texture upload): the GPU's partial path reads the patch alone.
     patched: std::sync::OnceLock<Raster>,
@@ -85,7 +88,7 @@ impl PixelPreview {
     /// again, so they can be kept.
     pub fn answers(&self, request: &PreviewRequest, source: &PreviewSource) -> bool { self.request.same_output(request) && self.source == *source }
     pub(crate) fn new(layer: Uuid, raster: Raster, transform: LayerTransform, revision: u64, request: &PreviewRequest, source: PreviewSource, target: PreviewTarget) -> PixelPreview {
-        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, mask_placement:None,patched: std::sync::OnceLock::new() }
+        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, mask_placement:None,followed_revision:revision,patched: std::sync::OnceLock::new() }
     }
     /// The stored pixels with this preview's patch drawn over them, made on first use.
     pub fn patched(&self, stored: &Raster) -> Raster {
