@@ -5,8 +5,25 @@ pub(crate) fn color(bytes: &[u8]) -> Option<[u8; 4]> {
     bytes.chunks_exact(4).all(|p| p == first).then_some(first)
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = "
+export function repeatUniformBytes(memory, offset, length, red, green, blue, alpha) {
+    const bytes = new Uint8Array(memory.buffer, offset, length);
+    bytes.set([red, green, blue, alpha]);
+    for (let written = 4; written < length;) {
+        const count = Math.min(written, length - written);
+        bytes.copyWithin(written, 0, count);
+        written += count;
+    }
+}
+")]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = repeatUniformBytes)]
+    fn repeat_uniform_bytes(memory: &js_sys::WebAssembly::Memory, offset: u32, length: u32, red: u8, green: u8, blue: u8, alpha: u8);
+}
+
 /// Append into already reserved storage without first zeroing it. The browser
-/// fills aligned words directly; other targets retain initialized doubling.
+/// copies initialized prefixes directly; other targets retain native doubling.
 pub(crate) fn append(target: &mut Vec<u8>, expected: usize, pixel: [u8; 4], length: usize) -> Result<(), &'static str> {
     let start = target.len();
     let next = start.checked_add(length).filter(|&n| n <= expected && n <= target.capacity())
@@ -19,21 +36,14 @@ pub(crate) fn append(target: &mut Vec<u8>, expected: usize, pixel: [u8; 4], leng
     unsafe {
         let begin = target.as_mut_ptr().add(start);
         #[cfg(target_arch = "wasm32")]
-        if begin as usize % 4 == 0 {
+        if length <= i32::MAX as usize {
             use wasm_bindgen::JsCast;
-            // Construct the word from byte storage so JS native endianness
-            // cannot reorder RGBA. No Rust reference covers uninitialized data.
-            let pattern = js_sys::Uint8Array::new_with_length(4);
-            for (i, &byte) in pixel.iter().enumerate() { pattern.set_index(i as u32, byte); }
-            let word = js_sys::Uint32Array::new(&pattern.buffer()).get_index(0);
             let memory: js_sys::WebAssembly::Memory = wasm_bindgen::memory().unchecked_into();
-            // The interval is checked above and aligned. No WASM allocation or
-            // callback occurs between taking this memory view and filling it.
-            // Native TypedArray.fill writes each word once, instead of reading
-            // and copying growing prefixes through the WASM memcpy loop.
-            let words = js_sys::Uint32Array::new_with_byte_offset_and_length(
-                &memory.buffer(), begin as u32, (length / 4) as u32);
-            words.fill(word, 0, (length / 4) as u32);
+            // Copy exact bytes, independently of JS native word endianness.
+            // The helper creates the view after argument marshalling and does
+            // the complete loop in JS. There are no intervening WASM calls or
+            // reference-table allocations that could grow memory and detach it.
+            repeat_uniform_bytes(&memory, begin as u32, length as u32, pixel[0], pixel[1], pixel[2], pixel[3]);
             target.set_len(next);
             return Ok(());
         }

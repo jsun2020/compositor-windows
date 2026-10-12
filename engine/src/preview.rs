@@ -311,17 +311,27 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
     let (w, h) = stored.map_or((grid.width - grid.x, grid.height - grid.y), |p| (p.width, p.height));
     let (rw, rh) = (left + (grid.width - grid.x).div_ceil(f), top + (grid.height - grid.y).div_ceil(f));
     let placed = ops::adjust::placed_like(&layer.transform, w, h, rw * f, rh * f, (left * f) as f64, (top * f) as f64);
-    let mut data = vec![0u8; rw as usize * rh as usize * 4];
+    let mut data;
     let mut halved_dims: Option<(u32, u32)> = None;
     if let Some(p) = stored {
         let mut halved = p.clone();
         for _ in 0..level { halved = halved.halved(); }
-        let row = halved.width.min(rw - left) as usize * 4;
-        for y in 0..halved.height.min(rh - top) as usize {
-            let at = ((y + top as usize) * rw as usize + left as usize) * 4;
-            data[at..at + row].copy_from_slice(&halved.bytes()[y * halved.width as usize * 4..y * halved.width as usize * 4 + row]);
+        if left == 0 && top == 0 && (halved.width, halved.height) == (rw, rh) {
+            // Every byte comes from the stored halving. Copy once without
+            // clearing the same full grid first. Odd and grown grids retain
+            // transparent margins and the original row placement below.
+            data = halved.bytes().to_vec();
+        } else {
+            data = vec![0u8; rw as usize * rh as usize * 4];
+            let row = halved.width.min(rw - left) as usize * 4;
+            for y in 0..halved.height.min(rh - top) as usize {
+                let at = ((y + top as usize) * rw as usize + left as usize) * 4;
+                data[at..at + row].copy_from_slice(&halved.bytes()[y * halved.width as usize * 4..y * halved.width as usize * 4 + row]);
+            }
         }
         halved_dims = Some((halved.width, halved.height));
+    } else {
+        data = vec![0u8; rw as usize * rh as usize * 4];
     }
     let coverage = ops::adjust::edit_coverage(doc, clips, &placed, rw, rh).ok()?;
     paint_grid(doc, &mut data, rw, rh, &placed, coverage.as_ref(), &paint, false);

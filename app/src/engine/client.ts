@@ -29,7 +29,13 @@ export class EngineClient {
       const status = response.statusText ? `${response.status} ${response.statusText}` : String(response.status);
       throw new Error(`The engine could not be loaded (${status}).`);
     }
-    const module = await WebAssembly.compile(await response.arrayBuffer());
+    // Stream valid WASM responses without first copying the entire engine into
+    // a JS buffer. Other asset MIME types keep the compatible buffer path;
+    // compilation errors are still reported directly.
+    const mime = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+    const module = typeof WebAssembly.compileStreaming === "function" && mime === "application/wasm"
+      ? await WebAssembly.compileStreaming(response)
+      : await WebAssembly.compile(await response.arrayBuffer());
     const exports = await init({ module_or_path: module });
     return new EngineClient(new WasmEngine(), exports.memory, module);
   }
