@@ -100,6 +100,8 @@ Windows 对照入口：`engine/src/adjust/camera_raw.rs`、`engine/native/Adjust
 
 Glow 的上游先 `clampedToExtent`，再缩小、Gaussian Blur、放大。Windows 当前先截成有限缩小网格再模糊；诊断中保留无限边缘可明显减小差异，但不能代替逐字节验收。Core Image 的默认 [highQualityDownsample](https://developer.apple.com/documentation/coreimage/cicontextoption/highqualitydownsample) 在 macOS 启用多遍缩小，与单遍采样不同。已准备独立中间平面诊断，须由真实 Mac 执行；未据近似结果改写门槛。
 
+2026-10-13 的 `0b34aca` 验收汇总保存在 `acceptance-status-20261013.json`：308 项单位测试、343 项浏览器功能测试、原 4 项 GPU 性能、`20261012-2233` 生产包的原生对话框/独立导出读取器/六组真实 RAW 解码和 11 项 ZIP 完整性检查均通过。原生 298 条、GPU 141 条独立记录全部单屏解锁。原完整 CPU 仍为 28/29，156ms Fill 帧间隔发生在锁屏前，完整运行后段环境也失效。单屏解锁的私有原序诊断复现 121ms，随后原生轨迹显示计时外的 cppgc 清理任务约 153ms；资源生命周期关联尚待证明，诊断不代替完整验收。Mac Glow 中间平面仍待回传，整体状态保持未完成。
+
 ## 验收基准的版本变化
 
 - Camera Raw 的五项旧公式用例及一个预览提交中的曝光数值改为固定 1.4.9 CRT3 数据的独立三线性插值检查；默认曲线分界走实测 LUT，移动分界仍走独立路径。旧版本历史结果保留。

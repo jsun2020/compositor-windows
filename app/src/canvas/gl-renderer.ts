@@ -646,6 +646,10 @@ export class GlRenderer implements Renderer {
 
   clear(): void {
     this.compositionKey = null;
+    // The canvas outlives the last document. Release its document-sized caches
+    // now while retaining compiled programs and the two fixed solid textures.
+    this.textures.dispose(); this.masks.dispose(); this.fbos.dispose(); this.adjustTextures.dispose();
+    this.effectsImages.retainOnly("", new Set()); this.placements.clear(); this.shown.clear();
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.SCISSOR_TEST);
