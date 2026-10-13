@@ -443,14 +443,14 @@ impl Engine {
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let layers: Vec<Uuid> = s.preview.iter().map(|p| p.layer).chain(request.iter().map(|r| r.layer())).collect();
         let clips = &self.clips;
-        let mut next = request.as_ref().and_then(|r| preview::compute_preview_with(&s.document, clips, r, revision));
+        let mut next = request.as_ref().and_then(|r| preview::compute_preview_with_previous(&s.document, clips, r, revision, s.preview.as_ref()));
         if let (Some(old), Some(new)) = (s.preview.as_ref(), next.as_mut()) {
             // Compare the newly computed mask, rather than assuming the source or
             // geometry stayed unchanged. Equality includes dimensions and every
             // byte; different pixels, masks or preview limits keep a fresh revision.
             if old.layer == new.layer {
                 if let (PreviewTarget::Pixels { followed: Some(before) }, PreviewTarget::Pixels { followed: Some(after) }) = (&old.target, &mut new.target) {
-                    if before == after {
+                    if ((before.width, before.height) == (after.width, after.height) && before.same_pixels(after)) || before == after {
                         *after = before.clone();
                         new.followed_revision = old.followed_revision;
                     }

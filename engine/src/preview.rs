@@ -68,6 +68,33 @@ impl PreviewSource {
 #[derive(Clone, Debug)]
 pub enum PreviewTarget { Pixels { followed: Option<GrayRaster> }, Patch(PixelRect), Mask { pixels: GrayRaster, placement: Option<LayerTransform> } }
 
+/// Inputs to carrying a covering mask, independent of the gradient's colours and line.
+/// Holding the source Arc prevents a freed buffer address from becoming a false cache hit.
+#[derive(Clone, Debug)]
+struct CarriedMaskSource {
+    stamp: LayerStamp,
+    pixel_grid: (u32, u32),
+    mask_enabled: bool,
+    mask_placement: Option<LayerTransform>,
+    mask_linked: Option<bool>,
+    mask_source_id: Option<Uuid>,
+    pixels: GrayRaster,
+    limit: u32,
+    old: (u32, u32),
+    grid: ops::raster_edit::EditGrid,
+}
+
+impl CarriedMaskSource {
+    fn matches(&self, other: &Self) -> bool {
+        self.stamp == other.stamp && self.pixel_grid == other.pixel_grid
+            && self.mask_enabled == other.mask_enabled && self.mask_placement == other.mask_placement
+            && self.mask_linked == other.mask_linked && self.mask_source_id == other.mask_source_id
+            && self.limit == other.limit && self.old == other.old && self.grid == other.grid
+            && (self.pixels.width, self.pixels.height) == (other.pixels.width, other.pixels.height)
+            && self.pixels.same_pixels(&other.pixels)
+    }
+}
+
 /// The substituted pixels for one layer while a panel is open, the request that made them and
 /// what they were made from.
 #[derive(Clone, Debug)]
@@ -78,6 +105,7 @@ pub struct PixelPreview {
     /// A carried mask can stay byte-identical while the gradient pixels change.
     /// Keep its own upload revision so every drag tick need not upload it again.
     pub followed_revision: u64,
+    carried_mask_source: Option<CarriedMaskSource>,
     /// A patch drawn over the stored pixels, made once and only when something reads the pixels whole
     /// (the CPU compositor, a whole texture upload): the GPU's partial path reads the patch alone.
     patched: std::sync::OnceLock<Raster>,
@@ -88,7 +116,7 @@ impl PixelPreview {
     /// again, so they can be kept.
     pub fn answers(&self, request: &PreviewRequest, source: &PreviewSource) -> bool { self.request.same_output(request) && self.source == *source }
     pub(crate) fn new(layer: Uuid, raster: Raster, transform: LayerTransform, revision: u64, request: &PreviewRequest, source: PreviewSource, target: PreviewTarget) -> PixelPreview {
-        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, mask_placement:None,followed_revision:revision,patched: std::sync::OnceLock::new() }
+        PixelPreview { layer, raster, transform, revision, request: request.clone(), source, target, mask_placement:None,followed_revision:revision,carried_mask_source:None,patched: std::sync::OnceLock::new() }
     }
     /// The stored pixels with this preview's patch drawn over them, made on first use.
     pub fn patched(&self, stored: &Raster) -> Raster {
@@ -168,6 +196,10 @@ pub fn compute_preview(doc: &Document, request: &PreviewRequest, revision: u64) 
 /// `compute_preview` with the selection's clip from `clips`: the engine's, so every tick of a drag
 /// under one selection reuses one clip (final review F1).
 pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, revision: u64) -> Option<PixelPreview> {
+    compute_preview_with_previous(doc, clips, request, revision, None)
+}
+
+pub(crate) fn compute_preview_with_previous(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, revision: u64, previous: Option<&PixelPreview>) -> Option<PixelPreview> {
     if let PreviewRequest::Shape{layer,draft}=request {
         if !draft.is_valid(){return None;}
         let original=doc.layer(*layer)?;let record=original.extra.shape.as_ref()?;
@@ -179,7 +211,7 @@ pub fn compute_preview_with(doc: &Document, clips: &SelectionClips, request: &Pr
         return Some(preview);
     }
     if let PreviewRequest::Gradient { layer, mask, gradient, .. } = request {
-        return gradient_preview(doc, clips, request, *layer, *mask, gradient, revision);
+        return gradient_preview(doc, clips, request, *layer, *mask, gradient, revision, previous);
     }
     let layer = doc.layer(request.layer())?;
     let raster = layer.pixels.as_ref()?;
@@ -235,7 +267,7 @@ fn level_for(width: u32, height: u32, limit: u32) -> u32 {
 /// full size, as a patch. Otherwise the layer's grid grown to the canvas (`raster_edit::image_grid`),
 /// reduced to the limit with its origin on the reduced pixels, the layer's own halvings placed in it,
 /// painted; never trimmed.
-fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, id: Uuid, mask: bool, gradient: &GradientSpec, revision: u64) -> Option<PixelPreview> {
+fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewRequest, id: Uuid, mask: bool, gradient: &GradientSpec, revision: u64, previous: Option<&PixelPreview>) -> Option<PixelPreview> {
     use ops::raster_edit::{followed, image_grid, layer_grid, mask_grid, paint_grid, EditGrid, Paint};
     let layer = doc.layer(id)?;
     let paint = Paint::Gradient(gradient.clone());
@@ -341,7 +373,7 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
     // un-grown pixels over the whole grown box (`plan.rs`'s `own_coverage` combines the layer's new,
     // grown transform with the mask's old, small pixel count).
     let grew = (grid.x, grid.y, grid.width, grid.height) != (0, 0, w, h);
-    let carried_mask = layer.mask.as_ref().filter(|m| m.placement.is_none() && grew && m.pixels.is_uniform() != Some(255)).map(|m| {
+    let carried_mask_source = layer.mask.as_ref().filter(|m| m.placement.is_none() && grew).map(|m| {
         // The same halving the layer's own pixels went through above (`halved`), or, with no pixels,
         // the box-rounded grid halved the same number of times (`Raster::half_size`'s `(n / 2).max(1)`).
         let (hw, hh) = halved_dims.unwrap_or_else(|| {
@@ -349,7 +381,98 @@ fn gradient_preview(doc: &Document, clips: &SelectionClips, request: &PreviewReq
             for _ in 0..level { d = ((d.0 / 2).max(1), (d.1 / 2).max(1)); }
             d
         });
-        followed(&m.pixels, (hw, hh), &EditGrid { width: rw, height: rh, x: left, y: top, transform: placed }, (0, 0, rw, rh))
+        CarriedMaskSource {
+            stamp: LayerStamp::of(doc, layer), pixel_grid: (w, h),
+            mask_enabled: m.enabled, mask_placement: m.placement, mask_linked: m.linked,
+            mask_source_id: layer.mask_source_id, pixels: m.pixels.clone(), limit, old: (hw, hh),
+            grid: EditGrid { width: rw, height: rh, x: left, y: top, transform: placed },
+        }
     });
-    Some(PixelPreview::new(id, Raster::from_premultiplied(rw, rh, data), placed, revision, request, made_from, PreviewTarget::Pixels { followed: carried_mask }))
+    let cached = previous.filter(|old| old.layer == id && matches!(old.request, PreviewRequest::Gradient { mask: false, .. }))
+        .filter(|old| old.carried_mask_source.as_ref().zip(carried_mask_source.as_ref()).is_some_and(|(a, b)| a.matches(b)))
+        .and_then(|old| match &old.target { PreviewTarget::Pixels { followed } => Some((followed.clone(), old.followed_revision)), _ => None });
+    let carried_mask = match &cached {
+        Some((mask, _)) => mask.clone(),
+        None => carried_mask_source.as_ref().filter(|s| s.pixels.is_uniform() != Some(255))
+            .map(|s| followed(&s.pixels, s.old, &s.grid, (0, 0, rw, rh))),
+    };
+    let mut preview = PixelPreview::new(id, Raster::from_premultiplied(rw, rh, data), placed, revision, request, made_from, PreviewTarget::Pixels { followed: carried_mask });
+    preview.carried_mask_source = carried_mask_source;
+    if let Some((_, revision)) = cached { preview.followed_revision = revision; }
+    Some(preview)
+}
+
+#[cfg(test)]
+mod carried_mask_tests {
+    use super::*;
+
+    fn fixture() -> (Document, Uuid, PreviewRequest) {
+        let mut doc = Document::new(1300, 96);
+        let mut layer = Layer::with_pixels("Masked", Raster::from_premultiplied(64, 32, [80, 40, 20, 255].repeat(64 * 32)), Point { x: 300.0, y: 40.0 });
+        let id = layer.id;
+        layer.mask = Some(Mask { pixels: GrayRaster::from_bytes(23, 17, (0..23 * 17).map(|i| (i * 13 % 256) as u8).collect()), enabled: true, placement: None, linked: None });
+        doc.layers = vec![layer];
+        doc.active_layer_id = Some(id);
+        let request = PreviewRequest::Gradient { layer: id, mask: false, dragging: true,
+            gradient: ops::raster_edit::GradientSpec { shape: ops::raster_edit::GradientShape::Linear,
+                start: Point { x: 10.0, y: 40.0 }, end: Point { x: 600.0, y: 80.0 },
+                from: [0.2, 0.4, 0.8, 1.0], to: [0.8, 0.1, 0.3, 0.2], opacity: 0.7 } };
+        (doc, id, request)
+    }
+
+    fn carried(preview: &PixelPreview) -> Option<&GrayRaster> {
+        match &preview.target { PreviewTarget::Pixels { followed } => followed.as_ref(), _ => panic!("expected pixel preview") }
+    }
+
+    #[test]
+    fn changed_gradient_line_reuses_mask_and_matches_uncached_pixels() {
+        let (doc, _, mut request) = fixture();
+        let clips = SelectionClips::default();
+        let previous = compute_preview_with(&doc, &clips, &request, 1).unwrap();
+        if let PreviewRequest::Gradient { gradient, .. } = &mut request {
+            gradient.end.x = 1100.0; gradient.opacity = 0.3; gradient.to = [0.1, 0.7, 0.4, 0.5];
+        }
+        let next = compute_preview_with_previous(&doc, &clips, &request, 2, Some(&previous)).unwrap();
+        let fresh = compute_preview_with(&doc, &clips, &request, 2).unwrap();
+        assert_eq!(next.raster, fresh.raster);
+        assert_eq!(carried(&next), carried(&fresh));
+        assert!(carried(&next).unwrap().same_pixels(carried(&previous).unwrap()));
+        assert_eq!(next.followed_revision, previous.followed_revision);
+        assert_ne!(next.raster, previous.raster, "changing the line still recomputes gradient pixels");
+    }
+
+    #[test]
+    fn changed_mask_or_geometry_matches_fresh_computation_without_stale_reuse() {
+        let (doc, id, request) = fixture();
+        let clips = SelectionClips::default();
+        let previous = compute_preview_with(&doc, &clips, &request, 1).unwrap();
+        for case in 0..12 {
+            let mut changed = doc.clone();
+            let mut changed_request = request.clone();
+            match case {
+                // The backing pixels change even without a revision bump.
+                0 => changed.layer_mut(id).unwrap().mask.as_mut().unwrap().pixels = GrayRaster::from_bytes(23, 17, (0..23 * 17).map(|i| (255 - i * 13 % 256) as u8).collect()),
+                1 => changed.layer_mut(id).unwrap().mask_revision += 1,
+                2 => changed.layer_mut(id).unwrap().pixels_revision += 1,
+                3 => { changed.width = 1400; changed.height = 128; },
+                4 => changed.layer_mut(id).unwrap().transform.origin.x += 21.0,
+                5 => changed.layer_mut(id).unwrap().pixels = Some(Raster::from_premultiplied(48, 24, [30, 60, 90, 255].repeat(48 * 24))),
+                6 => { let t = changed.layer(id).unwrap().transform; changed.layer_mut(id).unwrap().mask.as_mut().unwrap().placement = Some(t); },
+                7 => changed.layer_mut(id).unwrap().mask.as_mut().unwrap().enabled = false,
+                8 => changed.layer_mut(id).unwrap().mask.as_mut().unwrap().linked = Some(false),
+                9 => changed.selection_revision += 1,
+                10 => changed.layer_mut(id).unwrap().mask.as_mut().unwrap().pixels = GrayRaster::from_bytes(19, 11, (0..19 * 11).map(|i| (i * 17 % 256) as u8).collect()),
+                11 => if let PreviewRequest::Gradient { dragging, .. } = &mut changed_request { *dragging = false; },
+                _ => unreachable!(),
+            }
+            let next = compute_preview_with_previous(&changed, &clips, &changed_request, 2, Some(&previous)).unwrap();
+            let fresh = compute_preview_with(&changed, &clips, &changed_request, 2).unwrap();
+            assert_eq!(next.raster, fresh.raster, "case {case}: all gradient bytes");
+            assert_eq!(next.transform, fresh.transform, "case {case}: placement");
+            assert_eq!(carried(&next), carried(&fresh), "case {case}: all mask bytes and dimensions");
+            if let Some(mask) = carried(&next) {
+                assert!(!mask.same_pixels(carried(&previous).unwrap()), "case {case}: changed inputs cannot reuse the old carried buffer");
+            }
+        }
+    }
 }
