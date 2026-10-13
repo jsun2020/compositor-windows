@@ -108,3 +108,7 @@ Glow 的上游先 `clampedToExtent`，再缩小、Gaussian Blur、放大。Windo
 - Image Size 的三个效果方向用例跟进固定 `ImageResizer.swift:26–31,101` 和 `LayerEffects.scaled`：重采样后距离/模糊/描边使用 `sqrt(sx*sy)`，阴影角度保留。原旋转/翻转投影规则不再作为新版期望；新增 DPI-only 与非等比 Undo/Redo 检查。
 - 旧 `mac-1.2.10-probes` 中 `effects-inner-shadow`、`effects-inner-glow`、`effects-color-overlay`、`effects-all-six` 的 PNG 和项目保持不变。1.4.9 `MetalLayerEffects.swift:369–389` 先改变源 RGB、保留源 alpha，再置于阴影之上；这些四项当前输出改与独立全平面 Metal 公式对照，并断言确实不同于旧 PNG。其余旧像素界限保持不变；这不能替代安装版 Mac 1.4.9 导出验收。
 - 原 29 项 CPU/UI 和 4 项 GPU 性能断言、时间预算、单 worker、零重试保持不变。所有失败日志保留，新运行写入独立目录。
+
+2026-10-13 后续当前源码 `3926872` 的完整结果为原生引擎 701、WASM 边界 11、功能浏览器 343 均通过；原完整 CPU 28/29、GPU 4/4，唯一 CPU 实际断言失败为 100MP Fill 最长间隔 107ms 对 <100ms。CPU 815、GPU 115 条独立采样全部单屏解锁，755 项输入前后不变。`20261013-2100` 生产包另行通过 ZIP 11 项、真实 RAW 六组、原生交互 25 次和独立图片/PDF 读取，264 条采样全单屏解锁；汇总见 `acceptance-status-carried-mask-final-20261013.json`。旧失败、旧包和全部原预算保留，尚未发布增量。
+
+Mac 直接核回传 `Mac149-glow-direct-20261013-202111` 因 CRLF 启动失败而未执行。修正过程又发现 v2 校验清单含旧哈希；最终 v3 包同时修正 Unix 换行、执行权限和全部启动哈希，真实 Bash 语法和 16 项哈希检查通过，等待 Mac 执行。既有 104 个中间平面已确认叠加公式精确，Gaussian/缩放仍未跨样本精确。私有旧运行时 Worker 边界轨迹没有复现间隔，不能把它的 24ms 数值作为当前完整性能通过证明。
