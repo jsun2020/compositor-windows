@@ -118,3 +118,5 @@ Mac 后续回传 `Mac149-glow-direct-20261013-212859` 的 16 项启动哈希通�
 2026-10-14 复查成功回传 `Mac149-glow-direct-20261013-222947`：九组 Float32 输入、原基线和全部 213 输出平面正确；v4 真实编译执行问题已解决。83/85 模糊上下文对满足 default=half RTZ(Float32-working)，其中全部 45 个 Float32 源样本精确满足。横向/恒色 35 平面仅为最近 half 的 0 或 ±1 Float32 ULP；纵向/二维 10 平面存在更大偏差，因此不能把所有结果都还原为同一 half 临时格式。固定线性核的叠加/平移反例还可能来自内部非线性量化，不能单独归因于采样位置。
 
 不同核形状、成对采样、坐标及数值积累的有界模型未跨脉冲/台阶/恒色精确，未改产品算法或门槛。下一判别是复用已在 Mac 运行的 Phase 7 公开 CIKernel 观察器，加上 [Apple 官方 CI_PRINT_TREE 调试输出](https://developer.apple.com/videos/play/wwdc2020/10089/) 的原始/优化/GPU 执行图。`Mac149-glow-arguments-v1.zip` 的 245 项启动哈希、ZIP、Unix 换行/权限及 Bash 语法已通过，218 项既有真实输出控制和自测保护已审核；实际 Mac 编译/执行尚未运行，未捕获内置入口明确记为不可取得。汇总见 `acceptance-status-glow-arguments-prepared-20261014.json`。Windows 原 107ms Fill 性能失败保持独立，整体仍未完成。
+
+参数回传 `Mac149-glow-arguments-20261014-110302` 的 245 项启动哈希通过，但新增 Swift 局部变量保留 Objective-C 返回的 Data?，write/JSONSerialization 两处编译失败，尚未记录参数或执行 218 项对照。原静态审核漏识别此桥接类型问题，不能作为实际编译证明。v2 仅追加 nullable 声明和 guard-let 非空检查，参考平面、观察器实现及启动脚本均保持；本机哈希、脚本、ZIP、换行/权限通过，完整 Mac 编译仍待验证。新汇总 `acceptance-status-glow-arguments-v2-prepared-20261014.json` 继续保留此前成功的 213 平面证据和全部失败。
