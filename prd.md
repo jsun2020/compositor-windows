@@ -1,6 +1,6 @@
 # Compositor for Windows 产品需求
 
-更新时间：2026-10-13。
+更新时间：2026-10-14。
 
 ## 产品与当前基线
 
@@ -95,3 +95,6 @@
 - 上述 `Mac149-glow-arguments-v1.zip` 已准备并通过 245 项实际 Bash 启动哈希、脚本语法、ZIP CRC/内容与 Unix 执行权限检查；只读审核独立核算 213+5=218 项对照，未发现明确的类型/编译/计数缺陷。完整 macOS 编译和内置 Gaussian 参数可见性仍标记 `NOT_RUN`，待真实 Mac。该包复用 Phase 7 已运行的公开 CIKernel 观察器，新增有界 NSData 参数序列化；未改变上游算法、九组输入、sigma、原输出或 Windows 产品实现。汇总为 `acceptance-status-glow-arguments-prepared-20261014.json`，状态保持未完成。
 - 回传 `Mac149-glow-arguments-20261014-110302` 的 245 项启动哈希通过，但 Swift 在新增局部变量 `argumentBytes` 处将 Objective-C 返回值推断为 `Data?`，后续 write/JSONSerialization 两处未解包导致编译失败，218 项对照和参数记录均未执行。此前静态审核没有识别该桥接问题，不能替代实际编译。下一步仅为桥接声明补明确 nullable 注解，并在 Swift 用 guard-let 取得非空 Data；不使用强制解包或空数据兜底，保持原观察器、上游、参数、参考输出及所有门槛。失败回传和 v1 保留，独立 v2 包重新校验。
 - 修正版 `Mac149-glow-arguments-v2.zip` 已生成，变更仅为 Swift 非空 guard-let、桥接 nullable 注解、中文文档及重新计算的校验记录。启动脚本、观察器实现、上游及 218 项参考输出全字节不变；245 项实际启动哈希、Bash 语法、ZIP CRC/内容、LF 和执行权限均通过。macOS 编译/执行仍是 `NOT_RUN`，不能据本机检查宣称编译已过。汇总为 `acceptance-status-glow-arguments-v2-prepared-20261014.json`，原失败和所有既有门槛保留。
+- 后续真实回传 `Mac149-glow-arguments-20261014-144235` 已完成编译和执行。本机独立核对 245 项启动哈希、218 个原参考输出、九组 Float32 输入及 218 平面的尺寸/有限值全部通过；观察器自测前后像素一致，四个 Double/Float 参数位模式也一致。记录 806 次公开入口、630 次 Gaussian 名称入口，证据为 `glow-arguments-144235-return-review-20261014.json`。回传内的 receipt 是准备时的输入清单，其旧 `NOT_RUN` 标签不代表本次执行结果；实际通过由 run.log、输出和独立复核证明。
+- 本次初始图含 `_gaussianReduce4`、小核和 `_cubicUpsample10` 的候选分支，但优化图和执行图均选择 `CIBlurProcessor`，未执行图上那组公开候选核。不能仅凭捕获名称和参数把 Reduce4/cubic 模型认定为真实算法。下一步定位实际 processor 的公开边界和可观测数值；只有跨原始直接核及完整 Glow 样本通过严格对照后才修改生产实现。原 100MP Fill 的 107ms 帧间隔失败仍独立保留，1.4.9 增量保持未完成。
+- 已准备独立 `Mac149-glow-mps-v2.zip`：在原路径启动前记录公开 MPS constructor/encode 的可观察调用，原 218 项像素守卫保持；原输出完成后自测参数位模式并恢复观察器，再重放九组输入×五个 sigma×三组纹理精度，共 135 项独立诊断。保留实际上传字节，逐项记录格式不支持、Objective-C encode 异常或 GPU 失败，分别报告 renderedPlanes/failedCases；构造调用不认定为执行，零事件不认定为未使用。v1 的格式失败中断风险经静态审核后在 v2 补齐，旧包保留。v2 的 248 项实际启动哈希、Bash 语法、ZIP 内容/CRC、LF 和执行权限通过；完整 macOS 编译和重放仍为 `NOT_RUN`，未更改 Windows 产品实现或门槛。最新汇总为 `acceptance-status-glow-mps-v2-prepared-20261014.json`。
