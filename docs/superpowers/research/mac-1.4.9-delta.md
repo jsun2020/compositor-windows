@@ -138,3 +138,16 @@ Windows 后续在当前 `3926872` 冻结资产完成一次低干扰 Long Animati
 `glow-metal-stage-layout-20261014.json` 进一步验证全部 176 条六级纹理/格式链、packed 输出尺寸和 32×32 dispatch；工作 Float32 context 的中间五级仍写 RGBA16Float，最后一级才写 RGBA32Float。独立候选支持 quarter-linear upsample＋fine-grid `[b,A,b]`（`b=(1−A)/2`），融合后 coarse 中央权重 `.5+.25A`、两侧 `.375−.125A`/`.125−.125A` 按相位互换；这是候选数学，尚未通过全部像素。简单 Gaussian/方差修正的系数误差 0.00220～0.00726，conditional factorization least squares 仍相差 0.000108～0.000856。六级独立常量状态判别留下 74 个白场代表路径，RGB 未穷举、最佳仍 20/120 常量通道不同；没有据此选择猜测性产品补丁。
 
 下一 `Mac149-glow-stages-v1.zip` 保护全部 443 旧输出和 90 上传缓冲，原控制结束并恢复旧观察器后，才在独立重放的每级 dispatch 后插入 snapshot shader/公开 texture barrier，恢复原 pipeline、纹理和参数。即刻复制避免 MPS 临时存储后续复用；只等待自有 command，不在原控制 command 中加读回/复制。所有非负有限 half 位模式复制自测（31,744 项）、90 旧最终输出 exact、73 新有/无 snapshot 基线 exact 是分别的门；阶段不可读/类型不匹配/失败保留为未知，复制导致调度改变不被隐藏。公开接口依据：[compute memory barrier](https://developer.apple.com/documentation/metal/mtlcomputecommandencoder/memorybarrier(scope:)) 和 [Apple feature tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf)，不以文档替代真实设备执行。570 启动哈希、Bash 语法、ZIP/权限/LF 校验和静态检查通过；Windows Git Bash 无 shasum，保留该本地失败并改用 native sha256sum 核对相同 570 输入，Mac 已验证的 shasum 启动方式保持。完整 Mac 编译/复制自测/163 项诊断仍 `NOT_RUN`。`acceptance-status-stages-prepared-20261014.json` 继续保留原 Windows 107ms 失败与未完成状态。
+
+
+## 2026-10-15：六级数学精确复现，组合路径仍待判别
+
+真实回传 `Mac149-glow-stages-20261014-205225` 已独立核对 570 个启动哈希、569 收据文件、443 个旧输出、90 个旧上传缓冲和 73 个重建上传。163 个有/无 snapshot 最终结果一致，978 个中间平面有限、非负，最终 snapshot 与最终纹理一致。完整 half 位模式复制自测实际通过，但原始自测缓冲没有另存。原 Metal 观察为 5,282 事件、1,058 参数事件；specialization constants 两条而前轮四条，是编译期观察差异，未改像素守卫。证据 `glow-stages-205225-return-review-20261015.json`。
+
+独立软件模型的 D2、FIR、U2 各 326/326 平面逐字节相同。D2/FIR 使用 1/256 双线性相位、half 中点向上采样、F32 FMA 和 half RTZ 输出；FIR 成对采样相邻抽头。U2 是三支持点、分段二/三次且满足 partition of unity 的 cubic；系数计算的独立 F32 舍入顺序影响结果，不能用融合 Horner 表达式替换。从一次上传串联计算的 163/163 最终结果、978/978 中间结果精确。另以最终 extent、offset 和抽头支持反推工作矩形，不再读取捕获的阶段 ROI，163/163 仍精确。数值参数仍取自实际捕获，这不是一般 sigma 参数生成的证明。证据 `glow-whole-pipeline-proof-20261015.json`、`glow-generic-geometry-proof-20261015.json`。
+
+全部 163 项参数按约 0.05 的 sigma 区间分为 21 组；`ceil(Float32(sigma)*20−0.5)` 是覆盖当前记录的分组假设。合法 Line Spacing 2～32 所需十组参数都出现，但仅 16 项具体 sigma 直接测过；原连续 Gaussian 假设不成立，尚未把观测系数表或拟合多项式写入产品。外部缩小从 RGBA8 源开始，包括无限边缘、mip 精度/舍入和残余采样，九个 F32 及九个 RGBA8 平面精确；实际缩小输入的 Gaussian 九平面也精确。完整源图的软件候选五组 Glow 中三组精确，另外两组共三个颜色字节各差一级。独立二维采样候选仍不跨九图精确，不能继续凭近似值宣布通过。相关证据 `20261015-reduce-proof.json`、`glow-gaussian-external-check-20261015.json`、`glow-from-drawn-candidate-20261015.json`。
+
+下一包 `Mac149-glow-composite-v1.zip` 在全部 443 原控制完成后，继续守卫上次 978 阶段及 163 最终输出，并验证新增实际输入 snapshot 与已知上传相同。再对所有 31 个合法整数间距重放完整上游绘制/缩小/Gaussian/放大/原 C 合成，原入口和独立组合结果必须一致；捕获同线程 Gaussian encode 范围内的真实输入及六阶段输出，避免把独立 halo 误当组合路径输入。另以四 texel/相位和四个独立中心自测做 99,306 项 half/float Metal sampler 判别。旧输出对比是诊断，不自动把差异算通过。当前 compute sampler 的默认 LOD=0 符合 Apple Metal Shading Language Specification（2026-06-04，PDF 第 239 页），本机无 Mac 编译器，不能据静态审阅声称编译通过。
+
+该新包 1,716 项实际 Bash SHA256 校验、脚本语法、ZIP CRC/内容/Unix 权限及本地控制字节检查通过；ZIP 4,917,650 bytes，SHA256 `d710a7727ddafcded35055f3fdfe87b24828139e757f33fe55ce75a8937e7304`。Mac 编译、组合捕获及 sampler 输出均 `NOT_RUN`，中文 `MAC-STEPS.md` 随包提供。最新汇总 `acceptance-status-stages-success-composite-prepared-20261015.json`。Windows 产品源码仍为 `3926872`；原 107ms Fill 失败、所有原预算和历史失败保留，整体状态 `INCOMPLETE`。

@@ -1,6 +1,6 @@
 # Compositor for Windows 产品需求
 
-更新时间：2026-10-14。
+更新时间：2026-10-15。
 
 ## 产品与当前基线
 
@@ -105,3 +105,7 @@
 - 该回传实际观察到 D2F6、F11/F13、U2P3F3 的纵横六阶段、纹理尺寸和 128 字节参数；pipeline label 不等同已证明的 shader 函数名，未使用 private GPU 缓冲。后续先在独立软件模型验证六抽头缩小、对称卷积、放大相位及 half 运算顺序，再从数学规则推导 sigma 参数并验证完整五组 Glow；禁止把观测的五组系数或 fixture 对称变换写成产品查表。配置重放精确只证明这些输入的状态/布局假设，不认定便携数学或产品 Glow 已通过。复核为 `glow-metal-195526-return-review-20261014.json`；最新状态为 `acceptance-status-metal-success-20261014.json`。Windows 原 100MP Fill 107ms 失败保留，增量继续未完成。
 - 六阶段元数据的 176 条完整链均通过纹理格式/尺寸、packed 输出大小和 dispatch 网格检查。独立软件候选支持 quarter-phase 放大再 fine-grid 三抽头滤波，但普通点/CDF Gaussian 和固定方差修正不能生成全部捕获系数；更强的因式分解拟合仍不精确。六阶段算术的有界白场判别留下 74 个代表路径，RGB 仅保留代表路径、最佳仍有 20/120 常量通道不同，不能当作完整 RGB 穷举或产品通过。候选失败和参数角色未证明的字段继续保留。
 - 新 `Mac149-glow-stages-v1.zip` 先保护 218 CI、135 MPS、90 已精确配置重放输出及上传字节，再只在独立、自有 MPS command 中插入每级 snapshot 复制和纹理内存屏障，恢复原 pipeline/两张纹理/128B 参数。原控制的 command 不插入复制或读中间 GPU 输出。Snapshot 的 Float16 复制须先通过全部 31,744 个非负有限位模式自测，独立重放的最终输出须仍精确；未支持/失败不得计通过。新增 73 个 sigma（4～5，步长 1/64，另八个判别点）分别比较有/无 snapshot 的自有输出，共 163 项新诊断。570 项启动哈希、Bash 语法、ZIP 内容/CRC、LF/执行权限和静态边界检查通过；完整 Mac 编译、复制自测和中间输出可用性仍 `NOT_RUN`。最新状态为 `acceptance-status-stages-prepared-20261014.json`；产品实现及原性能门槛不变。
+- 真实回传 `Mac149-glow-stages-20261014-205225` 已独立复核：570 启动哈希、569 收据文件、443 个旧输出、90 上传缓冲、73 新上传重建、163 个有/无 snapshot 最终结果及 978 中间平面全部通过；复制自测实际运行通过（原始自测缓冲未另存）。本轮 specialization constant 事件为两条，前轮为四条，编译时观察数量不属于像素守卫，旧输出保持精确。D2/FIR 的双线性采样有 1/256 相位、half 中点向上舍入、F32 FMA 与 half RTZ store；U2 为 partition-unity 三支持点 cubic，系数分别乘加舍入、中心乘法再左右 FMA。各组件 326/326 精确，从一次上传串联预测六级的 163/163 最终结果和 978/978 中间平面也精确；独立反推工作矩形同样 163/163，不依赖捕获的阶段 ROI。
+- 新 73 点表明实际参数按约 0.05 的 σ 区间保持不变；163 项记录共 21 个数值参数 family，连续 Gaussian 系数生成的原假设不成立。归纳的 `ceil(Float32(sigma)*20−0.5)` 分组规则覆盖当前全部记录，31 种合法 Line Spacing 需要其中十组，但仅 16 种间距的具体 σ 直接出现于现有采样；尚不据此写入产品查表或宣称所有边界已证明。外部缩小 9 个 F32/9 个 RGBA8 平面、由实际缩小输入计算的外部 Gaussian 九个平面已精确。完整源图软件候选的五组 Glow 中三组精确、另外两组总共三个颜色字节各差一级；原严格像素门槛不放宽。
+- 下一判别只补完整组合路径的真实 MPS 输入与六级输出，并覆盖全部 2～32 整数 Line Spacing 的原代码结果；同时对已知四 texel/相位进行独立 half/float Metal 双线性采样。保持已有 443 输出及 978 阶段/163 最终输出守卫；新观察仅在原控制结束后的自有重放及同线程 Gaussian encode 范围，不能把独立渲染 halo 当作组合路径实际输入。先判明输入差异或采样精度，再实施 Scanlines 专用更改。其它效果的 blur 与原 100MP Fill 107ms 失败继续保留。
+- 上述 `Mac149-glow-composite-v1.zip` 已生成：1,716 项实际 Bash 启动哈希、脚本语法、ZIP CRC/内容/Unix 权限及控制字节检查通过，31 种间距及 99,306 项独立 sampler 输入已准备。完整 Mac 编译、组合路径输入捕获及 sampler 输出仍为 `NOT_RUN`；中文步骤随包交付。当前不改生产源码，最新汇总 `acceptance-status-stages-success-composite-prepared-20261015.json` 保持 `INCOMPLETE`。
