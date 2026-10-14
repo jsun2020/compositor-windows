@@ -114,3 +114,7 @@ Glow 的上游先 `clampedToExtent`，再缩小、Gaussian Blur、放大。Windo
 Mac 直接核回传 `Mac149-glow-direct-20261013-202111` 因 CRLF 启动失败而未执行。修正过程又发现 v2 校验清单含旧哈希；最终 v3 包同时修正 Unix 换行、执行权限和全部启动哈希，真实 Bash 语法和 16 项哈希检查通过，等待 Mac 执行。既有 104 个中间平面已确认叠加公式精确，Gaussian/缩放仍未跨样本精确。私有旧运行时 Worker 边界轨迹没有复现间隔，不能把它的 24ms 数值作为当前完整性能通过证明。
 
 Mac 后续回传 `Mac149-glow-direct-20261013-212859` 的 16 项启动哈希通过，随后 Swift 在 flat-113 的泛型数字数组表达式处类型检查超时，尚未执行基线及 Gaussian。v4 将四个归一化通道写为显式 Float，并增加九组独立 Float32 输入的整平面核对；本机 Bash 语法、25 项启动哈希、ZIP 与数值检查通过，但 macOS 编译/执行仍待验证。此处修复诊断程序的编译表达式，上游算法、sigma、尺寸、原基线及 Windows 产品实现均未改动。
+
+2026-10-14 复查成功回传 `Mac149-glow-direct-20261013-222947`：九组 Float32 输入、原基线和全部 213 输出平面正确；v4 真实编译执行问题已解决。83/85 模糊上下文对满足 default=half RTZ(Float32-working)，其中全部 45 个 Float32 源样本精确满足。横向/恒色 35 平面仅为最近 half 的 0 或 ±1 Float32 ULP；纵向/二维 10 平面存在更大偏差，因此不能把所有结果都还原为同一 half 临时格式。固定线性核的叠加/平移反例还可能来自内部非线性量化，不能单独归因于采样位置。
+
+不同核形状、成对采样、坐标及数值积累的有界模型未跨脉冲/台阶/恒色精确，未改产品算法或门槛。下一判别是复用已在 Mac 运行的 Phase 7 公开 CIKernel 观察器，加上 [Apple 官方 CI_PRINT_TREE 调试输出](https://developer.apple.com/videos/play/wwdc2020/10089/) 的原始/优化/GPU 执行图。`Mac149-glow-arguments-v1.zip` 的 245 项启动哈希、ZIP、Unix 换行/权限及 Bash 语法已通过，218 项既有真实输出控制和自测保护已审核；实际 Mac 编译/执行尚未运行，未捕获内置入口明确记为不可取得。汇总见 `acceptance-status-glow-arguments-prepared-20261014.json`。Windows 原 107ms Fill 性能失败保持独立，整体仍未完成。
