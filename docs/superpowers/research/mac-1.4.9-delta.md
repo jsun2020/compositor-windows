@@ -183,3 +183,15 @@ Windows额外端到端绘线检查另发现两个真实问题：native和生产W
 下一判别包 `Mac149-glow-format-matrix-v1.zip` 固定相同输入/相位，仅切换RGBA16F、R16F、RGBA32F、R32F；新增格式不假定与旧格式等价。沿用字节不变的原Metal shader，RGBA16F全部1,354,237项必须保持；31,744个非负有限half→Float转换保存实际缓冲并逐字节自测，四个独立texel中心必须精确。32-bit过滤按[公开设备能力](https://developer.apple.com/documentation/metal/mtldevice/supports32bitfloatfiltering)自动判断；不支持记录UNAVAILABLE，不计通过。记录设备/能力和Swift版本，以区分格式转换与滤波运算，避免继续在同一近似族中穷举。本机9项实际Bash哈希、语法、ZIP内容/CRC/权限及输入/旧shader字节检查通过；包10,343,545 bytes，SHA256 `90563af4a9e125c32a021c04bc14894ae95dfd6e8b6d64c3cfb249a4737f8580`。中文步骤已提供，Mac新编译/执行仍 `NOT_RUN`，用户回传待核对。
 
 当前beam源码的三项TypeScript/前端构建已通过，`app/dist/assets` 内的WASM资产与上述e632二进制哈希一致。新汇总 `acceptance-status-basis-beam-format-matrix-prepared-20261015.json` 保留两次回归失败、完整范围对照及源码哈希；它只描述当前局部验证，不沿用旧 `3926872` 的完整包通过结论。完整Glow、最终portable与原性能重新绑定仍未完成。
+
+## 2026-10-15：Gaussian Rust 组件验证，产品集成继续保留门槛
+
+先更新 PRD 后，将六阶段运算和反推工作矩形移植到 `engine/src/adjust/scanlines_glow.rs`。模块仅由 `cfg(test)` 及独立诊断编译，产品 `ScanlinesSettings.apply` 尚未切换；没有引入近似二维 sampler，也未改其它效果 blur。显式实现正有限 half 解码、RTZ store、采样中点向上舍入、Q8 相位、F32 FMA，以及 U2 系数的分别舍入。half 存储使用 packed u16，尺寸乘法/单平面预算先检查，分配使用 try_reserve；链只保留输入与当前/下一阶段，诊断流式写出，避免同时保留六个完整中间平面。
+
+参数目录 `scanlines_glow/catalog.rs` 覆盖全部31个标准化整数间距，直接记录十组已观察 Float32 内核、external shrink、真实 halo 和 constructor sigma 位模式。转录时重新核对全部31个实际 report/encode/参数缓冲，回执 `gaussian-rust-catalog-transcription-20261015.json`。halo 保留实际值，不从 Float32 sigma 再取 ceil 推断；目录不接受其它间距，不作为任意 sigma 或其它效果接口。
+
+真实 native release 组件对照 `gaussian-rust-native-v3-comparison-20261015.json` 和独立优化 WASM 对照 `gaussian-rust-wasm-v4-comparison-20261015.json` 各1,358/1,358项逐字节一致：原163组加组合路径31组，捕获矩形六阶段连续计算的1,164个实际平面精确；另从最终尺寸、offset 和抽头支持推导最小矩形的194个最终平面精确。输入仅在链开头读取一次，没有每一级喂回 Mac 的正确上一层；对照直接读取真实回传文件，未把 Python 数值候选当 oracle。独立 WASM 1,521,612 bytes，SHA256 `c01950c5f782fb2e8b0bdbaf35404c6dc382eee1b38911e4db1fdc55626aaed8`，它是独立 Rust 组件诊断，不能冒充生产 WasmEngine 接口或新 portable。
+
+引擎库29项通过，包括六项新回归：全部31,744个正有限 half 位模式/相邻中点及其下一个 binary64 邻居、真实常量场的一 half ULP store 损失、实际 D2 half 采样中点反例、无效数据/尺寸/参数/中止传播和完整有限间距域。原生与 WASM 的源组件及目录哈希一致，运行前冻结的源/输入哈希在对照时再次检查；独立 runner 和编译产物另行绑定。早期独立 WASM wrapper 相对路径编译失败保留为 `gaussian-port-wasm-v3-build-20261015.log`，仅修正诊断路径后 v4 实际编译和全部对照通过，未改变数值组件。
+
+原 Mac149 集成五项亦通过，包含 Scanlines alpha/一个 Undo、物理单位/导出、旋转和效果保留。剩余外部缩小/最终二维采样仍需精确规则；当前没有新的 `Mac149-glow-format-matrix-日期-时间` 回传目录。原100MP Fill107ms失败、完整产品 Glow、新 portable 和当前源码的原性能协议均保持独立待验收。本轮没有运行新的硬件性能重试、改动门槛或发布。
