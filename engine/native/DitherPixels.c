@@ -427,7 +427,8 @@ static int draw_lines(uint8_t *rgba, size_t width, size_t height, size_t stride,
                 for (int k = 0; k < 3; ++k)
                     c[k] = original ? blackLevel + (1 - blackLevel) * scan[(size_t)k * plane + i] : screen[k] + (phosphor[k] - screen[k]) * level;
                 // Half the line's height: thinner where the picture is dim.
-                float beam = middle * thickness * (0.29f + 0.71f * sqrtf(clamp01(level)));
+                // Preserve the Mac compiler's fused coverage-factor rounding.
+                float beam = middle * thickness * phase7_mul_addf(0.71f, sqrtf(clamp01(level)), 0.29f);
                 long top = (long)floorf(rising ? lo - beam - 1 : fmaxf(lo - beam - 1, horizon - 1));
                 long bottom = (long)ceilf(rising ? fminf(hi + beam + 1, horizon + 1) : hi + beam + 1);
                 if (top < 0) top = 0;

@@ -179,7 +179,8 @@ impl ScanlinesSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::dither_glow;
+    use super::{dither_glow, ScanlineColors, ScanlinesSettings};
+    use crate::Raster;
 
     #[test]
     fn glow_composite_preserves_mac_fused_rounding_at_bright_edge() {
@@ -191,6 +192,35 @@ mod tests {
         ] {
             unsafe { dither_glow(drawn.as_mut_ptr(), light.as_ptr(), 1, 1, 4, 0.8) };
             assert_eq!(drawn, expected);
+        }
+    }
+
+    #[test]
+    fn scanline_beam_preserves_mac_fused_rounding_at_coverage_edge() {
+        // Independent columns from the synthetic mac149_probes generator.
+        // Glow is off; these Mac-returned values isolate beam coverage.
+        for (spacing, x, top, row, expected) in [
+            (24_u32, 101_u32, 72_u32, 18_usize, [35, 36, 35, 71]),
+            (29, 94, 29, 22, [101, 92, 89, 213]),
+        ] {
+            let mut straight = Vec::new();
+            for y in top..top + spacing {
+                let alpha = if y < 48 { 255 } else { ((x * 17 + y * 13) % 256) as u8 };
+                straight.extend([
+                    ((x * 31 + y * 7) % 256) as u8,
+                    ((x * 3 + y * 41) % 256) as u8,
+                    ((x * 19 + y * 23) % 256) as u8,
+                    alpha,
+                ]);
+            }
+            let source = Raster::from_straight(1, spacing, &straight);
+            let settings = ScanlinesSettings {
+                line_spacing: spacing as f64,
+                colors: ScanlineColors::Original,
+                ..Default::default()
+            };
+            let drawn = settings.apply(&source).unwrap();
+            assert_eq!(&drawn.bytes()[row * 4..row * 4 + 4], &expected);
         }
     }
 }

@@ -167,3 +167,19 @@ Windows 后续在当前 `3926872` 冻结资产完成一次低干扰 Long Animati
 FMA 修正的实际生产 release WASM 已构建并通过二进制/108 个 JS glue 调用导出核对：16,987,539 bytes，SHA256 `86f21ed2ae923061e0a926c77807f695ef5759e681ce9dca37e7efec6214b68d`。Node 实际装入该生产二进制，直接调用 `phase7_mul_addf` 与 `compositor_exp`，用逐步独立 Float32 舍入重放周围 C 标量计算，真实 Mac bloom 的 31 项最终合成全部精确，结果为 `glow-fma-wasm-runtime-check-20261015.json`。该检查验证真实 WASM 数学边界，不是完整 C 调用图或当前 Gaussian 路径，也不替代新的 portable 和完整验收。原 107ms Fill 失败继续保留。
 
 三项 TypeScript 检查和前端生产构建也通过，日志 `glow-fma-web-build-20261015.log`；仅保留原有未使用参数/包体大小警告，没有放宽配置。最新独立汇总 `acceptance-status-composite-fma-basis-prepared-20261015.json` 将本轮局部验证与历史 `3926872` 完整包验收分开；当前仍未生成新 portable，1.4.9 增量 `INCOMPLETE`。
+
+## 2026-10-15：缩小有限域验证、绘线修正与格式判别
+
+`Mac149-glow-sampler-basis-20261015-153432` 已完成编译执行，独立核对 12 启动哈希、11 收据文件、完整输入拼接、19 个 quad 的全部257×257相位。half/float 两个输出共1,354,237样本逐字节相同且均可无损表示为half；原99,306项严格守卫不变。72个缩小平面均有限、非负且尺寸正确，三项shrink1的无限边缘及行方向与源RGBA8精确一致。证据 `glow-sampler-basis-153432-return-review-20261015.json`；收据中的旧 `NOT_RUN` 不覆盖实际执行结果。
+
+缩小模型修正了两个结构问题：shrink9/17/18的实际路径比旧floor(log2)少一级；shrink2奇数高度须按原始行相位直接采四个RGBA8像素，不能先做固定mip再插值。当前全部23种合法整数shrink在三种尺寸上的69/69平面精确；采用覆盖完整有限域的LOD状态目录，不声称已确定Apple连续缩放阈值。正好2的幂的相邻LOD在现有输入上不可区分，选用较低层亦全部精确。`20261015-reduction-domain-catalog.py/.json` 提供纯函数与源哈希。由 supplied drawn RGBA8 计算Gaussian最终纹理31/31精确；实际MPS输入还有四个half元素不同，186个阶段仅一个stage0元素不同，下一阶段消失。这不等于输入/全阶段已精确，也不代表模型已集成产品。
+
+19个采样网格中14个精确，尾数敏感的五个网格共7,800个分量不符。独立控制否定了max-input/product共享指数截断、共享RGBA指数、普通IEEE F32 RNE/FMA、串行/成对求和、带符号lerp及仅排除零权重输入等候选；停止扩大这类拟合。即使到RGBA8，九图naive仍差62字节、前轮e−19近似仍差22字节，不能用于严格通过。记录 `20261015-sampler-basis-verdict.md` 及关联JSON，保留所有反例。
+
+Windows额外端到端绘线检查另发现两个真实问题：native和生产WASM的Glow0均为29/31，spacing24的[90,101,R]和spacing29的[51,94,B]各差一字节。四个独立C对照证明只需把beam因子`0.29+0.71*sqrt(level)`写成显式FMA；仅修改灰度加权没有修复，所以后者保持。两个可生成的1列24/29像素回归先在旧代码实际失败（exit101），之后只在beam表达式复用已有Rust `phase7_mul_addf`。原生和真实生产WASM的31组绘线全部精确，原四组非Glow配方也各4/4精确。新结果不再把Mac预先绘制数据当成Windows绘制证明。源码回归/集成/边界23+5+11通过；完整Glow仍待独立采样规则与最终实现。
+
+新release WASM已构建并核对108个glue调用：16,987,544 bytes，SHA256 `e632bfc78b25ac6a8fa4e164aa19c9c0c5c0f525e65d62ba34c5911d5e280fba`。`drawn31-wasm-comparison-beam-fma-20261015.json` 使用真实WasmEngine的paste/ApplyFilter/层像素API；`glow-fma-wasm-runtime-check-beam-fma-20261015.json` 另行确认既有31组合成数学边界精确，不能代替完整C调用图或Gaussian。native对应结果及四个旧配方对照均保留。未生成新portable，旧原100MP Fill107ms失败与完整包/source绑定保持。
+
+下一判别包 `Mac149-glow-format-matrix-v1.zip` 固定相同输入/相位，仅切换RGBA16F、R16F、RGBA32F、R32F；新增格式不假定与旧格式等价。沿用字节不变的原Metal shader，RGBA16F全部1,354,237项必须保持；31,744个非负有限half→Float转换保存实际缓冲并逐字节自测，四个独立texel中心必须精确。32-bit过滤按[公开设备能力](https://developer.apple.com/documentation/metal/mtldevice/supports32bitfloatfiltering)自动判断；不支持记录UNAVAILABLE，不计通过。记录设备/能力和Swift版本，以区分格式转换与滤波运算，避免继续在同一近似族中穷举。本机9项实际Bash哈希、语法、ZIP内容/CRC/权限及输入/旧shader字节检查通过；包10,343,545 bytes，SHA256 `90563af4a9e125c32a021c04bc14894ae95dfd6e8b6d64c3cfb249a4737f8580`。中文步骤已提供，Mac新编译/执行仍 `NOT_RUN`，用户回传待核对。
+
+当前beam源码的三项TypeScript/前端构建已通过，`app/dist/assets` 内的WASM资产与上述e632二进制哈希一致。新汇总 `acceptance-status-basis-beam-format-matrix-prepared-20261015.json` 保留两次回归失败、完整范围对照及源码哈希；它只描述当前局部验证，不沿用旧 `3926872` 的完整包通过结论。完整Glow、最终portable与原性能重新绑定仍未完成。
