@@ -10,6 +10,10 @@ thread_local! {
 }
 // Kernel scratch only; image/history keep their existing independent budgets.
 const SCRATCH_LIMIT: usize = 1536 * 1024 * 1024;
+#[no_mangle]
+extern "C" fn phase7_mul_addf(a: f32, b: f32, c: f32) -> f32 {
+    a.mul_add(b, c)
+}
 pub(super) fn begin() {
     FAILED.with(|f| f.set(false));
 }

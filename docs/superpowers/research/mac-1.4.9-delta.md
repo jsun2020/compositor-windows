@@ -151,3 +151,19 @@ Windows 后续在当前 `3926872` 冻结资产完成一次低干扰 Long Animati
 下一包 `Mac149-glow-composite-v1.zip` 在全部 443 原控制完成后，继续守卫上次 978 阶段及 163 最终输出，并验证新增实际输入 snapshot 与已知上传相同。再对所有 31 个合法整数间距重放完整上游绘制/缩小/Gaussian/放大/原 C 合成，原入口和独立组合结果必须一致；捕获同线程 Gaussian encode 范围内的真实输入及六阶段输出，避免把独立 halo 误当组合路径输入。另以四 texel/相位和四个独立中心自测做 99,306 项 half/float Metal sampler 判别。旧输出对比是诊断，不自动把差异算通过。当前 compute sampler 的默认 LOD=0 符合 Apple Metal Shading Language Specification（2026-06-04，PDF 第 239 页），本机无 Mac 编译器，不能据静态审阅声称编译通过。
 
 该新包 1,716 项实际 Bash SHA256 校验、脚本语法、ZIP CRC/内容/Unix 权限及本地控制字节检查通过；ZIP 4,917,650 bytes，SHA256 `d710a7727ddafcded35055f3fdfe87b24828139e757f33fe55ce75a8937e7304`。Mac 编译、组合捕获及 sampler 输出均 `NOT_RUN`，中文 `MAC-STEPS.md` 随包提供。最新汇总 `acceptance-status-stages-success-composite-prepared-20261015.json`。Windows 产品源码仍为 `3926872`；原 107ms Fill 失败、所有原预算和历史失败保留，整体状态 `INCOMPLETE`。
+
+## 2026-10-15：完整间距覆盖与合成 FMA 修正
+
+`Mac149-glow-composite-20261015-075932` 已真实编译运行；独立复核 1,716 启动哈希、1,715 收据文件、443 原输出、978 旧阶段和 163 旧最终输出。新增 163 个输入 snapshot 与实际上传相同；31 种间距的组合重放与 untouched `Scanlines.apply` 全字节一致，186 个新中间平面的尺寸/格式/参数/有限值均核对。两种独立 sampler 各 99,306 样本（397,224 分量）彼此和旧目标全字节相同，直接排除这些旧样本的组合路径输入不一致假说。收据的 `NOT_RUN` 是制作时快照，本次结果由 run.log 和独立文件复核证明。证据 `glow-composite-075932-return-review-20261015.json`。
+
+实际 Gaussian 输入串联既有软件数学，31×6=186 个平面精确；独立推导 ROI 的 31 个最终纹理也精确。全部构造器/encode 的 sigma Float32 位模式和阶段参数与前轮记录一致，补齐此前未直接测过的 15 个 sigma 设置。可采用有限、完整的间距 2～32 → 十组内核参数目录（103 个唯一 Float32 数值）；不需要拟合或推断 sigma 分组，目录保存算法系数而非像素答案。该方案的适用域必须限定为标准化 Scanlines，不能外推其它效果、任意 sigma、尺寸规划或其它 GPU/MPS 版本。私有目录 `20261015-direct-spacing-kernel-catalog-candidate.json` 尚未用于产品。
+
+外部 reduction 旧模型直接预测实际输入仅 23/31 精确。相邻 mip 层比较发现 shrink=9、17、18 的五项应少一层，其余大差异消失；具体通用 LOD 决策尚未证明，不能写成三个 shrink 特例。纠正已观察层级后还有四个独立 half 采样差一阶的反例；它们和 standalone sampler 都证明普通四项加权、half 中点向上模型不充分。新数据表明扩大到 31 项后不能继续沿用旧五项“仅差三个字节”的整体描述。固定共享指数截断虽能减少差异，仍使九图的 RGBA8 输出有 22 个错误字节，不采用近似候选。`sampler-byte-boundaries-native-fma-20261015.json` 单独保存了使用真实 C FMA 合成后的误差，较早 NumPy exp 模型的数值报告保留为历史诊断。
+
+新增独立合成判别明确发现第二个问题：传入真实 Mac bloom 时，Windows 原 C 非融合末步在 spacing 10/15 共四字节不同，显式 FMA 则 31/31 精确。两个独立 bright-edge 回归值可在不经过 Gaussian 的情况下复现：[250,151,196,255] 与 bloom [57,58,58,234] 应为 [253,185,224,255]，旧代码红色为254。现在仅将 `dither_glow` 末步写为 `phase7_mul_addf`，由 Rust `f32::mul_add` 在 native/WASM 共用边界实现，保留 expf、其它运算顺序和其它滤镜。回归先在原代码实际失败（exit101），修正后通过；引擎库22项、Mac149集成5项及 WASM边界11项均通过。实际 release WASM 构建及导出验证另行记录；这些局部检查不替代生产包、完整功能和原性能验收。
+
+下一独立判别 `Mac149-glow-sampler-basis-v1.zip` 保持原 99,306 项 half/float sampler 输出为严格前缀守卫，使用同一已在 Mac 运行的 shader/atlas 实现；新增19组已知基向量、指数差、同指数 mantissa 和四个独立缩小反例，覆盖全部257×257相位，共1,254,931项。另以三种原始尺寸、shrink1～24保存72个独立缩小平面及 unfiltered 行方向对照，不再重跑整套 Glow。新数值未知，不以占位零差异作为成功断言；全部原参考保持。12项实际 Bash哈希、语法、ZIP内容/CRC/权限及全部输入四texel/Q8相位检查通过，Mac编译/新结果仍 `NOT_RUN`。包3,766,455 bytes，SHA256 `aec6afd76b7d9b604f083646f2fb46dab1b63d94d0381a749460c0ab3d798f56`。中文 `MAC-STEPS.md` 随包，无需手动调参数。
+
+FMA 修正的实际生产 release WASM 已构建并通过二进制/108 个 JS glue 调用导出核对：16,987,539 bytes，SHA256 `86f21ed2ae923061e0a926c77807f695ef5759e681ce9dca37e7efec6214b68d`。Node 实际装入该生产二进制，直接调用 `phase7_mul_addf` 与 `compositor_exp`，用逐步独立 Float32 舍入重放周围 C 标量计算，真实 Mac bloom 的 31 项最终合成全部精确，结果为 `glow-fma-wasm-runtime-check-20261015.json`。该检查验证真实 WASM 数学边界，不是完整 C 调用图或当前 Gaussian 路径，也不替代新的 portable 和完整验收。原 107ms Fill 失败继续保留。
+
+三项 TypeScript 检查和前端生产构建也通过，日志 `glow-fma-web-build-20261015.log`；仅保留原有未使用参数/包体大小警告，没有放宽配置。最新独立汇总 `acceptance-status-composite-fma-basis-prepared-20261015.json` 将本轮局部验证与历史 `3926872` 完整包验收分开；当前仍未生成新 portable，1.4.9 增量 `INCOMPLETE`。

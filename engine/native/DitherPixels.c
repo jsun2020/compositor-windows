@@ -300,7 +300,9 @@ void dither_glow(uint8_t *rgba, const uint8_t *glow, size_t width, size_t height
                     // The light eases in as the pixel nears full brightness rather than clipping there, so where the
                     // picture is bright the gaps between lines glow without filling up to the lines.
                     float v = row[x + c], added = (float)light[x + c] * amount * a / 255.0f, room = (a - v) * 0.7f;
-                    if (room > 0) v += room * (1 - expf(-added / room));
+                    // Apple clang contracts this accumulation. Make that single
+                    // rounding explicit across the native and WASM compilers.
+                    if (room > 0) v = phase7_mul_addf(room, (1 - expf(-added / room)), v);
                     row[x + c] = (uint8_t)lroundf(v > a ? a : v);
                 }
             }

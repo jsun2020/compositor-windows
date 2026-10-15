@@ -176,3 +176,21 @@ impl ScanlinesSettings {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::dither_glow;
+
+    #[test]
+    fn glow_composite_preserves_mac_fused_rounding_at_bright_edge() {
+        // Actual Mac 1.4.9 composite return, spacing 10/15. Bloom is supplied
+        // independently here so this catches compositing precision only.
+        for (mut drawn, light, expected) in [
+            ([250, 151, 196, 255], [57, 58, 58, 234], [253, 185, 224, 255]),
+            ([250, 159, 193, 255], [57, 57, 56, 206], [253, 192, 221, 255]),
+        ] {
+            unsafe { dither_glow(drawn.as_mut_ptr(), light.as_ptr(), 1, 1, 4, 0.8) };
+            assert_eq!(drawn, expected);
+        }
+    }
+}
