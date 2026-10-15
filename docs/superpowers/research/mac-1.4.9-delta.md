@@ -195,3 +195,17 @@ Windows额外端到端绘线检查另发现两个真实问题：native和生产W
 引擎库29项通过，包括六项新回归：全部31,744个正有限 half 位模式/相邻中点及其下一个 binary64 邻居、真实常量场的一 half ULP store 损失、实际 D2 half 采样中点反例、无效数据/尺寸/参数/中止传播和完整有限间距域。原生与 WASM 的源组件及目录哈希一致，运行前冻结的源/输入哈希在对照时再次检查；独立 runner 和编译产物另行绑定。早期独立 WASM wrapper 相对路径编译失败保留为 `gaussian-port-wasm-v3-build-20261015.log`，仅修正诊断路径后 v4 实际编译和全部对照通过，未改变数值组件。
 
 原 Mac149 集成五项亦通过，包含 Scanlines alpha/一个 Undo、物理单位/导出、旋转和效果保留。剩余外部缩小/最终二维采样仍需精确规则；当前没有新的 `Mac149-glow-format-matrix-日期-时间` 回传目录。原100MP Fill107ms失败、完整产品 Glow、新 portable 和当前源码的原性能协议均保持独立待验收。本轮没有运行新的硬件性能重试、改动门槛或发布。
+
+## 2026-10-16：纹理采样精确判别与 Scanlines Glow 集成
+
+实际 `Mac149-glow-format-matrix-20261015-234827` 回传在 Apple M5 Pro/macOS26.5.2 上编译执行成功。9项启动哈希、8个收据输入、全部1,354,237个原RGBA16F采样和31,744个half转换控制通过；RGBA16F/R16F/RGBA32F/R32F均实际支持并输出。相同精度的R/RGBA红通道完全相同，排除本组数据中的跨通道共享指数。32位纹理输出有4,620,373个非half分量，精确实数加权再Float32正中点向上舍入匹配全部5,416,948分量。普通IEEE ties-even仍差131,072分量。证据 `glow-format-matrix-234827-return-review-20261016.json`、`glow-format-rounding-discriminator-20261016.json`。
+
+half路径需在乘积规格化之前相加指数。对每个非零texel及非零合并二维权重，取 `e_i=floor(log2(texel_i))+floor(log2(weight_i))`，共同网格 `step=2^(max(e_i)-17)`；各 `texel_i*weight_i` 先向下截到此网格，再相加、以half正中点向上舍入。权重为Q8两个轴相乘的精确Q16值。这个统一表达式全部1,354,237个样本精确；先算乘积再取其指数的旧近似仍不成立。只按两个乘法布局判别，并未进行新的精度参数穷举。`glow-format-prenormalization-discriminator-20261016.json` 保留其它失败。
+
+独立整数实现由half significand和幂次直接计算：乘积整数为 `mantissa*weightQ16`，按 `shift=max(e_i)-sourcePower-1` 右移（负值左移），四项相加后乘同一二进制幂再half舍入。native Rust及独立优化WASM均完整核对1,354,237项、零分量差异；不依赖图像哈希或参考输出分支。当前WASM算术回执为 `sampler-port-wasm-comparison-20261016.json`。全部样本四通道和旧19个Q8网格均在覆盖范围。
+
+该纹理sampler不应不加区分套用到缩小算子。两次源图链判别替换缩小残余采样/后续mip后，仅64/69独立缩小平面精确，spacing28/30又有新的内部差异；`glow-prenorm-source-chain-proof-20261016.json` 和v2保留。正式缩小沿用此前已独立验证69/69的精确加权/half运算模型，最终Gaussian纹理的放大使用新sampler。没有根据“哪个像素能通过”选择分支，也不从这些值推断未知CI内部纹理格式。缩小网格改为有限原始区域外各一个显式边缘cell，后续在原始全局mip相位采样；使无限原始边缘语义成立，同时避免将大halo扩成整幅源分辨率缓冲。
+
+正式 `ScanlinesSettings.apply` 已切换新的缩小/Gaussian/放大，仅在Glow>0执行；其它效果blur保持。去除原流程的两份全尺寸绘线副本，输出及各中间平面先检查尺寸/预算、try_reserve后分配。全31间距的真实native引擎原图到完整Glow与Mac未经修改入口逐字节一致，独立69缩小平面也全部精确。真实生产WasmEngine通过paste/ApplyFilter/层像素读取的31间距＋原五配方为36/36精确，Undo/Redo均精确。组合MPS输入仍为27/31，四个单half差异保留；它们不改变31个Gaussian最终纹理、bloom或最终Glow，不能称内部链全部精确。证据 `glow-integrated-native-v1-comparison-20261016.json`、`glow-integrated-wasm-v1-comparison-20261016.json`。
+
+生产release WASM构建和108个glue调用校验通过，17,001,858 bytes，SHA256 `c309d1a5f6aa008a902b7d8f3edf9d0e103a41475eee20d56bc7b3b5d4dd7856`。新增实际sampler反例、subnormal/corner、奇数行相位/无限边缘、薄轴/透明图及四个真实Mac整图哈希回归。完整引擎714项和WASM边界11项原生测试通过；实际原生入口生成的原Mac28项对照全部精确，包含原Glow案例。三项TypeScript检查、前端构建及45文件308项前端单位测试通过，原断言/5秒预算未改。独立汇总 `glow-integrated-source-validation-20261016.json` 和 `glow-integrated-vitest-20261016.log`；Windows shell后端、完整浏览器、新portable与硬件环境另验。原CPU107ms失败继续保留，新原29＋4控制器只换新证据路径/端口、单worker零重试；未启动硬件协议，当前Windows单屏但锁定。新portable和整体验收继续未完成，未推送或发布。

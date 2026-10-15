@@ -6,9 +6,6 @@ pub mod hsv;
 pub mod grain;
 pub mod filters;
 pub mod scanlines;
-// Keep the portable Gaussian component behind its validation gate until the
-// surrounding two-dimensional sampler has an exact, independently tested rule.
-#[cfg(test)]
 mod scanlines_glow;
 pub mod prepared;
 pub mod apply;

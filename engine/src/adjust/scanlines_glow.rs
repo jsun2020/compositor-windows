@@ -1,13 +1,17 @@
-//! Portable Scanlines Gaussian component under validation.
+//! Portable Scanlines Glow components, validated independently against Mac.
 //!
-//! This module is deliberately test/diagnostic-only until the surrounding 2D
-//! texture sampling rule is proved. It is not the general effects blur. The
-//! six stages reproduce the independently observed Mac 1.4.9 default path;
+//! This is not the general effects blur. The six Gaussian stages reproduce
+//! the independently observed Mac 1.4.9 default path;
 //! callers supply input-independent kernel constants, never reference pixels.
 
 #[path = "scanlines_glow/catalog.rs"]
 mod catalog;
 pub(crate) use catalog::for_spacing;
+#[path = "scanlines_glow/resize.rs"]
+mod resize;
+#[path = "scanlines_glow/sampling.rs"]
+pub(crate) mod sampling;
+pub(crate) use resize::{bloom, reduce};
 
 const MAX_SIDE: usize = 30_128;
 // A 100 MP source reduced by at least two, including its Gaussian halo.

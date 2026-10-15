@@ -155,13 +155,12 @@ impl ScanlinesSettings {
             ));
         }
         if s.glow > 0. {
-            let drawn = Raster::from_premultiplied(source.width, source.height, bytes);
-            let light = crate::effects::render::blur_rgba_clamped(&drawn, s.line_spacing * 3. + 3.);
-            bytes = drawn.bytes().to_vec();
+            let light = super::scanlines_glow::bloom(&bytes, w, h, s.line_spacing as u8)
+                .map_err(|e| CommandError::Refused(e.into()))?;
             unsafe {
                 dither_glow(
                     bytes.as_mut_ptr(),
-                    light.bytes().as_ptr(),
+                    light.as_ptr(),
                     w,
                     h,
                     w * 4,
@@ -187,8 +186,16 @@ mod tests {
         // Actual Mac 1.4.9 composite return, spacing 10/15. Bloom is supplied
         // independently here so this catches compositing precision only.
         for (mut drawn, light, expected) in [
-            ([250, 151, 196, 255], [57, 58, 58, 234], [253, 185, 224, 255]),
-            ([250, 159, 193, 255], [57, 57, 56, 206], [253, 192, 221, 255]),
+            (
+                [250, 151, 196, 255],
+                [57, 58, 58, 234],
+                [253, 185, 224, 255],
+            ),
+            (
+                [250, 159, 193, 255],
+                [57, 57, 56, 206],
+                [253, 192, 221, 255],
+            ),
         ] {
             unsafe { dither_glow(drawn.as_mut_ptr(), light.as_ptr(), 1, 1, 4, 0.8) };
             assert_eq!(drawn, expected);
@@ -205,7 +212,11 @@ mod tests {
         ] {
             let mut straight = Vec::new();
             for y in top..top + spacing {
-                let alpha = if y < 48 { 255 } else { ((x * 17 + y * 13) % 256) as u8 };
+                let alpha = if y < 48 {
+                    255
+                } else {
+                    ((x * 17 + y * 13) % 256) as u8
+                };
                 straight.extend([
                     ((x * 31 + y * 7) % 256) as u8,
                     ((x * 3 + y * 41) % 256) as u8,
