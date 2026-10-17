@@ -150,15 +150,42 @@ fn paint_grid_channels<const CHANNELS: usize>(doc: &Document, data: &mut [u8], w
     // inspecting its enum for every preview/commit pixel. Keep the original
     // Float64 expressions and rounding, including the radial path.
     match Ramp::of(paint) {
-        Ramp::Solid => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint, |_, _| 0.0),
-        Ramp::Linear { x: sx, y: sy, ux, uy } => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
-            |x, y| ((x - sx) * ux + (y - sy) * uy).clamp(0.0, 1.0)),
+        Ramp::Solid => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint, |_, _, _, _| 0.0),
+        Ramp::Linear { x: sx, y: sy, ux, uy } => {
+            let m = transform.pixel_to_document(width, height);
+            if let Some((xs, ys)) = linear_axis_terms(m, width, height, sx, sy, ux, uy) {
+                paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
+                    |x, y, _, _| (xs[x] + ys[y]).clamp(0.0, 1.0))
+            } else {
+                paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
+                    |_, _, x, y| ((x - sx) * ux + (y - sy) * uy).clamp(0.0, 1.0))
+            }
+        },
         Ramp::Radial { x: sx, y: sy, inverse } => paint_grid_ramp::<CHANNELS, _>(doc, data, width, height, transform, coverage, paint,
-            |x, y| (((x - sx) * (x - sx) + (y - sy) * (y - sy)).sqrt() * inverse).min(1.0)),
+            |_, _, x, y| (((x - sx) * (x - sx) + (y - sy) * (y - sy)).sqrt() * inverse).min(1.0)),
     }
 }
 
-fn paint_grid_ramp<const CHANNELS: usize, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+/// An axis-aligned linear ramp repeats the same Float64 column and row terms.
+/// Cache those expressions without reassociation, recurrence or a colour LUT.
+/// The optional cache is bounded to 1 MiB, including very thin public grids.
+fn linear_axis_terms(m: Affine, width: u32, height: u32, sx: f64, sy: f64, ux: f64, uy: f64) -> Option<(Vec<f64>, Vec<f64>)> {
+    if width == 0 || height == 0 || m.b != 0.0 || m.c != 0.0
+        || ![m.a, m.d, m.tx, m.ty].iter().all(|v| v.is_finite())
+        || u64::from(width) + u64::from(height) > 1024 * 1024 / 8 { return None; }
+    let mut xs = Vec::new(); let mut ys = Vec::new();
+    xs.try_reserve_exact(width as usize).ok()?;
+    ys.try_reserve_exact(height as usize).ok()?;
+    let first = m.apply(Point { x: 0.5, y: 0.5 });
+    for x in 0..width { xs.push(((first.x + m.a * x as f64) - sx) * ux); }
+    for y in 0..height {
+        let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
+        ys.push(((first.y + m.b * 0.0) - sy) * uy);
+    }
+    Some((xs, ys))
+}
+
+fn paint_grid_ramp<const CHANNELS: usize, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let opaque = match paint {
         Paint::Fill(_) => true,
         Paint::Gradient(g) => g.from[3] == 1.0 && g.to[3] == 1.0 && g.opacity == 1.0,
@@ -170,7 +197,7 @@ fn paint_grid_ramp<const CHANNELS: usize, F: Fn(f64, f64) -> f64>(doc: &Document
     }
 }
 
-fn paint_grid_coverage<const CHANNELS: usize, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+fn paint_grid_coverage<const CHANNELS: usize, const OPAQUE: bool, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     // Likewise, the presence of a selection is fixed for the whole grid. The
     // uncovered loop needs no per-pixel Option branch or coverage lookup.
     if coverage.is_some() {
@@ -180,7 +207,7 @@ fn paint_grid_coverage<const CHANNELS: usize, const OPAQUE: bool, F: Fn(f64, f64
     }
 }
 
-fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, const OPAQUE: bool, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, transform: &LayerTransform, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let m = transform.pixel_to_document(width, height);
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     // These are the exact endpoint expressions used by the loop below. Each
@@ -201,7 +228,7 @@ fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, const OPAQUE: b
     }
 }
 
-fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, const OPAQUE: bool, F: Fn(f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, const OPAQUE: bool, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     let w = width as usize;
     let (from, to, opacity) = match paint {
@@ -223,7 +250,7 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
             let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
             if CLIPPED && (dx < 0.0 || dy < 0.0 || dx >= cw || dy >= ch) { continue; }
             touched = true;
-            let t = sample(dx, dy);
+            let t = sample(x, y, dx, dy);
             // With full coverage and finite ramp position, source alpha is
             // exactly one. Preserve the original channel expression and half
             // up rounding, while avoiding a destination read and blend. A
@@ -246,6 +273,50 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
         }
     }
     touched
+}
+
+#[cfg(test)]
+mod linear_axis_tests {
+    use super::*;
+
+    #[test]
+    fn cached_terms_keep_original_float64_order_and_signed_zero() {
+        // The old scalar coordinate/ramp expressions are the compatibility
+        // reference: recurrence or reassociation changes boundary pixels.
+        let scales = [0.0, -0.0, f64::from_bits(1), -8.125, 16.0, 1e300];
+        let lines = [(17.25, 19.5, 1.0 / 255.0, -0.0125),
+            (0.0, -0.0, 0.0, -0.0), (1e100, -1e100, 1e-100, -1e-100)];
+        for a in scales { for d in scales { for tx in [0.0, -0.0, -14.25] {
+            for (sx, sy, ux, uy) in lines {
+                let m = Affine { a, b: -0.0, c: 0.0, d, tx, ty: -7.125 };
+                let (xs, ys) = linear_axis_terms(m, 13, 11, sx, sy, ux, uy).unwrap();
+                for y in 0..11 {
+                    let first = m.apply(Point { x: 0.5, y: y as f64 + 0.5 });
+                    for x in 0..13 {
+                        let (dx, dy) = (first.x + m.a * x as f64, first.y + m.b * x as f64);
+                        let expected = ((dx - sx) * ux + (dy - sy) * uy).clamp(0.0, 1.0);
+                        let actual = (xs[x] + ys[y]).clamp(0.0, 1.0);
+                        if expected.is_nan() { assert!(actual.is_nan()); }
+                        else { assert_eq!(actual.to_bits(), expected.to_bits()); }
+                    }
+                }
+            }
+        } } }
+    }
+
+    #[test]
+    fn optional_axis_cache_is_bounded_and_rejects_unsupported_grids() {
+        let m = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+        let terms = |matrix, w, h| linear_axis_terms(matrix, w, h, 0.0, 0.0, 0.5, 0.5);
+        assert!(terms(m, 131071, 1).is_some());
+        for (w, h) in [(0, 13), (13, 0), (131072, 1), (u32::MAX, 1)] {
+            assert!(terms(m, w, h).is_none());
+        }
+        assert!(terms(Affine { b: 0.25, ..m }, 13, 11).is_none());
+        assert!(terms(Affine { c: f64::from_bits(1), ..m }, 13, 11).is_none());
+        assert!(terms(Affine { a: f64::NAN, ..m }, 13, 11).is_none());
+        assert!(terms(Affine { ty: f64::INFINITY, ..m }, 13, 11).is_none());
+    }
 }
 
 /// A covering mask carried onto the layer's new, trimmed grid (`crop` of `grid`): the old mask
