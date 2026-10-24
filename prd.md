@@ -1,6 +1,6 @@
 # Compositor for Windows 产品需求
 
-更新时间：2026-10-15。
+更新时间：2026-10-24。
 
 ## 产品与当前基线
 
@@ -12,7 +12,13 @@
 
 跟进 Mac **v1.4.9** 的用户可见变化，固定提交 `0ab3ff58a3dcf3d52a455fe3ab0336ac95923edd`。对照起点为 v1.4.5 `086f1631573ccb2b57644e53b52bf1488fc976aa`。研究依据见 [版本差异](docs/superpowers/research/mac-1.4.9-delta.md)。
 
-本次可规划为 Windows 0.10.0 候选版；通过验收前不宣称完整对齐，不改写已发布的 0.9.0。`.comp` 保持读版本 1～11、写版本 11，无格式迁移。
+本次增量定版为 Windows 0.10.0。本轮必需验收已通过，用户已授权 commit、推送 GitHub 和发布；沿用现有 Windows CI 发布门槛，不改写已发布的 0.9.0。`.comp` 保持读版本 1～11、写版本 11，无格式迁移。
+
+## 2026-10-24 当前验收与发布授权
+
+本轮必需验收已完成：原生引擎及 Windows 外壳 751 项、前端单元 310 项、完整浏览器功能 344 项、原 CPU 29 项、GPU 4 项全部通过；生产便携包、两类 RAW 各六组显影、25 次原生对话框及独立图片/PDF 读取通过。36 组当前生产 WASM/Mac 最终像素对比精确。968 项冻结输入一致，锁屏策略前后相同。10 项原有忽略诊断不计作通过；33 项功能层性能 opt-in 由独立硬件协议覆盖。详见 [本轮验收报告](docs/superpowers/research/mac-1.4.9-acceptance-20261023.md)。
+
+用户已在本轮验收后明确授权提交、推送和发布。Windows 版本元数据统一为 0.10.0；新发布包由 clean-source Windows CI 验证并构建，旧 0.9.0 发布保持不变。下文旧“未完成／不发布”条目保留为对应日期及源码的历史状态，不代表当前授权或验收结论。
 
 ## 范围与验收要求
 
@@ -61,6 +67,18 @@
 - 渐变的后续实施范围先限于轴对齐 Linear：复用每列、每行中完全相同的 Float64 算术项，保留原减法／乘法、最终加法、clamp 与通道舍入顺序；不使用递推、近似 LUT、额外 FMA 或降低预览分辨率。非轴对齐、Radial 和无效变换保留原路径。先做独立内核的完整字节／有界计时实验，有收益后再接入真实引擎，并核对既有冻结像素、实际生产 WASM 与原完整性能协议。
 - 长帧继续单独处理。没有资源所有权与异步任务安全证据前，不直接在 pagehide 释放仍可能使用的 WASM 指针，不借延后到计时外、强制 GC、改变浏览器配置、提高预算或增加重试来计通过。
 - 轴项缓存额外工作内存上限为1MiB；零尺寸、非有限／非轴对齐变换、超过缓存上限或可选缓存分配失败均退回原逐像素计算。独立实验36组完整像素相同；其计时期间发现另一个磁盘清理扫描进程，因此只保留为未充分控制环境的候选数据，不能据此声称原性能门槛通过。
+- `0e9206b` 的新生产包、原25次原生交互及原4项GPU性能通过；单屏解锁的原完整CPU对照为26/29，881条环境采样全部满足条件。实际失败为100MP任务帧间隔122ms（<100ms）、Levels结果安装464ms（<450ms）、覆盖蒙版渐变52ms（<50ms）。不能再将这些失败归因于锁屏；此前无测试接口的错误测试构建、锁屏运行与全部原断言／预算均保留。
+- 完整浏览器342/343的首项5秒就绪超时仍保留。独立单次启动诊断的页面加载后等待约870ms，流式编译约223ms、实例化约12ms，没有复现；该诊断不替代原功能失败。只读检查记录当时连接交流电、节电关闭、Balanced方案，不据测试结束后的进程快照推断测试期间的负载或修改系统策略。
+- 下一步渐变候选只复用不透明灰度RGB中完全相同的通道算术：须验证RGB的起值与差值Float64位模式相同，且本像素覆盖完整、源alpha为1；沿用原表达式与舍入，将同一字节写入三个通道。彩色、部分覆盖、非不透明与单通道蒙版保留原计算。先做独立真实内核的完整像素／有界AB/BA实验，有收益再接入；不能据此宣称解决安装耗时或主线程回收长帧。
+- 上述隔离实验的81组输出逐字节相同；不透明灰度的两种网格与Linear／Radial／非轴对齐样本内核中位耗时改善约1.72～2.02倍，彩色与部分覆盖不据微基准宣称改善。首次私有脚手架编译因换行／Rust edition／类型标注失败，未运行实验，失败原件保留；修正后结果不代替原性能协议。现仅合入相同位模式下的通道表达式复用，并新增独立原标量混合算术的舍入／fallback回归；当前原完整验收仍未完成。
+
+## 2026-10-18 当前验收与黑色渐变候选
+
+- 不透明灰度候选的完整 Rust 工作区为747项通过、10项原有忽略；前端45个文件308项、三项TypeScript检查与构建通过。实际生产WASM的96组渐变完整缓冲／两种预览／提交／Undo／Redo、36组Mac Glow输出逐字节一致。本轮原功能为342/343，首项引擎就绪超过原5秒；原CPU为27/29，失败为100MP Fill帧间隔104ms（<100ms）及100MP覆盖蒙版渐变50ms（<50ms）。原GPU4/4通过。794条CPU和128条GPU独立环境采样全部单屏解锁；761/760项冻结输入前后一致，单worker、零重试。记录见`acceptance-status-gray-20261018.json`，整体仍未完成。
+- 独立启动诊断未复现原5秒失败：流式编译约261ms、实例化约13ms；其单次通过不替代原功能失败。渐变分段诊断确认默认配方是RGB为零、alpha从1到0，原不透明灰度分支不覆盖该路径。独立诊断的24/100MP最坏tick为32/24ms，仅作分段观察，不能改写原27/29结果；此前未进入计时的诊断和脚手架失败记录保留。
+- 共享半透明灰度RGB源项的候选215组像素精确，但实际网格内核变慢约3%～12%，未接入。后续零RGB候选230组完整像素精确；将判断移到网格入口后，实际两种网格的有界AB/BA内核中位耗时改善约2.09～2.51倍。非目标样本仍有计时波动，不能据此宣称原完整性能已通过或所有fallback均有收益。
+- 本轮接入仅限：RGB两端位模式均为正零、像素完整覆盖、采样位置和源权重有限、目标三个RGB字节已为零时，保留这些零字节并沿用原alpha表达式。网格入口选择常量专用循环；其它颜色、不透明／蒙版路径不增加该逐像素判断，部分覆盖和非有限输入保留原计算。不增工作内存、不改预览尺寸、不增加FMA或改变舍入顺序；新增独立原标量算术回归覆盖透明度、目标alpha、符号零、近零值、覆盖率及非有限采样。
+- 新候选源码、实际生产WASM、完整浏览器、原29+4硬件协议与生产包仍需重新验证；旧通过与失败均绑定旧源码，不沿用为本轮验收。版本保持0.9.0，不推送或发布。
 
 ## 进度
 
@@ -130,3 +148,106 @@
 - 上述 Rust Gaussian 组件及完整31间距/十组参数目录已落地，先保持 test/diagnostic-only：真实 native release 和独立优化 WASM 各1,358/1,358项逐字节一致，其中六级连续预测1,164个实际平面全部精确，自行反推最小工作矩形的194个最终平面全部精确。两者各覆盖原163组及新增31组；源码/输入哈希和独立二进制均记录。新增六项回归包含实际常量场 store 损失、half 中点反例、全31,744位模式及输入/参数/尺寸/中止边界，引擎库总29项及原Mac149集成5项通过。该结果不含原始RGBA8到最终Glow的产品调用，不沿用旧完整包结果；等待格式对照回传后继续缩小/二维采样集成。
 - 新回传 `Mac149-glow-format-matrix-20261015-234827` 已实际编译执行，9项启动哈希、8个收据文件、全部1,354,237个旧采样与31,744个CPU转换控制通过；四种格式均支持。R/RGBA同精度红通道相同，32位纹理符合精确加权后正中点向上Float32舍入，16位纹理另走有限精度路径。新“输入指数＋合并二维权重指数、归一化前对齐、17位乘积网格截断、求和后half中点向上”的统一规则全部1,354,237项精确，独立整数实现亦须复核后集成。后续只替换Scanlines的缩小/Gaussian/放大链，保留其它效果blur；先验证原始像素到实际MPS输入、六级和bloom，再验证完整native/真实生产WASM及原Mac输出，不放宽像素/性能门槛。预滤波需保留无限原始边缘语义并限制工作内存，避免按大halo复制全尺寸源图。
 - 新采样规则的浮点与整数实现、实际native Rust及独立WASM均为1,354,237/1,354,237精确。已接入Scanlines正式路径：native完整原图→Glow的31个合法间距均与Mac原始入口输出相同；真实生产WasmEngine的ApplyFilter为31间距＋原五配方36/36精确，Undo/Redo像素亦精确。生产WASM17,001,858 bytes、SHA256 `c309d1a5f6aa008a902b7d8f3edf9d0e103a41475eee20d56bc7b3b5d4dd7856`，108项glue校验通过。缩小继续采用独立69/69平面已验证的运算模型；直接把最终纹理sampler套入缩小会使控制降为64/69，失败保留，不据此推断未知CI内部格式。组合MPS输入原四个half差异仍存在，31个Gaussian最终纹理/bloom/完整Glow均精确，不冒充内部全阶段精确。原性能失败保留，完整回归、原29＋4硬件协议和新生产包仍需绑定当前源码验收。
+
+- 2026-10-19：black-zero 生产 WASM 的108项接口、130组渐变和36组Mac Glow对照通过，同源码完整Rust为748通过、10项原有忽略。该前端候选的生产原生25次真实对话框、独立导出读取器及GPU4项通过，全程330/140个单屏解锁采样均通过；此前锁屏结果保留，不覆盖旧记录。
+- 已确认并修正开发模式StrictMode重复创建/销毁渲染器：保留同步effect重放中的同一资源，引擎替换先释放旧资源，真实卸载在下一帧前释放一次。真实组件回归先红后绿，完整46文件/310项单测、三组TypeScript检查、完整浏览器344通过/33原有跳过/0失败通过，816项输入前后相同，原5000ms断言和零重试不变。新前端须另行绑定新生产包/原生/GPU验收，不直接沿用上一前端结果。
+- CPU完整协议仍保留27/29：100MP Levels安装470ms对<450ms；同一日志的100MP Fill帧间隔130ms对<100ms（先在前一断言失败，未执行到此断言）；24MP输入W后的帧34ms对<33ms。独立诊断不替代验收，尚未据波动放宽预算或反复重跑。整体验收及0.10.0发布继续保持未完成。
+
+- 2026-10-19 17:45起的新前端完整硬件验收已完成：生产包原生25次真实对话框、独立读取器及292个单屏解锁采样通过；原GPU4项及136个环境采样通过。原CPU29项为26通过、3失败、0跳过/重试/flaky，816项输入前后相同，876个独立采样全程单屏解锁。失败为100MP Levels安装503ms（<450ms）、24MP选区渐变补丁57ms（<50ms）、100MP渐变安装539ms（<450ms）；F1同时记录Fill帧间隔113ms（<100ms，前一断言已失败），输入W为13/25ms、T9-6带遮罩拖动28/18ms均通过。旧失败全部保留，不把本轮失败归因于锁屏。隔离word写入的24组实际WASM安装/Undo/Redo/越界守卫已精确，端到端AB/BA已准备，首次在锁屏前置检查退出、未执行用例；未据此集成或声称性能通过。最新验收为acceptance-status-renderer-lifetime-hardware-20261019-1745.json，整体未完成、未发布。
+
+- 2026-10-19 解锁后完成安装word填充私有AB/BA：原实现100MP Levels307/347ms、Fill247/249ms，候选Levels552/421ms、Fill314/434ms，两轮候选均退化，决定不合入；4轮完整执行、3通过1超限、0重试，406个采样全部单屏解锁，输入前后相同。随后原选区渐变补丁体的12次函数采样完成，64个环境采样通过；与生产WASM执行相关段逐字节相同的带名副本将热点准确对应paint_grid_channels（24MP WASM自身57样本中56，100MP43样本全部），未据此增加覆盖缓存。采样器启动停止计入原窗口，诊断75/71ms失败不作为验收；原CPU26/29及四个超限503/113/57/539ms继续保留。生产源码/WASM未因这两个诊断改变，未发布。诊断汇总：UNLOCKED-DIAGNOSTICS-20261019.md。
+
+- 2026-10-19后续渐变循环诊断：保留函数边界、全RGBA Float64 SIMD、限定半透明RGBA SIMD三个隔离候选各通过278组原实现/独立标量全字节与命中范围比较，但均有退化或关键24MP选区补丁收益不足（限定版15.842→15.771ms，约0.07ms），全部不合入，产品源码/WASM未变。完整原29项执行顺序的连续采样诊断为27通过2超限，817个单屏解锁采样通过；补丁37/36ms未重现旧57ms，实际超限为100MP Fill帧间隔112ms与100MP普通渐变1:1拖动54ms。采样不替代正式26/29验收，不将旧超限归因于本轮未重现的GC或编译事件。下一步原前两项的F1专门回收/帧轨迹已准备并验证收集数2，桌面再次锁定前置退出，尚未执行。记录GRADIENT-CANDIDATES-20261019.md，未提交/推送/发布。
+
+- 2026-10-20 08:27开始，解锁单屏后完成已准备的原前两项F1专门轨迹：2通过、0失败/跳过/重试，200个独立环境采样全部单屏解锁，816项输入前后相同。24MP Levels/Fill与100MP Levels/Fill帧间隔18/21/27/19ms，安装CPU101/31/399/331ms；本次未重现旧112/113ms长帧。当前轨迹捕获主线程CppGC.IncrementalSweep114.395ms（自然回收forced=false），其中SweepFinalizeSweptPages113.930ms；时钟区间证明其发生在100MP Fill页面的预热中、甚至早于预热Levels结果安装，不能归为正式Fill计时失败，也不能据此宣称已证实旧失败根因。无产品源码/WASM修改、无新包/提交/发布；正式CPU26/29仍保留。记录F1-FRAMEGAP-20261020.md与acceptance-status-f1-framegap-20261020.json。
+
+
+### 2026-10-20 private uniform spare diagnosis (not acceptance)
+
+Real Worker comparison verified seven cases including removal of a synthetic 400,000,000-byte spare for 100 MP uniform output; original uniform/palette pixel and Undo/Redo checks passed for both variants (23/23 overall). Candidate remains private. All four AB/BA timing cases are INVALID: the desktop locked at 08:03:51 UTC, before the first case at 08:03:59 UTC; 388 read-only samples preserved. No performance benefit, regression, or root cause is established. An ESM fixture error and its corrected successful run are separately retained. Formal CPU acceptance remains 26/29. A fresh human unlock response is pending; a guarded one-time diagnostic is prepared and will stop its owned test tree if the desktop locks. See `build-artifacts/mac-1.4.9-delta-20261011/UNIFORM-SPARE-DIAGNOSTIC-20261020.md`.
+
+
+### 2026-10-21 guarded CPU diagnosis (not acceptance)
+
+Valid private uniform-spare AB/BA completed with 432 single/unlocked samples and 816 original hashes exact. All four cases failed original assertions: 100 MP Fill gaps baseline125/108ms, candidate112/125ms; Levels install baseline477/335ms, candidate545/410ms. Candidate rejected as a performance fix and not integrated. Exact-window baseline trace then passed1/1 (123 valid samples): current24MP52ms gap overlapped37.474ms CppGC;100MP136.103ms sweep was in warm-up, not the timed gap. No current100+ms root cause established. Formal CPU remains26/29. Current frozen WPR CPU/VirtualAllocation capture prepared and CHECK_ONLY_PASS; current AdministratorToken=False, native recording not run. Manual administrator step pending. See `build-artifacts/mac-1.4.9-delta-20261011/GUARDED-CPU-DIAGNOSIS-20261021.md`.
+
+
+### 2026-10-21 native capture controller repair (not acceptance)
+
+User capture completed F1 with106ms 100MPFill gap;167saved monitor samples single/unlocked. Controller StrictMode success-property error caused WPR to stop before the child finished. Offline ETL has zero lost events but ended06:44:03.306, whereas106ms gap began06:44:11.777; no native attribution of that gap is valid. Separate fixed controller handles blank/null/partial/missing-field monitor records and stops owned child on all controller errors;12WindowsPowerShellStrictMode regressions and read-only preflight passed. Original script/identity/logs/ETL preserved. Replacement administrator capture is required because the old ETL misses the failure, not to seek a passing performance result. FormalCPU26/29 unchanged. See `build-artifacts/mac-1.4.9-delta-20261011/CPU-STACK-CONTROLLER-FIX-20261021.md`.
+
+
+### 2026-10-21 current native gap attributed (not full acceptance)
+
+Corrected user capture covers current105.4msFill failure, zero ETL events lost,262single/unlocked samples;816runtime+7helpers exact. Main thread103samples includes94DOMArrayBufferFinalizer/VirtualFree. Allocation history identifies preceding main-thread WASM store:8GiB virtual reservation,969.0625MiBmaximumcommit, freed during newer-page job. This confirms one gap mechanism, not all prior failures. Private post-render zero-page-grow view-retirement candidate passed30/30 actual-Edge functional checks, no product change; overhead stays inside originalframe timing. AB/BA not yet run because finalgatefoundlockeddesktop; freshunlockpending. FormalCPU26/29unchanged. See `build-artifacts/mac-1.4.9-delta-20261011/NATIVE-STACK-ATTRIBUTION-20261021.md`.
+
+
+### 2026-10-21 after-render zero-page-grow rejected (not acceptance)
+
+Private30/30functional pass did not imply a performance fix. ValidABBA401single/unlocked samples,816originalhashes exact:Fill gaps baseline118/113ms,candidate118/130ms;4originalF1casesfailed. Candidate160actualdetachcalls preservedpages/bytes withmax0.2ms/call butlonggapsremain. Rejectanddonotintegrate. Native105.4ms attribution remains separate. FormalCPU26/29unchanged. NextprivatehypothesisisindependentactualpixelcopyatWebGLboundary, withallcopycostinsideoriginalframewindow. See `build-artifacts/mac-1.4.9-delta-20261011/FRAME-VIEW-LEASE-20261021.md`.
+
+
+### 2026-10-21 bridge ownership follow-up (not acceptance)
+
+After-render grow0 candidate rejected after valid401-sampleABBA:Fill baseline118/113ms,candidate118/130ms,all4F1failed. Texture-only private candidate30functionalpass retained buttimingnotrun:actualAPIcensus1passfound9CSPRNG+3GL+21decoder calls borrowingmainWASM. Newprivateowned entropy/UTF8bridge+pixeluploads passedrealWASMencoding/error/UUID/pixel/historychecks and30/30actualEdgefunctionalchecks;candidateobservednativeWASMborrowcounts0,GLcopyshapeverified. No productsourceintegration,forcedGC,movedtimedworkorbudgetchange. CombinedABBApreparednotrunbecause07:58:15localpreflightlocked;freshunlockpending,noadminneeded. FormalCPU26/29unchanged. See `build-artifacts/mac-1.4.9-delta-20261011/OWNED-BROWSER-BRIDGE-READY-20261021.md`.
+
+
+### 2026-10-21 browser ownership candidate rejected after timing (not acceptance)
+
+Original F1 AB/BA completed once with 413 single-display/unlocked samples and 816 frozen original inputs exact; all four executions failed. 100 MP Fill gaps baseline 115/124 ms, candidate 118/107 ms (budget <100). Candidate verified zero observed native CSPRNG/decoder main-WASM borrowing and 30/30 independent texture copies per execution, but added 119.9/121.7 ms aggregate copy cost and did not fix the gap. Reject; no product source integration or retry. Formal CPU remains 26/29. Native baseline finalizer attribution remains valid for its captured gap; no candidate native trace was taken. Next diagnostic: locate main-WASM high-water growth by engine operation. See `build-artifacts/mac-1.4.9-delta-20261011/OWNED-BROWSER-BRIDGE-REJECTED-20261021.md`.
+
+
+### 2026-10-21 main-WASM high-water attribution (not acceptance)
+
+One unchanged-body F1 growth diagnostic passed with 114 single-display/unlocked samples and 816 frozen original inputs exact. No product change: this instrumented pass does not replace the four valid ownership failures or formal CPU 26/29. 100 MP Levels grew from warm 116064256 to 516096000 bytes at CanvasSize, to 616103936 at first layer_pixels_len, to 1016135680 at staged 400 MB result reservation; peak exactly matches earlier native region history. These observations locate image/prefilter/staging allocations, not a live-allocation leak or physical RSS. Rejected bridge copies remain unintegrated. Next discriminating check is candidate native failing-interval/region attribution, not another ownership retry. See `build-artifacts/mac-1.4.9-delta-20261011/WASM-GROWTH-CENSUS-20261021.md`.
+
+
+### 2026-10-21 candidate native discriminator prepared, not run
+
+Rejected bridge comparison and growth attribution are retained. A separate candidate CPU/VirtualAllocation controller freezes 816 original runtime files plus 10 candidate/helper files, retains original test assertions/budgets, UTC largest-gap metadata, exact rejected candidate ownership code and all failures. CheckOnly passed; Playwright list validated exactly one F1 test. Current AdministratorToken=False; no recording/workload/elevation started. Next action requires human Administrator PowerShell execution of capture-owned-browser-bridge-system-trace-20261021.ps1 with one unlocked display. This is a mechanism discriminator, not an ownership retry or acceptance replacement; formal CPU remains 26/29. See build-artifacts/mac-1.4.9-delta-20261011/OWNED-BRIDGE-NATIVE-CAPTURE-20261021.md.
+
+
+
+### 2026-10-21 candidate native disposal attribution (not acceptance)
+
+Returned candidate trace fully covers the 183.3 ms failing 100 MP Fill gap: 3,622,992 events, zero lost, 319 single-display/unlocked samples, 826 frozen runtime/helper hashes exact, ownership replacements verified. PID 7776/TID 6388: 173 main CPU samples, 169 mutator sweeping, 167 VirtualFree; 43 DOMArrayBuffer-finalizer samples followed by 120 disjoint V8 CppGCManagedWrapper/WASM reservation-free samples. Old main-WASM region 0x28c00000000, 8 GiB virtual reserve/1016135680 maximum committed bytes, was created before the previous Levels page and released at gap+182.246 ms after the newer Fill memory existed. Matching Edge .62 PDB/native bounds verified; null controller testExit remains unknown, independent original F1 failure preserved. This confirms remaining V8-managed disposal despite native bridge copies. Close ownership-copy tuning; no source integration, identical recapture or acceptance retry. Formal CPU remains 26/29. Next engineering boundary is deterministic main-WASM peak/lifetime reduction preserving exact semantics and windows. See `build-artifacts/mac-1.4.9-delta-20261011/OWNED-BRIDGE-NATIVE-ATTRIBUTION-20261021.md`.
+
+
+### 2026-10-21 late halving-cache compaction rejected (not acceptance)
+
+Scratch source/WASM only: native 21/21 pass and 32 distinct browser case executions validated, with four fixture errors transparently preserved across two repairs; candidate unchanged. Original F1 footprint comparison: 235 single/unlocked samples and original 816 hashes exact; both cases failed. All four case high-water marks identical to baseline, including 100 MP Levels 1016135680 bytes. No meaningful peak saving: reject and do not run prepared performance ABBA or integrate. Formal CPU26/29 unchanged. Next allocation design must avoid initial intermediate prefilter allocation and first prove exact rounding/edge/cache behavior plus bounded native live allocation. See `build-artifacts/mac-1.4.9-delta-20261011/COMPACT-HALVINGS-REJECTED-20261021.md`.
+
+
+### 2026-10-22 streamed display reduction: native saving, unchanged browser peak (not acceptance)
+
+Private WASM passed18 native and32/32 fresh browser functional checks; JS glue unchanged,108 calls verified. Guarded original F1 footprint comparison had261 single/unlocked samples and143 private+816 original hashes exact; both original cases failed, all four high-water marks unchanged (100MP Levels1016135680 bytes). Baseline100007936-byte growth at layer_pixels_len disappears in candidate but reappears at set_preview, whose separate helper still calls full-image halved repeatedly. No integration or prepared performance ABBA. Formal CPU26/29 unchanged. Next separate candidate must cover preview without changing its source-pixel/adopted-cache semantics. See build-artifacts/mac-1.4.9-delta-20261011/STREAMED-PREFILTER-NO-PEAK-SAVING-20261022.md.
+
+
+### 2026-10-22 streamed preview candidate ready, not integrated or accepted
+
+Separate private raster/preview candidate preserves preview source-pixel semantics and authoritative display-cache precedence. Six native targets passed51 checks; even/odd scalar full-byte references, final-cache reuse/clear and deliberately different adopted displays passed. Display/preview peak extra requested native allocation1089536/4214784 bytes, not WASM high-water or RSS. Release WASM17037177 bytes SHA256bc07c60000c6940b4df14ae0811337452c46eb2b1b8c0a247b5c276fbc9da996; generatedJS exact,108 calls verified. Fresh browser32/32passed;147 private+816 original inputs exact before/after. Footprint/performance not run: latest launch gate recorded separately; require single unlocked display, then meaningful100MPLevels saving before ABBA. Prior no-saving display-only candidate retained. FormalCPU26/29 unchanged; no product integration/commit/push/release. See build-artifacts/mac-1.4.9-delta-20261011/STREAMED-PREVIEW-READY-20261022.md.
+
+
+### 2026-10-22 streamed display and preview reduction integrated, broader validation pending
+
+Private native51/51 and browser32/32 passed. Original F1 footprint232 single/unlocked samples:100MPLevels1016135680 to916127744 bytes, saving100007936 bytes; other three peaks unchanged. Normal fixed ABBA431 valid samples,147 private+816 original hashes exact: baseline1/2 failed (Fill gaps117/134ms; Levels install405/471ms), candidate1/2 passed original assertions (Fill gaps24/24ms, Levels418/346ms, Fill414/251ms). No retries, forcedGC, growth wrappers or changed budgets/windows. Exact two source changes plus meaningful allocation/byte regression test now in working tree; dirty CanvasView/raster_edit and Cargo.lock hashes preserved, originals backed up. Full native, production WASM/frontend, full browser and original29CPU remain pending; formalCPU26/29 unchanged, no commit/push/release. See build-artifacts/mac-1.4.9-delta-20261011/STREAMED-PREVIEW-ABBA-20261022.md.
+
+
+### 2026-10-23 integrated streamed reduction: native and full functional pass, new hardware pending
+
+Native packages run serially: engine/wasm730 passed plus Windows shell19 passed, total749, original10ignored retained, zero failures. All581 production build inputs exact after native/build; workspace releaseWASM17,037,177 bytes SHA256bc07c60000c6940b4df14ae0811337452c46eb2b1b8c0a247b5c276fbc9da996 exactly matches the two successful private ABBA candidates. GeneratedJS unchanged,108 interface checks, three TypeScript scopes and new frontend build passed. Complete original browser functional344 passed,33 original performance opt-ins skipped, zero failures/retries/flaky;858 frozen inputs exact before/after,847 GPU inputs frozen and current. New complete29CPU/4GPU not run; old26/29 remains historical earlier-source result. Next read-only single/unlocked hardware gate is recorded. No new packaged-runtime, GUI or actualRAW acceptance yet, no commit/push/release. See build-artifacts/mac-1.4.9-delta-20261011/STREAMED-PREVIEW-INTEGRATED-20261023.md.
+
+
+### 2026-10-23 integrated streamed reduction CPU interrupted, not accepted
+
+Pre-timing host module inheritance failure retained with 11 files; only child-process PSModulePath corrected, no frozen helper/source/runtime/test/budget changes. Original CPU29 then started with one worker and zero retries, but display observer detected lock at 2026-10-23T07:13:07.0427552Z, stopped owned tree at case15/29; no final Playwright JSON/result and no complete score. Before interruption original F1 Levels100MP install500ms and jobs Levels100MP install564ms failed <450ms; F1 Fill gap109ms also logged, its assertion unreached. All558 samples single display, not all unlocked.858CPU and847GPU frozen inputs verified exact after interruption. GPU and rebuilt package/nativeGUI/actualRAW not run. Prior native749+10ignored and functional344+33opt-in skips remain valid, while two private F1 passes and95.4MiB peak saving do not establish full acceptance. No automatic fullCPU retry. See STREAMED-PREVIEW-INTEGRATED-20261023.md and acceptance-status-streamed-preview-cpu-interrupted-20261023.json.
+
+
+### 2026-10-23 15:17 frontend unit verification
+
+46 frontend test files/310 assertions passed, zero failures or skips. All858CPU/847GPU frozen inputs exact afterward. No full CPU score due to retained lock interruption, GPU/package/nativeGUI/RAW not rerun. Latest read-only gate15:17:56 still single display but locked. No commit/push/release.
+
+
+### 2026-10-23 complete integrated CPU27/29 and GPU4/4, partial acceptance
+
+After explicit sustained-unlock response, original CPU29 completed once in new retained browser-streamed-preview-sustained-20261023:27 passed/2 failed,0skip/flaky/retry,1worker;858 source/runtime bytes exact plus10controller inputs. Valid500ms display924 samples and200ms session2064 samples all single/unlocked as applicable. Original failures:24MP Delete worst156ms (<150),100MP gradient install454ms (<450). Earlier interrupted500/564ms Levels installs and109ms Fill gap remain retained, not superseded. Original GPU4/4 passed,847inputs exact,192display/336session samples valid. New private original-body phase diagnostic:58records,1pass/1fail,0retry,127display/294session valid,858inputs exact;100MP gradient raw400MB,406.25MB total append442.4ms of465.4msCPU,begin21.4ms,finish0.2ms. Instrumented times never replace acceptance. Delete primarily WASM, further internal attribution needed; no speculative source edits. Native749+10ignored,frontend46files310,browser344+33opt-in skips retained. New production package/nativeGUI/realRAW not rebuilt or accepted; fourMPS half differences retained. No commit/push/release. See STREAMED-PREVIEW-HARDWARE-20261023.md and acceptance-status-streamed-preview-hardware-20261023.json.

@@ -177,13 +177,13 @@ pub fn preview_limit(request: &PreviewRequest) -> u32 {
 
 /// Sharp halvings until the longest side fits `limit`, and the factor that reached it.
 fn reduced(raster: &Raster, limit: u32) -> (Raster, f64) {
-    let mut current = raster.clone();
+    let (mut w, mut h, mut level) = (raster.width, raster.height, 0);
     let mut factor = 1.0;
-    while current.width.max(current.height) > limit && current.width > 1 && current.height > 1 {
-        current = current.halved();
+    while w.max(h) > limit && w > 1 && h > 1 {
+        w = (w / 2).max(1); h = (h / 2).max(1); level += 1;
         factor *= 0.5;
     }
-    (current, factor)
+    (raster.reduced_pixels(level), factor)
 }
 
 /// The preview raster for a request, or None when there is nothing to show (an empty selection

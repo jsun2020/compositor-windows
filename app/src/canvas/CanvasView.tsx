@@ -30,6 +30,7 @@ export function CanvasView() {
   // handlers below (both treat space-held as "temporarily pan" regardless of tool).
   const spaceRef = useRef(false);
   const engine = useEditor((s) => s.engine);
+  const rendererOwnerRef = useRef<{ canvas: HTMLCanvasElement; engine: typeof engine; renderer: Renderer; lease: number } | null>(null);
   const activeId = useEditor((s) => s.activeId);
   const state = useEditor((s) => (s.activeId ? s.documents[s.activeId] : null));
   const viewport = useEditor((s) => (s.activeId ? s.viewports[s.activeId] : null));
@@ -125,11 +126,25 @@ export function CanvasView() {
     }
   };
 
-  // Renderer lifetime follows the canvas element.
+  // StrictMode replays setup/cleanup on the same canvas. Keep that renderer
+  // through the synchronous replay; a real unmount releases it in a microtask,
+  // before another frame. An engine/canvas replacement releases it immediately.
   useEffect(() => {
     if (!engine || !glRef.current) return;
-    const renderer = createRenderer(glRef.current, { jobs: () => useEditor.getState().jobs, landed: () => useEditor.getState().invalidate(),
-      failed: (message) => useEditor.getState().setError(message) });
+    const canvas = glRef.current;
+    let owner = rendererOwnerRef.current;
+    if (owner && (owner.engine !== engine || owner.canvas !== canvas)) {
+      rendererOwnerRef.current = null;
+      owner.renderer.dispose();
+      owner = null;
+    }
+    if (!owner) {
+      const renderer = createRenderer(canvas, { jobs: () => useEditor.getState().jobs, landed: () => useEditor.getState().invalidate(),
+        failed: (message) => useEditor.getState().setError(message) });
+      owner = { canvas, engine, renderer, lease: 0 };
+      rendererOwnerRef.current = owner;
+    }
+    const retained = owner, lease = ++retained.lease, renderer = retained.renderer;
     rendererRef.current = renderer;
     useEditor.getState().setRendererKind(renderer.kind);
     installTestApi({
@@ -171,7 +186,14 @@ export function CanvasView() {
         return overlayGeometry(shape.corners ?? shape.transform, vp, { width: d.width, height: d.height });
       },
     });
-    return () => { renderer.dispose(); rendererRef.current = null; };
+    return () => {
+      rendererRef.current = null;
+      queueMicrotask(() => {
+        if (rendererOwnerRef.current !== retained || retained.lease !== lease) return;
+        rendererOwnerRef.current = null;
+        renderer.dispose();
+      });
+    };
   }, [engine]);
 
   // Toolbars change the canvas height. Map the committed layout before a

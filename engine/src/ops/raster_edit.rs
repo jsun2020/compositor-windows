@@ -229,6 +229,20 @@ fn paint_grid_sample<const CHANNELS: usize, const COVERED: bool, const OPAQUE: b
 }
 
 fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, const OPAQUE: bool, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
+    // Select once per grid. Other paints retain the original scalar loop,
+    // without a per-pixel black-source test.
+    let black_source = !OPAQUE && CHANNELS == 4 && match paint {
+        Paint::Gradient(g) => g.from[..3].iter().chain(&g.to[..3]).all(|v| v.to_bits() == 0),
+        Paint::Fill(_) => false,
+    };
+    if black_source {
+        paint_grid_clipped_inner::<CHANNELS, COVERED, CLIPPED, OPAQUE, true, F>(doc, data, width, height, m, coverage, paint, sample)
+    } else {
+        paint_grid_clipped_inner::<CHANNELS, COVERED, CLIPPED, OPAQUE, false, F>(doc, data, width, height, m, coverage, paint, sample)
+    }
+}
+
+fn paint_grid_clipped_inner<const CHANNELS: usize, const COVERED: bool, const CLIPPED: bool, const OPAQUE: bool, const BLACK_ZERO: bool, F: Fn(usize, usize, f64, f64) -> f64>(doc: &Document, data: &mut [u8], width: u32, height: u32, m: Affine, coverage: Option<&GrayRaster>, paint: &Paint, sample: F) -> bool {
     let (cw, ch) = (doc.width as f64, doc.height as f64);
     let w = width as usize;
     let (from, to, opacity) = match paint {
@@ -236,6 +250,11 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
         Paint::Gradient(g) => (g.from, g.to, g.opacity),
     };
     let delta: [f64; 4] = std::array::from_fn(|c| to[c] - from[c]);
+    // Identical input bits give the same channel expression and rounding.
+    // Keep near-equal colours and signed-zero differences on the scalar path.
+    let same_rgb = CHANNELS == 4
+        && from[0].to_bits() == from[1].to_bits() && from[0].to_bits() == from[2].to_bits()
+        && delta[0].to_bits() == delta[1].to_bits() && delta[0].to_bits() == delta[2].to_bits();
     // The selection's coverage as a fraction, once for each of its 256 values.
     let fraction: [f64; 256] = std::array::from_fn(|k| k as f64 / 255.0);
     let mut touched = false;
@@ -257,13 +276,25 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
             // non-finite public-kernel sample still takes the original path:
             // even opaque stops produce NaN through 0 * NaN there.
             if OPAQUE && k == 255 && t.is_finite() {
-                for c in 0..CHANNELS.min(3) { px[c] = ((from[c] + delta[c] * t) * 255.0 + 0.5) as u8; }
+                if same_rgb {
+                    let value = ((from[0] + delta[0] * t) * 255.0 + 0.5) as u8;
+                    px[0] = value; px[1] = value; px[2] = value;
+                } else {
+                    for c in 0..CHANNELS.min(3) { px[c] = ((from[c] + delta[c] * t) * 255.0 + 0.5) as u8; }
+                }
                 if CHANNELS == 4 { px[3] = 255; }
                 continue;
             }
             let s = (from[3] + delta[3] * t) * opacity * fraction[k as usize];
             if s <= 0.0 { continue; }
             let keep = 1.0 - s;
+            // For finite weights/positions, a positive-zero black source over
+            // zero RGB has exactly zero RGB. Retain the original alpha formula.
+            if BLACK_ZERO && k == 255 && t.is_finite() && s.is_finite()
+                && (px[0] | px[1] | px[2]) == 0 {
+                px[3] = (255.0 * s + px[3] as f64 * keep + 0.5) as u8;
+                continue;
+            }
             if CHANNELS == 1 {
                 px[0] = ((from[0] + delta[0] * t) * 255.0 * s + px[0] as f64 * keep + 0.5) as u8;
             } else {
@@ -273,6 +304,105 @@ fn paint_grid_clipped<const CHANNELS: usize, const COVERED: bool, const CLIPPED:
         }
     }
     touched
+}
+
+#[cfg(test)]
+mod gray_channel_tests {
+    use super::*;
+
+    #[test]
+    fn shared_gray_expression_matches_scalar_at_rounding_and_fallback_boundaries() {
+        let samples = [0.0, -0.0, 0.5 / 255.0, 127.5 / 255.0,
+            f64::from_bits((127.5f64 / 255.0).to_bits() - 1), 1.0, f64::NAN];
+        let stops = [([0.0; 3], [1.0; 3]), ([0.17; 3], [0.93; 3]),
+            ([-0.0, 0.0, -0.0], [0.9; 3]),
+            ([0.17, f64::from_bits(0.17f64.to_bits() + 1), 0.17], [0.93; 3]),
+            ([0.17; 3], [0.93, f64::from_bits(0.93f64.to_bits() + 1), 0.93]),
+            ([0.6; 3], [0.6; 3])];
+        let width = samples.len() as u32;
+        let doc = Document::new(width, 1);
+        let m = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+        for (rgb_from, rgb_to) in stops { for alpha in [1.0, 0.3] { for opacity in [1.0, 0.7] {
+            let from = [rgb_from[0], rgb_from[1], rgb_from[2], 1.0];
+            let to = [rgb_to[0], rgb_to[1], rgb_to[2], alpha];
+            let paint = Paint::Gradient(GradientSpec { shape: GradientShape::Linear,
+                start: Point { x: 0.0, y: 0.0 }, end: Point { x: 1.0, y: 0.0 }, from, to, opacity });
+            for coverage_byte in [0, 1, 127, 254, 255] {
+                let cover = GrayRaster::from_bytes(width, 1, vec![coverage_byte; width as usize]);
+                let initial: Vec<u8> = (0..width as usize).flat_map(|_| [17, 91, 123, 200]).collect();
+                let mut expected = initial.clone();
+                // Independent original source-over arithmetic, including the
+                // 0 * NaN path that cannot take the opaque shortcut.
+                for (px, t) in expected.chunks_exact_mut(4).zip(samples) {
+                    if coverage_byte == 0 { continue; }
+                    let s = (from[3] + (to[3] - from[3]) * t) * opacity * (coverage_byte as f64 / 255.0);
+                    if s <= 0.0 { continue; }
+                    let keep = 1.0 - s;
+                    for c in 0..3 { px[c] = ((from[c] + (to[c] - from[c]) * t) * 255.0 * s + px[c] as f64 * keep + 0.5) as u8; }
+                    px[3] = (255.0 * s + px[3] as f64 * keep + 0.5) as u8;
+                }
+                let mut actual = initial;
+                let sample = |x: usize, _: usize, _: f64, _: f64| samples[x];
+                if alpha == 1.0 && opacity == 1.0 {
+                    paint_grid_clipped::<4, true, false, true, _>(&doc, &mut actual, width, 1, m, Some(&cover), &paint, sample);
+                } else {
+                    paint_grid_clipped::<4, true, false, false, _>(&doc, &mut actual, width, 1, m, Some(&cover), &paint, sample);
+                }
+                assert_eq!(actual, expected, "stops={rgb_from:?}/{rgb_to:?}, alpha={alpha}, opacity={opacity}, coverage={coverage_byte}");
+            }
+        } } }
+    }
+}
+
+
+#[cfg(test)]
+mod black_zero_tests {
+    use super::*;
+
+    #[test]
+    fn black_over_zero_rgb_keeps_original_alpha_and_guard_fallbacks() {
+        let samples = [0.0, -0.0, 0.5 / 255.0, 0.5, 1.0,
+            f64::from_bits(0.5f64.to_bits() - 1), f64::NAN, f64::INFINITY];
+        let width = samples.len() as u32;
+        let doc = Document::new(width, 1);
+        let m = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+        for (rgb_from, rgb_to) in [(0.0f64, 0.0f64), (-0.0, 0.0),
+            (0.0, -0.0), (f64::from_bits(1), 0.0)] {
+            for (a0, a1) in [(1.0, 0.0), (0.3, 1.0), (0.3, 0.3), (1.0, 1.0)] {
+                for opacity in [1.0, 0.7] {
+                    let from = [rgb_from, rgb_from, rgb_from, a0];
+                    let to = [rgb_to, rgb_to, rgb_to, a1];
+                    let paint = Paint::Gradient(GradientSpec { shape: GradientShape::Linear,
+                        start: Point { x: 0.0, y: 0.0 }, end: Point { x: 1.0, y: 0.0 }, from, to, opacity });
+                    for k in [0, 1, 127, 254, 255] {
+                        let coverage = GrayRaster::from_bytes(width, 1, vec![k; width as usize]);
+                        for destination in [[0, 0, 0, 0], [0, 0, 0, 97], [0, 0, 0, 255],
+                            [0, 1, 0, 97], [91, 37, 13, 200]] {
+                            let initial = destination.repeat(width as usize);
+                            let mut expected = initial.clone();
+                            // Independent original scalar source-over expression.
+                            for (px, t) in expected.chunks_exact_mut(4).zip(samples) {
+                                if k == 0 { continue; }
+                                let weight = (from[3] + (to[3] - from[3]) * t) * opacity * (k as f64 / 255.0);
+                                if weight <= 0.0 { continue; }
+                                let keep = 1.0 - weight;
+                                for c in 0..3 { px[c] = ((from[c] + (to[c] - from[c]) * t) * 255.0 * weight + px[c] as f64 * keep + 0.5) as u8; }
+                                px[3] = (255.0 * weight + px[3] as f64 * keep + 0.5) as u8;
+                            }
+                            let mut actual = initial;
+                            let sample = |x: usize, _: usize, _: f64, _: f64| samples[x];
+                            if a0 == 1.0 && a1 == 1.0 && opacity == 1.0 {
+                                paint_grid_clipped::<4, true, false, true, _>(&doc, &mut actual, width, 1, m, Some(&coverage), &paint, sample);
+                            } else {
+                                paint_grid_clipped::<4, true, false, false, _>(&doc, &mut actual, width, 1, m, Some(&coverage), &paint, sample);
+                            }
+                            assert_eq!(actual, expected, "RGB={rgb_from:?}/{rgb_to:?}, alpha={a0}/{a1}, opacity={opacity}, coverage={k}, destination={destination:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

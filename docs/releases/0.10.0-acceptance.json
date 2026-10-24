@@ -1,0 +1,90 @@
+{
+  "scope": "Local implementation acceptance before 0.10.0 metadata-only release preparation",
+  "accepted": true,
+  "finishedUTC": "2026-10-24T03:12:57.615Z",
+  "testedBaselineCommit": "0e9206b56ad25b3c9dadee4aa2af0d04038cd182",
+  "testedWorkingTreeHadChanges": true,
+  "counts": {
+    "nativeEngineAndShellPassed": 751,
+    "originalNativeIgnored": 10,
+    "frontendUnitsPassed": 310,
+    "browserFunctionalPassed": 344,
+    "browserPerformanceOptInsCoveredSeparately": 33,
+    "cpuPassed": 29,
+    "gpuPassed": 4,
+    "macWasmNumericalExact": 36,
+    "nativeDialogsPassed": 25,
+    "rawDevelopmentsPassed": 12
+  },
+  "workers": 1,
+  "retries": 0,
+  "originalPerformanceBudgetsUnchanged": true,
+  "policyUnchanged": true,
+  "frozenInputCount": 968,
+  "frozenInputManifestSHA256": "fa1ed21a7b0301126c49982775502e4043796394107a2efd748184aa7f6c5892",
+  "supervisorResultSHA256": "ed92da31c4f23c8e64d471d2708f8c26c9314dbd257f968cf3d3796686800638",
+  "localCandidate": {
+    "version": "0.9.0",
+    "zip": {
+      "name": "Compositor-portable-0.9.0-20261024-0956.zip",
+      "bytes": 10582758,
+      "sha256": "29d04543e1704cb3a5ca0653ef9387b10f4708e3f391ed56c08a802213379a83"
+    },
+    "wasmSHA256": "27bef0df674e630ab11d65f3cf36f9c05f2891373330e365aa693c9bc8d230cf"
+  },
+  "changedImplementationAndRegressionFiles": [
+    {
+      "path": "app/src/canvas/CanvasView.tsx",
+      "testedRawSHA256": "26a15c3d4b10a18b5a5b40d085c3bdd4993d851c1e1e6aa10a08d478ab1309f2",
+      "gitLFContentSHA256": "26a15c3d4b10a18b5a5b40d085c3bdd4993d851c1e1e6aa10a08d478ab1309f2"
+    },
+    {
+      "path": "engine/src/ops/raster_edit.rs",
+      "testedRawSHA256": "43db857127834ae03c834794a831b94046d2f204df12d766990a09d0fda3184e",
+      "gitLFContentSHA256": "dbb78e7c6b5471218a2e870dc89c104ff58941aad8aa177a3ca7be8ac10d445a"
+    },
+    {
+      "path": "engine/src/ops/selection.rs",
+      "testedRawSHA256": "f6e9a082481c37ff76d1f1b0cd6a2f2996b742ca5cdc2a9669532c8f5d090c3c",
+      "gitLFContentSHA256": "3bfd63d1559d39ceb4f57eac914bf48a559909c565492e925b0180dac19ab8ed"
+    },
+    {
+      "path": "engine/src/preview.rs",
+      "testedRawSHA256": "12f0e9def347ccdfcbdc647ecfe8f959ba9e4e142bbd5ae26642c3125e15ac5a",
+      "gitLFContentSHA256": "c499fcb339850f0396a980c2ec5074dc7219494d410af5ae9f5d521ab4951202"
+    },
+    {
+      "path": "engine/src/raster.rs",
+      "testedRawSHA256": "335b074f05f871d6cf92ca01ae21a347b89cd83ffe989de8e94ba8cfdee03c28",
+      "gitLFContentSHA256": "559aa8da00f7bbe286ca1fb98caa0c0384773991a27455b8e20bafe355bdd7d1"
+    },
+    {
+      "path": "app/tests/e2e/canvas-renderer-lifetime.spec.ts",
+      "testedRawSHA256": "ad7b036574bc897b9bc3cc79da80709db760f6cc1edd0ad72f7a032b033d71fa",
+      "gitLFContentSHA256": "ad7b036574bc897b9bc3cc79da80709db760f6cc1edd0ad72f7a032b033d71fa"
+    },
+    {
+      "path": "app/tests/unit/canvas-renderer-lifetime.test.tsx",
+      "testedRawSHA256": "36a267b1130da8ad90f193168374cadf7983638e114a341f9f160a153e0afc43",
+      "gitLFContentSHA256": "36a267b1130da8ad90f193168374cadf7983638e114a341f9f160a153e0afc43"
+    },
+    {
+      "path": "engine/tests/streamed_allocation.rs",
+      "testedRawSHA256": "d068da3578f65d7d889fbf27f37387851af964214696259b6f62f481681c8321",
+      "gitLFContentSHA256": "daa9ee6f76b044c666261c8e655c1e0b548bfcb63febe40b5044149cbfabb891"
+    }
+  ],
+  "releaseMetadataChanges": [
+    "package.json",
+    "Cargo.toml",
+    "Cargo.lock (three workspace package versions only)",
+    "src-tauri/tauri.conf.json"
+  ],
+  "publicationGate": "A fresh clean-source 0.10.0 portable is built and validated by .github/workflows/release.yml; its release-manifest.json is authoritative for published bytes. Local hardware/native tests above used the pre-release version label.",
+  "limitations": [
+    "10 original ignored native diagnostics are excluded from pass counts.",
+    "33 browser performance opt-ins were covered by the separate 29 CPU and 4 GPU cases.",
+    "Historical MPS intermediate half-plane differences remain documented.",
+    "Prior failed and interrupted attempts remain retained locally."
+  ]
+}

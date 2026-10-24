@@ -195,11 +195,7 @@ pub fn clear_selected(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask
     let raster = layer.pixels.as_ref().ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
     let coverage = crate::ops::adjust::edit_coverage(doc, clips, &layer.transform, raster.width, raster.height)?.unwrap();
     let mut data = raster.bytes().to_vec();
-    for (p, &k) in data.chunks_exact_mut(4).zip(coverage.bytes()) {
-        if k == 0 { continue; }
-        let keep = 255 - k as u32;
-        for v in p.iter_mut() { *v = ((*v as u32 * keep + 127) / 255) as u8; }
-    }
+    clear_covered_bytes(&mut data, coverage.bytes());
     let cleared = Raster::from_premultiplied(raster.width, raster.height, data);
     doc.layer_mut(id).unwrap().set_pixels(Some(cleared));
     Ok(())
@@ -241,4 +237,64 @@ pub fn load_mask_selection(doc: &mut Document, id: Uuid, mode: SelectionMode, an
     let outline = g::transformed(&traced, &placement.pixel_to_document(mask.pixels.width, mask.pixels.height));
     apply_selection(doc, &outline, mode, antialiased);
     Ok(())
+}
+
+/// Preserve the original per-channel rounding at coverage edges. Eight-pixel
+/// blocks avoid a branch per pixel outside the selection and clear opaque
+/// interiors directly. Reads use bytes, so alignment and endianness do not
+/// change the all-zero/all-255 tests. The final short block uses the same rule.
+fn clear_covered_bytes(data: &mut [u8], coverage: &[u8]) {
+    debug_assert_eq!(data.len(), coverage.len() * 4);
+    let whole = coverage.len() / 8 * 8;
+    for (pixels, cover) in data[..whole * 4].chunks_exact_mut(32).zip(coverage[..whole].chunks_exact(8)) {
+        let word = u64::from_le_bytes(cover.try_into().unwrap());
+        if word == 0 { continue; }
+        if word == u64::MAX { pixels.fill(0); continue; }
+        clear_covered_edge(pixels, cover);
+    }
+    clear_covered_edge(&mut data[whole * 4..], &coverage[whole..]);
+}
+
+fn clear_covered_edge(data: &mut [u8], coverage: &[u8]) {
+    for (pixel, &cover) in data.chunks_exact_mut(4).zip(coverage) {
+        if cover == 0 { continue; }
+        if cover == 255 { pixel.fill(0); continue; }
+        let keep = 255 - cover as u32;
+        for channel in pixel { *channel = ((*channel as u32 * keep + 127) / 255) as u8; }
+    }
+}
+
+#[cfg(test)]
+mod covered_clear_tests {
+    use super::clear_covered_bytes;
+    fn scalar(data: &mut [u8], coverage: &[u8]) {
+        for (pixel, &cover) in data.chunks_exact_mut(4).zip(coverage) {
+            if cover == 0 { continue; }
+            let keep = 255 - cover as u32;
+            for channel in pixel { *channel = ((*channel as u32 * keep + 127) / 255) as u8; }
+        }
+    }
+    #[test]
+    fn every_channel_value_and_coverage_matches_original_scalar() {
+        let mut coverage = Vec::new(); let mut bytes = Vec::new();
+        for cover in 0..=255u8 { for channel in 0..=255u8 {
+            coverage.push(cover); bytes.extend_from_slice(&[channel, channel.wrapping_add(71), channel ^ 173, 255 - channel]);
+        } }
+        let mut expected = bytes.clone(); scalar(&mut expected, &coverage);
+        clear_covered_bytes(&mut bytes, &coverage); assert_eq!(bytes, expected);
+    }
+    #[test]
+    fn zero_opaque_mixed_blocks_and_every_tail_preserve_exact_bytes() {
+        let mut state = 0x12345678u32;
+        for length in 0..521 {
+            let mut data=Vec::new(); let mut coverage=Vec::new();
+            for at in 0..length {
+                state=state.wrapping_mul(1664525).wrapping_add(1013904223);
+                data.extend_from_slice(&state.to_le_bytes());
+                coverage.push(match at/8 % 4 {0=>0,1=>255,2=>(state>>24) as u8,_=>if at%2==0 {0}else{255}});
+            }
+            let mut expected=data.clone();scalar(&mut expected,&coverage);
+            clear_covered_bytes(&mut data,&coverage);assert_eq!(data,expected,"length {length}");
+        }
+    }
 }

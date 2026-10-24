@@ -82,7 +82,7 @@ fn halve_into(src: &[u8], sw: u32, sh: u32, out: &mut [u8], region: PixelRect) {
 /// `adopted` is one deeper halving made elsewhere (the job worker, Phase 4.5 F1): the raster after
 /// that many halvings, handed over with the pixels so the UI thread never halves them itself.
 /// `std::sync::Mutex` is fine here: the engine runs single-threaded on wasm32.
-struct RasterInner { data: Vec<u8>, half: Mutex<Option<Raster>>, adopted: Mutex<Option<(u32, Raster)>> }
+struct RasterInner { data: Vec<u8>, half: Mutex<Option<Raster>>, adopted: Mutex<Option<(u32, Raster)>>, preview_reduced: Mutex<Option<(u32, Raster)>> }
 
 impl std::fmt::Debug for RasterInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -105,7 +105,7 @@ impl PartialEq for Raster {
 
 impl Raster {
     fn wrap(width: u32, height: u32, data: Vec<u8>) -> Raster {
-        Raster { width, height, inner: Arc::new(RasterInner { data, half: Mutex::new(None), adopted: Mutex::new(None) }) }
+        Raster { width, height, inner: Arc::new(RasterInner { data, half: Mutex::new(None), adopted: Mutex::new(None), preview_reduced: Mutex::new(None) }) }
     }
     pub fn new_transparent(width: u32, height: u32) -> Raster {
         Raster::wrap(width, height, vec![0; (width as usize) * (height as usize) * 4])
@@ -158,6 +158,7 @@ impl Raster {
     pub fn forget_halvings(&self) {
         *self.inner.half.lock().unwrap() = None;
         *self.inner.adopted.lock().unwrap() = None;
+        *self.inner.preview_reduced.lock().unwrap() = None;
     }
     /// Whether another clone of this raster holds the same pixel buffer.
     pub fn shared(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
@@ -208,15 +209,74 @@ impl Raster {
         (w, h)
     }
     /// The raster after `level` halvings, stopping once a side is 1: from the halving this buffer
-    /// adopted when that is `level` or fewer halvings, else from the pixels; each step is memoized.
+    /// adopted when that is `level` or fewer halvings, else from the pixels. Large initial reductions cache their final image; other paths memoize each step.
     pub fn reduced(&self, level: u32) -> Raster {
         let level = level.min(MAX_PREFILTER_LEVEL);
+        // Avoid ever allocating full intermediate images for an initial large
+        // reduction. Existing/adopted caches retain their original precedence.
+        if level >= 2 && self.inner.data.len() >= 64 * 1024 * 1024
+            && self.adopted().is_none() && self.memoized_half().is_none() {
+            if let Some(reduced) = self.reduced_in_bands(level) { return reduced; }
+        }
         let (mut current, mut at) = match self.adopted() { Some((l, r)) if l <= level => (r, l), _ => (self.clone(), 0) };
         while at < level && current.width > 1 && current.height > 1 {
             current = current.halved();
             at += 1;
         }
         current
+    }
+    /// Calculate one final row from 2^level original rows, applying the same
+    /// halver at every step. Integer rounding is not fused across steps, and
+    /// columns/rows discarded at odd edges are identical to the full ladder.
+    fn reduced_in_bands(&self, requested: u32) -> Option<Raster> {
+        let (level, reduced) = self.band_reduced(requested)?;
+        // A concurrently supplied display buffer retains its original priority.
+        let mut adopted = self.inner.adopted.lock().unwrap();
+        if adopted.is_some() { drop(adopted); return Some(self.reduced(requested)); }
+        *adopted = Some((level, reduced.clone()));
+        Some(reduced)
+    }
+    /// Exact source-pixel halvings for previews. Unlike `reduced`, this preserves
+    /// the preview's original rule of ignoring an externally adopted display.
+    /// The caller owns the returned raster; the final source reduction is also
+    /// kept for the next slider tick without a full intermediate image ladder.
+    pub fn reduced_pixels(&self, level: u32) -> Raster {
+        let level = level.min(MAX_PREFILTER_LEVEL);
+        if level >= 2 && self.inner.data.len() >= 64 * 1024 * 1024 && self.memoized_half().is_none() {
+            let mut cache = self.inner.preview_reduced.lock().unwrap();
+            if let Some((at, raster)) = cache.as_ref() { if *at == level { return raster.clone(); } }
+            if let Some((_, raster)) = self.band_reduced(level) {
+                *cache = Some((level, raster.clone()));
+                return raster;
+            }
+        }
+        let (mut current, mut at) = (self.clone(), 0);
+        while at < level && current.width > 1 && current.height > 1 { current = current.halved(); at += 1; }
+        current
+    }
+    fn band_reduced(&self, requested: u32) -> Option<(u32, Raster)> {
+        let (mut w, mut h, mut level) = (self.width, self.height, 0);
+        while level < requested && w > 1 && h > 1 { w /= 2; h /= 2; level += 1; }
+        if level < 2 { return None; }
+        let rows = 1usize << level;
+        let stride = self.width as usize * 4;
+        let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+        for y in 0..h as usize {
+            let begin = y * rows * stride;
+            let source = &self.inner.data[begin..begin + rows * stride];
+            let (mut sw, mut sh) = (self.width, rows as u32);
+            let mut previous: Vec<u8> = Vec::new();
+            for step in 0..level {
+                let (nw, nh) = (sw / 2, sh / 2);
+                let mut next = vec![0u8; nw as usize * nh as usize * 4];
+                let input = if step == 0 { source } else { &previous };
+                halve_into(input, sw, sh, &mut next, PixelRect { x: 0, y: 0, width: nw, height: nh });
+                previous = next; sw = nw; sh = nh;
+            }
+            out.extend_from_slice(&previous);
+        }
+        let reduced = Raster::from_premultiplied(w, h, out);
+        Some((level, reduced))
     }
     /// Keeps `reduced`, this raster after `level` halvings made elsewhere (the job worker), for every
     /// clone of it: `reduced(level)` then returns it without halving anything. Refused (false) at level
