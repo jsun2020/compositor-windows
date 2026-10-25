@@ -733,12 +733,14 @@ test("a step edge on the lattice blurs on the GPU to the closed form, halved or 
   }
 });
 
-test("Layer > New Adjustment lists all twelve kinds in the Mac's order, with no ellipsis for Invert", async ({ page }) => {
+test("Layer > New Adjustment lists all fifteen kinds in the Mac's order, with no ellipsis for Invert", async ({ page }) => {
   await setupNoise(page, 720);
   await page.getByRole("button", { name: "Layer", exact: true }).click();
   expect(await page.locator("[data-testid^='menu-layer-adjustment-']").allTextContents()).toEqual([
     "New Hue/Saturation Adjustment...", "New Levels Adjustment...", "New Curves Adjustment...", "New Exposure Adjustment...",
-    "New Gradient Map Adjustment...", "New Grain Adjustment...", "New Add Noise Adjustment...", "New Gaussian Blur Adjustment...",
+    "New Gradient Map Adjustment...", "New Grain Adjustment...",
+    "New Progressive Blur Adjustment...", "New Bloom / Glow Adjustment...", "New RGB Split Adjustment...",
+    "New Add Noise Adjustment...", "New Gaussian Blur Adjustment...",
     "New Motion Blur Adjustment...", "New Invert Adjustment", "New Black & White Adjustment...", "New Color Balance Adjustment...",
   ]);
 });

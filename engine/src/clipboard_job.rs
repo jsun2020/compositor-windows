@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
-pub struct ClipboardLayer { pub record: LayerRecord, pub pixels: Option<(u32, u32)>, pub mask: Option<(u32, u32)> }
+pub struct ClipboardLayer { #[serde(default, rename="pixelDepth")] pub pixel_depth: PixelDepth, pub record: LayerRecord, pub pixels: Option<(u32, u32)>, pub mask: Option<(u32, u32)> }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardInput {
@@ -25,6 +25,7 @@ impl Engine {
         }
         let descendants=layer.map(|id|doc.descendants(id)).unwrap_or_default();
         let layers:Vec<_> = doc.layers.iter().filter(|l| merged || Some(l.id) == layer || (!mask&&doc.selection.is_none()&&descendants.contains(&l.id))).map(|l| ClipboardLayer {
+            pixel_depth: l.pixels.as_ref().map_or(PixelDepth::Eight,Raster::depth),
             record: l.record(), pixels: l.pixels.as_ref().map(|r| (r.width, r.height)), mask: l.mask.as_ref().map(|m| (m.pixels.width, m.pixels.height)),
         }).collect();
         let ids:Vec<_>=layers.iter().map(|l|l.record.id).collect();
@@ -39,7 +40,7 @@ impl ClipboardInput {
         if buffers.len() != self.layers.len() { return Err(CommandError::Argument("clipboard layer count mismatch".into())); }
         let mut doc = Document::new(self.width, self.height); doc.resolution = self.resolution;
         for (l, (pixels, mask)) in self.layers.iter().zip(buffers) {
-            if pixels.as_ref().map(|p| (p.width, p.height)) != l.pixels || mask.as_ref().map(|p| (p.width, p.height)) != l.mask {
+            if pixels.as_ref().is_some_and(|p|p.depth()!=l.pixel_depth) || pixels.as_ref().map(|p| (p.width, p.height)) != l.pixels || mask.as_ref().map(|p| (p.width, p.height)) != l.mask {
                 return Err(CommandError::Argument("clipboard buffer size mismatch".into()));
             }
             doc.layers.push(Layer::from_record(&l.record, pixels, mask));
@@ -60,6 +61,29 @@ impl ClipboardInput {
 }
 
 impl Engine {
+    /// Keep immutable GIF sources in the main engine for a whole-layer copy. Worker inputs still
+    /// contain only the displayed pixels, because the system clipboard is a static image.
+    pub fn capture_gif_clipboard(&mut self, id: Uuid, layer: Uuid, token: String) -> Result<bool, CommandError> {
+        let original = self.document(id).ok_or(CommandError::NoDocument)?;
+        original.layer(layer).ok_or(CommandError::NoLayer)?;
+        let descendants = original.descendants(layer);
+        let mut snapshot = original.clone();
+        snapshot.layers.retain(|l| l.id == layer || descendants.contains(&l.id));
+        let ids: std::collections::HashSet<_> = snapshot.layers.iter().map(|l| l.id).collect();
+        for l in &mut snapshot.layers {
+            if l.parent_id.is_some_and(|id| !ids.contains(&id)) { l.parent_id = None; }
+            if l.mask_source_id.is_some_and(|id| !ids.contains(&id)) { l.mask_source_id = None; }
+        }
+        snapshot.selection = None; snapshot.active_layer_id = Some(layer);
+        let has_gif = snapshot.layers.iter().any(|l| l.extra.gif.is_some());
+        self.layer_clipboard = has_gif.then_some((token, snapshot));
+        Ok(has_gif)
+    }
+    pub fn paste_gif_clipboard(&mut self, id: Uuid, token: &str) -> Result<Dirty, CommandError> {
+        let source = self.layer_clipboard.as_ref().filter(|(saved, _)| saved == token)
+            .map(|(_, doc)| doc.clone()).ok_or_else(|| CommandError::Refused("The animation clipboard is no longer available".into()))?;
+        self.paste_copied_layers(id, source)
+    }
     /// The internal whole-layer clipboard retains all editable metadata and folder contents.
     /// The system image remains PNG for other applications; its token expires on any new copy.
     pub fn paste_copied_layers(&mut self,id:Uuid,source:Document)->Result<Dirty,CommandError>{

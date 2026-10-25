@@ -13,7 +13,8 @@ test("staged pixel, mask and display planes keep exact bytes and reject partial 
     const same=(actual:Uint8Array,expected:Uint8Array)=>actual.length===expected.length&&actual.every((b,i)=>b===expected[i]);
     const unchanged=()=>a.engine.state(doc).undoDepth===depth&&same(a.engine.layerPixels(doc,id),original)&&same(a.engine.maskPixels(doc,id),originalMask);
     const rejects=(action:()=>void,text:string)=>{try{action();return false;}catch(error){return String(error).includes(text);}finally{w.cancel_staged_install();}};
-    const budget=[0,1,2].map(plane=>rejects(()=>{const sizes=[0,0,0];sizes[plane]=plane===1?100000001:400000001;w.begin_staged_install(...sizes);},"pixel budget"));
+    // The source plane permits RGBA16/HDR (8 bytes/pixel); masks and display stay 1/4 bytes.
+    const budget=[0,1,2].map(plane=>rejects(()=>{const sizes=[0,0,0];sizes[plane]=plane===0?800000001:plane===1?100000001:400000001;w.begin_staged_install(...sizes);},"pixel budget"));
     const overflow=[0,1,2].map(plane=>rejects(()=>{w.begin_staged_install(1,1,1);w.append_staged_install(plane,new Uint8Array(2));},"overflow"));
     const invalid=rejects(()=>{w.begin_staged_install(1,1,1);w.append_staged_install(3,new Uint8Array(1));},"invalid staged plane");
     const incomplete=[0,1,2].map(missing=>rejects(()=>{w.begin_staged_install(256,64,64);for(let plane=0;plane<3;plane++)w.append_staged_install(plane,new Uint8Array((plane===0?256:64)-(plane===missing?1:0)));w.finish_staged_install(doc,id,JSON.stringify(header.stamp),output,false);},"incomplete"));

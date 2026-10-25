@@ -26,3 +26,22 @@ describe("layer rows", () => {
     expect(dropTarget(rows, 1, "below")).toEqual({ parent: null, above: "A", atBottom: false });
   });
 });
+
+import { filteredLayerRows } from "../../src/panels/layer-rows";
+describe("Mac 1.5.6 layer filtering", () => {
+  const d=state([layer("photo"),layer("folder",{isGroup:true,name:"Trip"}),layer("inner",{parentId:"folder",isGroup:true}),layer("leaf",{parentId:"inner",name:"Beach"}),layer("caption",{shape:{kind:"rectangle"}})]);
+  it("finds descendants in collapsed folders without changing collapse state",()=>{
+    const collapsed=["folder","inner"];
+    expect(filteredLayerRows(d,collapsed,"  BEACH ",[],[]).map(r=>r.layer.id)).toEqual(["leaf"]);
+    expect(collapsed).toEqual(["folder","inner"]);
+    expect(filteredLayerRows(d,collapsed,"",[],[]).map(r=>r.layer.id)).toEqual(["caption","folder","photo"]);
+  });
+  it("includes the whole subtree of a matching folder and retains document depths",()=>{
+    expect(filteredLayerRows(d,["folder"],"trip",[],[]).map(r=>[r.layer.id,r.depth])).toEqual([["folder",0],["inner",1],["leaf",2]]);
+  });
+  it("combines name with kind and treats Selected as another matching kind",()=>{
+    expect(filteredLayerRows(d,[],"",["shape","selected"],["photo"]).map(r=>r.layer.id)).toEqual(["caption","photo"]);
+    expect(filteredLayerRows(d,[],"beach",["shape"],[])).toEqual([]);
+    expect(filteredLayerRows(d,[],"beach",["selected"],["leaf"]).map(r=>r.layer.id)).toEqual(["leaf"]);
+  });
+});

@@ -37,3 +37,9 @@ mod tests {
     }
 }
 pub mod clipboard;
+
+pub mod fonts;
+
+pub mod native_images;
+
+pub mod color_profiles;

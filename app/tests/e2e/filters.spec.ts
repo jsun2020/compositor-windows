@@ -1,23 +1,24 @@
 import { test, expect, type Page } from "@playwright/test";
 import { clickMenu, noisePngBase64 } from "./helpers";
 
-async function setup(page: Page) {
+async function setup(page: Page, canvasSize = 64) {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
   const b64 = await page.evaluate(noisePngBase64);
-  await page.evaluate(async (data) => {
+  await page.evaluate(async ({ data, canvasSize }) => {
     const api = (window as any).__compositor;
     const png = Uint8Array.from(atob(data), (c: string) => c.charCodeAt(0));
-    const doc = api.engine.newDocument(64, 64, false);
-    api.engine.importImage(doc, png, "noise", { x: 32, y: 32 });
+    const doc = api.engine.newDocument(canvasSize, canvasSize, false);
+    api.engine.importImage(doc, png, "noise", { x: canvasSize / 2, y: canvasSize / 2 });
     api.store.getState().openDocument(doc);
     await api.setZoom(1);
-  }, b64);
+  }, { data: b64, canvasSize });
 }
 const layer = (page: Page) => page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].layers[0]; });
 
-test("a gaussian blur grows the layer, previews, and applies as one undo step", async ({ page }) => {
-  await setup(page);
+test("a gaussian blur grows an interior layer, previews, and applies as one undo step", async ({ page }) => {
+  // 1.5.7 extends canvas-touching edges. Keep this growth case inside a larger canvas.
+  await setup(page, 128);
   const before = await layer(page);
   const depthBefore = await page.evaluate(() => { const s = (window as any).__compositor.store.getState(); return s.documents[s.activeId].undoDepth; });
   await clickMenu(page, "Filter", "filter-gaussian-blur");
@@ -81,4 +82,12 @@ test("the shortcuts open their panels and the menu items grey out while one is o
   const before = (await layer(page)).pixelsRevision;
   await page.keyboard.press("Control+i");
   expect((await layer(page)).pixelsRevision).toBeGreaterThan(before);
+});
+
+test("a canvas-filling gaussian blur extends its edges without growing the layer", async ({page}) => {
+  await setup(page);const before=await layer(page);
+  await clickMenu(page,"Filter","filter-gaussian-blur");await page.getByLabel("Radius").fill("5");await page.getByLabel("Radius").press("Enter");
+  expect((await layer(page)).transform).toEqual(before.transform);
+  await page.getByTestId("adjust-ok").click();const after=await layer(page);expect(after.transform).toEqual(before.transform);expect(after.pixelsRevision).not.toBe(before.pixelsRevision);
+  await page.keyboard.press("Control+z");expect((await layer(page)).transform).toEqual(before.transform);
 });

@@ -5,9 +5,9 @@ pub enum ProjectError {
     #[error("This is not a valid Compositor project, or its metadata is damaged.")]
     Invalid,
     /// The Mac's words (ProjectStore.swift:69 at v1.4.5), the upper bound read from the version this
-    /// build writes so the two cannot drift apart, and which Mac saves them: a project from a newer
+    /// build reads so the message follows the actual decoder: a project from a newer
     /// Mac needs a newer build of this app.
-    #[error("This project uses format version {0}. This app supports versions 1-{max}, which Compositor for Mac saves up to version 1.4.5.", max = crate::manifest::CURRENT_VERSION)]
+    #[error("This project uses format version {0}. This app supports versions 1-{max}.", max = crate::manifest::MAX_READ_VERSION)]
     Version(u32),
     #[error("An image inside the project is missing or damaged. The current document has not been replaced.")]
     MissingImage,
@@ -26,7 +26,7 @@ pub enum ProjectError {
 pub enum ImportError {
     #[error("The image could not be read. It may be damaged or unavailable.")]
     Unreadable,
-    #[error("Choose a JPEG, PNG, TIFF, WebP, or BMP image.")]
+    #[error("Choose a JPEG, PNG, TIFF, WebP, BMP, GIF, OpenEXR, or HDR image.")]
     Unsupported,
     #[error("This import exceeds the current 100-megapixel document budget or 30,000-pixel side limit.")]
     TooLarge,

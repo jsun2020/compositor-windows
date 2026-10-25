@@ -12,6 +12,7 @@ export class Viewport {
   private _zoom = 1;
   pan: SizeLike = { width: 0, height: 0 };
   private _followsFit = true;
+  private fitEnlarges = false;
 
   get zoom(): number { return this._zoom; }
   get followsFit(): boolean { return this._followsFit; }
@@ -31,19 +32,21 @@ export class Viewport {
     const o = this.documentRect(size);
     return { x: o.x + point.x * this.pointsPerPixel, y: o.y + point.y * this.pointsPerPixel };
   }
-  fit(size: SizeLike): void {
+  fit(size: SizeLike, enlarging = false): void {
+    this.fitEnlarges = enlarging;
     if (this.viewSize.width <= 0 || this.viewSize.height <= 0) { this._followsFit = true; return; }
     const zoom = Math.min(Math.max(1, this.viewSize.width - FIT_MARGIN) / size.width,
       Math.max(1, this.viewSize.height - FIT_MARGIN) / size.height) * this.backingScale;
-    this._zoom = clamp(zoom);
+    this._zoom = clamp(enlarging ? zoom : Math.min(1, zoom));
     this.pan = { width: 0, height: 0 };
     this._followsFit = true;
   }
+  recenter(): void { this.pan = {width: 0, height: 0}; this._followsFit = false; }
   resize(size: SizeLike, backingScale: number, docSize?: SizeLike): void {
     const oldScale = this.pointsPerPixel;
     this.viewSize = { ...size };
     this.backingScale = Math.max(1, backingScale);
-    if (this._followsFit && docSize) { this.fit(docSize); }
+    if (this._followsFit && docSize) { this.fit(docSize, this.fitEnlarges); }
     else {
       const ratio = this.pointsPerPixel / oldScale;
       this.pan = { width: this.pan.width * ratio, height: this.pan.height * ratio };

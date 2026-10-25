@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {deflateSync} from 'node:zlib';
+// This runs the actual generated browser WASM and its transfer ABI, without a GUI.
+const directory=path.resolve(process.argv[2]??'app/src/engine/pkg');
+const {initSync,WasmEngine}=await import(pathToFileURL(path.join(directory,'compositor_engine.js')));
+const {memory}=initSync({module:fs.readFileSync(path.join(directory,'compositor_engine_bg.wasm'))});
+const crc=bytes=>{let c=0xffffffff;for(const b of bytes){c^=b;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;};
+const chunk=(name,data)=>{const type=Buffer.from(name),size=Buffer.alloc(4),sum=Buffer.alloc(4);size.writeUInt32BE(data.length);sum.writeUInt32BE(crc(Buffer.concat([type,data])));return Buffer.concat([size,type,data,sum]);};
+const values=[20000,30000,40000,65535,20001,30001,40001,65535,20002,30002,40002,65535];
+const raw=Buffer.alloc(25);values.forEach((v,i)=>raw.writeUInt16BE(v,1+i*2));
+const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(3);ihdr.writeUInt32BE(1,4);ihdr[8]=16;ihdr[9]=6;
+const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(raw)),chunk('IEND',Buffer.alloc(0))]);
+const main=new WasmEngine(),worker=new WasmEngine();
+const keep=e=>{const n=e.job_buffer_len(false),p=e.job_buffer_ptr(false);return new Uint8Array(memory.buffer,p,n).slice();};
+const words=b=>Array.from(new Uint16Array(b.buffer,b.byteOffset,b.byteLength/2));
+const doc=main.import_image(undefined,png,'16-bit test');let state=JSON.parse(main.state(doc)),layer=state.activeLayerId;
+assert.equal(state.layers[0].pixelDepth,'Sixteen');
+const input=main.prepare_job(doc,layer),snapshot=keep(main);main.release_job();
+assert.equal(snapshot.length,24);assert.deepEqual(words(snapshot),values);
+const output=worker.run_edit_job(input,snapshot,undefined,undefined,JSON.stringify({type:'InvertPixels',id:layer,mask:false}),0);
+assert.equal(JSON.parse(output).pixelDepth,'Sixteen');assert.equal(worker.job_uniform_pixels(),undefined);
+const edited=keep(worker);worker.release_job();
+main.begin_staged_install(edited.length,0,0);main.append_staged_install(0,edited.subarray(0,7));main.append_staged_install(0,edited.subarray(7));
+main.finish_staged_install(doc,layer,JSON.stringify(JSON.parse(input).stamp),output,false);
+main.prepare_save(doc);const manifest=main.save_package_manifest(doc),names=main.save_package_image_names(doc),images=names.map(n=>main.save_package_image(doc,n));
+assert.equal(JSON.parse(manifest).version,12);main.finish_save(doc);
+const reopened=main.open_package(manifest,names,images,undefined);main.prepare_job(reopened,layer);assert.deepEqual(keep(main),edited);main.release_job();
+main.undo(doc);main.prepare_job(doc,layer);assert.deepEqual(keep(main),snapshot);main.release_job();
+const clip=main.prepare_clipboard(doc,layer,false,false);main.prepare_job(doc,layer);const cp=keep(main);main.release_job();
+const copied=worker.run_clipboard_pixels(clip,[cp],[null],undefined);assert.equal(JSON.parse(copied).pixelDepth,'Sixteen');assert.deepEqual(keep(worker),snapshot);worker.release_job();
+for(const format of ['PNG16','TIFF','EXR']) {
+ const encoded=main.export_as(doc,JSON.stringify({width:3,height:1,format,quality:1,background:null}),0);
+ const decoded=JSON.parse(worker.decode_clipboard(encoded));assert.notEqual(decoded.pixelDepth,'Eight');assert.equal(worker.job_buffer_len(false),24);worker.release_job();
+}
+const hdrDoc=main.new_document(1,1,false);main.paste_deep_pixels(hdrDoc,1,1,new Uint8Array(new Uint16Array([0x4400,0x4200,0x4000,0x3c00]).buffer),'"Hdr"',undefined,undefined,false);
+assert.equal(JSON.parse(main.state(hdrDoc)).layers[0].pixelDepth,'Hdr');
+const exr=main.export_as(hdrDoc,JSON.stringify({width:1,height:1,format:'EXR',quality:1,background:null}),0);
+assert.equal(JSON.parse(worker.decode_clipboard(exr)).pixelDepth,'Hdr');assert.equal(words(keep(worker))[0],0x4400);worker.release_job();
+main.free();worker.free();
+console.log('PASS: real WASM 16-bit import, raw transfer, edit, staged install, undo, package reopen, clipboard, PNG16/TIFF/EXR export and HDR highlights.');

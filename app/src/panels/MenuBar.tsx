@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FILTER_TITLES } from "../state/adjust-edit";
 import { useEditor } from "../state/store";
-import { importImages, openProject } from "../actions/files";
+import { importFolder, importImages, openProject } from "../actions/files";
 import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
@@ -10,7 +10,7 @@ import {
   loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink, canUngroupActive,
 } from "../actions/layers";
 import { ADJUSTMENT_KINDS, isEditableKind } from "../engine/types";
-import { canCopyPixels } from "../actions/clipboard";
+import { canCopyPixels, pastePixels } from "../actions/clipboard";
 import { beginContentFill,canContentFill } from "../actions/content-fill";
 import {canEditText,editActiveText} from "../actions/text";
 import {canEditEffects,beginEffects} from "../actions/effects";
@@ -35,12 +35,14 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
 
   return [
     { title: "File", items: [
+      { id: "keyboard-shortcuts", label: "Keyboard Shortcuts...",run:()=>s.openSheet({kind:"keyboardShortcuts"}),enabled:!s.panelOwnsDocument()},
       { id: "new", label: "New Canvas...", run: () => runAction("new"), enabled: !s.panelOwnsDocument() },
       { id: "open", label: "Open Project...", run: () => runAction("open") },
       ...recent.map((p, i) => ({ id: `recent-${i}`, label: `Open Recent: ${s.bridge!.baseName(p)}`, run: () => void openProject(p) })),
       // No keyboard shortcut (and so no ActionId) covers importing images, so this one
       // keeps calling the action directly instead of going through runAction.
       { id: "import", label: "Import Images...", run: () => void importImages(), enabled: !s.panelOwnsDocument() },
+      { id:"import-folder",label:"Import Image Folder...",run:()=>void importFolder(),enabled:!s.panelOwnsDocument() && !!s.bridge?.pickImportFolder },
       "separator",
       { id: "save", label: "Save", run: () => runAction("save"), enabled: hasDoc },
       { id: "save-as", label: "Save As...", run: () => runAction("save-as"), enabled: hasDoc },
@@ -61,7 +63,8 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "cut", label: "Cut", run: () => runAction("cut"), enabled: editable && canCopyPixels() },
       { id: "copy", label: "Copy", run: () => runAction("copy"), enabled: editable && canCopyPixels() },
       { id: "copy-merged", label: "Copy Merged", run: () => runAction("copy-merged"), enabled: editable && canCopyPixels(true) },
-      { id: "paste", label: "Paste", run: () => runAction("paste"), enabled: editable },
+      { id: "paste", label: "Paste", run: () => runAction("paste"), enabled: !s.panelOwnsDocument() },
+      { id: "paste-new-canvas", label: "Paste as New Canvas", run: () => void pastePixels(true), enabled: !s.panelOwnsDocument() },
       { id: "transform", label: activeDoc?.selection ? "Transform Selection" : "Free Transform", run: () => runAction("transform"), enabled: editable && !s.transformEdit },
       "separator",
       { id: "fill-foreground", label: "Fill with Foreground Color", run: () => runAction("fill-foreground"), enabled: editable && canPaint() },
@@ -123,6 +126,10 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       "separator",
       { id: "filter-camera-raw", label: "Camera Raw...", run: () => s.beginAdjust({ kind: "CameraRaw" }), enabled: s.canAdjust() },
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
+      { id: "filter-lens-effects", label: "Lens Effects...", run: () => s.beginAdjust({ kind: "LensEffects" }), enabled: s.canAdjust() },
+      { id: "filter-bloom-glow", label: "Bloom / Glow...", run: () => s.beginAdjust({ kind: "BloomGlow" }), enabled: s.canAdjust() },
+      { id: "filter-progressive-blur", label: "Progressive Blur...", run: () => s.beginAdjust({ kind: "ProgressiveBlur" }), enabled: s.canAdjust() },
+      { id: "filter-rgb-split", label: "RGB Split...", run: () => s.beginAdjust({ kind: "RgbSplit" }), enabled: s.canAdjust() },
       { id: "filter-motion-blur", label: "Motion Blur...", run: () => s.beginAdjust({ kind: "MotionBlur" }), enabled: s.canAdjust() },
       { id: "filter-add-noise", label: "Add Noise...", run: () => s.beginAdjust({ kind: "AddNoise" }), enabled: s.canAdjust() },
       { id: "filter-lens-correction", label: "Lens Correction...", run: () => s.beginAdjust({ kind: "LensCorrection" }), enabled: s.canAdjust() },
@@ -139,6 +146,7 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "image-exposure", label: "Exposure...", run: () => s.beginAdjust({ kind: "Exposure" }), enabled: s.canAdjust() },
       { id: "image-gradient-map", label: "Gradient Map...", run: () => s.beginAdjust({ kind: "Gradient Map" }), enabled: s.canAdjust() },
       { id: "image-grain", label: "Grain...", run: () => s.beginAdjust({ kind: "Grain" }), enabled: s.canAdjust() },
+      { id: "image-depth", label: active?.pixelDepth && active.pixelDepth !== "Eight" ? "Convert to 8-Bit" : "Convert to 16-Bit", run: () => {if(active) s.run({type:"ConvertPixelDepth",id:active.id,depth:active.pixelDepth && active.pixelDepth!=="Eight"?"Eight":"Sixteen"});}, enabled: editable && !!active?.hasPixels && !active.isGroup && !active.gif && !s.maskSelected },
       { id: "image-invert", label: s.maskSelected ? "Invert Mask" : "Invert", run: () => runAction("invert"), enabled: editable && canInvert() },
       "separator",
       // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
@@ -149,6 +157,7 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "flip-v", label: "Flip Canvas Vertical", run: () => s.run({ type: "FlipCanvas", horizontal: false }), enabled: editable },
     ] },
     { title: "View", items: [
+      {id:"color-proof",label:"CMYK Proof...",run:()=>s.openSheet({kind:"colorProof"}),enabled:!s.panelOwnsDocument()},
       {id:"fullscreen",label:s.canvasOnly?"Exit Fullscreen":"Toggle Fullscreen",checked:s.canvasOnly,run:()=>runAction("fullscreen"),enabled:hasDoc},
       {id:"navigator",label:s.showsNavigator?"Hide Navigator":"Show Navigator",checked:s.showsNavigator,run:()=>useEditor.setState({showsNavigator:!s.showsNavigator}),enabled:hasDoc},
       { id: "zoom-in", label: "Zoom In", run: () => runAction("zoom-in"), enabled: hasDoc },

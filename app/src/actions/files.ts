@@ -1,3 +1,4 @@
+import {useColorProof,chooseColorProfile,initializeColorProfiles} from "../state/color-proof";
 import { BUSY_MESSAGE, useEditor } from "../state/store";
 import {developCameraRaw,isCameraRaw} from "../sheets/RawDevelopSheet";
 import {showImportConversions} from "../sheets/ImportReportSheet";
@@ -80,11 +81,12 @@ export async function saveProjectAs(): Promise<void> {
   await guarded(async () => { const id = ctx().s.activeId; if (id) await saveAsFlow(id); });
 }
 
-export async function importImages(paths?: string[], at?: { x: number; y: number }): Promise<void> {
+export async function importImages(paths?: string[], at?: { x: number; y: number }, separateCanvases = false): Promise<void> {
   // Import records history through `Engine::edit`, not `store.run`, so it needs the panel guard
   // of its own. A panel is only ever open on a document, so a drop with none open, which creates
   // a new document, is never refused.
   if (useEditor.getState().panelOwnsDocument(true)) return;
+  let cameraRawAfter:{doc:string;layer:string}|null=null;
   await guarded(async () => {
     // Import records history through `Engine::edit` without going through `store.run`, so the
     // commit that every other recording path gets has to happen here. Otherwise an import
@@ -97,18 +99,40 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     // does, rather than land before the gradient's result (final review I-1).
     if (useEditor.getState().working) { useEditor.getState().setError(BUSY_MESSAGE); return; }
     const { s, engine, bridge } = ctx();
-    const files = paths ?? (await bridge.pickImportImages());
-    const failures: string[] = [];
+    const selected = paths ?? (await bridge.pickImportImages());
+    const expanded = bridge.expandImportPaths ? await bridge.expandImportPaths(selected) : {paths:selected,errors:[]};
+    const files = expanded.paths;
+    const failures: string[] = [...expanded.errors];
     const conversions: string[] = [];
-    let target = s.activeId;
+    let target = separateCanvases ? null : s.activeId;
     for (const path of files) {
+      if (separateCanvases) target = null;
       try {
-        const bytes = isCameraRaw(path)?await developCameraRaw(path,bridge):await bridge.readFile(path);
+        if(/\.(pdf|heic|heif|hif)$/i.test(path)){
+          if(!bridge.decodeNativeImage)throw new Error("This image format requires the Windows native decoder");
+          const doc=target?useEditor.getState().documents[target]:null;
+          const used=doc?.layers.reduce((n,l)=>n+l.pixelsWidth*l.pixelsHeight,0)??0;
+          const decoded=await bridge.decodeNativeImage(path,doc?[doc.width,doc.height]:null,Math.max(0,100_000_000-used));
+          const id=engine.importPages(target,decoded,target?at??null:null);
+          if(!target){target=id;useEditor.getState().openDocument(id);}else{useEditor.getState().refresh(id);useEditor.getState().revealActiveLayer();}
+          continue;
+        }
+        if(bridge.importCmykFile)await initializeColorProfiles(bridge);
+        const converted=/\.(psd|psb|jpg|jpeg|tif|tiff)$/i.test(path)&&bridge.importCmykFile?await bridge.importCmykFile(path,useColorProof.getState().profile?.path??null):null;
+        const raw=isCameraRaw(path)?await developCameraRaw(path,bridge):null;
+        if(isCameraRaw(path)&&!raw)continue;
+        const bytes = converted?new Uint8Array():raw?raw.bytes:await bridge.readFile(path);
         if(!bytes)continue;
         const photoshop=bytes.length>=4&&bytes[0]===56&&bytes[1]===66&&bytes[2]===80&&bytes[3]===83;
-        const imported=photoshop?engine.importPhotoshop(target,bytes,target?at??null:null):null;
-        const id = imported?.id ?? engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        const imported=converted?engine.importPhotoshopPackage(target,converted,target?at??null:null):photoshop?engine.importPhotoshopProjects(target,bytes,target?at??null:null):null;
+        if(converted)void chooseColorProfile(bridge,converted.profile.path);
         if(imported)conversions.push(...imported.conversions.map(c=>`${bridge.baseName(path)} / ${c.layerName}: ${c.message}`));
+        if(imported?.artboards){
+          for(const project of imported.projects){useEditor.getState().openDocument(project.id);useEditor.setState(s=>({untitledNames:{...s.untitledNames,[project.id]:project.name}}));}
+          continue;
+        }
+        const id = imported?.projects[0].id ?? engine.importImage(target, bytes, bridge.baseName(path), target ? at ?? null : null);
+        if(raw?.openCameraRaw){const layer=engine.state(id).activeLayerId;if(layer)cameraRawAfter={doc:id,layer};}
         // Import does not go through `store.run`, so the reveal has to be called here: an
         // import with a folder active lands inside it (`import_raster` sets parent_id), and a
         // collapsed folder would otherwise leave the new layer active with no row.
@@ -124,6 +148,8 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
     if(conversions.length)await showImportConversions(conversions);
     if (failures.length) throw new Error(failures.join("\n"));
   });
+  const request=cameraRawAfter as {doc:string;layer:string}|null;
+  if(request){const s=useEditor.getState();if(s.documents[request.doc]?.layers.some(l=>l.id===request.layer)){s.setActive(request.doc);s.selectLayers([request.layer],request.layer);s.beginAdjust({kind:"CameraRaw"});}}
 }
 
 export async function exportPng(): Promise<void> {
@@ -174,4 +200,9 @@ export async function closeProject(id: string): Promise<boolean> {
 export async function closeActive(): Promise<boolean> {
   const id = useEditor.getState().activeId;
   return id ? closeProject(id) : true;
+}
+
+export async function importFolder():Promise<void>{
+  const s=useEditor.getState();if(s.panelOwnsDocument()||s.working||s.busy||!s.bridge?.pickImportFolder)return;
+  try{const path=await s.bridge.pickImportFolder();if(path)await importImages([path]);}catch(e){s.setError(e instanceof Error?e.message:String(e));}
 }

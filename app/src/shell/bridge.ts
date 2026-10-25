@@ -1,8 +1,15 @@
 import type { PackageFiles } from "../engine/types";
 export interface RawInfo {decoder:string;width:number;height:number;make:string;model:string;asShotTemperature:number;asShotTint:number;whiteBalanceEstimate:boolean;sensorDecoded:boolean}
-export interface RawDevelopSettings {exposure:number;temperature:number;tint:number;tone:number}
+export interface RawDevelopSettings {exposure:number;temperature:number;tint:number;tone:number;noiseReduction?:number;highlightRecovery?:boolean}
 
 export interface ShellBridge {
+  importCmykFile?(path:string,profile:string|null):Promise<import("./native-cmyk").NativeCmyk|null>;
+  listColorProfiles?():Promise<import("../canvas/color-proof").ColorProfile[]>;
+  pickColorProfile?():Promise<string|null>;
+  proofColorProfile?(path:string,importProfile:boolean):Promise<{profile:import("../canvas/color-proof").ColorProfile;lut:number[]}>;
+  exportCmyk?(png:Uint8Array,profile:string,format:"JPEG"|"TIFF"|"PDF",quality:number,dpi:number):Promise<Uint8Array>;
+  decodeNativeImage?(path:string,fitting:[number,number]|null,remaining:number):Promise<import("./native-images").NativeImages>;
+  listFonts?():Promise<string[]>;
   setFullscreen?(value:boolean):Promise<void>;
   rawInspect?(path:string,token:string):Promise<RawInfo>;
   rawDevelop?(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array>;
@@ -15,7 +22,9 @@ export interface ShellBridge {
   pickOpenPackage(): Promise<string | null>;
   pickSavePackage(suggested: string): Promise<string | null>;
   pickImportImages(): Promise<string[]>;
-  pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf"): Promise<string | null>;
+  pickImportFolder?(): Promise<string | null>;
+  expandImportPaths?(paths:string[]): Promise<{paths:string[];errors:string[]}>;
+  pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif"): Promise<string | null>;
   readPackage(path: string): Promise<PackageFiles>;
   writePackage(path: string, files: PackageFiles): Promise<void>;
   readFile(path: string): Promise<Uint8Array>;

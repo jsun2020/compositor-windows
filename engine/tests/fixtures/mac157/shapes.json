@@ -1,0 +1,1290 @@
+[
+  {
+    "bounds" : [
+      0,
+      0,
+      80,
+      60
+    ],
+    "file" : "shape-0.rgba",
+    "height" : 60,
+    "spec" : {
+      "cornerRadius" : 12,
+      "kind" : "Rectangle",
+      "rect" : {
+        "height" : 60,
+        "width" : 80,
+        "x" : 0,
+        "y" : 0
+      },
+      "smoothing" : true
+    },
+    "width" : 80
+  },
+  {
+    "bounds" : [
+      0,
+      0,
+      100,
+      40
+    ],
+    "file" : "shape-1.rgba",
+    "height" : 40,
+    "spec" : {
+      "cornerRadius" : 18,
+      "kind" : "Rectangle",
+      "rect" : {
+        "height" : 40,
+        "width" : 100,
+        "x" : 0,
+        "y" : 0
+      },
+      "smoothing" : true
+    },
+    "width" : 100
+  },
+  {
+    "bounds" : [
+      0,
+      0,
+      41,
+      41
+    ],
+    "file" : "shape-2.rgba",
+    "height" : 41,
+    "spec" : {
+      "cornerRadius" : 50,
+      "kind" : "Rectangle",
+      "rect" : {
+        "height" : 41,
+        "width" : 41,
+        "x" : 0,
+        "y" : 0
+      },
+      "smoothing" : true
+    },
+    "width" : 41
+  },
+  {
+    "bounds" : [
+      0,
+      0,
+      24,
+      20
+    ],
+    "file" : "shape-3.rgba",
+    "height" : 20,
+    "spec" : {
+      "cornerRadius" : 1,
+      "kind" : "Rectangle",
+      "rect" : {
+        "height" : 20,
+        "width" : 24,
+        "x" : 0,
+        "y" : 0
+      },
+      "smoothing" : true
+    },
+    "width" : 24
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-4.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      9,
+      19,
+      54,
+      34
+    ],
+    "file" : "shape-5.rgba",
+    "height" : 34,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 54
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-6.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-7.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      7,
+      17,
+      58,
+      38
+    ],
+    "file" : "shape-8.rgba",
+    "height" : 38,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 58
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-9.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-10.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      9,
+      19,
+      54,
+      34
+    ],
+    "file" : "shape-11.rgba",
+    "height" : 34,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 54
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-12.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-13.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      7,
+      17,
+      58,
+      38
+    ],
+    "file" : "shape-14.rgba",
+    "height" : 38,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 58
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-15.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-16.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      9,
+      19,
+      54,
+      34
+    ],
+    "file" : "shape-17.rgba",
+    "height" : 34,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 54
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-18.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-19.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      7,
+      17,
+      58,
+      38
+    ],
+    "file" : "shape-20.rgba",
+    "height" : 38,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 58
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-21.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-22.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      9,
+      19,
+      54,
+      34
+    ],
+    "file" : "shape-23.rgba",
+    "height" : 34,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 54
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-24.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-25.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      7,
+      17,
+      58,
+      38
+    ],
+    "file" : "shape-26.rgba",
+    "height" : 38,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 58
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-27.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Square",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-28.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      52,
+      32
+    ],
+    "file" : "shape-29.rgba",
+    "height" : 32,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 52
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-30.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-31.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      56,
+      36
+    ],
+    "file" : "shape-32.rgba",
+    "height" : 36,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 56
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-33.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Solid",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-34.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      52,
+      32
+    ],
+    "file" : "shape-35.rgba",
+    "height" : 32,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 52
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-36.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-37.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      56,
+      36
+    ],
+    "file" : "shape-38.rgba",
+    "height" : 36,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 56
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-39.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dotted",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-40.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      52,
+      32
+    ],
+    "file" : "shape-41.rgba",
+    "height" : 32,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 52
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-42.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-43.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      56,
+      36
+    ],
+    "file" : "shape-44.rgba",
+    "height" : 36,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 56
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-45.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Dashed",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      61,
+      1
+    ],
+    "file" : "shape-46.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 61
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      52,
+      32
+    ],
+    "file" : "shape-47.rgba",
+    "height" : 32,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 52
+  },
+  {
+    "bounds" : [
+      10,
+      20,
+      1,
+      1
+    ],
+    "file" : "shape-48.rgba",
+    "height" : 1,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 1
+    },
+    "width" : 1
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      65,
+      5
+    ],
+    "file" : "shape-49.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        70.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 65
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      56,
+      36
+    ],
+    "file" : "shape-50.rgba",
+    "height" : 36,
+    "spec" : {
+      "end" : [
+        61.5,
+        51.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 56
+  },
+  {
+    "bounds" : [
+      8,
+      18,
+      5,
+      5
+    ],
+    "file" : "shape-51.rgba",
+    "height" : 5,
+    "spec" : {
+      "end" : [
+        10.5,
+        20.5
+      ],
+      "kind" : "Line",
+      "lineCap" : "Round",
+      "lineStyle" : "Long Dash",
+      "start" : [
+        10.5,
+        20.5
+      ],
+      "width" : 5
+    },
+    "width" : 5
+  }
+]

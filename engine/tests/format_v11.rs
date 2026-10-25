@@ -148,8 +148,8 @@ fn runs_are_measured_in_utf16_units_of_the_content() {
 #[test]
 fn a_newer_format_is_refused_with_the_versions_this_build_reads() {
     let mut manifest = hand_written("text-runs");
-    manifest["version"] = json!(12);
+    manifest["version"] = json!(compositor_engine::manifest::MAX_READ_VERSION+1);
     let refused = open_package(&package_of(&manifest)).unwrap_err();
-    assert_eq!(refused, ProjectError::Version(12));
-    assert_eq!(refused.to_string(), "This project uses format version 12. This app supports versions 1-11, which Compositor for Mac saves up to version 1.4.5.");
+    assert_eq!(refused, ProjectError::Version(compositor_engine::manifest::MAX_READ_VERSION+1));
+    assert!(refused.to_string().contains(&format!("versions 1-{}",compositor_engine::manifest::MAX_READ_VERSION)));
 }

@@ -15,3 +15,16 @@ pub(crate) mod camera_geometry;
 pub mod camera_raw_scope;
 mod camera_raw_runtime;
 pub(crate) mod camera_raw_tables;
+
+mod camera_raw_shadows;
+
+mod deep_filters;
+
+pub mod rgb_split;
+
+pub mod progressive;
+
+pub mod bloom;
+
+pub mod filter_layer;
+pub mod lens_effects;

@@ -1,3 +1,4 @@
+import { drawStyledLine, smoothedRectPath } from "../tools/shape-path";
 import type { Viewport } from "./viewport";
 import type { Rect } from "../tools/crop-geometry";
 import { HANDLES } from "../tools/crop-geometry";
@@ -26,7 +27,7 @@ export interface OverlayState {
   gradientLine?: { start: { x: number; y: number }; end: { x: number; y: number }; radial: boolean; from: number[]; to: number[] } | null;
   /** A shape being dragged out: its kind, its box and a line's ends in document px, its corner
    * radius and a line's width in document px, and the colour it will be made in. */
-  shapeDraft?: { kind: "Rectangle" | "Ellipse" | "Line"; rect: { x: number; y: number; width: number; height: number }; start: { x: number; y: number }; end: { x: number; y: number } | null; cornerRadius: number; lineWidth: number; color: PaletteColor } | null;
+  shapeDraft?: { kind: "Rectangle" | "Ellipse" | "Line"; rect: { x: number; y: number; width: number; height: number }; start: { x: number; y: number }; end: { x: number; y: number } | null; cornerRadius: number; smoothing?: boolean; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round"; lineWidth: number; color: PaletteColor } | null;
   /** While the canvas is sampled: the ring about the pointer (view px). */
   sampleRing?: { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor } | null;
 }
@@ -68,14 +69,13 @@ function drawShapeDraft(ctx: CanvasRenderingContext2D, viewport: Viewport, size:
   if (d.kind === "Line") {
     if (!d.end || (d.rect.width <= 0 && d.rect.height <= 0)) { ctx.restore(); return; }
     const a = viewport.viewPoint(d.start, size), b = viewport.viewPoint(d.end, size);
-    ctx.lineWidth = Math.max(1, d.lineWidth * scale); ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    drawStyledLine(ctx, a, b, Math.max(1,d.lineWidth*scale), d.lineStyle ?? "Solid", d.lineCap ?? "Round");
   } else if (d.rect.width > 0 && d.rect.height > 0) {
     const tl = viewport.viewPoint({ x: d.rect.x, y: d.rect.y }, size);
     const w = d.rect.width * scale, h = d.rect.height * scale;
     ctx.beginPath();
     if (d.kind === "Ellipse") ctx.ellipse(tl.x + w / 2, tl.y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-    else ctx.roundRect(tl.x, tl.y, w, h, Math.min(Math.max(0, d.cornerRadius * scale), w / 2, h / 2));
+    else smoothedRectPath(ctx, tl.x, tl.y, w, h, d.cornerRadius*scale, d.smoothing ?? false);
     ctx.fill();
   }
   ctx.restore();

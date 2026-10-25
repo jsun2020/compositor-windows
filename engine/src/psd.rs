@@ -7,10 +7,10 @@ use uuid::Uuid;
 #[path="psd_semantics.rs"] mod semantics;
 #[path="psd_mac_roman.rs"] mod mac_roman;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PsdConversion { pub layer_name: String, pub message: String }
-pub struct PsdImport { pub document: Document, pub conversions: Vec<PsdConversion> }
+pub struct PsdImport { pub document: Document, pub conversions: Vec<PsdConversion>, pub artboard_bounds: Vec<(Uuid,Rect)> }
 fn error(message: &str) -> CommandError { CommandError::Refused(format!("Photoshop import: {message}")) }
 fn truncated() -> CommandError { error("truncated or inconsistent section length") }
 
@@ -119,22 +119,25 @@ fn decode_plane(bytes:&[u8],bounds:Bounds,retained:Bounds,big:bool,default:u8)->
     }
     if c.remaining()!=0 { return Err(error("channel length does not match its pixel data")); }Ok(out)
 }
-fn decode_record(c:&mut Cursor,r:&mut Record,big:bool)->Result<(),CommandError> {
+fn decode_record(c:&mut Cursor,r:&mut Record,big:bool,convert:Option<&CmykConverter>)->Result<(),CommandError> {
     let (w,h)=r.retained.dimensions()?;let n=w*h;
     let owns_pixels=r.owns_pixels();
     let mut rgba=if owns_pixels && n>0 { alloc(n*4,0)? } else { Vec::new() };
-    for p in rgba.chunks_exact_mut(4) {p[3]=255;}
+    for p in rgba.chunks_exact_mut(4) {p[3]=if convert.is_some(){0}else{255};}
+    let mut alpha=if convert.is_some()&&!rgba.is_empty(){alloc(n,255)?}else{Vec::new()};
     for &(id,len) in &r.channels {
         let data=c.take(len)?;
         if id== -2 && r.has_mask && r.mask_flags&8==0 {
             let (mw,mh)=r.mask_retained.dimensions()?;
             let plane=decode_plane(data,r.mask_bounds,r.mask_retained,big,r.mask_default)?;
             if mw>0&&mh>0 { r.mask=Some(GrayRaster::from_bytes(mw as u32,mh as u32,plane)); }
-        } else if owns_pixels&&(-1..=2).contains(&id) {
+        } else if owns_pixels&&(-1..=if convert.is_some(){3}else{2}).contains(&id) {
             let plane=decode_plane(data,r.bounds,r.retained,big,if id== -1 {255}else{0})?;
+            if convert.is_some()&&!rgba.is_empty(){if id== -1{alpha=plane;}else{for (p,v)in rgba.chunks_exact_mut(4).zip(plane){p[id as usize]=255-v;}}continue;}
             if !rgba.is_empty() {let channel=if id== -1 {3}else{id as usize};for (p,v) in rgba.chunks_exact_mut(4).zip(plane) {p[channel]=v;}}
         }
     }
+    if let Some(convert)=convert.filter(|_|!rgba.is_empty()){convert(&mut rgba,w as u32,h as u32)?;for(p,a)in rgba.chunks_exact_mut(4).zip(alpha){p[3]=a;}}
     if !rgba.is_empty() { for p in rgba.chunks_exact_mut(4) { for i in 0..3 {p[i]=((p[i] as u16*p[3] as u16+127)/255) as u8;} }r.pixels=Some(Raster::from_premultiplied(w as u32,h as u32,rgba)); }Ok(())
 }
 fn blend(key:&str)->Option<BlendMode> {Some(match key {
@@ -164,13 +167,21 @@ fn adjustment(r:&Record)->Option<LayerAdjustment> {
 const ADJUSTMENTS:&[&str]=&["levl","curv","hue2","hue ","expA","grdm","brit","blnc","nvrt","thrs","post","mixr","selc","blwh","phfl","vibA"];
 
 pub fn matches(bytes:&[u8])->bool {bytes.starts_with(b"8BPS")}
-pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImport,CommandError> {
+pub type CmykConverter<'a> = dyn Fn(&mut[u8],u32,u32)->Result<(),CommandError> + 'a;
+pub fn embedded_cmyk_profile(bytes:&[u8])->Result<Option<Vec<u8>>,CommandError>{
+    let mut c=Cursor::new(bytes);if c.key()?!="8BPS"{return Err(truncated());}c.skip(20)?;if c.u16()?!=4{return Ok(None);}
+    let n=c.u32()? as usize;c.skip(n)?;let mut resources=c.section(false)?;
+    while resources.remaining()>=12{if resources.key()?!="8BIM"{return Err(truncated());}let id=resources.u16()?;let n=resources.u8()? as usize;resources.skip(n)?;if (n+1)%2!=0{resources.skip(1)?;}let data=resources.section(false)?;if id==1039{crate::cmyk::validate_profile(data.bytes).map_err(|e|error(&e))?;return Ok(Some(data.bytes.to_vec()));}if data.bytes.len()%2!=0{resources.skip(1)?;}}
+    Ok(None)
+}
+pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImport,CommandError>{read_with_cmyk(bytes,remaining_pixels,remaining_masks,None)}
+pub fn read_with_cmyk(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64,converter:Option<&CmykConverter>)->Result<PsdImport,CommandError> {
     if bytes.len() as u64>MAX_ASSET_BYTES {return Err(error("file exceeds 512 MiB"));}
     let mut c=Cursor::new(bytes);if c.key()?!="8BPS" {return Err(error("invalid signature"));}let version=c.u16()?;
     if version!=1&&version!=2 {return Err(error("unsupported PSD/PSB version"));}let big=version==2;c.skip(6)?;let channels=c.u16()?;
     let height=c.u32()?;let width=c.u32()?;
     if width==0||height==0||width as i64>MAX_SIDE||height as i64>MAX_SIDE||width as u64*height as u64>MAX_PIXELS {return Err(error("canvas exceeds the 30,000-pixel side or 100 MP limit"));}
-    if c.u16()?!=8 {return Err(error("only 8-bit Photoshop documents are supported"));}if c.u16()?!=3 {return Err(error("only RGB Photoshop documents are supported"));}
+    if c.u16()?!=8 {return Err(error("only 8-bit Photoshop documents are supported"));}let mode=c.u16()?;if mode!=3&&mode!=4{return Err(error("only RGB and CMYK Photoshop documents are supported"));}let convert=if mode==4{Some(converter.ok_or_else(||error("CMYK Photoshop import requires an ICC color converter"))?)}else{None};
     let n=c.u32()? as usize;c.skip(n)?;let mut resources=c.section(false)?;let mut resolution=72.;
     while resources.remaining()>=12 {if resources.key()?!="8BIM" {return Err(truncated());}let id=resources.u16()?;let n=resources.u8()? as usize;resources.skip(n)?;if (n+1)%2!=0 {resources.skip(1)?;}let mut data=resources.section(false)?;
         if id==1005&&data.remaining()>=4 {resolution=(data.u32()? as f64/65536.).clamp(1.,9600.);}if data.bytes.len()%2!=0 {resources.skip(1)?;}}
@@ -181,10 +192,11 @@ pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImp
             let (images,masks)=sums(&records)?;
             if images>remaining_pixels || masks>remaining_masks { for r in &mut records {r.retained=r.bounds.cropped(width,height);r.mask_retained=r.mask_bounds.cropped(width,height);r.cropped=r.retained.pixels()?!=r.bounds.pixels()?||r.mask_retained.pixels()?!=r.mask_bounds.pixels()?;}
                 let (images,masks)=sums(&records)?;if images>remaining_pixels||masks>remaining_masks {return Err(error("layers or masks exceed the remaining 100 MP document budget"));}}
-            for r in &mut records {decode_record(&mut layers,r,big)?;}
+            for r in &mut records {decode_record(&mut layers,r,big,convert)?;}
         }
     }
     let mut reserved_images=records.iter().filter(|r|r.section==0).filter_map(|r|r.pixels.as_ref()).map(|p|p.width as u64*p.height as u64).sum::<u64>();
+    let mut artboard_bounds=Vec::new();
     let mut document=Document::new(width,height);document.resolution=resolution;let mut conversions=Vec::new();let mut groups=Vec::new();let mut bases=BTreeMap::new();let mut converted_masks=0u64;
     // Compositor 1.4.5 consumes Photoshop records bottom-first: divider, children,
     // then folder. Preserve file order so an opaque background cannot cover its overlays.
@@ -192,7 +204,7 @@ pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImp
         if r.section==3 {if groups.len()>=MAX_NESTING {return Err(error("folder nesting exceeds 64"));}groups.push(Uuid::new_v4());continue;}
         let group=r.section==1||r.section==2;
         let mut layer=if let Some(p)=r.pixels.take().filter(|_|!group) {Layer::with_pixels(&r.name,p,r.retained.origin())}else{Layer::blank(&r.name,document.size())};
-        if group {layer.id=groups.pop().ok_or_else(||error("unbalanced folder records"))?;layer.is_group=true;}
+        if group {layer.id=groups.pop().ok_or_else(||error("unbalanced folder records"))?;layer.is_group=true;if let Some(rect)=semantics::artboard(&r.extra){artboard_bounds.push((layer.id,rect));}}
         layer.parent_id=groups.last().copied();layer.visible=!r.hidden;
         let effects=has(&r,&["lfx2","lrFX","lmfx"]);
         layer.opacity=r.opacity as f64/255.*if effects {1.}else{r.fill as f64/255.};
@@ -229,16 +241,49 @@ pub fn read(bytes:&[u8],remaining_pixels:u64,remaining_masks:u64)->Result<PsdImp
     }
     if !groups.is_empty() {return Err(error("unbalanced folder records"));}
     if document.layers.is_empty() {
-        if channels<3||channels>56 {return Err(error("invalid merged channel count"));}
+        if channels<if convert.is_some(){4}else{3}||channels>56 {return Err(error("invalid merged channel count"));}
         let n=width as usize*height as usize;if n as u64>remaining_pixels {return Err(error("merged image exceeds the remaining document budget"));}
         let compression=c.u16()?;if compression>1 {return Err(error("unsupported merged image compression"));}
         let counts=if compression==1 {let mut rows=Vec::new();for _ in 0..channels as usize*height as usize {rows.push(if big {c.u32()? as usize}else{c.u16()? as usize});}rows}else{Vec::new()};
-        let mut rgba=alloc(n*4,0)?;for p in rgba.chunks_exact_mut(4) {p[3]=255;}let mut row=alloc(width as usize,0)?;
-        for ch in 0..channels as usize {for y in 0..height as usize {let bytes=if compression==1 {let bytes=c.take(counts[ch*height as usize+y])?;packbits(bytes,&mut row)?;row.as_slice()}else{c.take(width as usize)?};if ch<4 {for (x,&v) in bytes.iter().enumerate() {rgba[(y*width as usize+x)*4+ch]=v;}}}}
+        let mut rgba=alloc(n*4,0)?;for p in rgba.chunks_exact_mut(4) {p[3]=if convert.is_some(){0}else{255};}let mut alpha=if convert.is_some(){alloc(n,255)?}else{Vec::new()};let mut row=alloc(width as usize,0)?;
+        for ch in 0..channels as usize {for y in 0..height as usize {let bytes=if compression==1 {let bytes=c.take(counts[ch*height as usize+y])?;packbits(bytes,&mut row)?;row.as_slice()}else{c.take(width as usize)?};if ch<4 {for (x,&v) in bytes.iter().enumerate() {rgba[(y*width as usize+x)*4+ch]=if convert.is_some(){255-v}else{v};}}else if convert.is_some()&&ch==4{alpha[y*width as usize..(y+1)*width as usize].copy_from_slice(bytes);}}}
+        if let Some(convert)=convert{convert(&mut rgba,width,height)?;for(p,a)in rgba.chunks_exact_mut(4).zip(alpha){p[3]=a;}}
         for p in rgba.chunks_exact_mut(4) {for i in 0..3 {p[i]=((p[i] as u16*p[3] as u16+127)/255) as u8;}}
         document.layers.push(Layer::with_pixels("Merged image",Raster::from_premultiplied(width,height,rgba),Point{x:0.,y:0.}));
     }
     if document.used_pixels()>remaining_pixels||document.used_mask_pixels()>remaining_masks {return Err(error("converted layers exceed the remaining document budget"));}
     document.active_layer_id=document.layers.iter().rev().find(|l|!l.is_group).map(|l|l.id);
-    document.manifest().validate()?;Ok(PsdImport{document,conversions})
+    document.manifest().validate()?;Ok(PsdImport{document,conversions,artboard_bounds})
+}
+
+impl PsdImport {
+    /// Each Photoshop artboard gets a separate canvas; outside layers belong to none.
+    pub fn artboards(&self)->Result<Vec<(String,Document)>,CommandError>{
+        use std::collections::{HashMap,HashSet};
+        let boards:HashSet<_>=self.artboard_bounds.iter().map(|(id,_)|*id).collect();
+        let parents:HashMap<_,_>=self.document.layers.iter().map(|l|(l.id,l.parent_id)).collect();
+        let board_of=|id:Uuid|{let mut next=parents.get(&id).copied().flatten();let mut steps=0;while let Some(parent)=next{if boards.contains(&parent){return Some(parent);}if steps>=MAX_NESTING{return None;}steps+=1;next=parents.get(&parent).copied().flatten();}None};
+        let mut output=Vec::new();
+        for &(id,rect) in &self.artboard_bounds {
+            let x=rect.x.floor();let y=rect.y.floor();let w=rect.max_x().ceil()-x;let h=rect.max_y().ceil()-y;
+            if !(1.0..=30000.).contains(&w)||!(1.0..=30000.).contains(&h)||w*h>MAX_PIXELS as f64{continue;}
+            let mut doc=Document::new(w as u32,h as u32);doc.resolution=self.document.resolution;
+            doc.layers=self.document.layers.iter().filter(|l|board_of(l.id)==Some(id)).cloned().collect();
+            let included:HashSet<_>=doc.layers.iter().map(|l|l.id).collect();
+            for layer in &mut doc.layers {
+                if layer.parent_id==Some(id){layer.parent_id=None;}
+                if layer.mask_source_id.is_some_and(|source|!included.contains(&source)){
+                    if !layer.is_adjustment(){if let Some(pixels)=ops::hierarchy::bake_clip(&self.document,layer.id){layer.set_pixels(Some(pixels));}}
+                    layer.mask_source_id=None;
+                }
+                if layer.is_group||layer.is_adjustment(){layer.transform=LayerTransform::axis_aligned(Point{x:0.,y:0.},Size{width:w,height:h});}
+                else{layer.transform.origin.x-=x;layer.transform.origin.y-=y;}
+                if let Some(mask)=layer.mask.as_mut().and_then(|m|m.placement.as_mut()){mask.origin.x-=x;mask.origin.y-=y;}
+            }
+            doc.active_layer_id=doc.layers.iter().rev().find(|l|!l.is_group).map(|l|l.id);
+            doc.manifest().validate()?;
+            output.push((self.document.layer(id).unwrap().name.clone(),doc));
+        }
+        Ok(output)
+    }
 }

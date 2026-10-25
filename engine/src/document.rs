@@ -12,6 +12,7 @@ pub struct Mask {
 /// Fields owned by later phases, carried through untouched.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct LayerExtra {
+    pub gif: Option<crate::animation::GifAnimation>,
     pub adjustment: Option<LayerAdjustment>,
     pub shape: Option<serde_json::Value>,
     pub effects: Option<LayerEffects>,
@@ -67,7 +68,7 @@ impl Layer {
     }
     pub fn record(&self) -> LayerRecord {
         let mut r = LayerRecord::new(self.id, &self.name, self.transform,
-            self.pixels.as_ref().map(|_| LayerRecord::image_filename(&self.id)));
+            self.pixels.as_ref().map(|p| if p.depth()==crate::PixelDepth::Hdr {LayerRecord::hdr_filename(&self.id)} else {LayerRecord::image_filename(&self.id)}));
         r.is_visible = self.visible;
         r.parent_id = self.parent_id;
         r.is_group = if self.is_group { Some(true) } else { None };
@@ -81,6 +82,7 @@ impl Layer {
         }
         r.mask_source_id = self.mask_source_id;
         r.adjustment = self.extra.adjustment.clone();
+        r.gif = self.extra.gif.as_ref().map(|g| g.record(&self.id));
         r.shape = self.extra.shape.clone();
         r.effects = self.extra.effects.clone();
         r.text = self.extra.text.clone();
@@ -95,7 +97,7 @@ impl Layer {
             mask: mask.map(|pixels| Mask { pixels, enabled: record.mask_enabled.unwrap_or(true),
                 placement: record.mask_placement, linked: record.mask_linked }),
             mask_source_id: record.mask_source_id,
-            extra: LayerExtra { adjustment: record.adjustment.clone(), shape: record.shape.clone(),
+            extra: LayerExtra { gif: None, adjustment: record.adjustment.clone(), shape: record.shape.clone(),
                 effects: record.effects.clone(), text: record.text.clone(), unknown: record.unknown.clone() },
             mask_revision: 1,
         }
@@ -143,13 +145,25 @@ impl Document {
     pub fn manifest(&self) -> Manifest {
         let mut m = Manifest::new(self.id, self.width as i64, self.height as i64, self.active_layer_id,
             self.layers.iter().map(Layer::record).collect());
+        if self.layers.iter().any(|l| l.pixels.as_ref().is_some_and(|p|p.depth()==crate::PixelDepth::Hdr)) {m.version=13;}
+        else if self.layers.iter().any(|l| l.pixels.as_ref().is_some_and(|p|p.depth()==crate::PixelDepth::Sixteen)) {m.version=12;}
+        for shape in self.layers.iter().filter_map(|l|l.extra.shape.as_ref()) {
+            if shape.get("smoothing").and_then(serde_json::Value::as_bool)==Some(true) {m.version=m.version.max(14);}
+            if ["lineStyle","lineCap"].iter().any(|k|shape.get(k).is_some_and(|v|!v.is_null())) {m.version=m.version.max(15);}
+        }
+        if self.layers.iter().filter_map(|l|l.extra.adjustment.as_ref()).any(|a|a.kind.needs_version_16()||a.filter_layer_settings.is_some()) {m.version=m.version.max(16);}
+        if self.layers.iter().any(|l| l.extra.gif.is_some()) { m.version = m.version.max(17); }
         m.resolution = Some(self.resolution);
         m.guides = if self.guides.is_empty() { None } else { Some(self.guides.clone()) };
         m.unknown = self.unknown.clone();
         m
     }
     pub fn used_pixels(&self) -> u64 {
-        self.layers.iter().filter_map(|l| l.pixels.as_ref()).map(|r| r.width as u64 * r.height as u64).sum()
+        self.layers.iter().map(|l| {
+            let current = l.pixels.as_ref().map_or(0, |r| r.width as u64 * r.height as u64);
+            current + l.extra.gif.as_ref().map_or(0, |g| g.frame_pixels.iter().filter(|(i, _)| **i != g.selected_frame_index)
+                .map(|(_, p)| p.width as u64 * p.height as u64).sum::<u64>())
+        }).sum()
     }
     pub fn used_mask_pixels(&self) -> u64 {
         self.layers.iter().filter_map(|l| l.mask.as_ref()).map(|m| m.pixels.width as u64 * m.pixels.height as u64).sum()

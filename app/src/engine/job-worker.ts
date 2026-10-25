@@ -49,6 +49,10 @@ function run(request: JobRequest): JobResult {
       try{return{header,pixels:kept(false),mask:kept(true),display:keptDisplay()};}finally{engine!.release_job();}
     }
     case "clipboard": {
+      if(!request.png){
+        const header=engine!.run_clipboard_pixels(request.input,request.layers.map(l=>bytes(l.pixels)??null),request.layers.map(l=>bytes(l.mask)??null),bytes(request.points));
+        try{return{header,pixels:kept(false),mask:null};}finally{engine!.release_job();}
+      }
       const png = engine!.run_clipboard_job(request.input, request.layers.map((l) => bytes(l.pixels) ?? null), request.layers.map((l) => bytes(l.mask) ?? null), bytes(request.points), request.png);
       const h = JSON.parse(request.input) as { region: { x: number; y: number; width: number; height: number } };
       return { header: JSON.stringify(h.region), pixels: png.buffer as ArrayBuffer, mask: null };
@@ -68,7 +72,8 @@ function run(request: JobRequest): JobResult {
         // may use a byte-exact palette after inspecting the complete output.
         const length=engine!.job_buffer_len(false);
         const pointer=engine!.job_buffer_ptr(false);
-        const palette=!uniform&&length>4*1024*1024&&(JSON.parse(request.command) as {type:string}).type!=="Fill"
+        const pixelDepth=(JSON.parse(header) as {pixelDepth?:string}).pixelDepth;
+        const palette=(!pixelDepth||pixelDepth==="Eight")&&!uniform&&length>4*1024*1024&&(JSON.parse(request.command) as {type:string}).type!=="Fill"
           ? encodePalettePixels(new Uint8Array(memory!.buffer,pointer,length),length>=16*1024*1024?64:1) : null;
         return {header:uniform?JSON.stringify({...JSON.parse(header),uniformPixels:Array.from(uniform)}):palette?JSON.stringify({...JSON.parse(header),palettePixels:palette.palette,...(palette.runs?{paletteRuns:true}:{})}):header,
           pixels:uniform?null:palette?palette.indices:kept(false,request.pixels??request.outputPixels??null),mask:kept(true,request.mask),display:keptDisplay()};

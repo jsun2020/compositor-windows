@@ -245,7 +245,7 @@ pub fn writeback(
     if dabs.is_empty() {
         return Ok(Dirty::pixels(vec![]));
     }
-    let brush = BrushSpec {
+    let brush = BrushSpec { pressures:vec![],pressure_size:false,pressure_opacity:false,
         diameter: spec.diameter + 4.0,
         hardness: 1.0,
         opacity: 1.0,
@@ -333,11 +333,11 @@ pub fn writeback(
         return Ok(Dirty::pixels(vec![]));
     }
     let target = doc.layer_mut(id).unwrap();
-    target.set_pixels(Some(Raster::from_premultiplied(
+    target.set_pixels(Some(ops::raster_edit::painted_on(&grid,original.pixels.as_ref(),Raster::from_premultiplied(
         grid.width,
         grid.height,
         bytes,
-    )));
+    ))));
     target.transform = grid.transform;
     if let Some(mask) = &original.mask {
         if mask.placement.is_none() {

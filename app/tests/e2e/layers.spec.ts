@@ -40,7 +40,7 @@ test("multi-select, group, collapse, rename and delete", async ({ page }) => {
   await page.getByTestId("layer-row").nth(0).click({ modifiers: ["Shift"] });
   const selected = await page.evaluate(() => (window as any).__compositor.store.getState().selectedLayerIds.length);
   expect(selected).toBe(3);
-  await page.getByTestId("layer-row").nth(1).click({ modifiers: ["Control"] });
+  await page.getByTestId("layer-row").nth(1).click({ modifiers: ["ControlOrMeta"] });
   expect(await page.evaluate(() => (window as any).__compositor.store.getState().selectedLayerIds.length)).toBe(2);
   await page.getByTestId("layer-row").nth(0).click({ button: "right" });
   await page.getByTestId("ctx-group").click();

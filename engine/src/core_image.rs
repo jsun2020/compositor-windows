@@ -37,3 +37,11 @@ pub(crate) fn sample_mask(mask: &GrayRaster, x: f64, y: f64) -> u8 {
     };
     filtered(fetch(ix, iy), fetch(ix + 1, iy), fetch(ix, iy + 1), fetch(ix + 1, iy + 1), tx, ty)
 }
+
+/// Core Image's clear-border bilinear geometry, without the RGBA8 quantization.
+pub(crate) fn sample_deep(raster:&Raster,x:f64,y:f64)->[f32;4]{
+    let Some((ix,iy,tx,ty))=taps(x,y,raster.width,raster.height)else{return [0.;4];};
+    let fetch=|x:i64,y:i64|if x<0||y<0||x>=raster.width as i64||y>=raster.height as i64{[0.;4]}else{raster.pixel_f32(x as u32,y as u32)};
+    let(a,b,c,d)=(fetch(ix,iy),fetch(ix+1,iy),fetch(ix,iy+1),fetch(ix+1,iy+1));let(tx,ty)=(tx as f32/256.,ty as f32/256.);
+    std::array::from_fn(|k|(a[k]*(1.-tx)+b[k]*tx)*(1.-ty)+(c[k]*(1.-tx)+d[k]*tx)*ty)
+}

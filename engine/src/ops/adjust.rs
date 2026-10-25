@@ -83,13 +83,22 @@ pub fn grown(raster: &Raster, transform: &LayerTransform, margin: f64) -> Option
     if m == 0 { return None; }
     let (w, h) = (raster.width + 2 * m, raster.height + 2 * m);
     if w as i64 > MAX_SIDE || h as i64 > MAX_SIDE || (w as u64) * (h as u64) > MAX_PIXELS { return None; }
-    let mut data = vec![0u8; (w as usize) * (h as usize) * 4];
-    for y in 0..raster.height {
-        let src = ((y * raster.width) * 4) as usize;
-        let dst = (((y + m) * w + m) * 4) as usize;
-        data[dst..dst + (raster.width * 4) as usize].copy_from_slice(&raster.bytes()[src..src + (raster.width * 4) as usize]);
-    }
-    Some((Raster::from_premultiplied(w, h, data), placed_like(transform, raster.width, raster.height, w, h, m as f64, m as f64)))
+    Some((raster.padded(w,h,m,m), placed_like(transform, raster.width, raster.height, w, h, m as f64, m as f64)))
+}
+
+pub fn filter_canvas_sides(doc:&Document,transform:&LayerTransform,w:u32,h:u32,p:&FilterParams)->adjust::filters::CanvasSides {
+ use adjust::filters::CanvasSides;
+ if transform.rotation!=0. || !matches!(p,FilterParams::GaussianBlur{preserve_transparency:false,..}|FilterParams::MotionBlur{..}|FilterParams::ProgressiveBlur{..}) {return CanvasSides::default();}
+ let Some(inv)=transform.pixel_to_document(w,h).invert()else{return CanvasSides::default();};
+ let a=inv.apply(Point{x:0.,y:0.});let b=inv.apply(Point{x:doc.width as f64,y:doc.height as f64});
+ CanvasSides{left:a.x.min(b.x)>=-0.5,right:a.x.max(b.x)<=w as f64+0.5,top:a.y.min(b.y)>=-0.5,bottom:a.y.max(b.y)<=h as f64+0.5}
+}
+pub fn grown_filter(r:&Raster,t:&LayerTransform,margin:f64,sides:adjust::filters::CanvasSides)->Option<(Raster,LayerTransform)>{
+ let m=margin.ceil().max(0.)as u32;
+ let(l,rr,top,bottom)=(if sides.left{0}else{m},if sides.right{0}else{m},if sides.top{0}else{m},if sides.bottom{0}else{m});
+ let(w,h)=(r.width+l+rr,r.height+top+bottom);
+ if w as i64>MAX_SIDE || h as i64>MAX_SIDE || w as u64*h as u64>MAX_PIXELS{return None;}
+ Some((r.padded(w,h,l,top),placed_like(t,r.width,r.height,w,h,l as f64,top as f64)))
 }
 
 /// The transform for a `new_w` x `new_h` grid whose old grid sits at (`offset_x`, `offset_y`),
@@ -152,13 +161,14 @@ pub fn apply_filter_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, p
     if params.is_identity() { return Ok(()); }
     let layer = pixel_layer(doc, id)?.clone();
     let raster = layer.pixels.as_ref().unwrap();
+    let sides=filter_canvas_sides(doc,&layer.transform,raster.width,raster.height,&params);
     let (source, placed) = match params.spreads() {
-        true => grown(raster, &layer.transform, params.margin()).ok_or(CommandError::Project(ProjectError::TooLarge))?,
+        true => grown_filter(raster, &layer.transform, params.margin(),sides).ok_or(CommandError::Project(ProjectError::TooLarge))?,
         false => (raster.clone(), layer.transform),
     };
     let coverage = edit_coverage(doc, clips, &placed, source.width, source.height)?;
     // Kernel function, not this module's own `apply_filter`: adjust::filters::apply_filter.
-    let filtered = adjust::filters::apply_filter(&source, &params)?;
+    let filtered = adjust::filters::apply_filter_edges(&source, &params.mapped(&placed,source.width,source.height),sides)?;
     let filtered = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &source, &c), None => filtered };
     let (result, transform) = if params.spreads() { trimmed(&filtered, &placed) } else { (filtered, placed) };
     let mask = match &layer.mask {
@@ -179,6 +189,14 @@ pub fn add_adjustment_layer(doc: &mut Document, kind: AdjustmentKind, seed: u32,
     if doc.layers.len() >= MAX_LAYERS { return Err(CommandError::Argument("too many layers".into())); }
     let mut adjustment = LayerAdjustment::new(kind);
     match kind {
+        AdjustmentKind::ProgressiveBlur | AdjustmentKind::RgbSplit => {
+            let mut settings=adjust::filter_layer::FilterLayerSettings::default();
+            settings.progressive_start=Some(Point{x:doc.width as f64/2.,y:doc.height as f64*0.35});
+            settings.progressive_end=Some(Point{x:doc.width as f64/2.,y:doc.height as f64});
+            settings.rgb_split_center=Some(Point{x:doc.width as f64/2.,y:doc.height as f64/2.});
+            settings.rgb_split_reach=(doc.width as f64).hypot(doc.height as f64)/2.;
+            adjustment.filter_layer_settings=Some(settings);
+        }
         AdjustmentKind::GradientMap => {
             let (shadows, highlights) = gradient.unwrap_or(([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]));
             adjustment.gradient_map_settings = Some(adjust::tonal::gradient_map_from(shadows, highlights));

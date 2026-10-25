@@ -13,6 +13,7 @@ pub mod merge;
 pub mod selection;
 pub mod raster_edit;
 pub mod shape;
+mod shape_geometry;
 pub mod clipboard;
 pub mod floating;
 pub mod brush;

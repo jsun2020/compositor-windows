@@ -82,7 +82,7 @@ fn halve_into(src: &[u8], sw: u32, sh: u32, out: &mut [u8], region: PixelRect) {
 /// `adopted` is one deeper halving made elsewhere (the job worker, Phase 4.5 F1): the raster after
 /// that many halvings, handed over with the pixels so the UI thread never halves them itself.
 /// `std::sync::Mutex` is fine here: the engine runs single-threaded on wasm32.
-struct RasterInner { data: Vec<u8>, half: Mutex<Option<Raster>>, adopted: Mutex<Option<(u32, Raster)>>, preview_reduced: Mutex<Option<(u32, Raster)>> }
+struct RasterInner { data: Vec<u8>, deep: Option<crate::DeepPixels>, half: Mutex<Option<Raster>>, adopted: Mutex<Option<(u32, Raster)>>, preview_reduced: Mutex<Option<(u32, Raster)>> }
 
 impl std::fmt::Debug for RasterInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -99,13 +99,28 @@ impl PartialEq for Raster {
     /// The same buffer is equal without reading it: `Document::same_content` compares every layer on
     /// every edit, and a 100 MP layer's bytes took a full scan to compare with themselves.
     fn eq(&self, other: &Self) -> bool {
-        self.width == other.width && self.height == other.height && (Arc::ptr_eq(&self.inner, &other.inner) || self.inner.data == other.inner.data)
+        self.width == other.width && self.height == other.height && (Arc::ptr_eq(&self.inner, &other.inner) || (self.inner.data == other.inner.data && self.inner.deep == other.inner.deep))
     }
 }
 
 impl Raster {
     fn wrap(width: u32, height: u32, data: Vec<u8>) -> Raster {
-        Raster { width, height, inner: Arc::new(RasterInner { data, half: Mutex::new(None), adopted: Mutex::new(None), preview_reduced: Mutex::new(None) }) }
+        Raster { width, height, inner: Arc::new(RasterInner { data, deep: None, half: Mutex::new(None), adopted: Mutex::new(None), preview_reduced: Mutex::new(None) }) }
+    }
+    pub fn deep_pixels(&self) -> Option<&crate::DeepPixels> { self.inner.deep.as_ref() }
+    pub fn depth(&self) -> crate::PixelDepth { self.inner.deep.as_ref().map_or(crate::PixelDepth::Eight, |p| p.depth) }
+    pub fn storage_bytes(&self) -> usize { self.inner.data.len() + self.inner.deep.as_ref().map_or(0, |p| p.samples.len()*2) }
+    pub fn from_deep(width: u32, height: u32, pixels: crate::DeepPixels) -> Self {
+        assert_ne!(pixels.depth, crate::PixelDepth::Eight);
+        assert_eq!(pixels.samples.len(), width as usize*height as usize*4);
+        let preview=pixels.preview(width,height);
+        Self::from_deep_preview(width,height,pixels,preview)
+    }
+    pub(crate) fn from_deep_preview(width: u32, height: u32, pixels: crate::DeepPixels, preview: Vec<u8>) -> Self {
+        assert_eq!(preview.len(),width as usize*height as usize*4);
+        let mut raster=Self::wrap(width,height,preview);
+        Arc::get_mut(&mut raster.inner).unwrap().deep=Some(pixels);
+        raster
     }
     pub fn new_transparent(width: u32, height: u32) -> Raster {
         Raster::wrap(width, height, vec![0; (width as usize) * (height as usize) * 4])
@@ -348,6 +363,17 @@ impl Raster {
     }
     /// A copy of the `w` x `h` rectangle at (x, y); clamped to the raster.
     pub fn cropped(&self, x: u32, y: u32, w: u32, h: u32) -> Raster {
+        if let Some(deep)=self.deep_pixels() {
+            let (w,h)=((x+w).min(self.width).saturating_sub(x).max(1),(y+h).min(self.height).saturating_sub(y).max(1));
+            let mut samples=vec![0;w as usize*h as usize*4];
+            let mut preview=vec![0; samples.len()];
+            for row in 0..h {if y+row>=self.height || x>=self.width {continue;}
+                let start=((y+row)*self.width+x) as usize*4;let n=w.min(self.width-x) as usize*4;
+                samples[row as usize*w as usize*4..row as usize*w as usize*4+n].copy_from_slice(&deep.samples[start..start+n]);
+                preview[row as usize*w as usize*4..row as usize*w as usize*4+n].copy_from_slice(&self.bytes()[start..start+n]);
+            }
+            return Self::from_deep_preview(w,h,crate::DeepPixels{depth:deep.depth,samples},preview);
+        }
         let x1 = (x + w).min(self.width); let y1 = (y + h).min(self.height);
         let (w, h) = (x1.saturating_sub(x).max(1), y1.saturating_sub(y).max(1));
         let mut out = vec![0u8; (w * h * 4) as usize];

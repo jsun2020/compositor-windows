@@ -16,6 +16,7 @@ pub struct Session {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LayerState {
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub gif: Option<animation::Timeline>,
     #[serde(with = "ids::upper")] pub id: Uuid,
     pub name: String,
     pub visible: bool,
@@ -26,6 +27,7 @@ pub struct LayerState {
     pub transform: LayerTransform,
     pub pixels_width: u32,
     pub pixels_height: u32,
+    #[serde(default)] pub pixel_depth: PixelDepth,
     pub pixels_revision: u64,
     pub has_mask: bool,
     pub has_pixels: bool,
@@ -105,6 +107,7 @@ fn renew_revisions(before: &Document, next: &mut Document, counter: &mut u64) {
 
 #[derive(Default)]
 pub struct Engine {
+    pub(crate) layer_clipboard: Option<(String, Document)>,
     sessions: HashMap<Uuid, Session>, order: Vec<Uuid>, preview_revision: u64, revision: u64, effects: EffectsCache, clips: SelectionClips,
     /// Entries and bytes each document's history keeps; None for the Mac's 100 and 256 MiB.
     history_limits: Option<(usize, usize)>,
@@ -186,6 +189,7 @@ impl Engine {
     }
     /// A document of its own, with fresh history: a job's document (`jobs.rs`).
     pub fn insert_document(&mut self, document: Document) -> Uuid { self.insert(document, None) }
+    pub(crate) fn insert_unsaved_document(&mut self,document:Document)->Uuid{let id=self.insert(document,None);self.sessions.get_mut(&id).unwrap().history.mark_never_saved();id}
     pub(crate) fn session(&self, id: Uuid) -> Result<&Session, CommandError> { self.sessions.get(&id).ok_or(CommandError::NoDocument) }
     fn session_mut(&mut self, id: Uuid) -> Result<&mut Session, CommandError> { self.sessions.get_mut(&id).ok_or(CommandError::NoDocument) }
 
@@ -251,10 +255,11 @@ impl Engine {
             undo_entry_id: s.history.undo_entry_id(), is_modified: s.history.is_modified(),
             path: s.path.clone(),
             layers: d.layers.iter().map(|l| LayerState {
+                gif: l.extra.gif.as_ref().map(animation::GifAnimation::timeline),
                 id: l.id, name: l.name.clone(), visible: l.visible, is_group: l.is_group, parent_id: l.parent_id,
                 opacity: l.opacity, blend_mode: l.blend_mode, transform: l.transform,
                 pixels_width: l.pixels.as_ref().map_or(0, |p| p.width), pixels_height: l.pixels.as_ref().map_or(0, |p| p.height),
-                pixels_revision: l.pixels_revision, has_mask: l.mask.is_some(), has_pixels: l.has_pixels(),
+                pixel_depth: l.pixels.as_ref().map_or(PixelDepth::Eight,Raster::depth), pixels_revision: l.pixels_revision, has_mask: l.mask.is_some(), has_pixels: l.has_pixels(),
                 mask_width: l.mask.as_ref().map_or(0, |m| m.pixels.width), mask_height: l.mask.as_ref().map_or(0, |m| m.pixels.height),
                 mask_revision: l.mask_revision, mask_enabled: l.mask.as_ref().map_or(true, |m| m.enabled),
                 mask_linked: l.mask.as_ref().map_or(true, |m| m.is_linked()), mask_source_id: l.mask_source_id,
@@ -512,7 +517,11 @@ impl Engine {
     where F:FnOnce(&mut Document,&SelectionClips)->Result<Dirty,CommandError>{
         let s = self.sessions.get_mut(&id).ok_or(CommandError::NoDocument)?;
         let mut next = s.document.clone();
-        let dirty = f(&mut next, &self.clips)?;
+        let mut dirty = f(&mut next, &self.clips)?;
+        animation::capture_edits(&s.document, &mut next)?;
+        if next.layers.iter().any(|l| l.extra.gif.is_some() && s.document.layer(l.id).is_some_and(|old| old.pixels_revision != l.pixels_revision)) {
+            dirty = Dirty::everything();
+        }
         // The active layer is selection, not content: a command that only moves it (SetActiveLayer)
         // still applies, but records no history entry and so leaves redo intact, as macOS does.
         let content_changed = confirmed || !next.same_content(&s.document);
@@ -528,7 +537,10 @@ impl Engine {
     pub fn execute(&mut self, handle: Uuid, command: Command) -> Result<Dirty, CommandError> {
         if self.session(handle)?.floating.is_some() { return Err(CommandError::Refused("Apply or cancel the floating selection first".into())); }
         self.clear_preview(handle);
+        if let Command::SelectGifFrame { id, index } = command { return self.select_gif_frame(handle, id, index); }
         self.edit(handle, |doc, clips| match command {
+            Command::SelectGifFrame { .. } => unreachable!(),
+            Command::EditGif { id, edit } => { animation::edit(doc, id, edit)?; Ok(Dirty::everything()) },
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
             Command::RenameLayer { id, name } => { ops::layers::rename_layer(doc, id, &name)?; Ok(Dirty::structure()) }
             Command::SetLayerVisible { id, visible } => { ops::layers::set_layer_visible(doc, id, visible)?; Ok(Dirty::structure()) }
@@ -633,6 +645,15 @@ impl Engine {
                 ops::adjust::apply_adjustment_to_layer_with(doc, clips, id, &adjustment)?;
                 Ok(Dirty::pixels(vec![id]).within(selection_regions(doc, clips, id, Plane::Pixels)))
             }
+            Command::ConvertPixelDepth { id, depth } => {
+                if depth==PixelDepth::Hdr {return Err(CommandError::Argument("Choose 8-bit or 16-bit conversion".into()));}
+                let layer=doc.layer_mut(id).ok_or(CommandError::NoLayer)?;
+                if layer.extra.gif.is_some() && depth!=PixelDepth::Eight {return Err(CommandError::Refused("GIF animation frames use 8-bit pixels".into()));}
+                if layer.is_group || layer.extra.adjustment.is_some() {return Err(CommandError::Refused("Select a pixel layer".into()));}
+                let pixels=layer.pixels.as_ref().ok_or(CommandError::Refused("The layer has no pixels".into()))?;
+                layer.set_pixels(Some(pixels.to_depth(depth)));
+                Ok(Dirty::pixels(vec![id]))
+            }
             Command::InvertPixels { id, mask } => {
                 ops::adjust::invert_layer_with(doc, clips, id, mask)?;
                 let plane = if mask { Plane::Mask } else { Plane::Pixels };
@@ -727,6 +748,7 @@ impl Engine {
 
     pub fn import_image(&mut self, id: Option<Uuid>, bytes: &[u8], name: &str, at: Option<Point>) -> Result<Uuid, CommandError> {
         if psd::matches(bytes) { return self.import_psd(id, bytes, at).map(|(id, _)| id); }
+        if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") { return self.import_gif(id, bytes, name, at); }
         let raster = decode_image(bytes)?.raster;
         match id {
             Some(id) => {
@@ -745,21 +767,102 @@ impl Engine {
         }
     }
 
+    pub fn import_gif(&mut self, id: Option<Uuid>, bytes: &[u8], name: &str, at: Option<Point>) -> Result<Uuid, CommandError> {
+        if let Some(id) = id {
+            let doc = &self.session(id)?.document;
+            let used_sources: usize = doc.layers.iter().filter_map(|l| l.extra.gif.as_ref()).map(|g| g.source.data.len()).sum();
+            if bytes.len() > animation::TOTAL_SOURCE_BYTE_LIMIT.saturating_sub(used_sources) { return Err(ImportError::OverBudget.into()); }
+            if bytes.len() >= 10 {
+                let width = u16::from_le_bytes([bytes[6], bytes[7]]) as u64;
+                let height = u16::from_le_bytes([bytes[8], bytes[9]]) as u64;
+                if width * height > MAX_PIXELS.saturating_sub(doc.used_pixels()) { return Err(ImportError::OverBudget.into()); }
+            }
+        }
+        let animation = animation::GifAnimation::new(animation::GifSource::decode(bytes)?);
+        let pixels = animation.frame(0)?;
+        let (width, height) = (pixels.width, pixels.height);
+        let import = |doc: &mut Document| -> Result<(), CommandError> {
+            let layer = ops::layers::import_raster(doc, pixels, name, at)?;
+            doc.layer_mut(layer).unwrap().extra.gif = Some(animation);
+            animation::validate_document(doc)
+        };
+        if let Some(id) = id {
+            self.edit(id, |doc, _| { import(doc)?; Ok(Dirty::structure()) })?;
+            Ok(id)
+        } else {
+            let mut doc = Document::new(width, height);
+            import(&mut doc)?;
+            let id = self.insert(doc, None);
+            self.session_mut(id)?.history.mark_never_saved();
+            Ok(id)
+        }
+    }
+
+    pub fn gif_thumbnail(&self, doc: Uuid, layer: Uuid, index: usize) -> Result<Vec<u8>, CommandError> {
+        let animation = self.session(doc)?.document.layer(layer).and_then(|l| l.extra.gif.as_ref())
+            .ok_or_else(|| CommandError::Argument("Layer has no animation".into()))?;
+        let reference = animation.references().into_iter().find(|f| f.index == index).ok_or_else(|| CommandError::Argument("Unknown animation frame".into()))?;
+        let thumbnail = if let Some(pixels) = animation.frame_pixels.get(&index) {
+            let level = compositor::prefilter_level(pixels.width, pixels.height, pixels.width.max(pixels.height) as f64 / 96.0);
+            pixels.reduced(level)
+        } else { animation.source.frames[reference.source_index].thumbnail.clone() };
+        Ok(encode_png(&thumbnail, 72.0)?)
+    }
+
+    /// Frame navigation changes displayed pixels without adding history or clearing redo.
+    fn select_gif_frame(&mut self, handle: Uuid, id: Uuid, index: usize) -> Result<Dirty, CommandError> {
+        let session = self.sessions.get_mut(&handle).ok_or(CommandError::NoDocument)?;
+        let layer = session.document.layer_mut(id).ok_or(CommandError::NoLayer)?;
+        let animation = layer.extra.gif.as_mut().ok_or_else(|| CommandError::Argument("Layer has no animation".into()))?;
+        let pixels = animation.frame(index)?;
+        animation.selected_frame_index = index;
+        let from = layer.pixels_revision;
+        layer.set_pixels(Some(pixels));
+        self.revision = self.revision.max(1) + 1;
+        layer.pixels_revision = self.revision;
+        session.lineage.record(id, Plane::Pixels, from, self.revision, None);
+        session.history.trim(&session.document);
+        self.clips.retain_current(&session.document);
+        Ok(Dirty::everything())
+    }
+
     /// Parse and validate the entire file before mutating a session. A PSD import into an
     /// existing document records one history entry for all layers, never one per layer.
     pub fn import_psd(&mut self, id: Option<Uuid>, bytes: &[u8], at: Option<Point>) -> Result<(Uuid, Vec<psd::PsdConversion>), CommandError> {
         let (images, masks) = if let Some(id)=id { let doc=&self.session(id)?.document; (MAX_PIXELS.saturating_sub(doc.used_pixels()), MAX_PIXELS.saturating_sub(doc.used_mask_pixels())) } else { (MAX_PIXELS, MAX_PIXELS) };
         let imported=psd::read(bytes, images, masks)?;
-        let psd::PsdImport{mut document,conversions}=imported;
+        self.install_psd(id,imported,at)
+    }
+    fn install_psd(&mut self,id:Option<Uuid>,imported:psd::PsdImport,at:Option<Point>)->Result<(Uuid,Vec<psd::PsdConversion>),CommandError>{
+        if at.is_some_and(|p|!p.x.is_finite()||!p.y.is_finite()){return Err(CommandError::Argument("Invalid import position".into()));}
+        let psd::PsdImport{mut document,conversions,..}=imported;
         let id=if let Some(id)=id {
+            let target=self.session(id)?;
+            if target.preview.is_some()||target.floating.is_some(){return Err(CommandError::Refused("Apply or cancel the current edit before importing".into()));}
             self.edit(id, |doc,_| {
-                if doc.layers.len()+document.layers.len()>MAX_LAYERS { return Err(CommandError::Refused("Too many layers".into())); }
+                if doc.layers.len()+document.layers.len()>MAX_LAYERS||doc.used_pixels()+document.used_pixels()>MAX_PIXELS||doc.used_mask_pixels()+document.used_mask_pixels()>MAX_PIXELS {return Err(CommandError::Refused("Imported layers exceed the document budget".into()));}
+                let mapping:std::collections::HashMap<_,_>=document.layers.iter().map(|l|(l.id,Uuid::new_v4())).collect();
+                document.active_layer_id=document.active_layer_id.map(|id|mapping[&id]);
                 let offset=at.map(|p|Point{x:p.x-document.width as f64/2.,y:p.y-document.height as f64/2.}).unwrap_or(Point{x:(doc.width as f64-document.width as f64)/2.,y:(doc.height as f64-document.height as f64)/2.});
-                for layer in &mut document.layers {layer.transform.origin.x+=offset.x;layer.transform.origin.y+=offset.y;}
+                for layer in &mut document.layers {
+                    layer.id=mapping[&layer.id];layer.parent_id=layer.parent_id.and_then(|id|mapping.get(&id).copied());layer.mask_source_id=layer.mask_source_id.and_then(|id|mapping.get(&id).copied());
+                    layer.transform.origin.x+=offset.x;layer.transform.origin.y+=offset.y;
+                    if let Some(p)=layer.mask.as_mut().and_then(|m|m.placement.as_mut()){p.origin.x+=offset.x;p.origin.y+=offset.y;}
+                }
                 doc.active_layer_id=document.active_layer_id;doc.layers.extend(document.layers);Ok(Dirty::structure())
             })?;id
-        } else { let id=self.insert(document,None);self.session_mut(id)?.history.mark_never_saved();id };
+        } else {self.insert_unsaved_document(document)};
         Ok((id,conversions))
+    }
+    /// Parse all boards before installing any; ordinary imports reuse the decoded pixels.
+    pub fn import_psd_projects(&mut self,id:Option<Uuid>,bytes:&[u8],at:Option<Point>)->Result<(Vec<(Uuid,String)>,Vec<psd::PsdConversion>,bool),CommandError>{
+        let imported=psd::read(bytes,MAX_PIXELS,MAX_PIXELS)?;self.install_psd_projects(id,imported,at)
+    }
+    pub fn install_psd_projects(&mut self,id:Option<Uuid>,imported:psd::PsdImport,at:Option<Point>)->Result<(Vec<(Uuid,String)>,Vec<psd::PsdConversion>,bool),CommandError>{
+        let boards=imported.artboards()?;
+        if boards.is_empty(){let(id,conversions)=self.install_psd(id,imported,at)?;return Ok((vec![(id,String::new())],conversions,false));}
+        let mut output=Vec::new();for(name,doc)in boards{output.push((self.insert_unsaved_document(doc),name));}
+        Ok((output,imported.conversions,true))
     }
     pub fn camera_raw_scope(&self,id:Uuid,layer:Uuid,settings:&adjust::camera_raw::CameraRawSettings)->Result<adjust::camera_raw_scope::CameraRawScope,CommandError>{let raster=self.session(id)?.document.layer(layer).and_then(|l|l.pixels.as_ref()).ok_or(CommandError::NoLayer)?;adjust::camera_raw_scope::graded_scope(raster,settings)}
     pub fn camera_raw_auto_balance(&self, id: Uuid, layer: Uuid) -> Result<Option<(f64,f64)>, CommandError> {
@@ -827,6 +930,8 @@ impl Engine {
     pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png_with(&self.session(id)?.document, &self.effects)?) }
     pub fn export_as(&self,id:Uuid,options:&export_as::ExportOptions,preview:u32)->Result<Vec<u8>,CommandError>{
         let doc=&self.session(id)?.document;
+        if options.format==export_as::ExportFormat::ChannelPack {return crate::channel_pack::export(doc,&self.effects,options,preview);}
+        if options.format==export_as::ExportFormat::GIF {return animation::export::encode(doc,options,preview);}
         let raster=export_as::render(doc,&self.effects,options,preview)?;
         export_as::encode(raster,doc.resolution,options,preview>0)
     }

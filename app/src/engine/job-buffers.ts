@@ -35,7 +35,9 @@ export function releaseJobBuffer(buffer: ArrayBuffer): void {
   if (size < MIN_BYTES || !movable.transfer) return;
   if (size > MAX_BYTES || size < (spare?.byteLength ?? 0)) { movable.transfer(0); return; }
   clearJobBuffers();
-  spare = movable.transfer();
+  // Use the browser transfer path: ArrayBuffer.transfer() can make a later
+  // worker postMessage copy the backing store synchronously in Edge 156.
+  spare = structuredClone(buffer, { transfer: [buffer] });
   // An idle editor releases its spare instead of retaining a large image forever.
   timer = setTimeout(clearJobBuffers, 30_000);
 }

@@ -24,6 +24,8 @@ pub mod lineage;
 pub mod jobs;
 pub mod warp_job;
 pub mod clipboard_job;
+pub mod project_copy;
+pub mod import_pages;
 pub mod retouch;
 pub mod warp;
 
@@ -70,3 +72,11 @@ pub use selection::feather::{feather_blur, DIRECT_SIGMA_LIMIT};
 pub use selection::outline::{selection_lod, OUTLINE_DETAIL_LIMIT, OUTLINE_MASK_LIMIT};
 pub use selection::trace::{dark_pixels, opaque_pixels, trace_pixels, TraceError, WAND_EDGE_LIMIT};
 pub use selection::wand::{magic_wand, wand_mask, WandSettings};
+
+pub mod deep;
+pub use deep::{DeepPixels, PixelDepth};
+
+pub mod channel_pack;
+pub mod animation;
+
+pub mod cmyk;

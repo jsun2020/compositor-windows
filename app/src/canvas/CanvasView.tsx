@@ -1,3 +1,5 @@
+import {useColorProof} from "../state/color-proof";
+import { filterHandleLine, installFilterHandles } from "./filter-handles";
 import {Navigator} from "./Navigator";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useEditor } from "../state/store";
@@ -36,6 +38,7 @@ export function CanvasView() {
   const viewport = useEditor((s) => (s.activeId ? s.viewports[s.activeId] : null));
   const cropRect = useEditor((s) => s.cropRect);
   const tool = useEditor((s) => s.tool);
+  const sheet = useEditor((s) => s.sheet);
   const renderTick = useEditor((s) => s.renderTick);
   const transformEdit = useEditor((s) => s.transformEdit);
   const snapGuides = useEditor((s) => s.snapGuides);
@@ -90,9 +93,9 @@ export function CanvasView() {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
       transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
       ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null, sampleRing: s.sampleRing,
-      gradientLine: line ? { ...line, radial: s.gradientOptions.shape === "Radial", from, to } : null,
+      gradientLine: filterHandleLine() ?? (line ? { ...line, radial: s.gradientOptions.shape === "Radial", from, to } : null),
       shapeDraft: s.shapeDraft ? { kind: s.shapeDraft.kind, rect: s.shapeDraft.rect, start: s.shapeDraft.anchor, end: s.shapeDraft.end,
-        cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
+        smoothing: s.shapeDraft.smoothing, lineStyle: s.shapeDraft.lineStyle, lineCap: s.shapeDraft.lineCap, cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
     });
     const text=s.textEdit;
     if(text?.document===id&&!text.layer&&text.preview&&text.bitmap){
@@ -107,9 +110,22 @@ export function CanvasView() {
       ctx.strokeStyle=ctx.fillStyle=`rgba(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)},${b.operation.kind!=="Paint"?0.45:s.brushOptions.opacity})`;
       ctx.lineWidth=s.brushOptions.diameter*vp.pointsPerPixel;ctx.lineCap="round";ctx.lineJoin="round";
       const points=b.points.map(([x,y])=>vp.viewPoint({x,y},{width:doc.width,height:doc.height}));
-      ctx.beginPath();
-      if(points.length===1){ctx.arc(points[0].x,points[0].y,ctx.lineWidth/2,0,Math.PI*2);ctx.fill();}
-      else{ctx.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))ctx.lineTo(p.x,p.y);ctx.stroke();}
+      if(s.brushOptions.pressureSize||s.brushOptions.pressureOpacity){
+        for(let i=0;i<points.length;i++){
+          const pressure=b.pressures?.[i]??1,previous=b.pressures?.[Math.max(0,i-1)]??pressure;
+          const a=points[Math.max(0,i-1)],z=points[i],steps=Math.max(1,Math.ceil(Math.hypot(z.x-a.x,z.y-a.y)/2));
+          for(let j=i===0?0:1;j<=steps;j++){
+            const t=j/steps,p=previous+(pressure-previous)*t;
+            ctx.globalAlpha=s.brushOptions.pressureOpacity?p:1;
+            const radius=s.brushOptions.diameter*vp.pointsPerPixel/2*(s.brushOptions.pressureSize?Math.max(p,1/s.brushOptions.diameter):1);
+            ctx.beginPath();ctx.arc(a.x+(z.x-a.x)*t,a.y+(z.y-a.y)*t,radius,0,Math.PI*2);ctx.fill();
+          }
+        }
+      }else{
+        ctx.beginPath();
+        if(points.length===1){ctx.arc(points[0].x,points[0].y,ctx.lineWidth/2,0,Math.PI*2);ctx.fill();}
+        else{ctx.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))ctx.lineTo(p.x,p.y);ctx.stroke();}
+      }
       ctx.restore();
     }
     const hover=brushHoverRef.current;
@@ -149,6 +165,7 @@ export function CanvasView() {
     useEditor.getState().setRendererKind(renderer.kind);
     installTestApi({
       renderer,
+      compositionBackend: () => renderer.compositionBackend ?? "cpu-reference",
       setCheckerboard: (on: boolean) => { checkerboardRef.current = on; useEditor.getState().invalidate(); },
       setZoom: async (z: number) => { const s = useEditor.getState(); const vp = s.viewports[s.activeId!]; const d = s.documents[s.activeId!];
         vp.setZoom(z * (window.devicePixelRatio || 1), vp.center, { width: d.width, height: d.height }); s.invalidate();
@@ -218,7 +235,7 @@ export function CanvasView() {
     const observer = new ResizeObserver(resize);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [activeId, tool]);
+  }, [activeId, tool, sheet]);
 
   // Draw on every store change that affects the picture.
   useEffect(() => {
@@ -235,7 +252,7 @@ export function CanvasView() {
       return;
     }
     const dpr = window.devicePixelRatio || 1;
-    renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current }, useEditor.getState().previewEdit());
+    renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current, colorProof:useColorProof.getState() }, useEditor.getState().previewEdit());
     paintOverlay();
   }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected, showGuides]);
 
@@ -294,6 +311,8 @@ export function CanvasView() {
     return installSampling(el, () => spaceRef.current);
   }, []);
 
+  useEffect(() => { const el=glRef.current?.parentElement; if(el)return installFilterHandles(el,()=>spaceRef.current); },[]);
+
   // The Shape tool's drag (canvas/shape-tool.ts).
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
@@ -341,7 +360,7 @@ export function CanvasView() {
     let last: { x: number; y: number } | null = null;
     let zoomAnchor: {x:number;y:number}|null=null, pointer:number|null=null;
     const down = (e: PointerEvent) => { if((e.target as Element).closest?.('[data-testid="navigator"]'))return; const s=useEditor.getState();if(!s.activeId || !(s.tool==="hand"||spaceRef.current||e.button===1))return;last={x:e.clientX,y:e.clientY};pointer=e.pointerId;const r=el.getBoundingClientRect();zoomAnchor=e.button===1&&(e.ctrlKey||e.metaKey)?{x:e.clientX-r.left,y:e.clientY-r.top}:null;el.style.cursor=zoomAnchor?"zoom-in":"grabbing";el.setPointerCapture(e.pointerId);e.preventDefault(); };
-    const move = (e: PointerEvent) => {if(!last||e.pointerId!==pointer)return;const s=useEditor.getState();if(!s.activeId)return;const vp=s.viewports[s.activeId];if(zoomAnchor)vp.setZoom(vp.zoom*Math.exp((last.y-e.clientY)*.01),zoomAnchor,s.documents[s.activeId]);else vp.translate({width:e.clientX-last.x,height:e.clientY-last.y});last={x:e.clientX,y:e.clientY};s.invalidate();};
+    const move = (e: PointerEvent) => {if(!last||e.pointerId!==pointer)return;const s=useEditor.getState();if(!s.activeId)return;const vp=s.viewports[s.activeId];if(zoomAnchor){ const dy=last.y-e.clientY; if(dy)el.style.cursor=dy>0?"zoom-in":"zoom-out"; vp.setZoom(vp.zoom*Math.exp(dy*.01),zoomAnchor,s.documents[s.activeId]); }else vp.translate({width:e.clientX-last.x,height:e.clientY-last.y});last={x:e.clientX,y:e.clientY};s.invalidate();};
     const up = () => {last=null;zoomAnchor=null;pointer=null;el.style.cursor=useEditor.getState().tool==="hand"?"grab":"";};
     el.addEventListener("pointerdown",down);el.addEventListener("pointermove",move);el.addEventListener("pointerup",up);el.addEventListener("pointercancel",up);el.addEventListener("lostpointercapture",up);
     return()=>{el.removeEventListener("pointerdown",down);el.removeEventListener("pointermove",move);el.removeEventListener("pointerup",up);el.removeEventListener("pointercancel",up);el.removeEventListener("lostpointercapture",up);};
@@ -420,9 +439,9 @@ export function CanvasView() {
     };
     const down=(e:PointerEvent)=>{ if((e.target as Element).closest?.('[data-testid="navigator"]'))return;const s=useEditor.getState();if(e.button!==0||spaceRef.current||!s.activeId||!isBrushTool(s.tool))return;
       if(e.altKey){const [x,y]=point(e);if(s.tool==="clone"){useEditor.setState({cloneSource:{document:s.activeId,point:[x,y]},cloneOffset:null});s.invalidateOverlay();}else s.sampleForeground({x,y});return;}
-      if(beginBrush(point(e),e.shiftKey)){pointer=e.pointerId;el.setPointerCapture(e.pointerId);e.preventDefault();}
+      if(beginBrush(point(e),e.shiftKey,e.pointerType==="pen"?Math.max(0,Math.min(1,e.pressure)):1)){pointer=e.pointerId;el.setPointerCapture(e.pointerId);e.preventDefault();}
     };
-    const move=(e:PointerEvent)=>{const s=useEditor.getState();if(isBrushTool(s.tool)){const r=el.getBoundingClientRect();brushHoverRef.current={x:e.clientX-r.left,y:e.clientY-r.top};s.invalidateOverlay();}if(pointer===e.pointerId&&s.brushDraft)moveBrush(point(e));};
+    const move=(e:PointerEvent)=>{const s=useEditor.getState();if(isBrushTool(s.tool)){const r=el.getBoundingClientRect();brushHoverRef.current={x:e.clientX-r.left,y:e.clientY-r.top};s.invalidateOverlay();}if(pointer===e.pointerId&&s.brushDraft)moveBrush(point(e),e.pointerType==="pen"?Math.max(0,Math.min(1,e.pressure)):1);};
     const leave=()=>{brushHoverRef.current=null;useEditor.getState().invalidateOverlay();};
     const up=(e:PointerEvent)=>{if(pointer!==e.pointerId)return;pointer=null;finishBrush();};
     const cancel=()=>{pointer=null;cancelBrush();};

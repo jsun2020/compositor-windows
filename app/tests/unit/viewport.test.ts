@@ -19,7 +19,9 @@ describe("Viewport", () => {
   it("fit leaves a 96 point margin and clamps zoom", () => {
     const v = new Viewport();
     v.resize({ width: 800, height: 600 }, 2, { width: 1000, height: 500 });
-    // zoom = min((800-96)/1000, (600-96)/500) * 2 = min(0.704, 1.008) * 2 = 1.408
+    // Automatic fit stops at 100%; explicit Fit may enlarge.
+    expect(v.zoom).toBe(1);
+    v.fit({ width: 1000, height: 500 }, true);
     expect(v.zoom).toBeCloseTo(1.408, 6);
     expect(v.followsFit).toBe(true);
     v.setZoom(1000, { x: 0, y: 0 }, { width: 1000, height: 500 });
@@ -47,4 +49,14 @@ describe("Viewport", () => {
     expect(v.pan.width).toBeCloseTo(5, 6);
     expect(v.pan.height).toBeCloseTo(10, 6);
   });
+});
+
+it("keeps explicit Fit through window resize, but recenters a resized canvas without changing zoom",()=>{
+  const v=new Viewport(); const small={width:100,height:100};
+  v.resize({width:800,height:600},1,small); expect(v.zoom).toBe(1);
+  v.fit(small,true); expect(v.zoom).toBeCloseTo(5.04);
+  v.resize({width:1000,height:800},1,small); expect(v.zoom).toBeCloseTo(7.04);
+  v.translate({width:23,height:-14}); const zoom=v.zoom;
+  v.recenter(); expect(v.zoom).toBe(zoom); expect(v.pan).toEqual({width:0,height:0}); expect(v.followsFit).toBe(false);
+  v.resize({width:1200,height:900},1,{width:200,height:200}); expect(v.zoom).toBe(zoom);
 });

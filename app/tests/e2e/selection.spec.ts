@@ -266,9 +266,12 @@ test("the Select menu: All, Inverse, Expand and Feather with their amount, the l
   // while the feather assertion below still shows the load replaced the old (feathered) selection.
   await page.keyboard.press("Control+d");
   await drag(page, [0, 0], [8, 48]);
+  // Closing the amount sheet restores the toolbar; its layout must be mapped before this drag.
+  expect((await selection(page)).bounds).toEqual({ x: 0, y: 0, width: 8, height: 48 });
   await page.keyboard.press("Delete");
+  expect(await pixel(page, [0, 24])).toEqual([0, 0, 0, 0]);
   const id = (await state(page)).layers[0].id;
-  await page.keyboard.down("Control"); await page.getByTestId(`target-pixels-${id}`).click(); await page.keyboard.up("Control");
+  await page.getByTestId(`target-pixels-${id}`).click({ modifiers: ["ControlOrMeta"] });
   expect((await selection(page)).feather).toBe(0);
   expect((await selection(page)).bounds).toEqual({ x: 8, y: 0, width: 56, height: 48 });
 });
@@ -352,7 +355,7 @@ test("Ctrl-click on a folder's thumbnail loads nothing and says nothing", async 
   await page.getByTestId(`target-pixels-${pixels}`).click();
   const before = await state(page);
   expect(before.activeLayerId).toBe(pixels);
-  await page.keyboard.down("Control"); await page.getByTestId(`target-pixels-${folder}`).click(); await page.keyboard.up("Control");
+  await page.getByTestId(`target-pixels-${folder}`).click({ modifiers: ["ControlOrMeta"] });
   await expect(page.getByTestId("error-banner")).toHaveCount(0);
   const after = await state(page);
   expect([after.activeLayerId, after.undoDepth, after.selection.bounds]).toEqual([pixels, before.undoDepth, { x: 10, y: 10, width: 10, height: 10 }]);

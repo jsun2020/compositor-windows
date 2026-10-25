@@ -50,7 +50,12 @@ fn buffers(doc: &Document) -> Vec<(usize, usize, Option<Raster>)> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for l in &doc.layers {
-        if let Some(r) = &l.pixels { if seen.insert(r.buffer_id()) { out.push((r.buffer_id(), r.bytes().len(), Some(r.clone()))); } }
+        if let Some(gif) = &l.extra.gif {
+            let id = std::sync::Arc::as_ptr(&gif.source) as usize;
+            if seen.insert(id) { out.push((id, gif.source.storage_bytes(), None)); }
+            for r in gif.frame_pixels.values() { if seen.insert(r.buffer_id()) { out.push((r.buffer_id(), r.storage_bytes(), Some(r.clone()))); } }
+        }
+        if let Some(r) = &l.pixels { if seen.insert(r.buffer_id()) { out.push((r.buffer_id(), r.storage_bytes(), Some(r.clone()))); } }
         if let Some(m) = &l.mask { if seen.insert(m.pixels.buffer_id()) { out.push((m.pixels.buffer_id(), m.pixels.bytes().len(), None)); } }
     }
     out
@@ -139,6 +144,13 @@ impl History {
     /// they are not counted, and a buffer that comes back through undo halves again.
     pub fn trim(&mut self, current: &Document) {
         let live = live(current);
+        let mut seen = HashSet::new();
+        for entry in self.undo.iter().chain(&self.redo) {
+            for gif in entry.doc.layers.iter().filter_map(|l| l.extra.gif.as_ref()) {
+                let id = std::sync::Arc::as_ptr(&gif.source) as usize;
+                if !live.contains(&id) && seen.insert(id) { gif.source.forget_reader(); }
+            }
+        }
         let mut total: usize = self.held.iter().filter(|(id, _)| !live.contains(id)).map(|(_, h)| h.bytes).sum();
         while self.undo.len() + self.redo.len() > self.entry_limit || total > self.byte_limit {
             let gone = if !self.undo.is_empty() { self.undo.remove(0) } else if !self.redo.is_empty() { self.redo.remove(0) } else { break };

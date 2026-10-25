@@ -1,3 +1,5 @@
+import {parseNativeCmyk} from "./native-cmyk";
+import {parseNativeImages} from "./native-images";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -5,6 +7,15 @@ import type { PackageFiles } from "../engine/types";
 import { baseName, type ShellBridge, type RawInfo,type RawDevelopSettings } from "./bridge";
 
 export class TauriBridge implements ShellBridge {
+  async importCmykFile(path:string,profile:string|null){return parseNativeCmyk(await invoke<ArrayBuffer>("import_cmyk_file",{path,profile}));}
+  listColorProfiles():Promise<import("../canvas/color-proof").ColorProfile[]> {return invoke("list_color_profiles");}
+  async pickColorProfile():Promise<string|null> {const path=await open({multiple:false,filters:[{name:"CMYK ICC profile",extensions:["icc","icm"]}]});return typeof path==="string"?path:null;}
+  proofColorProfile(path:string,importProfile:boolean):Promise<{profile:import("../canvas/color-proof").ColorProfile;lut:number[]}> {return invoke("proof_color_profile",{path,import:importProfile});}
+  async exportCmyk(png:Uint8Array,profile:string,format:"JPEG"|"TIFF"|"PDF",quality:number,dpi:number):Promise<Uint8Array> {return new Uint8Array(await invoke<ArrayBuffer>("export_cmyk",png,{headers:{"color-options":encodeURIComponent(JSON.stringify({profile,format,quality,dpi}))}}));}
+
+  async decodeNativeImage(path:string,fitting:[number,number]|null,remaining:number){return parseNativeImages(await invoke<ArrayBuffer>("decode_native_image",{path,fitting,remaining}));}
+  private fonts:Promise<string[]>|null=null;
+  listFonts():Promise<string[]> {return this.fonts??=invoke<string[]>("list_fonts").catch(error=>{this.fonts=null;throw error;});}
   async setFullscreen(value:boolean):Promise<void> { const {getCurrentWindow}=await import("@tauri-apps/api/window");await getCurrentWindow().setFullscreen(value); }
   rawInspect(path:string,token:string):Promise<RawInfo> {return invoke("raw_inspect",{path,token});}
   async rawDevelop(path:string,settings:RawDevelopSettings,preview:boolean,token:string):Promise<Uint8Array> {return new Uint8Array(await invoke<ArrayBuffer>("raw_develop",{path,settings,preview,token}));}
@@ -30,11 +41,13 @@ export class TauriBridge implements ShellBridge {
     const picked = await save({ defaultPath: suggested.endsWith(".comp") ? suggested : `${suggested}.comp`, filters: [{ name: "Compositor Project", extensions: ["comp"] }] });
     return picked ? (picked.endsWith(".comp") ? picked : `${picked}.comp`) : null;
   }
+  async pickImportFolder():Promise<string|null> {const path=await open({directory:true,multiple:false});return typeof path==="string"?path:null;}
+  expandImportPaths(paths:string[]):Promise<{paths:string[];errors:string[]}>{return invoke("expand_import_paths",{paths});}
   async pickImportImages(): Promise<string[]> {
-    const picked = await open({ multiple: true, filters: [{ name: "Images, Photoshop and Camera RAW", extensions: ["png", "jpg", "jpeg", "tif", "tiff", "webp", "bmp", "psd", "psb", "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "rw2", "orf", "pef", "ptx", "raw", "rwl", "srw", "3fr", "fff", "iiq", "kdc", "dcr", "mos", "mef", "erf", "x3f"] }] });
+    const picked = await open({ multiple: true, filters: [{ name: "Images, Photoshop and Camera RAW", extensions: ["png", "gif", "pdf", "heic", "heif", "hif", "jpg", "jpeg", "tif", "tiff", "exr", "hdr", "webp", "bmp", "psd", "psb", "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "rw2", "orf", "pef", "ptx", "raw", "rwl", "srw", "3fr", "fff", "iiq", "kdc", "dcr", "mos", "mef", "erf", "x3f"] }] });
     return Array.isArray(picked) ? picked : picked ? [picked] : [];
   }
-  async pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf"): Promise<string | null> {
+  async pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif"): Promise<string | null> {
     return (await save({ defaultPath: `${suggested}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: ext === "jpg" ? ["jpg", "jpeg"] : [ext] }] })) ?? null;
   }
   async readPackage(path: string): Promise<PackageFiles> {

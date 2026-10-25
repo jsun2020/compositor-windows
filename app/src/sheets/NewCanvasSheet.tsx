@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Sheet } from "./Sheet";
+import { pastePixels } from "../actions/clipboard";
 import { newCanvas } from "../actions/files";
 import { useEditor } from "../state/store";
 
@@ -27,6 +28,7 @@ export function NewCanvasSheet() {
       <label>Units <select aria-label="Units" value={unit} onChange={e=>changeUnit(e.target.value as CanvasUnit)}>{["px","in","cm","mm"].map(u=><option key={u}>{u}</option>)}</select></label>
       <label>Resolution <select aria-label="Resolution" value={dpi} onChange={e=>setDpi(Number(e.target.value))}><option value={72}>72 DPI</option><option value={300}>300 DPI</option></select></label>
       <label>Background <select aria-label="Background" value={background} onChange={e=>setBackground(e.target.value)}>{["Transparent","White","Black"].map(b=><option key={b}>{b}</option>)}</select></label>
+      <button onClick={() => { close(); void pastePixels(true); }}>Paste Image as New Canvas</button>
       <p>{valid?`${w} × ${h} px` : "Choose dimensions up to 30,000 px per side and 100 megapixels."}</p>
     </Sheet>
   );

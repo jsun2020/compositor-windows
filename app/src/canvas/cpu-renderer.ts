@@ -1,3 +1,4 @@
+import {applyColorProof} from "./color-proof";
 import type { DocumentState, PreviewEdit } from "../engine/types";
 import type { EngineClient } from "../engine/client";
 import type { Viewport } from "./viewport";
@@ -36,6 +37,7 @@ export class CpuRenderer implements Renderer {
       }
     } else { ctx.clearRect(vx0, vy0, outW, outH); }
     const premultiplied = engine.compositeEdit(state.id, edit, region, outW, outH);
+    if(options.colorProof)applyColorProof(premultiplied,options.colorProof);
     const straight = new Uint8ClampedArray(premultiplied.length);
     for (let i = 0; i < premultiplied.length; i += 4) {
       const a = premultiplied[i + 3];

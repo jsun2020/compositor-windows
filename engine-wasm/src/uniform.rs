@@ -10,6 +10,14 @@ pub(crate) fn color(bytes: &[u8]) -> Option<[u8; 4]> {
 export function repeatUniformBytes(memory, offset, length, red, green, blue, alpha) {
     const bytes = new Uint8Array(memory.buffer, offset, length);
     bytes.set([red, green, blue, alpha]);
+    if (offset % 4 === 0) {
+        // Reading the initialized pixel as a native word and filling with that
+        // same word preserves its exact byte order on either JS endianness.
+        const words = new Uint32Array(memory.buffer, offset, length / 4);
+        words.fill(words[0]);
+        return;
+    }
+    // Retain the byte-copy path for any unaligned allocation.
     for (let written = 4; written < length;) {
         const count = Math.min(written, length - written);
         bytes.copyWithin(written, 0, count);

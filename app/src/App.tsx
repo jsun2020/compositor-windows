@@ -16,6 +16,8 @@ import { LayerProperties } from "./panels/LayerProperties";
 import { ToolRail } from "./panels/ToolRail";
 import { NewCanvasSheet } from "./sheets/NewCanvasSheet";
 import { CommandSearchSheet } from "./sheets/CommandSearchSheet";
+import { KeyboardShortcutsSheet } from "./sheets/KeyboardShortcutsSheet";
+import { ColorProofSheet } from "./sheets/ColorProofSheet";
 import { ExportAsSheet } from "./sheets/ExportAsSheet";
 import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
@@ -33,6 +35,7 @@ import { BrushOptions } from "./panels/BrushOptions";
 import { ContentFillPanel } from "./panels/ContentFillPanel";
 import {TextPanel} from "./panels/TextPanel";
 import {EffectsPanel} from "./panels/EffectsPanel";
+import {GifTimeline} from "./panels/GifTimeline";
 import "./styles.css";
 
 export function App() {
@@ -79,20 +82,21 @@ export function App() {
         for (const p of projects) void openProject(p);
         if (images.length) {
           const s = useEditor.getState();
+          const view = position ? { x: position.x / (bridge.positionIsPhysical ? window.devicePixelRatio || 1 : 1), y: position.y / (bridge.positionIsPhysical ? window.devicePixelRatio || 1 : 1) } : null;
+          const tabs = document.querySelector(".tabs")?.getBoundingClientRect();
+          const separateCanvases = !!(view && tabs && view.x >= tabs.left && view.x <= tabs.right && view.y >= tabs.top && view.y <= tabs.bottom);
           let at: { x: number; y: number } | undefined;
-          if (position && s.activeId) {
+          if (view && s.activeId && !separateCanvases) {
             const el = document.querySelector('[data-testid="canvas-view"]') as HTMLElement | null;
             const r = el?.getBoundingClientRect();
             if (r) {
               // Tauri reports drop positions in physical pixels relative to the window; the
               // mock bridge (used in tests) already reports CSS pixels.
-              const dpr = window.devicePixelRatio || 1;
-              const view = bridge.positionIsPhysical ? { x: position.x / dpr, y: position.y / dpr } : position;
               const d = s.documents[s.activeId];
               at = s.viewports[s.activeId].documentPoint({ x: view.x - r.left, y: view.y - r.top }, { width: d.width, height: d.height });
             }
           }
-          void importImages(images, at);
+          void importImages(images, at, separateCanvases);
         }
       });
       // Started now, not by the first large edit (final review F2), and last: a worker that cannot be
@@ -125,6 +129,7 @@ export function App() {
           <LayersList />
         </div>
       </div>
+      <GifTimeline />
       <AdjustPanel />
       <ContentFillPanel />
       <TextPanel />
@@ -135,6 +140,8 @@ export function App() {
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}
       {sheet?.kind === "searchCommands" && <CommandSearchSheet />}
+      {sheet?.kind === "keyboardShortcuts" && <KeyboardShortcutsSheet />}
+      {sheet?.kind === "colorProof" && <ColorProofSheet />}
       {sheet?.kind === "exportAs" && <ExportAsSheet />}
       {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}
       {sheet?.kind === "imageSize" && <ImageSizeSheet />}

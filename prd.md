@@ -1,3 +1,7 @@
+# 当前增量：跟进 Mac 1.5.7（Windows 0.11.0 验收通过）
+
+2026-10-24 用户要求比较 Mac 1.4.9 → 1.5.7 并更新 Windows。固定上游 `9537736da6c324b948cdcba24adf74760498ea14`；详细范围与进度见 [增量核对](docs/superpowers/research/mac-1.5.7-delta.md)。2026-10-25 七阶段 Windows 验收及最终输入/ZIP 核对全部通过，详见 [联机验收报告](pair-test-report.md)。正式发布包由干净提交的 Windows 流水线独立构建与校验；以下为保留的历史产品需求。
+
 # Compositor for Windows 产品需求
 
 更新时间：2026-10-24。

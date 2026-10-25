@@ -129,7 +129,7 @@ fn an_edit_after_an_undo_never_reuses_a_pixels_or_mask_revision() {
     pixels_seen.push(revisions(&e).0);
     e.undo(id).unwrap();
     assert_eq!(revisions(&e).0, pixels_seen[0], "undo brings back the revision its pixels had");
-    e.execute(id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 1.0 } }).unwrap();
+    e.execute(id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { preserve_transparency:false, radius: 1.0 } }).unwrap();
     let now = revisions(&e).0;
     assert!(!pixels_seen.contains(&now), "other pixels, a revision never used before: {now} after {pixels_seen:?}");
 

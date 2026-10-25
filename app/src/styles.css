@@ -1,5 +1,15 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
+.gif-timeline { flex:0 0 auto; min-width:0; border-top:1px solid #444; background:#252525; }
+.gif-controls {display:flex;align-items:center;gap:8px;padding:6px 10px;overflow-x:auto;white-space:nowrap;}
+.gif-controls label {display:flex;align-items:center;gap:4px;}
+.gif-controls input {width:68px;}
+.gif-controls button,.gif-controls input,.gif-controls select {background:#333;color:#ddd;border:1px solid #555;border-radius:3px;padding:4px;font:inherit;}
+.gif-controls button:disabled {opacity:.4;}
+.gif-frames {display:flex;gap:6px;padding:4px 10px 8px;overflow-x:auto;}
+.gif-frames button {flex:0 0 100px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px;background:#303030;color:#ccc;border:2px solid transparent;border-radius:4px;font:inherit;}
+.gif-frames button[aria-current="true"] {border-color:#80b7f0;}
+.gif-frames img,.gif-thumbnail-placeholder {width:88px;height:54px;object-fit:contain;background:repeating-conic-gradient(#777 0% 25%,#999 0% 50%) 50%/10px 10px;}
 .export-preview {max-width:min(640px,60vw);max-height:45vh;object-fit:contain;background:repeating-conic-gradient(#ccc 0% 25%,#eee 0% 50%) 50%/12px 12px;}
 .app.canvas-only > :not(.workspace):not(.sheet-backdrop):not(.adjust-panel):not(.color-picker):not(.error-banner) { display:none; }
 .app.canvas-only .tool-rail, .app.canvas-only .right-column { display:none; }
@@ -210,3 +220,33 @@ body { margin: 0; }
 .scanlines-panel { max-height: calc(100vh - 32px); }
 .scanlines-panel .adjust-body { overflow-y: auto; min-height: 0; }
 .command-query, .command-results { min-width: min(400px, calc(100vw - 80px)); }
+
+/* Mac 1.5.6 layer search and compact tool rail. */
+.layers-header input { min-width: 0; width: 100%; }
+.layer-filters { margin: 4px; padding: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+.layer-filters label { display: flex; align-items: center; font-size: 11px; }
+.tool-buttons { display: grid; grid-template-columns: 44px; flex: 0 0 auto; }
+.tool-rail.two-columns { width: 88px; flex-basis: 88px; }
+.tool-rail.two-columns .tool-buttons { grid-template-columns: 44px 44px; }
+.shortcut-list{max-height:45vh;overflow:auto;display:grid;gap:5px}
+.shortcut-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(125px,1fr) auto;align-items:center;gap:8px}
+/* Brush/shape controls need spacing; retain the established Transform inspector geometry. */
+.tool-options:not(.one-row) { display:flex; align-items:center; gap:12px; min-height:38px; padding:5px 10px; background:#2a2a2a; border-bottom:1px solid #111; }
+.tool-options:not(.one-row) label { display:inline-flex; align-items:center; gap:5px; }
+.tool-options:not(.one-row) button, .tool-options:not(.one-row) select, .tool-options:not(.one-row) input:not([type="range"]):not([type="checkbox"]) { font:inherit; color:inherit; background:#202020; border:1px solid #555; border-radius:3px; padding:3px 5px; }
+.tool-options:not(.one-row) .segmented { display:inline-flex; gap:2px; }
+.tool-options:not(.one-row) input[type="range"] { width:110px; }
+.tool-options:not(.one-row) .color-swatch-button { width:28px; height:23px; }
+
+.new-project-tab { align-self:stretch; flex:0 0 28px; padding:0 8px; border:0; border-right:1px solid #000; background:transparent; color:#aaa; font:inherit; cursor:pointer; }
+.new-project-tab:hover { background:#333; color:#fff; }
+.new-project-tab:disabled { opacity:.4; cursor:default; }
+.sheet-backdrop[aria-label="CMYK Proof"] .sheet { width:min(460px,calc(100vw - 32px)); min-width:0; }
+.sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > label { display:flex; align-items:center; gap:8px; }
+.sheet-backdrop[aria-label="CMYK Proof"] input[type="checkbox"] { width:auto; margin:0; }
+.sheet-backdrop[aria-label="CMYK Proof"] select { min-width:0; flex:1; }
+.sheet-backdrop[aria-label="CMYK Proof"] select,
+.sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > button { font:inherit; background:#202020; color:#ddd; border:1px solid #555; border-radius:3px; padding:6px 8px; }
+.sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > button { align-self:flex-start; cursor:pointer; }
+.sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > button:disabled { opacity:.5; cursor:default; }
+.sheet-backdrop[aria-label="CMYK Proof"] p { line-height:1.5; }

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { ToolRail } from "../../src/panels/ToolRail";
@@ -8,6 +8,8 @@ import { DEFAULT_SELECTION_OPTIONS, useEditor } from "../../src/state/store";
 // React 18 reads this to keep act() from warning.
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 
+let resized: ResizeObserverCallback;
+beforeEach(()=>vi.stubGlobal("ResizeObserver",class { constructor(callback:ResizeObserverCallback){resized=callback;} observe(){} disconnect(){} }));
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
@@ -20,7 +22,7 @@ function mount() {
 afterEach(() => {
   act(() => { root?.unmount(); });
   host?.remove();
-  root = null; host = null;
+  root = null; host = null; vi.unstubAllGlobals();
   useEditor.setState({ selectionOptions: DEFAULT_SELECTION_OPTIONS });
 });
 
@@ -51,4 +53,12 @@ describe("ToolRail", () => {
     expect(icon("marquee")).toBe("marquee-ellipse");
     expect(icon("lasso")).toBe("lasso-polygonal");
   });
+});
+
+it("uses two columns only while a single column does not fit",()=>{
+  mount();
+  act(()=>resized([{contentRect:{height:400}} as ResizeObserverEntry],{} as ResizeObserver));
+  expect(host!.querySelector(".tool-rail")!.classList.contains("two-columns")).toBe(true);
+  act(()=>resized([{contentRect:{height:900}} as ResizeObserverEntry],{} as ResizeObserver));
+  expect(host!.querySelector(".tool-rail")!.classList.contains("two-columns")).toBe(false);
 });

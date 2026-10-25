@@ -26,6 +26,17 @@ fn raster_of(size: Option<(u32, u32)>, bytes: Option<Vec<u8>>) -> Result<Option<
         _ => Err(JsError::new("a job's pixels do not match its size")),
     }
 }
+fn raster_of_depth(depth: PixelDepth, size: Option<(u32,u32)>, bytes: Option<Vec<u8>>) -> Result<Option<Raster>,JsError> {
+    if depth==PixelDepth::Eight {return raster_of(size,bytes);}
+    match (size,bytes) {
+        (Some((w,h)),Some(b)) if w>0 && h>0 && w as u64*h as u64<=MAX_PIXELS && b.len()==w as usize*h as usize*8 => {
+            let samples=b.chunks_exact(2).map(|p|u16::from_le_bytes([p[0],p[1]])).collect();
+            Ok(Some(Raster::from_deep(w,h,DeepPixels{depth,samples})))
+        }
+        (None,None)=>Ok(None),
+        _=>Err(JsError::new("a job's deep pixels do not match its size")),
+    }
+}
 fn gray_of(size: Option<(u32, u32)>, bytes: Option<Vec<u8>>) -> Result<Option<GrayRaster>, JsError> {
     match (size, bytes) {
         (Some((w, h)), Some(b)) if b.len() == (w as usize) * (h as usize) => Ok(Some(GrayRaster::from_bytes(w, h, b))),
@@ -75,15 +86,15 @@ impl WasmEngine {
     /// The kept job buffer: the pixels, or the mask; null when there is none. A view on it is valid
     /// until the next engine call.
     pub fn job_buffer_ptr(&self, mask: bool) -> *const u8 {
-        if mask { self.job.1.as_ref().map_or(std::ptr::null(), |m| m.bytes().as_ptr()) } else { self.job.0.as_ref().map_or(std::ptr::null(), |r| r.bytes().as_ptr()) }
+        if mask { self.job.1.as_ref().map_or(std::ptr::null(), |m| m.bytes().as_ptr()) } else { self.job.0.as_ref().map_or(std::ptr::null(), |r| r.transfer_ptr()) }
     }
     pub fn job_buffer_len(&self, mask: bool) -> usize {
-        if mask { self.job.1.as_ref().map_or(0, |m| m.bytes().len()) } else { self.job.0.as_ref().map_or(0, |r| r.bytes().len()) }
+        if mask { self.job.1.as_ref().map_or(0, |m| m.bytes().len()) } else { self.job.0.as_ref().map_or(0, |r| r.transfer_len()) }
     }
     /// The worker may replace a large solid Fill's payload with this exact colour.
     /// A nonuniform result always takes the ordinary byte-buffer path.
     pub fn job_uniform_pixels(&self) -> Option<Vec<u8>> {
-        self.job.0.as_ref().and_then(|r| uniform::color(r.bytes())).map(|c| c.to_vec())
+        self.job.0.as_ref().filter(|r|r.depth()==PixelDepth::Eight).and_then(|r| uniform::color(r.bytes())).map(|c| c.to_vec())
     }
     /// The kept job's selection points, as raw little-endian `i32` bytes (`JobSelection::flatten`'s
     /// shape); null when the job has no selection. A view on it is valid until the next engine call.
@@ -115,18 +126,29 @@ impl WasmEngine {
         let mut buffers = Vec::new();
         for (i, l) in input.layers.iter().enumerate() {
             let read = |array: &Array| { let v = array.get(i as u32); if v.is_null() || v.is_undefined() { None } else { Some(Uint8Array::new(&v).to_vec()) } };
-            buffers.push((raster_of(l.pixels, read(&pixels))?, gray_of(l.mask, read(&masks))?));
+            buffers.push((raster_of_depth(l.pixel_depth,l.pixels, read(&pixels))?, gray_of(l.mask, read(&masks))?));
         }
         let points = points_of(input.selection.as_ref().map(JobSelection::point_count), points)?;
         let copied = input.copy(buffers, points.as_deref()).map_err(js_err)?;
-        if png { encode_png(&copied.raster, input.resolution).map_err(js_err) } else { Ok(copied.raster.bytes().to_vec()) }
+        if png { encode_deep_png(&copied.raster, input.resolution).map_err(js_err) } else { Ok(copied.raster.bytes().to_vec()) }
+    }
+    pub fn run_clipboard_pixels(&mut self,input:&str,pixels:Array,masks:Array,points:Option<Vec<u8>>)->Result<String,JsError>{
+        let input:ClipboardInput=serde_json::from_str(input).map_err(js_err)?;
+        if pixels.length() as usize!=input.layers.len()||masks.length()!=pixels.length(){return Err(JsError::new("clipboard layer count mismatch"));}
+        let mut buffers=Vec::new();
+        for(i,l)in input.layers.iter().enumerate(){let read=|a:&Array|{let v=a.get(i as u32);if v.is_null()||v.is_undefined(){None}else{Some(Uint8Array::new(&v).to_vec())}};
+            buffers.push((raster_of_depth(l.pixel_depth,l.pixels,read(&pixels))?,gray_of(l.mask,read(&masks))?));}
+        let points=points_of(input.selection.as_ref().map(JobSelection::point_count),points)?;
+        let copied=input.copy(buffers,points.as_deref()).map_err(js_err)?;
+        let header=serde_json::json!({"x":copied.origin.x,"y":copied.origin.y,"width":copied.raster.width,"height":copied.raster.height,"pixelDepth":copied.raster.depth()}).to_string();
+        self.job=(Some(copied.raster),None,None,None);Ok(header)
     }
     pub fn run_document_edit_job(&mut self,input:&str,pixels:Array,masks:Array,points:Option<Vec<u8>>,layer:&str,command:&str,out_per_doc:f64)->Result<String,JsError>{
         let input:ClipboardInput=serde_json::from_str(input).map_err(js_err)?;
         if pixels.length() as usize!=input.layers.len()||masks.length()!=pixels.length(){return Err(JsError::new("document layer count mismatch"));}
         let mut buffers=Vec::new();
         for(i,l)in input.layers.iter().enumerate(){let read=|a:&Array|{let v=a.get(i as u32);if v.is_null()||v.is_undefined(){None}else{Some(Uint8Array::new(&v).to_vec())}};
-            buffers.push((raster_of(l.pixels,read(&pixels))?,gray_of(l.mask,read(&masks))?));}
+            buffers.push((raster_of_depth(l.pixel_depth,l.pixels,read(&pixels))?,gray_of(l.mask,read(&masks))?));}
         let points=points_of(input.selection.as_ref().map(JobSelection::point_count),points)?;
         let document=input.document(buffers,points.as_deref()).map_err(js_err)?;
         let layer=parse_id(layer)?;let own=document.layer(layer).ok_or_else(||JsError::new("no layer"))?;
@@ -139,16 +161,36 @@ impl WasmEngine {
         let input:ClipboardInput=serde_json::from_str(input).map_err(js_err)?;
         if pixels.length() as usize!=input.layers.len()||masks.length()!=pixels.length(){return Err(JsError::new("clipboard layer count mismatch"));}
         let mut buffers=Vec::new();
-        for (i,l) in input.layers.iter().enumerate(){let p=pixels.get(i as u32);let m=masks.get(i as u32);buffers.push((raster_of(l.pixels,if p.is_null()||p.is_undefined(){None}else{Some(Uint8Array::new(&p).to_vec())})?,gray_of(l.mask,if m.is_null()||m.is_undefined(){None}else{Some(Uint8Array::new(&m).to_vec())})?));}
+        for (i,l) in input.layers.iter().enumerate(){let p=pixels.get(i as u32);let m=masks.get(i as u32);buffers.push((raster_of_depth(l.pixel_depth,l.pixels,if p.is_null()||p.is_undefined(){None}else{Some(Uint8Array::new(&p).to_vec())})?,gray_of(l.mask,if m.is_null()||m.is_undefined(){None}else{Some(Uint8Array::new(&m).to_vec())})?));}
         let source=input.document(buffers,None).map_err(js_err)?;
         let dirty=self.engine.paste_copied_layers(parse_id(doc)?,source).map_err(js_err)?;
         serde_json::to_string(&dirty).map_err(js_err)
     }
+    pub fn copy_layers_to_project(&mut self, source:&str, ids:&str, destination:Option<String>, x:Option<f64>, y:Option<f64>)->Result<String,JsError>{
+        let ids:Vec<uuid::Uuid>=serde_json::from_str(ids).map_err(js_err)?;
+        let destination=destination.map(|id|parse_id(&id)).transpose()?;
+        let at=match(x,y){(Some(x),Some(y))=>Some(Point{x,y}),(None,None)=>None,_=>return Err(JsError::new("Invalid drop position"))};
+        let copied=self.engine.copy_layers_to_project(parse_id(source)?,&ids,destination,at).map_err(js_err)?;
+        Ok(serde_json::json!({"document":ids::upper_string(&copied.document),"selected":copied.selected.iter().map(ids::upper_string).collect::<Vec<_>>()} ).to_string())
+    }
+    pub fn capture_gif_clipboard(&mut self, doc: &str, layer: &str, token: String) -> Result<bool, JsError> {
+        self.engine.capture_gif_clipboard(parse_id(doc)?, parse_id(layer)?, token).map_err(js_err)
+    }
+    pub fn paste_gif_clipboard(&mut self, doc: &str, token: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.engine.paste_gif_clipboard(parse_id(doc)?, token).map_err(js_err)?).map_err(js_err)
+    }
     pub fn decode_clipboard(&mut self, bytes: Vec<u8>) -> Result<String, JsError> {
         let raster = decode_image(&bytes).map_err(js_err)?.raster;
-        let result = serde_json::json!({ "width": raster.width, "height": raster.height });
+        let result = serde_json::json!({ "width": raster.width, "height": raster.height, "pixelDepth": raster.depth() });
         self.job = (Some(raster), None, None, None);
         Ok(result.to_string())
+    }
+    pub fn paste_deep_pixels(&mut self,doc:&str,width:u32,height:u32,bytes:Vec<u8>,depth:&str,x:Option<f64>,y:Option<f64>,keep_selection:bool)->Result<String,JsError>{
+        let depth:PixelDepth=serde_json::from_str(depth).map_err(js_err)?;
+        let raster=raster_of_depth(depth,Some((width,height)),Some(bytes))?.ok_or_else(||JsError::new("missing clipboard pixels"))?;
+        let origin=match(x,y){(Some(x),Some(y))=>Some(Point{x,y}),(None,None)=>None,_=>return Err(JsError::new("invalid clipboard origin"))};
+        let dirty=self.engine.paste_raster(parse_id(doc)?,raster,origin,keep_selection).map_err(js_err)?;
+        serde_json::to_string(&dirty).map_err(js_err)
     }
     pub fn paste_pixels(&mut self, doc: &str, width: u32, height: u32, bytes: Vec<u8>, x: Option<f64>, y: Option<f64>, keep_selection: bool) -> Result<String, JsError> {
         if width == 0 || height == 0 || width as i64 > MAX_SIDE || height as i64 > MAX_SIDE || width as u64 * height as u64 > MAX_PIXELS { return Err(JsError::new("clipboard image too large")); }
@@ -173,7 +215,7 @@ impl WasmEngine {
     pub fn install_job(&mut self, doc: &str, layer: &str, stamp_json: &str, output_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, display: Option<Vec<u8>>) -> Result<String, JsError> {
         let stamp: LayerStamp = serde_json::from_str(stamp_json).map_err(js_err)?;
         let output: JobOutput = serde_json::from_str(output_json).map_err(js_err)?;
-        let (pixels, mask) = (raster_of(output.pixels, pixels)?, gray_of(output.mask, mask)?);
+        let (pixels, mask) = (raster_of_depth(output.pixel_depth,output.pixels, pixels)?, gray_of(output.mask, mask)?);
         let display = raster_of(output.display.map(|d| (d.width, d.height)), display)?;
         let dirty = self.engine.install_job(parse_id(doc)?, parse_id(layer)?, stamp, output, pixels, mask, display).map_err(js_err)?;
         serde_json::to_string(&dirty).map_err(js_err)
@@ -181,7 +223,7 @@ impl WasmEngine {
     /// Cooperatively staged raw bytes: callers yield between small chunks, and
     /// finish moves the owned buffers into the engine without a whole-buffer FFI copy.
     pub fn begin_staged_install(&mut self,pixels:usize,mask:usize,display:usize)->Result<(),JsError>{
-        if pixels>MAX_PIXELS as usize*4||mask>MAX_PIXELS as usize||display>MAX_PIXELS as usize*4{return Err(JsError::new("staged buffers exceed the pixel budget"));}
+        if pixels>MAX_PIXELS as usize*8||mask>MAX_PIXELS as usize||display>MAX_PIXELS as usize*4{return Err(JsError::new("staged buffers exceed the pixel budget"));}
         let make=|n:usize|{let mut b=Vec::new();b.try_reserve_exact(n).map_err(|_|JsError::new("Not enough memory for the edit"))?;Ok::<_,JsError>(b)};
         self.staged=Some((make(pixels)?,make(mask)?,make(display)?,[pixels,mask,display]));Ok(())
     }
@@ -213,7 +255,7 @@ impl WasmEngine {
         let stamp:LayerStamp=serde_json::from_str(stamp).map_err(js_err)?;let output:JobOutput=serde_json::from_str(output).map_err(js_err)?;
         let Some((p,m,d,sizes))=self.staged.take()else{return Err(JsError::new("no staged edit"));};
         if[p.len(),m.len(),d.len()]!=sizes{return Err(JsError::new("incomplete staged edit"));}
-        let p=raster_of(output.pixels,output.pixels.map(|_|p))?;let m=gray_of(output.mask,output.mask.map(|_|m))?;
+        let p=raster_of_depth(output.pixel_depth,output.pixels,output.pixels.map(|_|p))?;let m=gray_of(output.mask,output.mask.map(|_|m))?;
         let d=raster_of(output.display.map(|d|(d.width,d.height)),output.display.map(|_|d))?;
         let dirty=if preview{self.engine.keep_job_preview(parse_id(doc)?,parse_id(layer)?,stamp,output,p.ok_or_else(||JsError::new("preview has no pixels"))?,m,d).map_err(js_err)?}
         else{self.engine.install_job(parse_id(doc)?,parse_id(layer)?,stamp,output,p,m,d).map_err(js_err)?};
@@ -221,12 +263,12 @@ impl WasmEngine {
     }
     pub fn stored_buffer_ptr(&self,doc:&str,layer:&str,mask:bool)->Result<*const u8,JsError>{
         let l=self.engine.document(parse_id(doc)?).ok_or_else(||JsError::new("no document"))?.layer(parse_id(layer)?).ok_or_else(||JsError::new("no layer"))?;
-        Ok(if mask{l.mask.as_ref().map_or(std::ptr::null(),|m|m.pixels.bytes().as_ptr())}else{l.pixels.as_ref().map_or(std::ptr::null(),|p|p.bytes().as_ptr())})
+        Ok(if mask{l.mask.as_ref().map_or(std::ptr::null(),|m|m.pixels.bytes().as_ptr())}else{l.pixels.as_ref().map_or(std::ptr::null(),|p|p.transfer_ptr())})
     }
     pub fn keep_job_preview(&mut self, doc:&str,layer:&str,stamp_json:&str,output_json:&str,pixels:Vec<u8>,mask:Option<Vec<u8>>,display:Option<Vec<u8>>)->Result<String,JsError>{
         let stamp:LayerStamp=serde_json::from_str(stamp_json).map_err(js_err)?;
         let output:JobOutput=serde_json::from_str(output_json).map_err(js_err)?;
-        let pixels=raster_of(output.pixels,Some(pixels))?.ok_or_else(||JsError::new("missing preview pixels"))?;
+        let pixels=raster_of_depth(output.pixel_depth,output.pixels,Some(pixels))?.ok_or_else(||JsError::new("missing preview pixels"))?;
         let mask=gray_of(output.mask,mask)?;let display=raster_of(output.display.map(|d|(d.width,d.height)),display)?;
         let dirty=self.engine.keep_job_preview(parse_id(doc)?,parse_id(layer)?,stamp,output,pixels,mask,display).map_err(js_err)?;
         serde_json::to_string(&dirty).map_err(js_err)
@@ -251,7 +293,7 @@ impl WasmEngine {
     pub fn run_edit_job(&mut self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>, command_json: &str, out_per_doc: f64) -> Result<String, JsError> {
         let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
         let command: Command = serde_json::from_str(command_json).map_err(js_err)?;
-        let (pixels, mask) = (raster_of(input.pixels, pixels)?, gray_of(input.mask, mask)?);
+        let (pixels, mask) = (raster_of_depth(input.pixel_depth,input.pixels, pixels)?, gray_of(input.mask, mask)?);
         let points = points_of(input.selection.as_ref().map(JobSelection::point_count), points)?;
         let (output, new_pixels, new_mask, display) = run_edit_job(&input, pixels, mask, points.as_deref(), command, out_per_doc).map_err(js_err)?;
         self.job = (new_pixels, new_mask, None, display);
@@ -268,7 +310,7 @@ impl WasmEngine {
         mask_target: bool,
     ) -> Result<String, JsError> {
         let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
-        let pixels = raster_of(input.pixels, pixels)?;
+        let pixels = raster_of_depth(input.pixel_depth,input.pixels, pixels)?;
         let mask = gray_of(input.mask, mask)?;
         let points = points_of(
             input.selection.as_ref().map(JobSelection::point_count),
@@ -284,7 +326,7 @@ impl WasmEngine {
     /// is uploaded straight from this job view, then release_job drops that view.
     pub fn begin_warp_session(&mut self,input_json:&str,pixels:Option<Vec<u8>>,mask:Option<Vec<u8>>,points:Option<Vec<u8>>)->Result<String,JsError>{
         let input:JobInput=serde_json::from_str(input_json).map_err(js_err)?;
-        let pixels=raster_of(input.pixels,pixels)?;let mask=gray_of(input.mask,mask)?;
+        let pixels=raster_of_depth(input.pixel_depth,input.pixels,pixels)?;let mask=gray_of(input.mask,mask)?;
         let points=points_of(input.selection.as_ref().map(JobSelection::point_count),points)?;
         let warp=WarpJob::new(input,pixels,mask,points.as_deref()).map_err(js_err)?;
         let source=warp.source();let header=serde_json::json!({"width":source.width,"height":source.height}).to_string();
@@ -354,7 +396,7 @@ impl WasmEngine {
                 )
             })
             .collect();
-        let pixels = raster_of(input.pixels, pixels)?;
+        let pixels = raster_of_depth(input.pixel_depth,input.pixels, pixels)?;
         let mask = gray_of(input.mask, mask)?;
         let points = points_of(
             input.selection.as_ref().map(JobSelection::point_count),
@@ -379,7 +421,7 @@ impl WasmEngine {
     /// `run_edit_job` takes it.
     pub fn run_histogram_job(&self, input_json: &str, pixels: Option<Vec<u8>>, mask: Option<Vec<u8>>, points: Option<Vec<u8>>) -> Result<String, JsError> {
         let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
-        let (pixels, mask) = (raster_of(input.pixels, pixels)?, gray_of(input.mask, mask)?);
+        let (pixels, mask) = (raster_of_depth(input.pixel_depth,input.pixels, pixels)?, gray_of(input.mask, mask)?);
         let points = points_of(input.selection.as_ref().map(JobSelection::point_count), points)?;
         serde_json::to_string(&run_histogram_job(&input, pixels, mask, points.as_deref()).map_err(js_err)?).map_err(js_err)
     }
@@ -387,7 +429,7 @@ impl WasmEngine {
     /// None when the layer draws no effects.
     pub fn run_effects_job(&mut self, input_json: &str, pixels: Vec<u8>, mask: Option<Vec<u8>>, factor: f64, edit_json: Option<String>) -> Result<Option<String>, JsError> {
         let input: JobInput = serde_json::from_str(input_json).map_err(js_err)?;
-        let pixels = raster_of(input.pixels, Some(pixels))?.ok_or_else(|| JsError::new("an effects job needs pixels"))?;
+        let pixels = raster_of_depth(input.pixel_depth,input.pixels, Some(pixels))?.ok_or_else(|| JsError::new("an effects job needs pixels"))?;
         let mask = gray_of(input.mask, mask)?;
         let edit = Self::parse_edit(edit_json)?;
         match run_effects_job(&input, pixels, mask, factor, edit.as_ref()).map_err(js_err)? {
@@ -467,6 +509,10 @@ impl WasmEngine {
         let options=serde_json::from_str(options).map_err(js_err)?;
         Ok(Uint8Array::from(self.engine.export_as(parse_id(doc)?,&options,preview).map_err(js_err)?.as_slice()))
     }
+    pub fn gif_thumbnail(&self, doc: &str, layer: &str, index: usize) -> Result<Uint8Array, JsError> {
+        let bytes = self.engine.gif_thumbnail(parse_id(doc)?, parse_id(layer)?, index).map_err(js_err)?;
+        Ok(Uint8Array::from(bytes.as_slice()))
+    }
     pub fn export_jpeg(&self, doc: &str, quality: f64, r: f64, g: f64, b: f64) -> Result<Uint8Array, JsError> {
         Ok(Uint8Array::from(self.engine.export_jpeg(parse_id(doc)?, quality, [r, g, b]).map_err(js_err)?.as_slice()))
     }
@@ -538,6 +584,28 @@ impl WasmEngine {
         let at=x.zip(y).map(|(x,y)|Point{x,y});
         let (id,conversions)=self.engine.import_psd(id,bytes,at).map_err(js_err)?;
         serde_json::to_string(&serde_json::json!({"id":ids::upper_string(&id),"conversions":conversions})).map_err(js_err)
+    }
+    pub fn import_pages(&mut self,doc:Option<String>,names:&str,images:Array,resolution:f64,x:Option<f64>,y:Option<f64>)->Result<String,JsError>{
+        let names:Vec<String>=serde_json::from_str(names).map_err(js_err)?;
+        if names.len()!=images.length()as usize||names.len()>MAX_LAYERS{return Err(JsError::new("Invalid native page count"));}
+        let data=names.into_iter().enumerate().map(|(i,name)|(name,Uint8Array::new(&images.get(i as u32)).to_vec())).collect();
+        self.engine.import_pages(doc.as_deref().map(parse_id).transpose()?,data,resolution,x.zip(y).map(|(x,y)|Point{x,y})).map(|id|ids::upper_string(&id)).map_err(js_err)
+    }
+    pub fn import_photoshop_projects(&mut self, doc:Option<String>,bytes:&[u8],x:Option<f64>,y:Option<f64>)->Result<String,JsError>{
+        let id=doc.as_deref().map(parse_id).transpose()?;let at=x.zip(y).map(|(x,y)|Point{x,y});
+        let(projects,conversions,artboards)=self.engine.import_psd_projects(id,bytes,at).map_err(js_err)?;
+        Ok(serde_json::json!({"projects":projects.into_iter().map(|(id,name)|serde_json::json!({"id":ids::upper_string(&id),"name":name})).collect::<Vec<_>>(),"conversions":conversions,"artboards":artboards}).to_string())
+    }
+    pub fn import_photoshop_package(&mut self,doc:Option<String>,manifest:String,names:Vec<String>,blobs:Array,metadata:&str,x:Option<f64>,y:Option<f64>)->Result<String,JsError>{
+        if names.len()!=blobs.length() as usize || names.len()>20000 || manifest.len()>4*1024*1024 || metadata.len()>4*1024*1024{return Err(JsError::new("Invalid converted Photoshop package"));}
+        let mut total=0usize;let mut images=Vec::new();for(i,name)in names.into_iter().enumerate(){let bytes=Uint8Array::new(&blobs.get(i as u32));total=total.checked_add(bytes.length()as usize).filter(|n|*n<=512*1024*1024).ok_or_else(||JsError::new("Converted images exceed 512 MiB"))?;images.push((name,bytes.to_vec()));}
+        #[derive(serde::Deserialize)]struct Metadata {artboards:Vec<(Uuid,Rect)>,conversions:Vec<compositor_engine::psd::PsdConversion>}
+        let meta:Metadata=serde_json::from_str(metadata).map_err(js_err)?;
+        let document=compositor_engine::open_package(&Package{manifest_json:manifest,images}).map_err(js_err)?;
+        if meta.artboards.iter().map(|(id,_)|id).collect::<std::collections::HashSet<_>>().len()!=meta.artboards.len()||meta.artboards.len()>10000||meta.conversions.len()>10000||meta.artboards.iter().any(|(id,r)|!document.layer(*id).is_some_and(|l|l.is_group)||![r.x,r.y,r.width,r.height].iter().all(|v|v.is_finite())||r.width<1.||r.height<1.){return Err(JsError::new("Invalid converted artboard metadata"));}
+        let imported=compositor_engine::psd::PsdImport{document,conversions:meta.conversions,artboard_bounds:meta.artboards};
+        let(projects,conversions,artboards)=self.engine.install_psd_projects(doc.as_deref().map(parse_id).transpose()?,imported,x.zip(y).map(|(x,y)|Point{x,y})).map_err(js_err)?;
+        Ok(serde_json::json!({"projects":projects.into_iter().map(|(id,name)|serde_json::json!({"id":ids::upper_string(&id),"name":name})).collect::<Vec<_>>(),"conversions":conversions,"artboards":artboards}).to_string())
     }
     pub fn sample_color(&self, doc: &str, x: f64, y: f64) -> Result<Option<String>, JsError> {
         match self.engine.sample_color(parse_id(doc)?, Point { x, y }).map_err(js_err)? {

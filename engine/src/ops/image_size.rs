@@ -14,6 +14,12 @@ fn rasterize(layer: &Layer, raster: &Raster, sampling: Sampling, sx: f64, sy: f6
     probe.set_pixels(Some(raster.clone()));
     // Output pixel (x, y) sits at document (left + x, top + y) in the new canvas, i.e. ((left + x) / sx, (top + y) / sy) in the old.
     let region = Rect { x: left / sx, y: top / sy, width: w as f64 / sx, height: h as f64 / sy };
+    if raster.deep_pixels().is_some() {
+        probe.mask=None;probe.mask_source_id=None;probe.blend_mode=BlendMode::Normal;
+        probe.extra.adjustment=None;probe.extra.effects=None;
+        let mut doc=Document::new(w,h);doc.layers.push(probe);
+        return compositor::composite(&doc,region,w,h);
+    }
     let mut target = vec![0u8; (w as usize) * (h as usize) * 4];
     compositor::render_layer(&mut target, w, h, region, &probe);
     Raster::from_premultiplied(w, h, target)
@@ -60,8 +66,26 @@ pub fn image_size(doc: &Document, options: ImageSizeOptions) -> Result<Document,
             let pixels = width as u64 * height as u64;
             if width as i64 > MAX_SIDE || height as i64 > MAX_SIDE || pixels > MAX_PIXELS - used { return Err(ProjectError::TooLarge); }
             used += pixels;
-            let resampled = rasterize(layer, &raster, options.sampling, sx, sy, left, top, width, height);
-            layer.set_pixels(Some(resampled));
+            if let Some(animation) = &layer.extra.gif {
+                let mut resized = animation.clone();
+                let map = transform.unit_to_document().invert().ok_or(ProjectError::Invalid)?
+                    .then(Affine::scale(sx, sy)).then(layer.transform.unit_to_document());
+                let current_map = animation.geometry.as_ref().map_or(Affine::IDENTITY, |g| g.map());
+                resized.geometry = Some(crate::animation::FrameGeometry::new(width, height, map.then(current_map), options.sampling));
+                if !resized.geometry.as_ref().unwrap().valid() { return Err(ProjectError::TooLarge); }
+                let override_map = crate::animation::FrameGeometry::new(width, height, map, options.sampling);
+                for frame in resized.frame_pixels.values_mut() {
+                    if pixels > MAX_PIXELS - used { return Err(ProjectError::TooLarge); }
+                    used += pixels;
+                    *frame = override_map.render(frame);
+                }
+                let selected = resized.frame(resized.selected_frame_index).map_err(|_| ProjectError::MissingImage)?;
+                layer.set_pixels(Some(selected));
+                layer.extra.gif = Some(resized);
+            } else {
+                let resampled = rasterize(layer, &raster, options.sampling, sx, sy, left, top, width, height);
+                layer.set_pixels(Some(resampled));
+            }
         }
         // Process mask if it exists; extract data before rasterizing to avoid borrow issues
         if let Some(mask) = &layer.mask {

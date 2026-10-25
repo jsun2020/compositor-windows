@@ -49,11 +49,21 @@ pub fn finish(doc: &Document, edit: &FloatingEdit, draft: LayerTransform, corner
     let (w, h) = (w as u32, h as u32);
     let grid = ops::raster_edit::EditGrid { width: w, height: h, x: (-x0) as u32, y: (-y0) as u32,
         transform: ops::adjust::placed_like(&source.transform, own.width, own.height, w, h, -x0, -y0) };
-    let mut bytes = ops::raster_edit::pixels_on(&grid, Some(own));
+    let depth=if own.depth()==PixelDepth::Hdr||pixels.depth()==PixelDepth::Hdr{PixelDepth::Hdr}else if own.depth()==PixelDepth::Sixteen||pixels.depth()==PixelDepth::Sixteen{PixelDepth::Sixteen}else{PixelDepth::Eight};
     let target_density=own.width as f64/source.transform.size.width.max(1e-9);
     let level=if transform.sampling==Sampling::Nearest{0}else{compositor::prefilter_level(pixels.width,pixels.height,pixels.width as f64/(transform.size.width*target_density).max(1e-9))};
-    let pixels=pixels.reduced(level);
+    let pixels=if depth==PixelDepth::Eight{pixels.reduced(level)}else{pixels.reduced_deep(level)};
     let mapping = transform.pixel_to_document(pixels.width, pixels.height).invert().ok_or(ProjectError::Invalid)?.then(grid.transform.pixel_to_document(w, h));
+    let merged=if depth!=PixelDepth::Eight{
+        Raster::from_deep_fn(w,h,depth,|x,y|{
+            let base=if x>=grid.x&&y>=grid.y&&x-grid.x<own.width&&y-grid.y<own.height{own.pixel_f32(x-grid.x,y-grid.y)}else{[0.;4]};
+            let p=mapping.apply(Point{x:x as f64+0.5,y:y as f64+0.5});
+            if p.x<0.||p.y<0.||p.x>=pixels.width as f64||p.y>=pixels.height as f64{return base;}
+            let sample=compositor::sample(&pixels,p.x,p.y,transform.sampling==Sampling::Nearest);
+            std::array::from_fn(|c|sample[c]+base[c]*(1.-sample[3]))
+        })
+    }else{
+    let mut bytes=ops::raster_edit::pixels_on(&grid,Some(own));
     for y in 0..h { for x in 0..w {
         let p = mapping.apply(Point { x: x as f64 + 0.5, y: y as f64 + 0.5 });
         if p.x < 0.0 || p.y < 0.0 || p.x >= pixels.width as f64 || p.y >= pixels.height as f64 { continue; }
@@ -61,8 +71,9 @@ pub fn finish(doc: &Document, edit: &FloatingEdit, draft: LayerTransform, corner
         let i = (y as usize * w as usize + x as usize) * 4;
         for k in 0..4 { bytes[i + k] = (sample[k] * 255.0 + bytes[i + k] as f32 * (1.0 - sample[3])).round().clamp(0.0, 255.0) as u8; }
     }}
+    Raster::from_premultiplied(w,h,bytes)};
     let target = result.layer_mut(edit.source).unwrap();
-    target.set_pixels(Some(Raster::from_premultiplied(w, h, bytes))); target.transform = grid.transform;
+    target.set_pixels(Some(merged)); target.transform = grid.transform;
     if let Some(mask) = &source.mask {
         if mask.placement.is_none() {
             target.mask_mut().unwrap().pixels = ops::raster_edit::followed(&mask.pixels, (own.width, own.height), &grid, (0, 0, w, h));

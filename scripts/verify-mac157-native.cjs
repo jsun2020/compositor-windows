@@ -1,0 +1,45 @@
+// Production WebView2 controls and real PID-scoped Windows dialogs.
+const {chromium,expect}=require('@playwright/test');
+const {spawnSync}=require('node:child_process');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const [marker,out,port,pid,exe,probes,rawSource]=process.argv.slice(2);
+const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+let browser,page,dialogIndex=0,pictureIndex=0;
+const rows=[],errors=[];
+const json=(name,value)=>fs.writeFileSync(path.join(out,name),JSON.stringify(value,null,2),{flag:'wx'});
+function nativeDialog(action,target){
+ const receipt=path.join(out,'dialog-'+String(++dialogIndex).padStart(2,'0')+'-'+action+'.json');
+ const args=['-X','utf8',path.join(__dirname,'native-dialog-control.py'),pid,exe,action,'--output',receipt];
+ if(target)args.push('--path',target);
+ const result=spawnSync('python.exe',args,{encoding:'utf8',timeout:45000});
+ console.log(result.stdout.trim());if(result.stderr)console.error(result.stderr.trim());
+ assert.equal(result.status,0,'Native '+action+' failed: '+receipt);
+ return JSON.parse(fs.readFileSync(receipt,'utf8'));
+}
+async function menu(title,id){await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await page.getByTestId('menubar-'+title.toLowerCase()).click();await page.getByTestId('menu-'+id).click();}
+async function picture(){await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));const image=await page.getByTestId('canvas-view').locator('canvas').first().evaluate(async c=>{const gl=c.getContext('webgl2'),rgba=new Uint8Array(c.width*c.height*4);gl.readPixels(0,0,c.width,c.height,gl.RGBA,gl.UNSIGNED_BYTE,rgba);const digest=await crypto.subtle.digest('SHA-256',rgba);return {pixels:c.width+'x'+c.height+':'+Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join(''),png:c.toDataURL('image/png')};});fs.writeFileSync(path.join(out,'view-'+String(++pictureIndex).padStart(3,'0')+'.png'),Buffer.from(image.png.split(',')[1],'base64'));return image.pixels;}
+async function capture(name){await page.screenshot({path:path.join(out,name+'.png')});fs.writeFileSync(path.join(out,name+'.txt'),await page.locator('body').innerText(),{flag:'wx'});}
+async function save(name){const target=path.join(out,name+'.comp');await menu('File','save-as');nativeDialog('select',target);await expect.poll(async()=>fs.existsSync(path.join(target,'manifest.json'))||(await page.getByTestId('error-banner').count())>0,{timeout:30000}).toBe(true);await expect(page.getByTestId('error-banner')).toHaveCount(0);await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await expect(page.getByTestId('project-tab')).not.toContainText('•');assert(fs.existsSync(path.join(target,'manifest.json')));return JSON.parse(fs.readFileSync(path.join(target,'manifest.json'),'utf8'));}
+async function close(){await menu('File','close');const sheet=page.getByRole('dialog',{name:'Close project',exact:true});if(await sheet.isVisible())await sheet.getByRole('button',{name:"Don't Save and Close",exact:true}).click();await expect(page.getByTestId('project-tab')).toHaveCount(0);}
+async function field(name,value){await page.getByLabel(name,{exact:true}).fill(String(value));await page.getByLabel(name,{exact:true}).press('Enter');}
+async function nativeState(){return page.evaluate(async()=>{const i=window.__TAURI_INTERNALS__,label=i.metadata.currentWindow.label;return {fullscreen:await i.invoke('plugin:window|is_fullscreen',{label}),position:await i.invoke('plugin:window|outer_position',{label}),size:await i.invoke('plugin:window|outer_size',{label}),maximized:await i.invoke('plugin:window|is_maximized',{label})};});}
+(async()=>{
+ assert(marker&&out&&port&&pid&&exe&&probes,'Explicit arguments required');
+ browser=await chromium.connectOverCDP('http://127.0.0.1:'+port,{timeout:30000});page=browser.contexts()[0].pages().find(p=>p.url().includes('tauri.localhost'));assert(page);
+ await expect(page.getByTestId('engine-ready')).toContainText(marker,{timeout:30000});const identity=await page.evaluate(()=>({testApi:typeof window.__compositor,native:'__TAURI_INTERNALS__' in window}));assert.equal(identity.testApi,'undefined');assert.equal(identity.native,true);page.on('pageerror',e=>errors.push(e.message));
+ const importFile=async name=>{await menu('File','import');nativeDialog('select',path.join(probes,name));await expect(page.getByTestId('working')).toHaveCount(0,{timeout:30000});await expect(page.getByTestId('error-banner')).toHaveCount(0);};
+ await importFile('two-pages.pdf');await expect(page.getByTestId('layer-row')).toHaveCount(2);const pdf=await save('pages');assert.deepEqual([pdf.width,pdf.height,pdf.resolution],[300,200,300]);assert.deepEqual(pdf.layers.map(l=>l.name),['Page 2','Page 1']);await capture('pdf-pages');await close();rows.push({case:'actual PDF picker, page stack, print size and project save'});
+ await importFile('rgb.heic');await expect(page.getByTestId('layer-row')).toHaveCount(1);const heif=await save('heif');assert.deepEqual([heif.width,heif.height],[48,32]);assert.equal(heif.version,12);await close();rows.push({case:'actual HEIF picker and saved 16-bit pixels'});
+ await importFile('cmyk.psd');await expect(page.getByTestId('layer-row')).toHaveCount(1);const psd=await save('cmyk-psd');assert.deepEqual([psd.width,psd.height],[48,32]);await close();rows.push({case:'actual CMYK PSD picker, ICC conversion and saved project'});
+ await importFile('rgb.png');await save('rgb-original');const original=await picture();
+ await menu('View','color-proof');await page.getByRole('button',{name:'Load ICC Profile…',exact:true}).click();nativeDialog('select',path.join(probes,'test-print.icc'));await expect(page.getByLabel('Proof Colors',{exact:true})).toBeEnabled({timeout:30000});await page.getByLabel('Proof Colors',{exact:true}).check();await page.getByRole('button',{name:'Done',exact:true}).click();await expect.poll(picture).not.toEqual(original);await expect(page.getByTestId('project-tab')).not.toContainText('•');
+ await menu('View','color-proof');await page.getByLabel('Proof Colors',{exact:true}).uncheck();await page.getByRole('button',{name:'Done',exact:true}).click();assert.equal(await picture(),original);
+ for(const[format,ext]of[['TIFF','tif'],['JPEG','jpg'],['PDF','pdf']]){
+  await menu('File','export-as');await page.getByLabel('Format',{exact:true}).selectOption(format);await page.getByLabel('Export Color Space',{exact:true}).selectOption('CMYK');if(format==='JPEG')await page.getByLabel('Quality',{exact:true}).fill('100');await page.getByRole('button',{name:'Export',exact:true}).click();nativeDialog('select',path.join(out,'print.'+ext));await expect(page.getByRole('dialog',{name:'Export As',exact:true})).toHaveCount(0,{timeout:30000});assert.equal(await picture(),original);
+ }
+ await close();rows.push({case:'real ICC file picker, display-only proof and CMYK TIFF/JPEG/PDF export dialogs'});
+ await importFile('animation.gif');await expect(page.getByRole('region',{name:'Animation timeline'})).toBeVisible();const first=await picture();await page.getByLabel('Next frame',{exact:true}).click();await expect.poll(picture).not.toEqual(first);await page.getByLabel('Frame delay',{exact:true}).fill('450');await page.getByLabel('Frame delay',{exact:true}).press('Enter');await page.getByRole('button',{name:'Duplicate frame',exact:true}).click();const gif=await save('animation');assert.equal(gif.version,17);
+ await menu('File','export-as');await page.getByLabel('Format',{exact:true}).selectOption('GIF');await page.getByRole('button',{name:'Export',exact:true}).click();nativeDialog('select',path.join(out,'animation.gif'));await expect(page.getByRole('dialog',{name:'Export As',exact:true})).toHaveCount(0,{timeout:30000});await close();rows.push({case:'GIF native import, frame navigation/edit, v17 save and actual export'});
+ await importFile('lens.png');const lensBefore=await picture();await menu('Filter','filter-lens-effects');await page.getByTestId('adjust-panel').getByLabel('Effect',{exact:true}).selectOption('Bokeh');await page.getByTestId('adjust-panel').getByLabel('Shape',{exact:true}).selectOption('Hexagon');await page.getByTestId('adjust-ok').click();await expect(page.getByTestId('adjust-panel')).toHaveCount(0);await expect.poll(picture).not.toEqual(lensBefore);await page.keyboard.press('Control+z');assert.equal(await picture(),lensBefore);await close();rows.push({case:'Lens Effects production preview/apply/undo'});
+ assert.deepEqual(errors,[]);json('result.json',{status:'PASS',marker,identity,rows,nativeDialogCount:dialogIndex,pageErrors:errors,scope:'Production WebView2 controls and real native file dialogs. No mocked bridge/test API.'});await browser.close();console.log('PASS: Mac 1.5.7 increment native controls.');
+})().catch(async e=>{console.error(e.stack||e);try{if(page)await capture('failure');}catch{}try{json('failure.json',{error:String(e.stack||e),rows,pageErrors:errors,nativeDialogCount:dialogIndex});}catch{}try{await browser?.close();}catch{}process.exitCode=1;});

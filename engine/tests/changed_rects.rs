@@ -124,8 +124,10 @@ fn an_edit_without_a_rectangle_or_that_changes_the_grid_is_taken_whole() {
     run(&mut e, id, Command::InvertPixels { id: layer, mask: false });
     assert_eq!(e.pixels_delta(id, layer, r0).unwrap(), None, "no selection: the whole layer");
     let r1 = revision(&e, id);
-    // A blur spreads past the layer and grows its grid: whole.
-    run(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 3.0 } });
+    // Keep the layer inside the canvas: since 1.5.7, sides at the canvas's
+    // boundary extend their edge pixels instead of growing. An interior blur grows.
+    run(&mut e,id,Command::SetLayerTransform{id:layer,transform:LayerTransform::axis_aligned(p(10.,10.),Size{width:100.,height:60.})});
+    run(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { preserve_transparency:false, radius: 3.0 } });
     assert!(pixels(&e, id).width > 120);
     assert_eq!(e.pixels_delta(id, layer, r1).unwrap(), None);
     assert_eq!(e.pixels_delta(id, layer, 123_456).unwrap(), None, "a revision never seen");
@@ -320,7 +322,7 @@ fn a_blur_inside_a_selection_that_shifts_the_grid_at_the_same_size_is_taken_whol
     let r0 = revision(&e, id);
     let old = pixels(&e, id);
     let _ = old.halved(); // Seeded on the OLD grid, before the shift.
-    run(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 2.0 } });
+    run(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { preserve_transparency:false, radius: 2.0 } });
     let new_transform = e.state(id).unwrap().layers[0].transform;
     let new = pixels(&e, id);
     // The scenario this test exists to set up: same size, moved grid.

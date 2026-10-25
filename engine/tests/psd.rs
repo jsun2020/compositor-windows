@@ -4,12 +4,12 @@ fn u32(v:&mut Vec<u8>,n:u32){v.extend(n.to_be_bytes());}
 fn length(v:&mut Vec<u8>,n:usize,big:bool){if big {v.extend((n as u64).to_be_bytes())}else{u32(v,n as u32)}}
 fn block(v:&mut Vec<u8>,key:&[u8;4],bytes:&[u8]){v.extend(b"8BIM");v.extend(key);u32(v,bytes.len() as u32);v.extend(bytes);if bytes.len()%2!=0 {v.push(0);}}
 #[derive(Clone)]
-struct FixtureLayer {name:&'static str,section:u32,clipping:bool,mask:bool,hidden:bool,extra:Vec<u8>,legacy:Option<Vec<u8>>,no_pixels:bool,color:[u8;4],opacity:u8,blend:[u8;4]}
+struct FixtureLayer {bounds:Option<[i32;4]>,name:&'static str,section:u32,clipping:bool,mask:bool,hidden:bool,extra:Vec<u8>,legacy:Option<Vec<u8>>,no_pixels:bool,color:[u8;4],opacity:u8,blend:[u8;4]}
 fn fixture(big:bool,rle:bool,layers:&[FixtureLayer])->Vec<u8>{
     let mut out=b"8BPS".to_vec();u16(&mut out,if big{2}else{1});out.extend([0;6]);u16(&mut out,3);u32(&mut out,2);u32(&mut out,2);u16(&mut out,8);u16(&mut out,3);u32(&mut out,0);u32(&mut out,0);
     let mut records=Vec::new();u16(&mut records,layers.len() as u16);let mut planes=Vec::new();
     for l in layers {
-        for n in [0,0,2,2] {u32(&mut records,n);}let count=if l.no_pixels{0}else if l.mask{5}else{4};u16(&mut records,count);
+        for n in l.bounds.unwrap_or([0,0,2,2]) {u32(&mut records,n as u32);}let count=if l.no_pixels{0}else if l.mask{5}else{4};u16(&mut records,count);
         for id in [-1i16,0,1,2,-2].into_iter().take(count as usize) {
             let values=if id== -1 {[l.color[3];4]}else if id== -2 {[0,255,128,255]}else{[l.color[id as usize];4]};let mut bytes=Vec::new();u16(&mut bytes,if rle{1}else{0});
             if rle {for _ in 0..2 {if big{u32(&mut bytes,3)}else{u16(&mut bytes,3)}}for row in values.chunks(2){bytes.push(1);bytes.extend(row);}}else{bytes.extend(values);}
@@ -23,7 +23,23 @@ fn fixture(big:bool,rle:bool,layers:&[FixtureLayer])->Vec<u8>{
     records.extend(planes);if records.len()%2!=0{records.push(0);}let mut section=Vec::new();length(&mut section,records.len(),big);section.extend(records);u32(&mut section,0);length(&mut out,section.len(),big);out.extend(section);
     u16(&mut out,0);out.extend([70;12]);out
 }
-fn pixel(name:&'static str)->FixtureLayer {FixtureLayer{name,section:0,clipping:false,mask:false,hidden:false,extra:Vec::new(),legacy:None,no_pixels:false,color:[80,110,140,128],opacity:200,blend:*b"norm"}}
+fn pixel(name:&'static str)->FixtureLayer {FixtureLayer{bounds:None,name,section:0,clipping:false,mask:false,hidden:false,extra:Vec::new(),legacy:None,no_pixels:false,color:[80,110,140,128],opacity:200,blend:*b"norm"}}
+#[test]fn cmyk_layers_decode_inverted_inks_with_separate_alpha_and_masks(){
+    for big in [false,true]{for rle in [false,true]{
+        let mut layer=pixel("Ink layer");layer.mask=true;let mut bytes=fixture(big,rle,&[layer]);bytes[24..26].copy_from_slice(&4u16.to_be_bytes());
+        assert!(psd::read(&bytes,MAX_PIXELS,MAX_PIXELS).is_err());
+        let convert=|pixels:&mut[u8],w,h|{assert_eq!((w,h),(2,2));for pixel in pixels.chunks_exact_mut(4){assert_eq!(pixel,&[175,145,115,0]);pixel.copy_from_slice(&[20,80,240,255]);}Ok(())};
+        let imported=psd::read_with_cmyk(&bytes,MAX_PIXELS,MAX_PIXELS,Some(&convert)).unwrap();let layer=&imported.document.layers[0];
+        assert_eq!(layer.pixels.as_ref().unwrap().pixel(0,0),[10,40,120,128]);assert_eq!(layer.mask.as_ref().unwrap().pixels.bytes(),[0,255,128,255]);
+        let failing=|_:&mut[u8],_,_|Err(CommandError::Argument("Invalid ICC transform".into()));assert!(psd::read_with_cmyk(&bytes,MAX_PIXELS,MAX_PIXELS,Some(&failing)).is_err());
+    }}
+}
+#[test]fn cmyk_merged_five_channel_image_keeps_black_and_alpha_separate(){
+    let mut bytes=b"8BPS".to_vec();u16(&mut bytes,1);bytes.extend([0;6]);u16(&mut bytes,5);u32(&mut bytes,1);u32(&mut bytes,2);u16(&mut bytes,8);u16(&mut bytes,4);for _ in 0..3{u32(&mut bytes,0);}u16(&mut bytes,0);
+    bytes.extend([255,245,235,225,215,205,195,185,128,255]);
+    let convert=|p:&mut[u8],w,h|{assert_eq!((w,h),(2,1));assert_eq!(p,[0,20,40,60,10,30,50,70]);p.copy_from_slice(&[60,120,180,255,30,90,150,255]);Ok(())};
+    let imported=psd::read_with_cmyk(&bytes,MAX_PIXELS,MAX_PIXELS,Some(&convert)).unwrap();assert_eq!(imported.document.layers[0].pixels.as_ref().unwrap().bytes(),[30,60,90,128,30,90,150,255]);
+}
 #[test]fn file_order_keeps_a_screen_overlay_above_an_opaque_background(){
     // Independent of private samples: the Mac reader consumes file records bottom-first.
     // Reversing these records hides the overlay behind the opaque background.
@@ -41,7 +57,7 @@ fn pixel(name:&'static str)->FixtureLayer {FixtureLayer{name,section:0,clipping:
 }
 #[test]fn pixel_less_adjustments_do_not_spend_the_image_budget(){
     let mut levels=pixel("Levels");levels.no_pixels=true;let mut data=2u16.to_be_bytes().to_vec();for _ in 0..29{for n in [0,255,0,255,100]{u16(&mut data,n);}}block(&mut levels.extra,b"levl",&data);
-    for big in [false,true]{let imported=psd::read(&fixture(big,true,&[FixtureLayer{name:levels.name,section:0,clipping:false,mask:false,hidden:false,extra:levels.extra.clone(),legacy:None,no_pixels:true,color:levels.color,opacity:levels.opacity,blend:levels.blend}]),0,0).unwrap();assert_eq!(imported.document.layers.len(),1);assert!(imported.document.layers[0].extra.adjustment.is_some());assert_eq!(imported.document.used_pixels(),0);}
+    for big in [false,true]{let imported=psd::read(&fixture(big,true,&[FixtureLayer{bounds:None,name:levels.name,section:0,clipping:false,mask:false,hidden:false,extra:levels.extra.clone(),legacy:None,no_pixels:true,color:levels.color,opacity:levels.opacity,blend:levels.blend}]),0,0).unwrap();assert_eq!(imported.document.layers.len(),1);assert!(imported.document.layers[0].extra.adjustment.is_some());assert_eq!(imported.document.used_pixels(),0);}
 }
 #[test]fn psd_and_psb_raw_and_packbits_preserve_unicode_alpha_and_mask(){for big in [false,true] {for rle in [false,true] {let mut l=pixel("河流😀");l.mask=true;l.hidden=true;let imported=psd::read(&fixture(big,rle,&[l]),MAX_PIXELS,MAX_PIXELS).unwrap();let l=&imported.document.layers[0];assert_eq!(l.name,"河流😀");assert!(!l.visible);assert_eq!(l.pixels.as_ref().unwrap().pixel(0,0),[40,55,70,128]);assert_eq!(l.mask.as_ref().unwrap().pixels.bytes(),&[0,255,128,255]);assert_eq!(l.opacity,200./255.);assert!(imported.conversions.is_empty());}}}
 #[test]fn groups_and_clipping_resolve_bottom_to_top(){let mut group=pixel("Folder");group.section=1;let mut divider=pixel("Divider");divider.section=3;let mut clipped=pixel("Clipped");clipped.clipping=true;
@@ -62,3 +78,28 @@ fn versioned(data:Vec<u8>)->Vec<u8>{let mut v=Vec::new();u32(&mut v,16);v.extend
     let imported=psd::read(&fixture(false,true,&[layer]),MAX_PIXELS,MAX_PIXELS).unwrap();let style=imported.document.layers[0].extra.text.as_ref().unwrap();assert_eq!(style["content"],"Editable 中文😀");assert_eq!(style["fontName"],"ArialMT");assert_eq!(style["fontSize"].as_f64(),Some(18.0));assert_eq!(style["green"].as_f64(),Some(1.0));assert_eq!(style["alignment"],"Center");assert!((style["tracking"].as_f64().unwrap()-2.7).abs()<1e-8);assert!(imported.conversions.iter().any(|n|n.message.contains("Editable text")));let reopened=open_package(&save_package(&imported.document).unwrap()).unwrap();assert_eq!(reopened.layers[0].extra.text,imported.document.layers[0].extra.text);}
 #[test]fn supported_fill_shape_is_editable_and_redrawn(){let mut layer=pixel("Live rectangle");let color=descriptor(vec![("Rd  ","doub",255f64.to_be_bytes().to_vec()),("Grn ","doub",0f64.to_be_bytes().to_vec()),("Bl  ","doub",0f64.to_be_bytes().to_vec())]);block(&mut layer.extra,b"SoCo",&versioned(descriptor(vec![("Clr ","Objc",color)])));let bounds=descriptor(vec![("Left","UntF",[b"#Pxl".as_slice(),&0f64.to_be_bytes()].concat()),("Top ","UntF",[b"#Pxl".as_slice(),&0f64.to_be_bytes()].concat()),("Rght","UntF",[b"#Pxl".as_slice(),&16f64.to_be_bytes()].concat()),("Btom","UntF",[b"#Pxl".as_slice(),&12f64.to_be_bytes()].concat())]);let mut origin=1u32.to_be_bytes().to_vec();origin.extend(versioned(descriptor(vec![("keyOriginType","long",1u32.to_be_bytes().to_vec()),("keyOriginShapeBBox","Objc",bounds)])));block(&mut layer.extra,b"vogk",&origin);
     let imported=psd::read(&fixture(false,true,&[layer]),MAX_PIXELS,MAX_PIXELS).unwrap();let layer=&imported.document.layers[0];assert_eq!(layer.extra.shape.as_ref().unwrap()["kind"],"Rectangle");assert_eq!(layer.pixels.as_ref().unwrap().width,16);assert_eq!(layer.pixels.as_ref().unwrap().pixel(8,6),[255,0,0,255]);assert!(imported.conversions.is_empty());assert!(psd::read(&fixture(false,true,&[pixel("Other")]),0,MAX_PIXELS).is_err());}
+
+fn artboard_record(name:&'static str,rect:[f64;4],key:&[u8;4])->FixtureLayer {
+    let mut layer=pixel(name);layer.section=1;layer.no_pixels=true;
+    let fields=["Left","Top ","Rght","Btom"].into_iter().zip(rect).map(|(key,value)|(key,"doub",value.to_be_bytes().to_vec())).collect();
+    block(&mut layer.extra,key,&versioned(descriptor(vec![("artboardRect","Objc",descriptor(fields))])));layer
+}
+#[test]
+fn artboards_open_in_file_order_with_shifted_contents_and_no_outside_layers(){
+    let mut divider=pixel("Divider");divider.section=3;divider.no_pixels=true;
+    let mut child=pixel("Second content");child.bounds=Some([20,10,22,12]);
+    let mut folder=pixel("Nested");folder.section=1;folder.no_pixels=true;
+    for key in [b"artb",b"artd",b"abdd"] {
+        let bytes=fixture(false,true,&[pixel("Outside"),divider.clone(),pixel("First content"),artboard_record("Board A",[0.,0.,2.,2.],key),
+            divider.clone(),divider.clone(),child.clone(),folder.clone(),artboard_record("Board B",[10.,20.,15.,27.],key)]);
+        let imported=psd::read(&bytes,MAX_PIXELS,MAX_PIXELS).unwrap();let boards=imported.artboards().unwrap();
+        assert_eq!(boards.iter().map(|(name,_)|name.as_str()).collect::<Vec<_>>(),vec!["Board A","Board B"]);
+        let a=&boards[0].1;let b=&boards[1].1;assert_eq!((a.width,a.height),(2,2));assert_eq!((b.width,b.height),(5,7));
+        assert_eq!(a.layers.len(),1);assert_eq!(b.layers.len(),2);assert_eq!(b.layers[0].transform.origin,Point{x:0.,y:0.});
+        assert_eq!(b.layers[0].parent_id,Some(b.layers[1].id));assert!(b.layers[1].parent_id.is_none());
+        let mut engine=Engine::new();let old=engine.new_document(10,10,true).unwrap();let before=engine.state(old).unwrap();
+        let(projects,_,split)=engine.import_psd_projects(Some(old),&bytes,None).unwrap();assert!(split);assert_eq!(projects.len(),2);assert_eq!(engine.state(old).unwrap(),before);
+        for(id,_)in projects{let pkg=engine.save_package(id).unwrap();engine.open_package(&pkg,None).unwrap();assert!(engine.state(id).unwrap().is_modified);}
+        if std::env::var_os("WRITE_MAC157_PSD_FIXTURE").is_some()&&key==b"artb"{std::fs::write(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mac157/artboards.psd"),bytes).unwrap();}
+    }
+}

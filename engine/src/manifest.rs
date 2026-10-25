@@ -9,6 +9,8 @@ pub const MANIFEST_FORMAT: &str = "com.compositor.project";
 /// (`ProjectManifest.current`, ProjectStore.swift:15). Version 10 added text colour runs and 11 text
 /// font runs (ProjectStore.swift:209-213); every save writes 11, as the Mac's does.
 pub const CURRENT_VERSION: u32 = 11;
+// Deep PNG/EXR, shape styles, filter adjustment layers and GIF timelines through v17.
+pub const MAX_READ_VERSION: u32 = 17;
 pub const MAX_GUIDES: usize = 1_000;
 pub const MAX_SIDE: i64 = 30_000;
 pub const MAX_PIXELS: u64 = 100_000_000;
@@ -64,6 +66,7 @@ pub struct Guide {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayerRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub gif: Option<crate::animation::GifRecord>,
     #[serde(with = "ids::upper")] pub id: Uuid,
     pub name: String,
     #[serde(rename = "isVisible")] pub is_visible: bool,
@@ -150,12 +153,13 @@ mod adjustment_file {
 
 impl LayerRecord {
     pub fn new(id: Uuid, name: &str, transform: LayerTransform, image_file: Option<String>) -> Self {
-        LayerRecord { id, name: name.to_string(), is_visible: true, transform, image_file, parent_id: None,
+        LayerRecord { gif: None, id, name: name.to_string(), is_visible: true, transform, image_file, parent_id: None,
             is_group: None, opacity: None, blend_mode: None, mask_file: None, mask_enabled: None,
             mask_source_id: None, adjustment: None, mask_placement: None, mask_linked: None, shape: None,
             effects: None, text: None, unknown: Map::new() }
     }
     pub fn image_filename(id: &Uuid) -> String { format!("{}.png", ids::upper_string(id)) }
+    pub fn hdr_filename(id: &Uuid) -> String { format!("{}.exr", ids::upper_string(id)) }
     pub fn mask_filename(id: &Uuid) -> String { format!("{}.mask.png", ids::upper_string(id)) }
     pub fn is_group(&self) -> bool { self.is_group == Some(true) }
 }
@@ -191,7 +195,7 @@ impl Manifest {
         if json.len() > MAX_MANIFEST_BYTES { return Err(ProjectError::TooLarge); }
         let header: Header = serde_json::from_str(json).map_err(|_| ProjectError::Invalid)?;
         if header.format != MANIFEST_FORMAT { return Err(ProjectError::Invalid); }
-        if !(1..=CURRENT_VERSION).contains(&header.version) { return Err(ProjectError::Version(header.version)); }
+        if !(1..=MAX_READ_VERSION).contains(&header.version) { return Err(ProjectError::Version(header.version)); }
         let manifest: Manifest = serde_json::from_str(json).map_err(|_| ProjectError::Invalid)?;
         manifest.validate()?;
         Ok(manifest)
@@ -209,7 +213,7 @@ impl Manifest {
     pub fn validate(&self) -> Result<(), ProjectError> {
         use ProjectError::*;
         if self.format != MANIFEST_FORMAT { return Err(Invalid); }
-        if !(1..=CURRENT_VERSION).contains(&self.version) { return Err(Version(self.version)); }
+        if !(1..=MAX_READ_VERSION).contains(&self.version) { return Err(Version(self.version)); }
         if self.color_space != "sRGB" { return Err(Invalid); }
         if let Some(r) = self.resolution {
             if !r.is_finite() || !(1.0..=9600.0).contains(&r) { return Err(Invalid); }
@@ -218,8 +222,21 @@ impl Manifest {
             return Err(TooLarge);
         }
         for layer in &self.layers {
+            if let Some(gif) = &layer.gif {
+                if self.version < 17 || !gif.valid(&layer.id) || layer.is_group() || layer.adjustment.is_some()
+                    || layer.text.is_some() || layer.shape.is_some() || layer.image_file.as_deref() != Some(&LayerRecord::image_filename(&layer.id)) { return Err(Invalid); }
+            }
+            if let Some(shape)=&layer.shape {
+                if shape.get("smoothing").and_then(Value::as_bool)==Some(true) && self.version<14 {return Err(Invalid);}
+                if shape.get("lineStyle").is_some_and(|v|!v.is_null()) || shape.get("lineCap").is_some_and(|v|!v.is_null()) {
+                    if self.version<15 || shape.get("kind").and_then(Value::as_str)!=Some("Line") {return Err(Invalid);}
+                    if let Some(v)=shape.get("lineStyle").filter(|v|!v.is_null()) {if serde_json::from_value::<crate::ops::shape::ShapeLineStyle>(v.clone()).is_err(){return Err(Invalid);}}
+                    if let Some(v)=shape.get("lineCap").filter(|v|!v.is_null()) {if serde_json::from_value::<crate::ops::shape::ShapeLineCap>(v.clone()).is_err(){return Err(Invalid);}}
+                }
+            }
             if let Some(adjustment) = &layer.adjustment {
                 if self.version < 7 || layer.is_group() || layer.image_file.is_some() || !adjustment.is_valid() { return Err(Invalid); }
+                if (adjustment.kind.needs_version_16() || adjustment.filter_layer_settings.is_some()) && self.version<16 {return Err(Invalid);}
                 if adjustment.kind.needs_version_9() && self.version < 9 { return Err(Invalid); }
             }
             if let Some(mask) = &layer.mask_file {
@@ -254,7 +271,7 @@ impl Manifest {
                 return Err(Invalid);
             }
             if let Some(file) = &layer.image_file {
-                if *file != LayerRecord::image_filename(&layer.id) { return Err(Invalid); }
+                if *file != LayerRecord::image_filename(&layer.id) && !(self.version >= 13 && *file == LayerRecord::hdr_filename(&layer.id)) { return Err(Invalid); }
             }
         }
         if let Some(active) = self.active_layer_id {

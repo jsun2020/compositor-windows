@@ -108,6 +108,14 @@ pub fn pixels_on(grid: &EditGrid, pixels: Option<&Raster>) -> Vec<u8> {
     out
 }
 
+/// Reattach the untouched high precision base after an RGBA8 paint operation.
+pub(crate) fn painted_on(grid: &EditGrid, original: Option<&Raster>, painted: Raster) -> Raster {
+    match original.filter(|p|p.deep_pixels().is_some()) {
+        Some(p)=>p.padded(grid.width,grid.height,grid.x,grid.y).with_painted(&painted),
+        None=>painted,
+    }
+}
+
 /// Where a document point falls along a gradient, 0 to 1, with the division done once.
 enum Ramp { Solid, Linear { x: f64, y: f64, ux: f64, uy: f64 }, Radial { x: f64, y: f64, inverse: f64 } }
 
@@ -663,7 +671,7 @@ pub fn paint_layer(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: b
     let mut data = pixels_on(&grid, layer.pixels.as_ref());
     let coverage = ops::adjust::edit_coverage(doc, clips, &grid.transform, grid.width, grid.height)?;
     if !paint_grid(doc, &mut data, grid.width, grid.height, &grid.transform, coverage.as_ref(), paint, false) { return Ok(()); }
-    let painted = Raster::from_premultiplied(grid.width, grid.height, data);
+    let painted = painted_on(&grid, layer.pixels.as_ref(), Raster::from_premultiplied(grid.width, grid.height, data));
     // Trimmed to what is left; nothing left keeps the whole grid, as the Mac's `render` does.
     let crop = compositor::alpha_bounds(&painted).unwrap_or((0, 0, grid.width, grid.height));
     let (cw, ch) = (crop.2 - crop.0, crop.3 - crop.1);

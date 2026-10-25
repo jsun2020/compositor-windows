@@ -5,13 +5,14 @@ import type { Viewport } from "./viewport";
 import { GlRenderer } from "./gl-renderer";
 import { CpuRenderer } from "./cpu-renderer";
 
-export interface RenderOptions { checkerboard: boolean; }
+export interface RenderOptions { checkerboard: boolean; colorProof?:import("./color-proof").ColorProof; }
 /** What a renderer may use besides the engine: the job worker (for large styled layers' effects
  * images, effects-images.ts), a way to ask for another frame when one of its results lands, and a way
  * to say that making one failed (the error banner). */
 export interface RenderHooks { jobs: () => JobClient | null; landed: () => void; failed?: (message: string) => void; }
 export interface Renderer {
   readonly kind: "gl" | "cpu";
+  readonly compositionBackend?: "gpu" | "cpu-reference";
   /** Uploads whatever it needs and draws. There is no separate sync step: the GL renderer's
    * texture upload depends on the render plan and the zoom, so it happens inside `render`. */
   render(engine: EngineClient, state: DocumentState, viewport: Viewport, dpr: number, options: RenderOptions, edit: PreviewEdit | null): void;

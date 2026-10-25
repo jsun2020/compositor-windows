@@ -42,9 +42,9 @@ static double number(const wchar_t* text,double low,double high) {
 }
 int wmain(int argc,wchar_t** argv) {
   try {
-    if(argc!=3&&argc!=9)throw std::runtime_error("usage: --inspect input | --develop input output exposure temperature tint tone preview");
+    if(argc!=3&&argc!=9&&argc!=11)throw std::runtime_error("usage: --inspect input | --develop input output exposure temperature tint tone preview [noiseReduction highlightRecovery]");
     bool inspect=std::wstring(argv[1])==L"--inspect";
-    if((inspect&&argc!=3)||(!inspect&&(std::wstring(argv[1])!=L"--develop"||argc!=9)))throw std::runtime_error("Invalid operation");
+    if((inspect&&argc!=3)||(!inspect&&(std::wstring(argv[1])!=L"--develop"||(argc!=9&&argc!=11))))throw std::runtime_error("Invalid operation");
     WIN32_FILE_ATTRIBUTE_DATA attrs{};if(!GetFileAttributesExW(argv[2],GetFileExInfoStandard,&attrs)||attrs.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)throw std::runtime_error("RAW file is unreadable");
     if((uint64_t(attrs.nFileSizeHigh)<<32|attrs.nFileSizeLow)>512ull*1024*1024)throw std::runtime_error("RAW file exceeds 512 MiB");
     LibRaw raw;raw.imgdata.rawparams.max_raw_memory_mb=1536;check(raw.open_file(argv[2]));
@@ -55,6 +55,8 @@ int wmain(int argc,wchar_t** argv) {
     if(inspect){std::cout<<metadata.str();return 0;}
     double exposure=number(argv[4],-5,5),temperature=number(argv[5],2000,15000),tint=number(argv[6],-150,150),tone=number(argv[7],0,1);bool preview=number(argv[8],0,1)!=0;
     auto& p=raw.imgdata.params;p.output_color=1;p.output_bps=16;p.no_auto_bright=1;p.use_camera_wb=1;p.user_qual=3;
+    p.threshold=argc==11?float(number(argv[9],0,1)*1000.):0.f;
+    p.highlight=argc==11&&number(argv[10],0,1)!=0?3:0;
     p.half_size=preview&&std::max(s.width,s.height)>2048;p.bright=float(std::exp2(exposure));
     // Windows interpretation of tone strength, not Apple's proprietary boost curve.
     p.gamm[0]=1./(1.+1.4*tone);p.gamm[1]=tone>0?12.92:1.;
@@ -68,8 +70,18 @@ int wmain(int argc,wchar_t** argv) {
       HANDLE output=CreateFileW(argv[3],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
       if(output==INVALID_HANDLE_VALUE)throw std::runtime_error("Cannot create a new RAW output");
       auto write=[&](const void* bytes,DWORD size){DWORD written=0;if(!WriteFile(output,bytes,size,&written,nullptr)||written!=size)throw std::runtime_error("RAW output write failed");};
-      try {uint32_t header[4]={0x37574152,image->width,image->height,0};write(header,sizeof(header));std::vector<unsigned char> row(size_t(image->width)*4);
-        for(unsigned y=0;y<image->height;++y){for(unsigned x=0;x<image->width;++x){size_t src=(size_t(y)*image->width+x)*3;for(uint32_t c=0;c<3;++c){uint16_t wide;memcpy(&wide,image->data+(src+c)*2,sizeof(wide));row[x*4+c]=raw_quantize16(wide,x,y,c);}row[x*4+3]=255;}write(row.data(),DWORD(row.size()));}CloseHandle(output);
+      try {
+        // RAW8 carries full 16-bit RGBA. RAW7 is retained only for the small preview.
+        uint32_t header[4]={preview?0x37574152u:0x38574152u,image->width,image->height,preview?0u:16u};write(header,sizeof(header));
+        std::vector<unsigned char> row(size_t(image->width)*(preview?4:8));
+        for(unsigned y=0;y<image->height;++y){for(unsigned x=0;x<image->width;++x){
+          size_t src=(size_t(y)*image->width+x)*3;
+          for(uint32_t c=0;c<3;++c){uint16_t wide;memcpy(&wide,image->data+(src+c)*2,sizeof(wide));
+            if(preview)row[x*4+c]=raw_quantize16(wide,x,y,c);
+            else{row[x*8+c*2]=uint8_t(wide&255);row[x*8+c*2+1]=uint8_t(wide>>8);}
+          }
+          if(preview)row[x*4+3]=255;else{row[x*8+6]=255;row[x*8+7]=255;}
+        }write(row.data(),DWORD(row.size()));}CloseHandle(output);
       }catch(...){CloseHandle(output);throw;}
       std::cout<<metadata.str();LibRaw::dcraw_clear_mem(image);return 0;
     }catch(...){LibRaw::dcraw_clear_mem(image);throw;}

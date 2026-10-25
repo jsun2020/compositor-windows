@@ -61,3 +61,9 @@ double compositor_hypot(double x, double y);
 #define ceilf __builtin_ceilf
 
 #define expf(x) ((float)compositor_exp(x))
+
+#define log2 compositor_log2
+double compositor_log2(double x);
+
+#define lrintf compositor_lrintf
+long compositor_lrintf(float x);

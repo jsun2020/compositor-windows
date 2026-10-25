@@ -229,13 +229,16 @@ pub fn bake_clip(doc: &Document, target: Uuid) -> Option<Raster> {
     let cache = EffectsCache::default();
     let sources = crate::compositor::clip_source_rasters(doc, &plan, source, out_per_doc, &cache);
     let mut data = raster.bytes().to_vec();
+    let mut deep = raster.deep_pixels().map(|_|Vec::with_capacity(data.len()));
     for y in 0..raster.height { for x in 0..raster.width {
         let p = to_doc.apply(Point { x: x as f64 + 0.5, y: y as f64 + 0.5 });
         let k = source_coverage_at(doc, &plan, source, p, &sources).clamp(0.0, 1.0);
         let i = ((y * raster.width + x) * 4) as usize;
-        for c in 0..4 { data[i + c] = (data[i + c] as f32 * k).round() as u8; }
+        if let Some(values)=&mut deep {values.extend(raster.pixel_f32(x,y).map(|v|v*k));}
+        else {for c in 0..4 { data[i + c] = (data[i + c] as f32 * k).round() as u8; }}
     }}
-    Some(Raster::from_premultiplied(raster.width, raster.height, data))
+    Some(if let Some(values)=deep {Raster::from_premultiplied_f32(raster.width,raster.height,values,raster.depth())}
+        else {Raster::from_premultiplied(raster.width, raster.height, data)})
 }
 
 /// Deletes `ids` with their contents as one change. `bake` keeps dependants' masked look in their pixels; otherwise the links are removed.

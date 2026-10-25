@@ -1,10 +1,15 @@
-import {useEffect,useRef} from "react";
+import {useEffect,useRef,useState} from "react";
 import {useEditor} from "../state/store";
 import {cancelText,commitText,toggleTextPreview,updateText} from "../actions/text";
 import {colorText,fontText,replaceText,textColorAt,textFontAt} from "../tools/text-style";
 import {hexOf,parseHex} from "../tools/color";
 export function TextPanel(){
-  const edit=useEditor(s=>s.textEdit),ref=useRef<HTMLTextAreaElement>(null);
+  const edit=useEditor(s=>s.textEdit),bridge=useEditor(s=>s.bridge),ref=useRef<HTMLTextAreaElement>(null);
+  const [fonts,setFonts]=useState(["Arial","Arial Black","Calibri","Cambria","Consolas","Georgia","Segoe UI","Times New Roman","Verdana","Microsoft YaHei","SimSun"]);
+  const [fontQuery,setFontQuery]=useState("");
+  const activeFont=edit?textFontAt(edit.style,Math.min(edit.range.start,Math.max(0,edit.style.content.length-1))):"";
+  useEffect(()=>setFontQuery(activeFont),[activeFont]);
+  useEffect(()=>{let current=true;bridge?.listFonts?.().then(names=>{if(current&&names.length)setFonts(names);}).catch(()=>{});return()=>{current=false;};},[bridge]);
   useEffect(()=>{if(edit){ref.current?.focus();ref.current?.select();}},[edit?.document,edit?.layer]);
   useEffect(()=>{if(!edit)return;const key=(e:KeyboardEvent)=>{if(e.isComposing)return;if(e.key==="Escape"){e.preventDefault();cancelText();}else if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();commitText();}};window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key);},[!!edit]);
   if(!edit)return null;const{style,range}=edit,index=Math.min(range.start,Math.max(0,style.content.length-1)),rgb=textColorAt(style,index);
@@ -16,8 +21,8 @@ export function TextPanel(){
     <div className="adjust-body">
       <textarea ref={ref} aria-label="Text content" value={style.content} maxLength={100000} rows={5} onSelect={selected} onChange={e=>updateText(replaceText(style,e.target.value))}/>
       <div className="authoring-grid">
-        <label>Font<input aria-label="Font" list="text-fonts" value={textFontAt(style,index)} onChange={e=>{if(e.target.value)updateText(fontText(style,range,e.target.value));}}/></label>
-        <datalist id="text-fonts">{["Arial","Arial Black","Calibri","Cambria","Consolas","Georgia","Segoe UI","Times New Roman","Verdana","Microsoft YaHei","SimSun"].map(n=><option key={n} value={n}/>)}</datalist>
+        <label>Font<input aria-label="Font" list="text-fonts" value={fontQuery} onChange={e=>{setFontQuery(e.target.value);if(fonts.includes(e.target.value))updateText(fontText(style,range,e.target.value));}} onBlur={()=>{if(fontQuery.trim())updateText(fontText(style,range,fontQuery.trim()));}}/></label>
+        <datalist id="text-fonts">{fonts.filter(n=>n.toLocaleLowerCase().includes(fontQuery.toLocaleLowerCase())).map(n=><option key={n} value={n}/>)}</datalist>
         {number("Font size","fontSize",1,2000)}
         <label>Color<input aria-label="Text color" type="color" value={`#${hexOf({red:rgb[0],green:rgb[1],blue:rgb[2]})}`} onChange={e=>{const c=parseHex(e.target.value)!;updateText(colorText(style,range,[c.red,c.green,c.blue]));}}/></label>
         <label>Alignment<select aria-label="Text alignment" value={style.alignment} onChange={e=>set("alignment",e.target.value)}>{["Left","Center","Right"].map(v=><option key={v}>{v}</option>)}</select></label>

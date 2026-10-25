@@ -1,5 +1,6 @@
 use crate::*;
 use uuid::Uuid;
+mod deep;
 
 /// Bilinear or nearest sample in premultiplied float RGBA (0..1). Outside the raster clamps to the edge; coverage is decided by the caller.
 pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
@@ -7,11 +8,11 @@ pub fn sample(raster: &Raster, x: f64, y: f64, nearest: bool) -> [f32; 4] {
 }
 
 fn sample_with_phase(raster: &Raster, x: f64, y: f64, nearest: bool, quantized: bool) -> [f32; 4] {
+    let quantized=quantized && raster.deep_pixels().is_none();
     let w = raster.width as i64; let h = raster.height as i64;
     let fetch = |px: i64, py: i64| -> [f32; 4] {
         if px < 0 || py < 0 || px >= w || py >= h { return [0.0; 4]; }
-        let p = raster.pixel(px as u32, py as u32);
-        [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, p[3] as f32 / 255.0]
+        raster.pixel_f32(px as u32,py as u32)
     };
     if nearest {
         let px = x.floor() as i64; let py = y.floor() as i64;
@@ -77,7 +78,7 @@ pub fn prefilters(sampling: Sampling, distorted: bool) -> bool { sampling != Sam
 /// Sharp halvings for large reductions: reduce until one output pixel covers at most 2 source pixels.
 fn prefiltered(raster: &Raster, pixels_per_output: f64) -> (Raster, f64) {
     let level = prefilter_level(raster.width, raster.height, pixels_per_output);
-    (raster.reduced(level), 0.5f64.powi(level as i32))
+    (raster.reduced_deep(level), 0.5f64.powi(level as i32))
 }
 
 /// (x0, y0, x1, y1) of the pixels with alpha > 0, x1/y1 exclusive; None when fully transparent.
@@ -260,7 +261,7 @@ fn sample_placed(draw: &LayerDraw, source: &Raster, px: Point, p: Point, scale: 
         // Core Graphics materializes the covered premultiplied source as bytes
         // before source-over. Keeping fractional bytes until after blending
         // changes overlapping edges by a channel (Mac-created return oracle).
-        for v in &mut color { *v = (*v * coverage * 255.0).round() / 255.0; }
+        for v in &mut color { *v = if source.deep_pixels().is_some() {*v*coverage} else {(*v * coverage * 255.0).round() / 255.0}; }
     }
     color
 }
@@ -495,6 +496,7 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
     let blurred = match adjustment.kind {
         AdjustmentKind::GaussianBlur => blur_for_layer(input, b.sigma),
         AdjustmentKind::MotionBlur => streak_for_layer(input, b.angle, b.distance),
+        AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => adjustment.apply_spatial_filter(&input,target.region),
         _ => return,
     };
     let blurred = blurred.bytes();
@@ -601,6 +603,7 @@ pub fn composite_plan_with(doc: &Document, plan: &RenderPlan, region: Rect, out_
 }
 
 fn composite_region(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32, cache: &EffectsCache) -> Raster {
+    if doc.layers.iter().any(|l|l.pixels.as_ref().is_some_and(|p|p.depth()!=PixelDepth::Eight)) {return deep::composite(doc,plan,region,out_width,out_height,cache);}
     let mut data = vec![0u8; (out_width as usize) * (out_height as usize) * 4];
     {
         let mut target = Target { data: &mut data, w: out_width, h: out_height, region, enlargement_phases: true };

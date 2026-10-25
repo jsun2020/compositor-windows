@@ -43,7 +43,7 @@ impl PreparedAdjustment {
             AdjustmentKind::AddNoise => PreparedAdjustment::AddNoise { spread: a.noise_amount_percent() as f32 / 100.0 * 127.5,
                 gaussian: a.noise_is_gaussian(), monochromatic: a.noise_is_monochromatic(), seed: a.noise_seed_or_zero() },
             // Spatial: drawn by compositor::spatial_target, never one colour at a time.
-            AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur => PreparedAdjustment::Identity,
+            AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => PreparedAdjustment::Identity,
         }
     }
 

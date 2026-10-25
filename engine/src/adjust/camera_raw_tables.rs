@@ -113,7 +113,9 @@ pub fn lookup(
                 return result.clone();
             }
         }
-        let mut result = compose(&light_stages(s, source));
+        let stages = light_stages(s, source);
+        let stages = if s.shadows != 0. { &stages[before_shadows_count(s)..] } else { &stages[..] };
+        let mut result = compose(stages);
         if fold && s.curve_color() {
             result = Some(fold_color(s, result, tone, channels));
         }
@@ -178,7 +180,7 @@ pub fn light_stages(s: &CameraRawSettings, source: &Raster) -> Vec<Stage> {
     if s.temperature != 0. || s.tint != 0. {
         out.push(white_balance(s.temperature, s.tint));
     }
-    let b = if s.contrast != 0. || s.highlights != 0. || s.shadows != 0. {
+    let b = if s.contrast != 0. || s.highlights != 0. {
         brightness(source)
     } else {
         [128.; 3]
@@ -188,9 +190,6 @@ pub fn light_stages(s: &CameraRawSettings, source: &Raster) -> Vec<Stage> {
     }
     if s.highlights != 0. {
         out.push(adaptive(187, s.highlights, b[2]));
-    }
-    if s.shadows != 0. {
-        out.push(adaptive(236, s.shadows, b[1]));
     }
     for (start, v) in [
         (102, s.whites),
@@ -396,4 +395,15 @@ pub fn neutralize(rgb: [f64; 3]) -> Option<(f64, f64)> {
         }
     }
     Some((best.0, best.1))
+}
+
+fn before_shadows_count(s: &CameraRawSettings) -> usize {
+    let c = &s.calibration;
+    [c.red_hue, c.red_saturation, c.green_hue, c.green_saturation, c.blue_hue, c.blue_saturation]
+        .iter().filter(|v| **v != 0.).count()
+        + usize::from(s.exposure != 0.) + usize::from(s.temperature != 0. || s.tint != 0.)
+        + usize::from(s.contrast != 0.) + usize::from(s.highlights != 0.)
+}
+pub fn before_shadows(s: &CameraRawSettings, source: &Raster) -> Option<Vec<f32>> {
+    compose(&light_stages(s, source)[..before_shadows_count(s)])
 }

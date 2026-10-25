@@ -194,6 +194,10 @@ pub fn clear_selected(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask
     if layer.is_group { return Err(CommandError::Argument("folders have no pixels".into())); }
     let raster = layer.pixels.as_ref().ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
     let coverage = crate::ops::adjust::edit_coverage(doc, clips, &layer.transform, raster.width, raster.height)?.unwrap();
+    if raster.deep_pixels().is_some(){
+        let cleared=Raster::from_deep_fn(raster.width,raster.height,raster.depth(),|x,y|{let a=1.-coverage.bytes()[(y*raster.width+x)as usize]as f32/255.;raster.pixel_f32(x,y).map(|v|v*a)});
+        doc.layer_mut(id).unwrap().set_pixels(Some(cleared));return Ok(());
+    }
     let mut data = raster.bytes().to_vec();
     clear_covered_bytes(&mut data, coverage.bytes());
     let cleared = Raster::from_premultiplied(raster.width, raster.height, data);

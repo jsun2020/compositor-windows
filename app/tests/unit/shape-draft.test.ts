@@ -29,12 +29,12 @@ describe("the Shape tool's drag", () => {
     expect(shapeSpec(drag([20, 20], [50, 20.4]), 4)).toBeNull();
     // A line's box is its ends grown by its width: a click with a 4 px line is a 4 x 4 dot, as on the Mac.
     const dot = beginShape({ x: 20, y: 20 }, { ...DEFAULT_SHAPE, kind: "Line" });
-    expect(shapeSpec(dot, 4)).toEqual({ kind: "Line", start: [20, 20], end: [20, 20], width: 4 });
+    expect(shapeSpec(dot, 4)).toEqual({ kind: "Line", start: [20, 20], end: [20, 20], width: 4, lineStyle:"Solid", lineCap:"Square" });
     expect(shapeSpec(dot, 0.5)).toBeNull();
   });
   it("keeps a line's end where the pointer is, and Shift holds it to 45 degrees about the start", () => {
     const line = { ...DEFAULT_SHAPE, kind: "Line" as const };
-    expect(shapeSpec(drag([20.6, 120.4], [140.3, 121.2], line), 1)).toEqual({ kind: "Line", start: [21, 120], end: [140.3, 121.2], width: 1 });
+    expect(shapeSpec(drag([20.6, 120.4], [140.3, 121.2], line), 1)).toEqual({ kind: "Line", start: [21, 120], end: [140.3, 121.2], width: 1, lineStyle:"Solid", lineCap:"Square" });
     const d = drag([10, 10], [40, 12], line, true);
     expect(d.end!.y).toBeCloseTo(10, 12);
     expect(d.end!.x).toBeCloseTo(10 + Math.hypot(30, 2), 12);

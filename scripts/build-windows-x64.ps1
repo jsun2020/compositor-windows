@@ -60,6 +60,10 @@ try {
   Step 'Building pinned camera RAW decoder and including its license notices'
   & powershell -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-raw-helper.ps1') -OutputDirectory $stage
   if ($LASTEXITCODE -ne 0) { throw 'RAW helper build failed' }
+  Step 'Building bundled HEIF decoder with complete source and license notices'
+  & powershell -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\build-heif-helper.ps1') -OutputDirectory $stage
+  if ($LASTEXITCODE -ne 0) { throw 'HEIF helper build failed' }
+  Copy-Item (Join-Path $root 'src-tauri/native/moxcms-LICENSE.txt') (Join-Path $stage 'moxcms-LICENSE.txt')
   Copy-Item (Join-Path $root 'engine/native/LICENSE-Compositor.txt') (Join-Path $stage 'LICENSE-Compositor.txt')
   @(
     "Compositor for Windows $version ($marker)",

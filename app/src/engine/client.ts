@@ -45,6 +45,7 @@ export class EngineClient {
   wasmBytes(): number { return this.memory.buffer.byteLength; }
   newDocument(width: number, height: number, emptyLayer: boolean): string { return this.wasm.new_document(width, height, emptyLayer); }
   newCanvas(width: number, height: number, resolution: number, background: number | undefined): string { return this.wasm.new_canvas(width,height,resolution,background); }
+  importPhotoshopPackage(doc:string|null,data:import("../shell/native-cmyk").NativeCmyk,at:{x:number;y:number}|null):ReturnType<EngineClient["importPhotoshopProjects"]>{return JSON.parse(this.wasm.import_photoshop_package(doc??undefined,data.files.manifest,data.files.images.map(i=>i.name),data.files.images.map(i=>i.bytes),data.metadata,at?.x,at?.y));}
   openPackage(files: PackageFiles, path: string | null): string {
     return this.wasm.open_package(files.manifest, files.images.map((i) => i.name), files.images.map((i) => i.bytes), path ?? undefined);
   }
@@ -75,7 +76,13 @@ export class EngineClient {
     return this.wasm.import_image(doc ?? undefined, bytes, name, at?.x, at?.y);
   }
   exportPng(doc: string): Uint8Array { return this.wasm.export_png(doc); }
-  exportAs(doc:string,options:{width:number;height:number;format:"PNG"|"JPEG"|"PDF";quality:number;background:[number,number,number]|null},preview=0):Uint8Array{return this.wasm.export_as(doc,JSON.stringify(options),preview);}
+  exportAs(doc:string,options:{width:number;height:number;format:"PNG"|"JPEG"|"PDF"|"PNG16"|"EXR"|"TIFF"|"ChannelPack"|"GIF";quality:number;background:[number,number,number]|null;gifLoop?:boolean;channelSources?:({kind:"Black"|"White"}|{kind:"Layer";id:string})[]},preview=0):Uint8Array{return this.wasm.export_as(doc,JSON.stringify(options),preview);}
+  gifThumbnail(doc:string,layer:string,index:number):Uint8Array{return this.wasm.gif_thumbnail(doc,layer,index);}
+  copyLayersToProject(source:string,ids:string[],destination:string|null,at:{x:number;y:number}|null=null):{document:string;selected:string[]}{
+    return JSON.parse(this.wasm.copy_layers_to_project(source,JSON.stringify(ids),destination,at?.x,at?.y));
+  }
+  captureGifClipboard(doc:string,layer:string,token:string):boolean{return this.wasm.capture_gif_clipboard(doc,layer,token);}
+  pasteGifClipboard(doc:string,token:string):Dirty{return JSON.parse(this.wasm.paste_gif_clipboard(doc,token)) as Dirty;}
   exportJpeg(doc: string, quality: number, matte: [number, number, number]): Uint8Array { return this.wasm.export_jpeg(doc, quality, ...matte); }
   /** Composites and encodes the document scaled to fit `maxSide` (aspect preserved), for a
    * fast quality/matte preview image that does not need a full-resolution encode. */
@@ -181,8 +188,8 @@ export class EngineClient {
   jobInputAsync(doc:string,layer:string):JobInputCopy|Promise<JobInputCopy>{
     const started=performance.now();
     const input=this.wasm.prepare_job(doc,layer);let points:ArrayBuffer|null=null;
-    const h=JSON.parse(input) as {pixels:[number,number]|null;mask:[number,number]|null;selection:unknown};
-    const pixelSize=h.pixels?h.pixels[0]*h.pixels[1]*4:0,maskSize=h.mask?h.mask[0]*h.mask[1]:0;
+    const h=JSON.parse(input) as {pixels:[number,number]|null;mask:[number,number]|null;pixelDepth?:"Eight"|"Sixteen"|"Hdr";selection:unknown};
+    const pixelSize=h.pixels?h.pixels[0]*h.pixels[1]*(h.pixelDepth&&h.pixelDepth!=="Eight"?8:4):0,maskSize=h.mask?h.mask[0]*h.mask[1]:0;
     if(pixelSize+maskSize<=4*1024*1024){const result=this.takeJob(input);this.lastJobInputCpuMs=performance.now()-started;return result;}
     try{if(h.selection!=null){const len=this.wasm.job_points_len(),ptr=this.wasm.job_points_ptr();points=new Uint8Array(this.memory.buffer,ptr,len).slice().buffer;}}
     finally{this.wasm.release_job();}
@@ -195,20 +202,20 @@ export class EngineClient {
     const snapshot = this.takeJob(this.wasm.prepare_clipboard(doc, layer ?? undefined, mask, merged));
     const header = JSON.parse(snapshot.input) as { layers: { record: { id: string } }[] };
     const layers = header.layers.map(({ record }) => {
-      const pixels = this.layerPixels(doc, record.id)?.slice().buffer ?? null;
-      const mask = this.maskPixels(doc, record.id)?.slice().buffer ?? null;
+      const {pixels,mask} = this.takeJob(this.wasm.prepare_job(doc,record.id));
       return { pixels, mask };
     });
     return { input: snapshot.input, layers, points: snapshot.points };
   }
   async clipboardInputAsync(doc:string,layer:string|null,mask:boolean,merged:boolean):Promise<ReturnType<EngineClient["clipboardInput"]>>{
     const snapshot=this.takeJob(this.wasm.prepare_clipboard(doc,layer??undefined,mask,merged));
-    const header=JSON.parse(snapshot.input) as {layers:{record:{id:string};pixels:[number,number]|null;mask:[number,number]|null}[]};
+    const header=JSON.parse(snapshot.input) as {layers:{record:{id:string};pixels:[number,number]|null;mask:[number,number]|null;pixelDepth?:"Eight"|"Sixteen"|"Hdr"}[]};
     const layers:ReturnType<EngineClient["clipboardInput"]>["layers"]=[];
-    for(const l of header.layers)layers.push({pixels:await this.copyStored(doc,l.record.id,false,l.pixels?l.pixels[0]*l.pixels[1]*4:0),mask:await this.copyStored(doc,l.record.id,true,l.mask?l.mask[0]*l.mask[1]:0)});
+    for(const l of header.layers)layers.push({pixels:await this.copyStored(doc,l.record.id,false,l.pixels?l.pixels[0]*l.pixels[1]*(l.pixelDepth&&l.pixelDepth!=="Eight"?8:4):0),mask:await this.copyStored(doc,l.record.id,true,l.mask?l.mask[0]*l.mask[1]:0)});
     return{input:snapshot.input,layers,points:snapshot.points};
   }
-  pastePixels(doc: string, width: number, height: number, pixels: ArrayBuffer, origin: [number, number] | null, keepSelection = false): Dirty {
+  pastePixels(doc: string, width: number, height: number, pixels: ArrayBuffer, origin: [number, number] | null, keepSelection = false, depth: "Eight" | "Sixteen" | "Hdr" = "Eight"): Dirty {
+    if(depth!=="Eight") return JSON.parse(this.wasm.paste_deep_pixels(doc,width,height,new Uint8Array(pixels),JSON.stringify(depth),origin?.[0],origin?.[1],keepSelection)) as Dirty;
     return JSON.parse(this.wasm.paste_pixels(doc, width, height, new Uint8Array(pixels), origin?.[0], origin?.[1], keepSelection)) as Dirty;
   }
   pasteCopiedLayers(doc:string,snapshot:ReturnType<EngineClient["clipboardInput"]>):Dirty{
@@ -376,6 +383,12 @@ export class EngineClient {
   }
   cameraRawSampleColor(doc:string,layer:string,at:{x:number;y:number},prepared=true):[number,number,number]|null {
     const json=this.wasm.camera_raw_sample_color(doc,layer,at.x,at.y,prepared);return json?JSON.parse(json):null;
+  }
+  importPages(doc:string|null,decoded:import("../shell/native-images").NativeImages,at:{x:number;y:number}|null):string{
+    return this.wasm.import_pages(doc??undefined,JSON.stringify(decoded.images.map(p=>p.name)),decoded.images.map(p=>p.bytes),decoded.resolution,at?.x,at?.y);
+  }
+  importPhotoshopProjects(doc:string|null,bytes:Uint8Array,at:{x:number;y:number}|null):{projects:{id:string;name:string}[];conversions:{layerName:string;message:string}[];artboards:boolean}{
+    return JSON.parse(this.wasm.import_photoshop_projects(doc??undefined,bytes,at?.x,at?.y));
   }
   importPhotoshop(doc:string|null,bytes:Uint8Array,at:{x:number;y:number}|null):{id:string;conversions:{layerName:string;message:string}[]} {
     return JSON.parse(this.wasm.import_photoshop(doc??undefined,bytes,at?.x,at?.y));

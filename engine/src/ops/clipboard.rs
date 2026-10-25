@@ -21,6 +21,21 @@ pub fn region(doc: &Document) -> Result<Rect, CommandError> {
 pub fn copy(doc: &Document, id: Option<Uuid>, mask: bool, merged: bool) -> Result<CopiedPixels, CommandError> {
     let rect = region(doc)?;
     let (w, h) = (rect.width as u32, rect.height as u32);
+    if !mask && (if merged {doc.layers.iter().any(|l|l.pixels.as_ref().is_some_and(|p|p.deep_pixels().is_some()))} else {doc.layer(id.ok_or(CommandError::NoLayer)?).and_then(|l|l.pixels.as_ref()).is_some_and(|p|p.deep_pixels().is_some())}) {
+        let mut raster=if merged {compositor::composite(doc,rect,w,h)} else {
+            let mut layer=doc.layer(id.unwrap()).ok_or(CommandError::NoLayer)?.clone();
+            layer.opacity=1.;layer.visible=true;layer.parent_id=None;layer.blend_mode=BlendMode::Normal;
+            layer.mask=None;layer.mask_source_id=None;layer.extra.adjustment=None;layer.extra.effects=None;
+            let mut source=Document::new(doc.width,doc.height);source.layers.push(layer);
+            compositor::composite(&source,rect,w,h)
+        };
+        if let Some(s)=&doc.selection {
+            let clip=SelectionClip::new(s,doc.width,doc.height);let mut coverage=vec![0;w as usize*h as usize];
+            for y in 0..h {for x in 0..w {coverage[(y*w+x) as usize]=(clip.at(Point{x:rect.x+x as f64+0.5,y:rect.y+y as f64+0.5})*255.).round() as u8;}}
+            raster=adjust::apply::blend_by_coverage(&raster,&Raster::new_transparent(w,h),&GrayRaster::from_bytes(w,h,coverage));
+        }
+        return Ok(CopiedPixels{raster,origin:Point{x:rect.x,y:rect.y}});
+    }
     let mut bytes = if merged { compositor::composite(doc, rect, w, h).bytes().to_vec() } else {
         let layer = doc.layer(id.ok_or(CommandError::NoLayer)?).ok_or(CommandError::NoLayer)?;
         if mask {

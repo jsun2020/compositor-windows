@@ -7,6 +7,12 @@ A free, open-source Windows image editor ported from Compositor for macOS, built
 
 **The original v1 Windows port is complete in version 0.9.0.** It includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections. The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
 
+## Mac 1.5.7 update — Windows 0.11.0
+
+Windows 0.11.0 ports the Mac 1.4.10–1.5.7 changes: 16-bit/HDR layers and exports, CMYK proofing and print export, progressive blur, RGB Split, Lens Effects, GIF editing, Channel Pack, PDF pages, HEIF, PSD artboards, pressure controls and workspace improvements. Project saves use the lowest required format through v17.
+
+The [Windows acceptance report](pair-test-report.md) records all seven passing gates, including 361 functional, 29 CPU and 4 GPU cases and 41 real native dialogs. The [change comparison and validation status](docs/superpowers/research/mac-1.5.7-delta.md) records the fixed upstream source, measured differences and Windows validation. High-precision/new spatial-filter display currently uses the CPU reference compositor; several Core Image effects are approximations. HEIF uses bundled libheif/libde265 decoders (no Microsoft Store codec); CMYK requires a printer ICC profile. HEIF chroma reconstruction differs from Apple at subsampled color edges; HDR gain-map reconstruction is not implemented. CMYK TIFF import currently converts to 8-bit RGB; full 16-bit CMYK import is not implemented. See the [0.11.0 release notes](docs/releases/0.11.0.md) for compatibility and clean-build provenance.
+
 ## Mac 1.4.9 update — Windows 0.10.0
 
 Windows 0.10.0 delivers the Mac 1.4.9 increment described in [prd.md](prd.md): measured Camera Raw LUTs and revised detail algorithms, alpha-preserving inner effects, 16-bit RAW dithering, physical canvas units/backgrounds, quarter-turn canvas rotation, command search, Last Filter, fullscreen, Navigator, Export As with PDF, Scanlines and Ctrl+middle-button zoom. The project schema remains version 11. Camera Raw and translucent inner-effect rendering follow 1.4.9 and can differ from previous 1.4.5 output.
@@ -21,9 +27,9 @@ Local hardware/native acceptance was completed using the pre-release 0.9.0 versi
 
 ## Download
 
-Get the portable Windows x64 ZIP from [the 0.10.0 release](https://github.com/jsun2020/compositor-windows/releases/tag/v0.10.0), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
+Get the portable Windows x64 ZIP from [the latest published release](https://github.com/jsun2020/compositor-windows/releases/latest), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
 
-Keep `CompositorRaw.exe`, the three MSVC runtime DLLs and `LibRaw-notices` beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
+Keep `CompositorRaw.exe`, `CompositorHeif.exe`, all bundled DLLs, `LibRaw-notices`, `HEIF-notices` and license files beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
 
 ## Features
 
@@ -43,8 +49,8 @@ Keep `CompositorRaw.exe`, the three MSVC runtime DLLs and `LibRaw-notices` besid
 - **Liquify and Smudge:** press **R** and choose **Mode** in the tool options. Size, Hardness and Strength control each stroke; Escape cancels it and mouse-up commits one undo step. Large live previews use bounded copies.
 - **Painting and retouching:** Brush/Eraser size, hardness, opacity and smoothing,
   Shift straight lines, Blur, aligned Clone Stamp, three Spot Healing modes and
-  Content-Aware Fill with Preview, Cancel and Apply. Healing/fill compile the
-  original Mac 1.4.5 C kernels.
+  Content-Aware Fill with Preview, Cancel and Apply. Windows 0.11.0 uses the Mac 1.4.10
+  PatchMatch/healing kernels; the published 0.10.0 uses the earlier kernels.
 - **Text, shapes and effects:** point and fixed-box text, UTF-16 font/color runs,
   live shape redraw on resize, editable Stroke and Drop Shadow. Save/reopen,
   cancellation and undo preserve editable records. Other effects are rendered
@@ -78,14 +84,14 @@ and established undo/memory budgets.
 ## Camera Raw and Photoshop import
 
 - **Camera Raw filter:** Light, Color, parametric/point curves, Color Mixer, Point Color, Color Grading, Effects, Detail, Optics, Geometry and Calibration. Resets, group bypass, sampling and diagnostic previews preserve the original pixels until Apply. Apply records one undo step.
-- **PSD/PSB:** bounded RGB 8-bit raw/PackBits decoding, folders, visibility/opacity, supported blend modes and clipping, raster masks, supported adjustments, first-style editable text and supported live shapes. Text keeps its cached Photoshop raster until edited. Unsupported records are reported; ZIP compression, 16/32-bit and non-RGB documents are refused.
+- **PSD/PSB:** bounded 8-bit raw/PackBits decoding (RGB, plus CMYK in 0.11.0), folders, visibility/opacity, supported blend modes and clipping, raster masks, supported adjustments, first-style editable text and supported live shapes. Text keeps its cached Photoshop raster until edited. Unsupported records are reported; ZIP compression, 16/32-bit and unsupported color modes are refused. Windows 0.11.0 opens artboards as separate project tabs.
 - **Camera RAW:** pinned LibRaw 0.22.2 sensor development, As Shot reset, exposure, estimated temperature, tint, tone curve, bounded preview and cancellation. An embedded JPEG is never substituted for sensor processing. LibRaw and Apple CIRAWFilter can produce different colour and tone; supported cameras depend on the decoder.
 
 For modified projects, **Save and Close** saves first, **Don't Save and Close** discards changes, and **Cancel Close** keeps the project open. Cancelling the Save As picker also keeps it open. Closing the last tab clears the canvas and shows an empty dark workspace; use File > New to create another canvas.
 
 ## Interoperability and limits
 
-Reads `.comp` versions 1–11 and writes version 11, as Compositor for Mac 1.4.5 does. Supported unknown manifest fields and text runs survive a round trip. Mac regenerates its Quick Look preview after a Windows save.
+Published 0.10.0 reads `.comp` versions 1–11 and writes version 11. Windows 0.11.0 reads through v17 and saves the lowest version required by the document, including high-precision layers and GIF frame edits. Supported unknown manifest fields and text runs survive a round trip. Mac regenerates its Quick Look preview after a Windows save.
 
 - Layer images and masks are limited to 100 megapixels. History retains at most 256 MiB of distinct rasters; a whole 100 MP replacement cannot retain its previous raster for Undo.
 - Windows/Mac fonts and fallback can draw different glyphs.

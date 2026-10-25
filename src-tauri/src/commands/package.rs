@@ -12,8 +12,8 @@ const MAX_MANIFEST: u64 = 4 * 1024 * 1024;
 const MAX_ASSET: u64 = 512 * 1024 * 1024;
 
 pub fn valid_image_name(name: &str) -> bool {
-    let re = regex::Regex::new(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(\.mask)?\.png$").unwrap();
-    re.is_match(name)
+    let re = regex::Regex::new(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}((\.mask)?\.png|\.exr|\.gif|\.frame-([0-9]{1,4})\.png)$").unwrap();
+    re.captures(name).is_some_and(|captures| captures.get(3).is_none_or(|v| v.as_str().parse::<u32>().is_ok_and(|n| n < 8192)))
 }
 
 #[derive(Serialize)]
@@ -171,9 +171,12 @@ mod tests {
     }
 
     #[test]
-    fn image_names_are_uuid_pngs_only() {
+    fn image_names_are_bounded_project_assets_only() {
         assert!(valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.png"));
         assert!(valid_image_name("e621e1f8-c36c-495a-93fc-0c247a3e6e5f.mask.png"));
+        assert!(valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.gif"));
+        assert!(valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.frame-8191.png"));
+        assert!(!valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.frame-8192.png"));
         assert!(!valid_image_name("../../outside.png"));
         assert!(!valid_image_name("E621E1F8-C36C-495A-93FC-0C247A3E6E5F.jpg"));
         assert!(!valid_image_name("images/E621E1F8-C36C-495A-93FC-0C247A3E6E5F.png"));

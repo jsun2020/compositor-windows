@@ -1,0 +1,43 @@
+{
+  "scope": "Owned synthetic HEIF fixtures; not user photos",
+  "encoder": "macOS ImageIO via sips",
+  "reference": "Independent Apple ImageIO decoding to PNG; reference PNG metadata stripped",
+  "rgb8": "48x32 six solid RGB stripes",
+  "gradient10": "512x64 PNG16, pixel (x*128,y*1024,(x+y)*112), encoded to HEVC 4:4:4 10-bit",
+  "rotated": "rgb8 rotated 90 degrees using sips",
+  "files": [
+    {
+      "name": "alpha-reference.png",
+      "sha256": "0bcd1040af6bca0e35bf6cafe1622eae11acaafb70ed0ebba812a28db0c272d3"
+    },
+    {
+      "name": "alpha.heic",
+      "sha256": "1d1e2b0f841f5897cfa5c337e10b5eb99f095a8b63cf1a4f487197f5867a5715"
+    },
+    {
+      "name": "gradient10-reference.png",
+      "sha256": "44b693bb08f891361532cebf900989d3291642702488481b74f2c01148191687"
+    },
+    {
+      "name": "gradient10.heic",
+      "sha256": "de9633b5ed6f620d058cf1823ab7a1be2c733526a507fedd7d8262aa578d3a52"
+    },
+    {
+      "name": "rgb8-reference.png",
+      "sha256": "c59bc744dda46e800a4772eb389280b707bc006cff3b512208088c3e7a3eb242"
+    },
+    {
+      "name": "rgb8.heic",
+      "sha256": "f91e96476a931d4d4c4821358d634f7830df44926b58bd7e55ec04045ec6559f"
+    },
+    {
+      "name": "rotated-reference.png",
+      "sha256": "eeb0f9daca42ae0b77be67df9665f5fe01f04dbb14dbd26af6733d9357fdf928"
+    },
+    {
+      "name": "rotated.heic",
+      "sha256": "1d92aa1c1224f51bf66b1cd3e4ef4c631f26281c75d23cda9167eafa1721dbf7"
+    }
+  ],
+  "alpha": "48x32 solid (180,70,30) with alpha round(x*255/47), encoded with Apple ImageIO"
+}

@@ -81,6 +81,8 @@ mod tests {
 #[cfg(target_arch = "wasm32")]
 mod math {
     #[no_mangle]
+    extern "C" fn compositor_log2(x: f64) -> f64 { x.log2() }
+    #[no_mangle]
     extern "C" fn compositor_pow(x: f64, y: f64) -> f64 {
         x.powf(y)
     }

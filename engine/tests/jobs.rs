@@ -55,7 +55,7 @@ fn an_edit_made_by_a_job_and_put_back_equals_the_edit_made_in_place() {
     let commands = |layer: Uuid| vec![
         Command::ApplyAdjustment { id: layer, adjustment: levels() },
         // A blur spreads past the layer: its grid grows, and the covering mask with it.
-        Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 6.0 } },
+        Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { preserve_transparency:false, radius: 6.0 } },
         Command::InvertPixels { id: layer, mask: true },
     ];
     for i in 0..3 {

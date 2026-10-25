@@ -1,0 +1,5 @@
+import {it,expect} from "vitest";
+import {parseNativeCmyk} from "../../src/shell/native-cmyk";
+function fixture(){const header=new TextEncoder().encode(JSON.stringify({manifest:"{}",images:[{name:"a.png",length:3}],artboards:[],conversions:[],profile:{name:"Print",path:"print.icc"}})),out=new Uint8Array(header.length+11);out.set(new TextEncoder().encode("NCP1"));new DataView(out.buffer).setUint32(4,header.length,true);out.set(header,8);out.set([1,2,3],8+header.length);return out;}
+it("reads exact asset boundaries and preserves profile metadata",()=>{const p=parseNativeCmyk(fixture().buffer)!;expect([...p.files.images[0].bytes]).toEqual([1,2,3]);expect(p.profile.name).toBe("Print");expect(parseNativeCmyk(new ArrayBuffer(0))).toBeNull();});
+it("refuses truncated and trailing payloads",()=>{const bytes=fixture();expect(()=>parseNativeCmyk(bytes.slice(0,-1).buffer)).toThrow();const extra=new Uint8Array(bytes.length+1);extra.set(bytes);expect(()=>parseNativeCmyk(extra.buffer)).toThrow();});

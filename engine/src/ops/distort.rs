@@ -33,6 +33,10 @@ pub fn warp(raster: &Raster, transform: &LayerTransform, corners: &[Point; 4], _
     let mut placed = LayerTransform::axis_aligned(Point { x: min_x, y: min_y }, Size { width: w as f64, height: h as f64 });
     placed.sampling = transform.sampling;
     let map = inverse_map(transform, corners, min_x, min_y, h, raster.width, raster.height).ok_or(ProjectError::Invalid)?;
+    if raster.deep_pixels().is_some(){
+        let output=Raster::from_deep_fn(w,h,raster.depth(),|x,y|{let(sx,sy)=map.coordinate_in_extent(x,y,h,raster.height);crate::core_image::sample_deep(raster,sx,sy)});
+        return Ok((output,placed));
+    }
     let mut data = vec![0u8; (w * h * 4) as usize];
     for y in 0..h { for x in 0..w {
         let (sx, sy) = map.coordinate_in_extent(x, y, h, raster.height);

@@ -11,8 +11,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 thiserror = "2"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "bmp", "exr", "hdr", "gif"] }
 png = "0.17"
+half = "2.7.1"
+gif = "0.14"
+tiff = { version = "0.11", default-features = false }
 jpeg-encoder = "0.6"
 i_overlay = "9"
 

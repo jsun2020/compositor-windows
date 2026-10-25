@@ -1,3 +1,4 @@
+import {canDropProjectLayers,dropProjectLayers} from "../actions/project-copy";
 import { useRef, useState } from "react";
 import { useEditor } from "../state/store";
 import { closeProject } from "../actions/files";
@@ -65,7 +66,9 @@ export function ProjectTabs() {
 
   const contentWidth = press.current?.contentWidth ?? 0;
   return (
-    <div className="tabs" ref={strip}>
+    <div className="tabs" ref={strip}
+      onDragOver={e=>{if(canDropProjectLayers(e.dataTransfer,null)){e.preventDefault();e.dataTransfer.dropEffect="copy";}}}
+      onDrop={e=>{if(canDropProjectLayers(e.dataTransfer,null)){e.preventDefault();dropProjectLayers(e.dataTransfer,null);}}}>
       {s.order.map((id) => {
         const d = s.documents[id];
         const title = d.path ? s.bridge!.baseName(d.path) : s.untitledNames[id] ?? "Untitled";
@@ -75,6 +78,8 @@ export function ProjectTabs() {
         return (
           <div key={id} data-testid="project-tab" data-doc-id={id} className={"tab" + (id === s.activeId ? " active" : "") + (isDragged ? " dragging" : "")}
             style={reorder ? { transform: `translateX(${offset}px)`, transition: isDragged ? "none" : "transform 0.15s ease-out", zIndex: isDragged ? 1 : 0, position: "relative" } : undefined}
+            onDragOver={e=>{e.stopPropagation();if(canDropProjectLayers(e.dataTransfer,id)){e.preventDefault();e.dataTransfer.dropEffect="copy";}else{e.dataTransfer.dropEffect="none";}}}
+            onDrop={e=>{e.stopPropagation();if(canDropProjectLayers(e.dataTransfer,id)){e.preventDefault();dropProjectLayers(e.dataTransfer,id);}}}
             onClick={() => s.setActive(id)}
             onPointerDown={(e) => down(e, id)} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel}>
             <span>{title}{d.isModified ? MODIFIED_DOT : ""}</span>
@@ -82,6 +87,8 @@ export function ProjectTabs() {
           </div>
         );
       })}
+      <button className="new-project-tab" aria-label="New canvas" title="New canvas · Drop layers here for a new project"
+        disabled={s.panelOwnsDocument()} onClick={()=>s.openSheet({kind:"new"})}>+</button>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { projectVersion } from './release-metadata.mjs';
 
 export const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 export const PORTABLE_FILES = ['Compositor.exe','CompositorRaw.exe','LICENSE-Compositor.txt','README.txt','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll','LibRaw-notices/COPYRIGHT','LibRaw-notices/LICENSE.CDDL','LibRaw-notices/LICENSE.LGPL','LibRaw-notices/provenance.json'];
+PORTABLE_FILES.push('moxcms-LICENSE.txt','CompositorHeif.exe','heif.dll','libde265.dll',...['heif-decode.cpp','heif-sources.json','CMakeLists.txt','README.txt','build-heif-helper.ps1','libheif-1.23.6.tar.gz','libde265-1.1.3.tar.gz','libheif-COPYING.txt','libde265-COPYING.txt','provenance.json'].map(n=>'HEIF-notices/'+n));
 export function crc32(data) {
   let crc = 0xffffffff;
   for (const byte of data) {
@@ -27,7 +28,7 @@ export function inspectZip(buffer) {
   if (end < Math.max(0, buffer.length - 65557)) throw new Error('ZIP end record absent');
   assert.equal(buffer.readUInt32LE(end + 4), 0, 'Multi-volume ZIP refused');
   const count = buffer.readUInt16LE(end + 10), entries = [];
-  assert.equal(count, PORTABLE_FILES.length, 'Portable must include exactly the app, RAW helper, runtimes and notices');
+  assert.equal(count, PORTABLE_FILES.length, 'Portable must include exactly the app, RAW/HEIF decoders, runtimes and complete notices');
   assert.equal(buffer.readUInt16LE(end + 8), count);
   let at = buffer.readUInt32LE(end + 16);
   const centralEnd = at + buffer.readUInt32LE(end + 12);
@@ -57,6 +58,20 @@ export function inspectZip(buffer) {
   return entries;
 }
 
+export function validateHeifEntries(entries) {
+  const get=name=>{const entry=entries.find(e=>e.name===name);assert(entry,`Missing HEIF component: ${name}`);return entry.bytes;};
+  const spec=JSON.parse(fs.readFileSync('src-tauri/native/heif/heif-sources.json','utf8'));
+  const receipt=JSON.parse(get('HEIF-notices/provenance.json').toString('utf8').replace(/^\uFEFF/,''));
+  assert.equal(receipt.schema,1);assert.equal(receipt.outputBits,16);assert.equal(receipt.systemHevcRequired,false);assert.equal(receipt.decoder,'libde265');assert.equal(receipt.plugins,false);
+  assert.deepEqual(receipt.sources,spec);
+  assert.deepEqual(receipt.components.map(x=>x.name).sort(),['CompositorHeif.exe','heif.dll','libde265.dll'].sort());
+  for(const row of receipt.components)assert.equal(row.sha256.toLowerCase(),sha256(get(row.name)),row.name);
+  for(const [name,input] of Object.entries(spec))assert.equal(sha256(get('HEIF-notices/'+input.archive)),input.sha256,`${name} source archive`);
+  const sources={script:['build-heif-helper.ps1','scripts/build-heif-helper.ps1'],cpp:['heif-decode.cpp','src-tauri/native/heif/heif-decode.cpp'],cmake:['CMakeLists.txt','src-tauri/native/heif/CMakeLists.txt'],manifest:['heif-sources.json','src-tauri/native/heif/heif-sources.json'],readme:['README.txt','src-tauri/native/heif/README.txt']};
+  for(const [key,[name,source]] of Object.entries(sources)){const bytes=get('HEIF-notices/'+name);assert(bytes.equals(fs.readFileSync(source)),`HEIF rebuild source differs: ${name}`);assert.equal(receipt.inputs[key],sha256(bytes));}
+  for(const name of ['libheif','libde265']){const text=get(`HEIF-notices/${name}-COPYING.txt`).toString('utf8');assert(text.includes('GNU LESSER GENERAL PUBLIC LICENSE'));assert(text.includes('GNU GENERAL PUBLIC LICENSE'));}
+}
+
 function checkReceipt(directory) {
   const receiptBytes = fs.readFileSync(path.join(directory, 'release-manifest.json'));
   const receipt = JSON.parse(receiptBytes);
@@ -84,17 +99,19 @@ function prepare(zipPath, output) {
   const zip = fs.readFileSync(zipPath), entries = inspectZip(zip);
   const stage = zipPath.slice(0, -4);
   for (const entry of entries) assert(entry.bytes.equals(fs.readFileSync(path.join(stage, entry.name))), 'Archive/stage bytes differ');
-  for (const name of ['Compositor.exe','CompositorRaw.exe','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll']) assert.equal(entries.find(e=>e.name===name).bytes.toString('ascii',0,2),'MZ',`Invalid native component: ${name}`);
+  for (const name of ['Compositor.exe','CompositorRaw.exe','CompositorHeif.exe','heif.dll','libde265.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll']) assert.equal(entries.find(e=>e.name===name).bytes.toString('ascii',0,2),'MZ',`Invalid native component: ${name}`);
   const raw = JSON.parse(entries.find(e=>e.name==='LibRaw-notices/provenance.json').bytes.toString('utf8').replace(/^\uFEFF/,''));
   assert.equal(raw.version,'0.22.2');assert.equal(raw.license,'CDDL-1.0');
   assert.equal(raw.sourceSHA256,'AC64FA12BB00A7581332D4C6AB918C0533FB3F119D6B668D47A6875410DCA948');
   assert.equal(raw.helperSHA256.toLowerCase(),sha256(entries.find(e=>e.name==='CompositorRaw.exe').bytes));
   assert.equal(raw.helperSourceSHA256.toLowerCase(),sha256(fs.readFileSync('src-tauri/native/raw-develop.cpp')),'RAW helper source provenance differs');
   assert.equal(raw.quantizerSourceSHA256.toLowerCase(),sha256(fs.readFileSync('src-tauri/native/RawQuantize.h')),'RAW quantizer source provenance differs');
-  assert.equal(raw.developBits,16);assert.equal(raw.outputBits,8);assert.equal(raw.quantization,'Compositor-v1.4.9-triangular-dither');
+  assert.equal(raw.developBits,16);assert.equal(raw.outputBits,16);assert.equal(raw.previewBits,8);assert.equal(raw.previewQuantization,'Compositor-v1.4.9-triangular-dither');
   assert.deepEqual(raw.msvcRuntime.map(e=>e.name).sort(),['msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll'].sort());
   for(const dll of raw.msvcRuntime)assert.equal(dll.sha256.toLowerCase(),sha256(entries.find(e=>e.name===dll.name).bytes));
+  validateHeifEntries(entries);
   assert(entries.find(e => e.name === 'README.txt').bytes.toString('utf8').includes(`Compositor for Windows ${version} (${marker})`));
+  assert(entries.find(e => e.name === 'moxcms-LICENSE.txt').bytes.equals(fs.readFileSync('src-tauri/native/moxcms-LICENSE.txt')));
   assert(entries.find(e => e.name === 'LICENSE-Compositor.txt').bytes.equals(fs.readFileSync('engine/native/LICENSE-Compositor.txt')));
   const sourceCommit = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const sourceStatus=execFileSync('git',['status','--porcelain','--untracked-files=no'],{encoding:'utf8'}).trim();

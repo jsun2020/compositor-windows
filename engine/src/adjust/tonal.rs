@@ -55,6 +55,7 @@ pub fn apply_gradient_map(raster: &Raster, table: &[u8]) -> Raster {
 
 /// Premultiplied invert: each colour becomes alpha minus colour, so transparency is kept.
 pub fn invert_raster(raster: &Raster) -> Raster {
+    if raster.deep_pixels().is_some() {return raster.map_deep::<std::convert::Infallible>(false,|r|Ok(invert_raster(r))).unwrap();}
     let mut data = raster.bytes().to_vec();
     for p in data.chunks_exact_mut(4) { let a = p[3]; for c in 0..3 { p[c] = a.saturating_sub(p[c]); } }
     Raster::from_premultiplied(raster.width, raster.height, data)

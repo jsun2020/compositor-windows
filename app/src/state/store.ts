@@ -27,7 +27,7 @@ export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
-  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" } | { kind: "searchCommands" } | { kind: "exportAs" };
+  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" } | { kind: "searchCommands" } | { kind: "exportAs" } | {kind:"colorProof"} | {kind:"keyboardShortcuts"};
 
 /** The selection tools' settings, kept per app session as the Mac keeps them per session
  * (EditorSession.swift:232-285): the options bar's mode, Anti-alias, the Marquee's and the Lasso's
@@ -375,6 +375,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
       const [lo,hi]=key==="diameter"?[1,2000]:key==="opacity"||key==="strength"?[0.01,1]:key==="hardness"?[0,1]:key==="blurRadius"?[0.5,50]:[0,100];
       next[key]=Math.min(hi,Math.max(lo,v));
     }
+    if(typeof patch.pressureSize==="boolean")next.pressureSize=patch.pressureSize;
+    if(typeof patch.pressureOpacity==="boolean")next.pressureOpacity=patch.pressureOpacity;
     if(typeof patch.aligned==="boolean")next.aligned=patch.aligned;
     if(typeof patch.allLayers==="boolean")next.allLayers=patch.allLayers;
     if(patch.smearMode&&["Blur","Liquify","Smudge"].includes(patch.smearMode))next.smearMode=patch.smearMode;
@@ -660,10 +662,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (!target) return;
     const state = get().engine!.state(target);
     const previous = get().documents[target], viewport = get().viewports[target];
-    // Fit follows the document's dimensions through both edits and history.
-    // A manually zoomed or panned viewport retains the user's chosen view.
-    if (viewport?.followsFit && previous &&
-        (previous.width !== state.width || previous.height !== state.height)) viewport.fit(state);
+    // Mac 1.5.5/6: changing canvas/image dimensions shows that change at the existing zoom.
+    if (viewport && previous && (previous.width !== state.width || previous.height !== state.height)) viewport.recenter();
     // `selectedLayerIds` and `maskSelected` belong to the document on screen. A background
     // document finishing a slow import must not rewrite them, or the visible panel loses its
     // selection and Delete/opacity become silent no-ops on ids the active document never had.
@@ -989,6 +989,14 @@ export const useEditor = create<EditorStore>((set, get) => ({
       // the job worker once the panel is open, which it opens without waiting for.
       histogram: kind === "Levels" || kind === "Curves" ? (!editing && get().usesJob(layer.id) ? null : engine.histogram(activeId, layer.id)) : null,
     };
+    if(edit.params?.filter==="ProgressiveBlur") {
+      const t=layer.transform, [x,y]=t.origin, [w,h]=t.size;
+      edit.params.settings.start=[x+w/2,y+h*.35];edit.params.settings.end=[x+w/2,y+h];
+    }
+    if(edit.params?.filter==="RgbSplit") {
+      const t=layer.transform, [x,y]=t.origin, [w,h]=t.size;
+      edit.params.settings.center=[x+w/2,y+h/2];edit.params.settings.reach=Math.max(1,Math.hypot(w,h)/2);
+    }
     // The crop tool's rectangle goes, as macOS's beginFilter calls cancelCrop first: a pending
     // crop would otherwise answer the same Enter and Escape as the panel.
     set({ adjustEdit: edit, cropRect: null });

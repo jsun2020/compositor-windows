@@ -127,7 +127,7 @@ fn a_blur_preview_grows_the_layer_and_previews_from_a_reduced_copy() {
     let before_state = e.state(doc).unwrap();
     let before = before_state.layers[0].transform;
     let before_pixels_width = before_state.layers[0].pixels_width;
-    let requested = FilterParams::GaussianBlur { radius: 6.0 };
+    let requested = FilterParams::GaussianBlur { preserve_transparency:false, radius: 6.0 };
     e.set_preview(doc, Some(PreviewRequest::Filter { layer, params: requested.clone() })).unwrap();
     let state = e.state(doc).unwrap();
     let l = &state.layers[0];

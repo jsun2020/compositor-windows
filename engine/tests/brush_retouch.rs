@@ -2,7 +2,7 @@ use compositor_engine::*;
 use uuid::Uuid;
 fn p(x:f64,y:f64)->Point{Point{x,y}}
 fn setup()->(Engine,Uuid,Uuid){let mut e=Engine::new();let doc=e.new_document(80,64,true).unwrap();let id=e.document(doc).unwrap().active_layer_id.unwrap();(e,doc,id)}
-fn stroke(points:Vec<Point>)->BrushSpec{BrushSpec{diameter:12.0,hardness:1.0,opacity:0.5,points,color:[1.0,0.0,0.0,1.0],erasing:false,operation:BrushOperation::Paint}}
+fn stroke(points:Vec<Point>)->BrushSpec{BrushSpec{ pressures:vec![],pressure_size:false,pressure_opacity:false,diameter:12.0,hardness:1.0,opacity:0.5,points,color:[1.0,0.0,0.0,1.0],erasing:false,operation:BrushOperation::Paint}}
 fn paint(e:&mut Engine,doc:Uuid,id:Uuid,mask:bool,s:BrushSpec){e.execute(doc,Command::BrushStroke{id,mask,brush:s}).unwrap();}
 fn image(e:&Engine,doc:Uuid)->Raster{e.composite(doc,Rect{x:0.0,y:0.0,width:80.0,height:64.0},80,64).unwrap()}
 fn select(e:&mut Engine,doc:Uuid,x:f64,y:f64,w:f64,h:f64){e.execute(doc,Command::SelectShape{kind:SelectionShape::Rectangle,points:vec![p(x,y),p(x+w,y),p(x+w,y+h),p(x,y+h)],mode:SelectionMode::Replace,antialiased:false}).unwrap();}
@@ -54,4 +54,23 @@ fn content_fill_grows_only_over_selected_edges_and_is_one_undo(){
     let mut d=Document::new(80,64);let l=Layer::with_pixels("Source",Raster::from_straight(32,32,&[60,120,180,255].repeat(32*32)),p(10.0,10.0));let id=l.id;d.layers.push(l);d.active_layer_id=Some(id);let mut e=Engine::new();let doc=e.insert_document(d);
     select(&mut e,doc,40.0,20.0,5.0,8.0);let before=e.document(doc).unwrap().clone();let depth=e.state(doc).unwrap().undo_depth;e.execute(doc,Command::ContentAwareFill{id}).unwrap();
     let l=e.document(doc).unwrap().layer(id).unwrap();assert_eq!(l.pixels.as_ref().unwrap().width,35);assert_eq!(l.pixels.as_ref().unwrap().height,32);assert_eq!(image(&e,doc).pixel(44,24),[60,120,180,255]);assert_eq!(e.state(doc).unwrap().undo_depth,depth+1);e.undo(doc).unwrap();assert_eq!(e.document(doc).unwrap().manifest(),before.manifest());assert_eq!(e.document(doc).unwrap().layer(id).unwrap().pixels,before.layer(id).unwrap().pixels);
+}
+
+#[test]
+fn pen_pressure_controls_size_and_opacity_independently() {
+    let(mut e,doc,id)=setup();let mut s=stroke(vec![p(30.,30.)]);s.opacity=1.;s.pressures=vec![0.25];
+    s.pressure_size=true;s.pressure_opacity=true;paint(&mut e,doc,id,false,s.clone());
+    let r=image(&e,doc);assert_eq!(r.pixel(30,30)[3],64);assert_eq!(r.pixel(33,30)[3],0);
+    e.undo(doc).unwrap();s.pressure_size=false;paint(&mut e,doc,id,false,s.clone());
+    let r=image(&e,doc);assert_eq!(r.pixel(33,30)[3],64);
+    e.undo(doc).unwrap();s.pressure_opacity=false;paint(&mut e,doc,id,false,s);
+    assert_eq!(image(&e,doc).pixel(33,30)[3],255);
+}
+#[test]
+fn pen_samples_interpolate_and_invalid_arrays_are_rejected_without_history() {
+    let(mut e,doc,id)=setup();let mut s=stroke(vec![p(12.,30.),p(60.,30.)]);s.opacity=1.;s.pressures=vec![0.1,0.8];s.pressure_opacity=true;
+    paint(&mut e,doc,id,false,s.clone());let r=image(&e,doc);
+    assert!(r.pixel(16,30)[3]<r.pixel(35,30)[3]);assert!(r.pixel(35,30)[3]<r.pixel(57,30)[3]);assert!(r.pixel(57,30)[3]<=204);
+    let depth=e.state(doc).unwrap().undo_depth;s.pressures.pop();
+    assert!(e.execute(doc,Command::BrushStroke{id,mask:false,brush:s}).is_err());assert_eq!(e.state(doc).unwrap().undo_depth,depth);
 }

@@ -27,11 +27,14 @@ test("Rotate Canvas menu swaps dimensions and remains a single reversible placem
   const view=()=>page.evaluate(()=>{const s=(window as any).__compositor.store.getState(),v=s.viewports[s.activeId];return {zoom:v.zoom,pan:{...v.pan},followsFit:v.followsFit};});
   const initial=await view();expect(initial.followsFit).toBe(true);
   await clickMenu(page,"Image","rotate-cw");expect(await state(page)).toMatchObject({width:10,height:20,undoDepth:1});
-  const rotated=await view();expect(rotated.zoom).not.toBe(initial.zoom);
+  // 1.5.7 dimension changes keep zoom and recenter, ending automatic fit.
+  const rotated=await view();expect(initial.zoom).toBe(1);expect(rotated).toEqual({zoom:1,pan:{width:0,height:0},followsFit:false});
   await page.keyboard.press("Control+z");expect(await state(page)).toMatchObject({width:20,height:10,undoDepth:0});
-  await expect.poll(view).toEqual(initial);await page.keyboard.press("Control+Shift+z");await expect.poll(view).toEqual(rotated);
+  await expect.poll(view).toEqual(rotated);await page.keyboard.press("Control+Shift+z");await expect.poll(view).toEqual(rotated);
   await page.evaluate(()=>{const s=(window as any).__compositor.store.getState(),v=s.viewports[s.activeId];v.setZoom(2,v.center,s.documents[s.activeId]);v.translate({width:12,height:9});s.invalidate();});
-  const manual=await view();await clickMenu(page,"Image","rotate-ccw");await expect.poll(view).toEqual(manual);await page.keyboard.press("Control+z");await expect.poll(view).toEqual(manual);
+  expect(await view()).toMatchObject({zoom:2,pan:{width:12,height:9},followsFit:false});
+  const recentered={zoom:2,pan:{width:0,height:0},followsFit:false};
+  await clickMenu(page,"Image","rotate-ccw");await expect.poll(view).toEqual(recentered);await page.keyboard.press("Control+z");await expect.poll(view).toEqual(recentered);
 });
 
 test("command search exposes disabled commands and selects a tool mode with the keyboard",async({page})=>{

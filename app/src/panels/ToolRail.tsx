@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useEditor, type Tool } from "../state/store";
 import { ToolIcon, toolIconName } from "./tool-icons";
 import { PaletteSwatches } from "./PaletteSwatches";
@@ -12,10 +13,16 @@ export const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: "hand", label: "Hand", key: "H" }, { id: "zoom", label: "Zoom", key: "Z" },
 ];
 export function ToolRail() {
+  const rail=useRef<HTMLDivElement>(null);
+  const [columns,setColumns]=useState(1);
+  useEffect(()=>{ const el=rail.current; if(!el)return; const observer=new ResizeObserver(entries=>{
+    const height=entries[0]?.contentRect.height ?? el.clientHeight;
+    setColumns(height < TOOLS.length*40+64 ? 2 : 1);
+  }); observer.observe(el); return ()=>observer.disconnect(); },[]);
   const tool = useEditor((s) => s.tool); const setTool = useEditor((s) => s.setTool);
   const marquee = useEditor((s) => s.selectionOptions.marquee); const lasso = useEditor((s) => s.selectionOptions.lasso);
   return (
-    <div className="tool-rail">
+    <div className={"tool-rail"+(columns===2?" two-columns":"")} ref={rail}><div className="tool-buttons">
       {TOOLS.map((t) => (
         // Blur immediately: a tool button that keeps keyboard focus after a mouse click
         // would make isEditableTarget treat every subsequent key (including the tool's
@@ -26,7 +33,7 @@ export function ToolRail() {
           <ToolIcon name={toolIconName(t.id, marquee, lasso)} />
         </button>
       ))}
-      <PaletteSwatches />
+      </div><PaletteSwatches />
     </div>
   );
 }

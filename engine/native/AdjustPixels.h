@@ -117,4 +117,6 @@ void adjust_camera_raw_calibration(uint8_t *rgba, size_t width, size_t height, s
                                    double shadowTint, double redHue, double redSaturation,
                                    double greenHue, double greenSaturation, double blueHue, double blueSaturation,
                                    int processVersion);
+void adjust_camera_raw_shadows(uint8_t *rgba, size_t width, size_t height, size_t stride, const float *coefficients, int xCount, float xLow, float xStep, int kCount, float kLow, float kStep);
+
 #endif

@@ -32,11 +32,16 @@ fn main() {
     let id = engine.insert_document(doc);
     for format in [ExportFormat::PNG, ExportFormat::JPEG, ExportFormat::PDF] {
         let ext = match format {
+            ExportFormat::GIF => "gif",
+            ExportFormat::ChannelPack => "png",
             ExportFormat::PNG => "png",
             ExportFormat::JPEG => "jpg",
             ExportFormat::PDF => "pdf",
+            ExportFormat::PNG16 => "png",
+            ExportFormat::EXR => "exr",
+            ExportFormat::TIFF => "tif",
         };
-        let options = ExportOptions {
+        let options = ExportOptions {gif_loop:None,channel_sources:None,
             width: 24,
             height: 16,
             format,
@@ -49,7 +54,7 @@ fn main() {
         )
         .unwrap();
     }
-    let options = ExportOptions {
+    let options = ExportOptions {gif_loop:None,channel_sources:None,
         width: 24,
         height: 16,
         format: ExportFormat::PDF,
@@ -63,7 +68,7 @@ fn main() {
     .unwrap();
     engine.close_document(id);
     let id = engine.new_canvas(10000, 10000, 300., None).unwrap();
-    let options = ExportOptions {
+    let options = ExportOptions {gif_loop:None,channel_sources:None,
         width: 10000,
         height: 10000,
         format: ExportFormat::PDF,

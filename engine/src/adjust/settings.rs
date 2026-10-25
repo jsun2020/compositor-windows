@@ -45,20 +45,25 @@ pub enum AdjustmentKind {
     #[serde(rename = "Add Noise")] AddNoise,
     #[serde(rename = "Gaussian Blur")] GaussianBlur,
     #[serde(rename = "Motion Blur")] MotionBlur,
+    #[serde(rename = "Progressive Blur")] ProgressiveBlur,
+    #[serde(rename = "Bloom / Glow")] BloomGlow,
+    #[serde(rename = "RGB Split")] RgbSplit,
     #[serde(rename = "Invert")] Invert,
     #[serde(rename = "Black & White")] BlackWhite,
     #[serde(rename = "Color Balance")] ColorBalance,
 }
 impl AdjustmentKind {
+    pub fn needs_version_16(self)->bool {matches!(self,Self::ProgressiveBlur|Self::BloomGlow|Self::RgbSplit)}
     /// Gaussian Blur, Motion Blur and Add Noise adjustment layers need format v9 (ProjectStore.swift:199-204).
     pub fn needs_version_9(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::AddNoise) }
     /// Whether the kind opens an editor. Invert has nothing to set (`isEditable`, LayerAdjustment.swift:28).
     pub fn is_editable(self) -> bool { self != AdjustmentKind::Invert }
     /// The kinds that read neighbouring pixels: they blur what lies beneath them as a whole
     /// (compositor::spatial_target) rather than mapping one colour at a time.
-    pub fn is_spatial(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur) }
+    pub fn is_spatial(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | Self::ProgressiveBlur | Self::BloomGlow | Self::RgbSplit) }
     pub fn name(self) -> &'static str {
         match self {
+            Self::ProgressiveBlur => "Progressive Blur", Self::BloomGlow => "Bloom / Glow", Self::RgbSplit => "RGB Split",
             AdjustmentKind::Hsv => "Hue/Saturation", AdjustmentKind::Levels => "Levels", AdjustmentKind::Curves => "Curves", AdjustmentKind::Exposure => "Exposure", AdjustmentKind::GradientMap => "Gradient Map", AdjustmentKind::Grain => "Grain",
             AdjustmentKind::AddNoise => "Add Noise", AdjustmentKind::GaussianBlur => "Gaussian Blur", AdjustmentKind::MotionBlur => "Motion Blur", AdjustmentKind::Invert => "Invert", AdjustmentKind::BlackWhite => "Black & White", AdjustmentKind::ColorBalance => "Color Balance",
         }
@@ -66,6 +71,7 @@ impl AdjustmentKind {
     /// Undo names, static so `Command::action_name` can stay `&'static str`.
     pub fn new_action_name(self) -> &'static str {
         match self {
+            Self::ProgressiveBlur => "New Progressive Blur Adjustment", Self::BloomGlow => "New Bloom / Glow Adjustment", Self::RgbSplit => "New RGB Split Adjustment",
             AdjustmentKind::Hsv => "New Hue/Saturation Adjustment", AdjustmentKind::Levels => "New Levels Adjustment", AdjustmentKind::Curves => "New Curves Adjustment",
             AdjustmentKind::Exposure => "New Exposure Adjustment", AdjustmentKind::GradientMap => "New Gradient Map Adjustment", AdjustmentKind::Grain => "New Grain Adjustment",
             AdjustmentKind::AddNoise => "New Add Noise Adjustment", AdjustmentKind::GaussianBlur => "New Gaussian Blur Adjustment", AdjustmentKind::MotionBlur => "New Motion Blur Adjustment",
@@ -74,6 +80,7 @@ impl AdjustmentKind {
     }
     pub fn edit_action_name(self) -> &'static str {
         match self {
+            Self::ProgressiveBlur => "Edit Progressive Blur Adjustment", Self::BloomGlow => "Edit Bloom / Glow Adjustment", Self::RgbSplit => "Edit RGB Split Adjustment",
             AdjustmentKind::Hsv => "Edit Hue/Saturation Adjustment", AdjustmentKind::Levels => "Edit Levels Adjustment", AdjustmentKind::Curves => "Edit Curves Adjustment",
             AdjustmentKind::Exposure => "Edit Exposure Adjustment", AdjustmentKind::GradientMap => "Edit Gradient Map Adjustment", AdjustmentKind::Grain => "Edit Grain Adjustment",
             AdjustmentKind::AddNoise => "Edit Add Noise Adjustment", AdjustmentKind::GaussianBlur => "Edit Gaussian Blur Adjustment", AdjustmentKind::MotionBlur => "Edit Motion Blur Adjustment",
@@ -401,6 +408,7 @@ impl ColorBalanceSettings {
 /// files written before those settings existed decode and re-encode byte for byte.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayerAdjustment {
+    #[serde(rename="filterLayerSettings",default,skip_serializing_if="Option::is_none")] pub filter_layer_settings: Option<super::filter_layer::FilterLayerSettings>,
     pub kind: AdjustmentKind,
     #[serde(default, with = "mac_number")] pub hue: f64,
     #[serde(default, with = "mac_number")] pub saturation: f64,
@@ -424,7 +432,7 @@ pub struct LayerAdjustment {
 }
 impl LayerAdjustment {
     pub fn new(kind: AdjustmentKind) -> Self {
-        LayerAdjustment { kind, hue: 0.0, saturation: 0.0, lightness: 0.0, colorize: false, hsv_settings: None, levels: LevelsSettings::default(),
+        LayerAdjustment { kind, filter_layer_settings:None, hue: 0.0, saturation: 0.0, lightness: 0.0, colorize: false, hsv_settings: None, levels: LevelsSettings::default(),
             curves: CurvesSettings::default(), exposure_settings: None, gradient_map_settings: None, grain_settings: None,
             black_white_settings: None, color_balance_settings: None, blur_radius: None, motion_angle: None, motion_distance: None,
             noise_amount: None, noise_gaussian: None, noise_monochromatic: None, noise_seed: None }
@@ -451,13 +459,14 @@ impl LayerAdjustment {
     /// equal the whole one, so it pads that far.
     pub fn sampling_margin(&self) -> f64 {
         match self.kind {
+            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => self.filter_params().unwrap().margin(),
             AdjustmentKind::GaussianBlur => self.gaussian_radius() * 3.0 + 2.0,
             AdjustmentKind::MotionBlur => crate::motion_reach(self.motion_distance_pixels()) + 2.0,
             _ => 0.0,
         }
     }
     pub fn is_valid(&self) -> bool {
-        self.hue.is_finite() && self.saturation.is_finite() && self.lightness.is_finite() && self.hue.abs() <= 360.0 && self.saturation.abs() <= 100.0 && self.lightness.abs() <= 100.0
+        self.filter_layer().is_valid() && self.hue.is_finite() && self.saturation.is_finite() && self.lightness.is_finite() && self.hue.abs() <= 360.0 && self.saturation.abs() <= 100.0 && self.lightness.abs() <= 100.0
             && self.resolved_hsv().is_valid() && self.levels.is_valid() && self.curves.is_valid()
             && self.exposure().is_valid() && self.gradient_map().is_valid() && self.grain().is_valid()
             && self.black_white().is_valid() && self.color_balance().is_valid()
@@ -467,6 +476,7 @@ impl LayerAdjustment {
     /// Whether applying this adjustment would change nothing (used to skip no-op commits).
     pub fn is_identity(&self) -> bool {
         match self.kind {
+            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => self.filter_params().unwrap().is_identity(),
             AdjustmentKind::Hsv => self.resolved_hsv().is_identity(),
             AdjustmentKind::Levels => self.levels.is_identity(),
             AdjustmentKind::Curves => self.curves.is_identity(),

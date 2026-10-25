@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateVersions, releaseExists, projectVersion } from '../release-metadata.mjs';
-import { inspectZip, crc32, PORTABLE_FILES } from '../verify-portable-release.mjs';
+import { inspectZip, crc32, PORTABLE_FILES, validateHeifEntries } from '../verify-portable-release.mjs';
 
 test('matching main/version tag release metadata', () => {
   assert.deepEqual(validateVersions('0.8.0', '0.8.0', '0.8.0', 'branch', 'main'), { version: '0.8.0', tag: 'v0.8.0' });
@@ -47,6 +47,14 @@ test('tampered payload, duplicate entries, traversal and truncation fail', () =>
   for (const b of [changed, zip(['Compositor.exe', 'Compositor.exe', 'README.txt']), zip(['../Compositor.exe', 'LICENSE-Compositor.txt', 'README.txt']), zip().subarray(0, 20)]) assert.throws(() => inspectZip(b));
 });
 test('missing RAW helper, runtime or license and unapproved added files fail',()=>{
-  for(const name of ['CompositorRaw.exe','vcruntime140.dll','LibRaw-notices/LICENSE.CDDL'])assert.throws(()=>inspectZip(zip(PORTABLE_FILES.filter(n=>n!==name))));
+  for(const name of ['moxcms-LICENSE.txt','CompositorRaw.exe','CompositorHeif.exe','heif.dll','libde265.dll','vcruntime140.dll','LibRaw-notices/LICENSE.CDDL','HEIF-notices/libheif-1.23.6.tar.gz','HEIF-notices/build-heif-helper.ps1'])assert.throws(()=>inspectZip(zip(PORTABLE_FILES.filter(n=>n!==name))));
   assert.throws(()=>inspectZip(zip([...PORTABLE_FILES,'private-photo.dng'])));
+});
+
+test('portable HEIF provenance cannot declare a Store dependency or eight-bit output',()=>{
+ const receipt={schema:1,outputBits:16,systemHevcRequired:false,decoder:'libde265',plugins:false};
+ for(const patch of [{systemHevcRequired:true},{outputBits:8},{plugins:true},{decoder:'system'}]){
+  const bytes=Buffer.from(JSON.stringify({...receipt,...patch}));
+  assert.throws(()=>validateHeifEntries([{name:'HEIF-notices/provenance.json',bytes}]));
+ }
 });

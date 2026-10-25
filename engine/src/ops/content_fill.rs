@@ -13,7 +13,7 @@ pub fn apply(doc:&mut Document,clips:&SelectionClips,id:Uuid)->Result<Dirty,Comm
     let coverage=selection_coverage_with(doc,clips,&grid.transform.pixel_to_document(grid.width,grid.height),grid.width,grid.height).ok_or_else(||CommandError::Refused(ops::selection::NO_SELECTION.into()))?;
     let filled=crate::retouch::fill(&original,&coverage)?;
     let filled=adjust::apply::blend_by_coverage(&filled,&original,&coverage);
-    let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(filled));target.transform=grid.transform;
+    let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(ops::raster_edit::painted_on(&grid,layer.pixels.as_ref(),filled)));target.transform=grid.transform;
     if let Some(mask)=&layer.mask {if mask.placement.is_none(){target.mask_mut().unwrap().pixels=ops::raster_edit::followed(&mask.pixels,ops::raster_edit::layer_grid(&layer),&grid,(0,0,grid.width,grid.height));}}
     let dirty=Dirty::pixels(vec![id]);
     if let Some(pixels)=&layer.pixels {if (pixels.width,pixels.height)==(grid.width,grid.height)&&layer.transform==grid.transform {

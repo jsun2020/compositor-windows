@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ExportFormat {
+    GIF,
     PNG,
+    ChannelPack,
+    PNG16,
+    EXR,
+    TIFF,
     JPEG,
     PDF,
 }
@@ -16,6 +21,8 @@ pub struct ExportOptions {
     pub format: ExportFormat,
     pub quality: f64,
     pub background: Option<[f64; 3]>,
+    #[serde(default)] pub channel_sources: Option<[crate::channel_pack::ChannelSource;4]>,
+    #[serde(default)] pub gif_loop: Option<bool>,
 }
 impl ExportOptions {
     pub fn validate(&self) -> Result<(), CommandError> {
@@ -46,6 +53,10 @@ fn resized(source: Raster, w: u32, h: u32) -> Raster {
         width: w as f64,
         height: h as f64,
     };
+    if layer.pixels.as_ref().is_some_and(|p|p.deep_pixels().is_some()) {
+        let mut doc=Document::new(w,h);doc.layers.push(layer);
+        return compositor::composite(&doc,Rect{x:0.,y:0.,width:w as f64,height:h as f64},w,h);
+    }
     let mut bytes = vec![0u8; w as usize * h as usize * 4];
     compositor::render_layer(
         &mut bytes,
@@ -90,8 +101,13 @@ pub fn render(
         o.height,
     ))
 }
-fn flatten(source: Raster, bg: [f64; 3]) -> Raster {
+pub(crate) fn flatten(source: Raster, bg: [f64; 3]) -> Raster {
     let (width, height) = (source.width, source.height);
+    if source.deep_pixels().is_some() {
+        let mut values=Vec::with_capacity(width as usize*height as usize*4);
+        for y in 0..height {for x in 0..width {let p=source.pixel_f32(x,y);values.extend([p[0]+bg[0] as f32*(1.-p[3]),p[1]+bg[1] as f32*(1.-p[3]),p[2]+bg[2] as f32*(1.-p[3]),1.]);}}
+        return Raster::from_premultiplied_f32(width,height,values,source.depth());
+    }
     let mut bytes = source.into_bytes();
     for p in bytes.chunks_exact_mut(4) {
         for c in 0..3 {
@@ -109,6 +125,9 @@ pub fn encode(
     o: &ExportOptions,
     preview: bool,
 ) -> Result<Vec<u8>, CommandError> {
+    if matches!(o.format, ExportFormat::GIF | ExportFormat::ChannelPack) {
+        return Err(CommandError::Argument("This export format requires the document's layers".into()));
+    }
     if o.format == ExportFormat::JPEG {
         return Ok(encode_jpeg(
             &raster,
@@ -124,7 +143,12 @@ pub fn encode(
     if preview || o.format == ExportFormat::PNG {
         return Ok(encode_png(&raster, resolution)?);
     }
-    pdf(&raster, resolution)
+    match o.format {
+        ExportFormat::PNG16=>Ok(encode_deep_png(&raster.to_depth(PixelDepth::Sixteen),resolution)?),
+        ExportFormat::EXR=>Ok(encode_exr(&raster)?),
+        ExportFormat::TIFF=>tiff_image(&raster,resolution),
+        _=>pdf(&raster, resolution),
+    }
 }
 // Encode one row at a time: a 100 MP PDF must not allocate a second complete
 // straight RGBA raster, an RGB raster and an alpha raster beside the composite.
@@ -247,4 +271,25 @@ fn pdf(raster: &Raster, dpi: f64) -> Result<Vec<u8>, CommandError> {
         .bytes(),
     );
     Ok(out)
+}
+
+fn tiff_image(raster:&Raster,dpi:f64)->Result<Vec<u8>,CommandError> {
+    use tiff::encoder::{TiffEncoder,colortype,Rational};
+    use tiff::tags::{Tag,ResolutionUnit};
+    let mut out=std::io::Cursor::new(Vec::new());
+    let fail=|_|CommandError::Argument("TIFF encode failed".into());
+    let mut encoder=TiffEncoder::new(&mut out).map_err(fail)?;
+    let resolution=Rational{n:(dpi*1000.).round() as u32,d:1000};
+    if raster.depth()==PixelDepth::Eight {
+        let mut image=encoder.new_image::<colortype::RGBA8>(raster.width,raster.height).map_err(fail)?;
+        image.resolution(ResolutionUnit::Inch,resolution);
+        image.encoder().write_tag(Tag::ExtraSamples,&[2u16][..]).map_err(fail)?;
+        image.write_data(&raster.to_straight()).map_err(fail)?;
+    }else{
+        let mut image=encoder.new_image::<colortype::RGBA16>(raster.width,raster.height).map_err(fail)?;
+        image.resolution(ResolutionUnit::Inch,resolution);
+        image.encoder().write_tag(Tag::ExtraSamples,&[2u16][..]).map_err(fail)?;
+        image.write_data(&raster.to_depth(PixelDepth::Sixteen).deep_pixels().unwrap().straight_u16()).map_err(fail)?;
+    }
+    Ok(out.into_inner())
 }

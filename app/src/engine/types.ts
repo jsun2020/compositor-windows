@@ -8,6 +8,9 @@ export type BlendMode = "Normal" | "Multiply" | "Screen" | "Overlay" | "Darken" 
 export interface LayerTransform { origin: [number, number]; size: [number, number]; rotation: number; flipX: boolean; flipY: boolean; sampling: Sampling; }
 
 export type PointTuple = [number, number];
+export interface GifTiming {mode:"Frame delay"|"Same for all";uniformDelay:number;frameDelays:{index:number;duration:number}[]}
+export interface GifTimeline {selectedFrameIndex:number;frames:{index:number;sourceIndex:number;duration:number;edited:boolean}[];timing:GifTiming}
+export type GifEdit = {type:"Duplicate"|"Delete";index:number}|{type:"Move";index:number;position:number}|{type:"Timing";timing:GifTiming};
 export type HealingMode="Content-Aware"|"Create Texture"|"Proximity Match";
 export type WarpMode="Liquify"|"Smudge";
 export interface WarpSpec {mode:WarpMode;diameter:number;hardness:number;strength:number;points:PointTuple[];}
@@ -16,15 +19,15 @@ export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
 export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain"
   // Mac 1.2.6 additions (R 3).
-  | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
+  | "Progressive Blur" | "Bloom / Glow" | "RGB Split" | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
 /** Every adjustment kind, in the order the Mac's New Adjustment Layer menu lists them
  * (`AdjustmentKind.allCases`, LayerAdjustment.swift:4-9). */
 export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain",
-  "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance"];
+  "Progressive Blur", "Bloom / Glow", "RGB Split", "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance"];
 /** Whether the kind opens a panel: all but Invert, which has nothing to set (engine `AdjustmentKind::is_editable`). */
 export const isEditableKind = (kind: AdjustmentKind): boolean => kind !== "Invert";
 /** The kinds that blur what lies beneath them (engine `AdjustmentKind::is_spatial`). */
-export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur";
+export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur" || kind === "Progressive Blur" || kind === "Bloom / Glow" || kind === "RGB Split";
 export type LevelsChannel = "RGB" | "Red" | "Green" | "Blue";
 export type ColorRange = "Master" | "Reds" | "Yellows" | "Greens" | "Cyans" | "Blues" | "Magentas";
 export type LevelsAuto = "Contrast" | "Color" | "Neutral";
@@ -61,7 +64,12 @@ export const DEFAULT_COLOR_BALANCE: ColorBalanceSettings = { highlightCyanRed: 0
   midCyanRed: 0, midMagentaGreen: 0, midYellowBlue: 0, preserveLuminosity: true, shadowCyanRed: 0, shadowMagentaGreen: 0, shadowYellowBlue: 0 };
 /** The Mac's LayerAdjustment: the optional settings are written only when present, so a project
  * saved by either app re-encodes byte for byte. */
+export interface FilterLayerSettings {
+ progressiveFrom:number;progressiveTo:number;progressiveStart?:PointTuple;progressiveEnd?:PointTuple;progressiveRadial:boolean;progressiveInverted:boolean;
+ bloomAmount:number;bloomRadius:number;rgbSplitDistance:number;rgbSplitBlur:number;rgbSplitAngle:number;rgbSplitRadial:boolean;rgbSplitCenter?:PointTuple;rgbSplitReach:number;
+}
 export interface LayerAdjustment {
+  filterLayerSettings?:FilterLayerSettings;
   kind: AdjustmentKind; hue: number; saturation: number; lightness: number; colorize: boolean;
   hsvSettings?: HueSaturationSettings; levels: LevelsSettings; curves: CurvesSettings;
   exposureSettings?: ExposureSettings; gradientMapSettings?: GradientMapSettings; grainSettings?: GrainSettings;
@@ -70,10 +78,24 @@ export interface LayerAdjustment {
   noiseAmount?: number; noiseGaussian?: boolean; noiseMonochromatic?: boolean; noiseSeed?: number;
 }
 
+export interface ProgressiveBlurSettings {from:number;to:number;start:PointTuple|null;end:PointTuple|null;radial:boolean;inverted:boolean}
+export interface RgbSplitSettings {distance:number;blur:number;angle:number;radial:boolean;center:PointTuple|null;reach:number}
+export interface LensEffectSettings {
+  effect:"Anamorphic Flare"|"Starburst"|"Mist"|"Prism"|"Bokeh"; threshold:number;
+  flareAmount:number; flareLength:number; flareBlue:number;
+  starAmount:number; starLength:number; starPoints:number; starAngle:number;
+  mistStrength:number; mistSize:number;
+  prismAmount:number; prismCopies:number; prismOffset:number; prismAngle:number; prismSpread:number;
+  bokehRadius:number; bokehBrightness:number; bokehRing:number; bokehShape:"Round"|"Hexagon"|"Oval"|"Cat's Eye";
+}
 export type FilterParams =
+  | {filter:"LensEffects";settings:LensEffectSettings}
+  | {filter:"BloomGlow";amount:number;radius:number}
+  | {filter:"ProgressiveBlur";settings:ProgressiveBlurSettings}
+  | {filter:"RgbSplit";settings:RgbSplitSettings}
   | {filter:"Scanlines";settings:ScanlinesSettings}
   | { filter: "CameraRaw"; settings: import("./camera-raw").CameraRawSettings }
-  | { filter: "GaussianBlur"; radius: number }
+  | { filter: "GaussianBlur"; radius: number; preserveTransparency?: boolean }
   | { filter: "MotionBlur"; angle: number; distance: number }
   | { filter: "AddNoise"; amount: number; gaussian: boolean; monochromatic: boolean; seed: number }
   | { filter: "LensCorrection"; distortion: number };
@@ -90,9 +112,9 @@ export interface GradientSpec {
 /** What the Shape tool made (engine `ShapeSpec`): a whole-pixel box for a rectangle or an ellipse;
  * a line's two ends and its width. */
 export type ShapeSpec =
-  | { kind: "Rectangle"; rect: PixelRect; cornerRadius: number }
+  | { kind: "Rectangle"; rect: PixelRect; cornerRadius: number; smoothing?: boolean }
   | { kind: "Ellipse"; rect: PixelRect }
-  | { kind: "Line"; start: PointTuple; end: PointTuple; width: number };
+  | { kind: "Line"; start: PointTuple; end: PointTuple; width: number; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round" };
 
 export type PreviewRequest =
   | { preview:"Shape"; layer:string; draft:LayerTransform }
@@ -106,6 +128,8 @@ export type PreviewRequest =
   | { preview: "Gradient"; layer: string; mask: boolean; gradient: GradientSpec; dragging: boolean };
 
 export interface LayerState {
+  gif?: GifTimeline;
+  pixelDepth?: "Eight" | "Sixteen" | "Hdr";
   text?: import("../tools/text-style").TextStyle; shape?: Record<string,unknown>; effects?: LayerEffects;
   id: string; name: string; visible: boolean; isGroup: boolean; parentId: string | null; opacity: number;
   blendMode: BlendMode; transform: LayerTransform; pixelsWidth: number; pixelsHeight: number; pixelsRevision: number; hasMask: boolean;
@@ -178,6 +202,8 @@ export interface SelectionState {
 }
 
 export type Command =
+  | {type:"SelectGifFrame";id:string;index:number}
+  | {type:"EditGif";id:string;edit:GifEdit}
   | {type:"SetLayerEffects";id:string;effects:LayerEffects|null}
   | { type: "AddBlankLayer" }
   | { type: "RenameLayer"; id: string; name: string }
@@ -200,7 +226,7 @@ export type Command =
   | { type: "DuplicateLayer"; id: string }
   | { type: "LayerViaCopy"; id: string; mask: boolean }
   | { type: "CutPixels"; id: string; mask: boolean }
-  | { type: "BrushStroke"; id: string; mask: boolean; brush: { diameter: number; hardness: number; opacity: number; points: PointTuple[]; color: [number,number,number,number]; erasing: boolean; operation?:BrushOperation } }
+  | { type: "BrushStroke"; id: string; mask: boolean; brush: { pressureSize?:boolean;pressureOpacity?:boolean;pressures?:number[];diameter: number; hardness: number; opacity: number; points: PointTuple[]; color: [number,number,number,number]; erasing: boolean; operation?:BrushOperation } }
   | { type: "WarpStroke"; id: string; mask: boolean; warp: WarpSpec }
   | { type:"ContentAwareFill";id:string }
   | { type: "DuplicateLayerTo"; id: string; parent: string | null; above: string | null; atBottom: boolean }
@@ -226,6 +252,7 @@ export type Command =
   | { type: "LinkMask"; source: string; target: string }
   | { type: "MergeLayers"; ids: string[] }
   | { type: "ApplyAdjustment"; id: string; adjustment: LayerAdjustment }
+  | { type: "ConvertPixelDepth"; id: string; depth: "Eight" | "Sixteen" }
   | { type: "InvertPixels"; id: string; mask: boolean }
   | { type: "ApplyFilter"; id: string; params: FilterParams }
   | { type: "AddAdjustmentLayer"; kind: AdjustmentKind; seed: number; shadows: [number, number, number] | null; highlights: [number, number, number] | null }

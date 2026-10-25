@@ -9,6 +9,12 @@ use crate::selection::geometry::{cubic, ellipse, polygon, rectangle};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use super::shape_geometry::{smoothed_rectangle, line_contours, line_reach};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShapeLineStyle { #[default] Solid, Dotted, Dashed, #[serde(rename="Long Dash")] LongDash }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShapeLineCap { Square, #[default] Round }
 
 /// The three kinds, named as the Mac names them (`ShapeKind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,9 +31,9 @@ impl ShapeKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum ShapeSpec {
-    Rectangle { rect: Rect, #[serde(rename = "cornerRadius", default)] corner_radius: f64 },
+    Rectangle { rect: Rect, #[serde(rename = "cornerRadius", default)] corner_radius: f64, #[serde(default)] smoothing: bool },
     Ellipse { rect: Rect },
-    Line { start: Point, end: Point, width: f64 },
+    Line { start: Point, end: Point, width: f64, #[serde(rename="lineStyle", default)] style: ShapeLineStyle, #[serde(rename="lineCap", default)] cap: ShapeLineCap },
 }
 
 /// The words the Mac shows when a shape would hold too many pixels (ShapeTool.swift:131), with this
@@ -48,17 +54,17 @@ impl ShapeSpec {
     pub fn bounds(&self) -> Rect {
         match self {
             ShapeSpec::Rectangle { rect, .. } | ShapeSpec::Ellipse { rect } => *rect,
-            ShapeSpec::Line { start, end, width } => Rect {
-                x: start.x.min(end.x) - width / 2.0, y: start.y.min(end.y) - width / 2.0,
-                width: (end.x - start.x).abs() + width, height: (end.y - start.y).abs() + width,
-            },
+            ShapeSpec::Line { start, end, width, cap, .. } => { let reach=line_reach(*start,*end,*width,*cap); Rect {
+                x: start.x.min(end.x)-reach, y: start.y.min(end.y)-reach,
+                width: (end.x-start.x).abs()+2.0*reach, height:(end.y-start.y).abs()+2.0*reach,
+            } },
         }
     }
     fn check(&self) -> Result<(), CommandError> {
         let numbers: Vec<f64> = match self {
-            ShapeSpec::Rectangle { rect, corner_radius } => vec![rect.x, rect.y, rect.width, rect.height, *corner_radius],
+            ShapeSpec::Rectangle { rect, corner_radius, .. } => vec![rect.x, rect.y, rect.width, rect.height, *corner_radius],
             ShapeSpec::Ellipse { rect } => vec![rect.x, rect.y, rect.width, rect.height],
-            ShapeSpec::Line { start, end, width } => vec![start.x, start.y, end.x, end.y, *width],
+            ShapeSpec::Line { start, end, width, .. } => vec![start.x, start.y, end.x, end.y, *width],
         };
         if numbers.iter().any(|v| !v.is_finite() || v.abs() > MAX_SIDE as f64 * 4.0) {
             return Err(CommandError::Argument("shape out of range".into()));
@@ -71,7 +77,7 @@ impl ShapeSpec {
 /// The outline of a rectangle `r` with corners rounded by `radius` (already clamped): Core Graphics'
 /// `CGPath(roundedRect:cornerWidth:cornerHeight:)`, each corner a quarter circle as one cubic Bezier
 /// with the circle constant, flattened as the ellipse is.
-fn rounded_rectangle(r: Rect, radius: f64) -> Contour {
+pub(super) fn rounded_rectangle(r: Rect, radius: f64) -> Contour {
     const KAPPA: f64 = 0.552_284_749_830_793_4;
     let k = radius * KAPPA;
     let p = |x: f64, y: f64| Point { x, y };
@@ -92,7 +98,7 @@ fn rounded_rectangle(r: Rect, radius: f64) -> Contour {
 
 /// A line from `a` to `b` stroked `width` wide with round caps (`setLineCap(.round)`): two sides and
 /// two half circles, each half circle two quarter-circle Beziers. A line of no length is a dot.
-fn capsule(a: Point, b: Point, width: f64) -> Contour {
+pub(super) fn capsule(a: Point, b: Point, width: f64) -> Contour {
     const KAPPA: f64 = 0.552_284_749_830_793_4;
     let h = width / 2.0;
     let length = (b.x - a.x).hypot(b.y - a.y);
@@ -128,18 +134,18 @@ pub fn shape_raster(spec: &ShapeSpec, color: [f64; 3]) -> Raster {
         return Raster::from_premultiplied(w, h, pixel.repeat(w as usize * h as usize));
     }
     let local = Rect { x: 0.0, y: 0.0, width: bounds.width, height: bounds.height };
-    let contour = match spec {
-        ShapeSpec::Rectangle { corner_radius, .. } => {
+    let contours = match spec {
+        ShapeSpec::Rectangle { corner_radius, smoothing, .. } => {
             let radius = corner_radius.max(0.0).min(bounds.width / 2.0).min(bounds.height / 2.0);
-            if radius > 0.0 { rounded_rectangle(local, radius) } else { rectangle(local) }
+            vec![if radius > 0.0 { if *smoothing {smoothed_rectangle(local,radius)} else {rounded_rectangle(local, radius)} } else { rectangle(local) }]
         }
-        ShapeSpec::Ellipse { .. } => ellipse(local),
-        ShapeSpec::Line { start, end, width } => {
+        ShapeSpec::Ellipse { .. } => vec![ellipse(local)],
+        ShapeSpec::Line { start, end, width, style, cap } => {
             let at = |q: Point| Point { x: q.x - bounds.x, y: q.y - bounds.y };
-            capsule(at(*start), at(*end), width.max(1.0))
+            line_contours(at(*start), at(*end), width.max(1.0), *style, *cap)
         }
     };
-    let coverage = rasterize(&[contour], 0.0, 0.0, w, h, true);
+    let coverage = rasterize(&contours, 0.0, 0.0, w, h, true);
     // Each of the 256 coverages' premultiplied pixel, once; then a table lookup per pixel.
     let c = color.map(|v| v.clamp(0.0, 1.0) * 255.0);
     let table: Vec<[u8; 4]> = (0..=255u8).map(|k| {
@@ -165,7 +171,10 @@ pub fn shape_record(spec: &ShapeSpec, color: [f64; 3]) -> serde_json::Value {
         "red": swift_number(color[0]), "green": swift_number(color[1]), "blue": swift_number(color[2]),
         "cornerRadius": swift_number(match spec { ShapeSpec::Rectangle { corner_radius, .. } => *corner_radius, _ => 0.0 }),
     });
-    if let ShapeSpec::Line { start, end, width } = spec {
+    if let ShapeSpec::Rectangle {smoothing:true,..}=spec {record["smoothing"]=serde_json::json!(true);}
+    if let ShapeSpec::Line { start, end, width, style, cap } = spec {
+        if *style!=ShapeLineStyle::Solid {record["lineStyle"]=serde_json::to_value(style).unwrap();}
+        if *cap!=ShapeLineCap::Round {record["lineCap"]=serde_json::to_value(cap).unwrap();}
         let b = spec.bounds();
         let unit = |p: &Point| serde_json::json!([
             swift_number(if b.width > 0.0 { (p.x - b.x) / b.width } else { 0.5 }),
@@ -208,15 +217,15 @@ pub fn redraw_image(record:&serde_json::Value,size:Size,scale:f64)->Option<Raste
     let color=[record.get("red")?.as_f64()?,record.get("green")?.as_f64()?,record.get("blue")?.as_f64()?];
     if color.iter().any(|v|!v.is_finite()||!(0.0..=1.0).contains(v)){return None;}
     let local=Rect{x:0.0,y:0.0,width:w as f64,height:h as f64};
-    let contour=match record.get("kind")?.as_str()? {
-        "Rectangle"=>{let radius=record.get("cornerRadius").and_then(|v|v.as_f64()).unwrap_or(0.0)*scale;if !radius.is_finite(){return None;}let radius=radius.max(0.0).min(local.width/2.0).min(local.height/2.0);if radius>0.0{rounded_rectangle(local,radius)}else{rectangle(local)}},
-        "Ellipse"=>ellipse(local),
+    let contours=match record.get("kind")?.as_str()? {
+        "Rectangle"=>{let radius=record.get("cornerRadius").and_then(|v|v.as_f64()).unwrap_or(0.0)*scale;if !radius.is_finite(){return None;}let radius=radius.max(0.0).min(local.width/2.0).min(local.height/2.0);vec![if radius>0.0{if record.get("smoothing").and_then(|v|v.as_bool())==Some(true){smoothed_rectangle(local,radius)}else{rounded_rectangle(local,radius)}}else{rectangle(local)}]},
+        "Ellipse"=>vec![ellipse(local)],
         "Line"=>{
             let unit=|name:&str|{let a=record.get(name)?.as_array()?;let(x,y)=(a.first()?.as_f64()?,a.get(1)?.as_f64()?);if !x.is_finite()||!y.is_finite(){return None;}Some(Point{x:x*w as f64,y:y*h as f64})};
-            let width=record.get("lineWidth")?.as_f64()?*scale;if !width.is_finite()||width<=0.0{return None;}capsule(unit("start")?,unit("end")?,width)
+            let width=record.get("lineWidth")?.as_f64()?*scale;if !width.is_finite()||width<=0.0{return None;}line_contours(unit("start")?,unit("end")?,width,record.get("lineStyle").map(|v|serde_json::from_value(v.clone())).transpose().ok()?.unwrap_or_default(),record.get("lineCap").map(|v|serde_json::from_value(v.clone())).transpose().ok()?.unwrap_or_default())
         },_=>return None,
     };
-    let coverage=rasterize(&[contour],0.0,0.0,w,h,true);let mut data=vec![0;w as usize*h as usize*4];
+    let coverage=rasterize(&contours,0.0,0.0,w,h,true);let mut data=vec![0;w as usize*h as usize*4];
     for(p,&a)in data.chunks_exact_mut(4).zip(coverage.bytes()){for k in 0..3{p[k]=(color[k]*a as f64).round() as u8;}p[3]=a;}
     Some(Raster::from_premultiplied(w,h,data))
 }

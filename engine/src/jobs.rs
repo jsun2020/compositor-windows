@@ -74,6 +74,7 @@ pub struct JobInput {
     pub selection: Option<JobSelection>,
     pub layer: LayerRecord,
     pub pixels: Option<(u32, u32)>,
+    #[serde(default)] pub pixel_depth: PixelDepth,
     pub mask: Option<(u32, u32)>,
     pub stamp: LayerStamp,
 }
@@ -88,6 +89,7 @@ pub struct JobOutput {
     pub transform: LayerTransform,
     pub mask_placement: Option<LayerTransform>,
     pub pixels: Option<(u32, u32)>,
+    #[serde(default)] pub pixel_depth: PixelDepth,
     pub mask: Option<(u32, u32)>,
     pub regions: Vec<(Plane, PixelRect)>,
     #[serde(default)]
@@ -112,7 +114,7 @@ impl JobInput {
     /// keeps its id, so a command names it as the app did. `points` is the selection's flat buffer
     /// (`JobSelection::flatten`'s shape), required exactly when `self.selection` is.
     pub(crate) fn document(&self, pixels: Option<Raster>, mask: Option<GrayRaster>, points: Option<&[i32]>) -> Result<Document, CommandError> {
-        if pixels.as_ref().map(|p| (p.width, p.height)) != self.pixels || mask.as_ref().map(|m| (m.width, m.height)) != self.mask {
+        if pixels.as_ref().is_some_and(|p|p.depth()!=self.pixel_depth) || pixels.as_ref().map(|p| (p.width, p.height)) != self.pixels || mask.as_ref().map(|m| (m.width, m.height)) != self.mask {
             return Err(CommandError::Argument("a job's buffers do not match its input".into()));
         }
         let mut doc = Document::new(self.width, self.height);
@@ -150,6 +152,7 @@ impl Engine {
             selection,
             layer: l.record(),
             pixels: l.pixels.as_ref().map(|p| (p.width, p.height)),
+            pixel_depth: l.pixels.as_ref().map_or(PixelDepth::Eight, Raster::depth),
             mask: l.mask.as_ref().map(|m| (m.pixels.width, m.pixels.height)),
             stamp: LayerStamp::of(doc, l),
         };
@@ -165,6 +168,7 @@ impl Engine {
         let pixels = self.layer_raster(id, layer, level)?.ok_or_else(|| CommandError::Argument("the layer has no pixels".into()))?;
         let input = JobInput {
             width: doc.width, height: doc.height, selection: None, layer: l.record(),
+            pixel_depth: pixels.depth(),
             pixels: Some((pixels.width, pixels.height)), mask: l.mask.as_ref().map(|m| (m.pixels.width, m.pixels.height)),
             stamp: LayerStamp::of(&doc, l),
         };
@@ -214,7 +218,7 @@ impl Engine {
     /// new pixels adopt (`Raster::adopt`): the next frame uploads it without halving the layer on the
     /// UI thread (F1).
     pub fn install_job(&mut self, id: Uuid, layer: Uuid, stamp: LayerStamp, output: JobOutput, pixels: Option<Raster>, mask: Option<GrayRaster>, display: Option<Raster>) -> Result<Dirty, CommandError> {
-        if pixels.as_ref().map(|p| (p.width, p.height)) != output.pixels || mask.as_ref().map(|m| (m.width, m.height)) != output.mask
+        if pixels.as_ref().is_some_and(|p|p.depth()!=output.pixel_depth) || pixels.as_ref().map(|p| (p.width, p.height)) != output.pixels || mask.as_ref().map(|m| (m.width, m.height)) != output.mask
             || display.as_ref().map(|d| (d.width, d.height)) != output.display.map(|d| (d.width, d.height)) {
             return Err(CommandError::Argument("a job's buffers do not match its output".into()));
         }
@@ -304,6 +308,7 @@ pub(crate) fn edit_output(document:&Document,layer:Uuid,pixels:Option<Raster>,ma
         transform: l.transform,
         mask_placement: l.mask.as_ref().and_then(|m| m.placement),
         pixels: new_pixels.as_ref().map(|p| (p.width, p.height)),
+        pixel_depth: new_pixels.as_ref().map_or(PixelDepth::Eight, Raster::depth),
         mask: new_mask.as_ref().map(|m| (m.width, m.height)),
         regions,
         display: display.as_ref().map(|(level, d)| DisplayHalving { level: *level, width: d.width, height: d.height }),

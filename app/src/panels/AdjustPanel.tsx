@@ -36,7 +36,12 @@ export function AdjustPanel() {
   }, [edit]);
   if (!edit) return null;
   const reset = () => {
-    if (edit.params) s.updateAdjust({ params: defaultFilterParams(edit.params.filter),cameraRawBypass:[] });
+    if (edit.params) {
+      const p=defaultFilterParams(edit.params.filter);
+      if(p.filter==="ProgressiveBlur"&&edit.params.filter==="ProgressiveBlur") {p.settings.start=edit.params.settings.start;p.settings.end=edit.params.settings.end;}
+      if(p.filter==="RgbSplit"&&edit.params.filter==="RgbSplit") {p.settings.center=edit.params.settings.center;p.settings.reach=edit.params.settings.reach;}
+      s.updateAdjust({params:p,cameraRawBypass:[]});
+    }
     else s.updateAdjust({ adjustment: resetAdjustment(edit.adjustment!, edit.original) });
   };
   let body: ReactNode;

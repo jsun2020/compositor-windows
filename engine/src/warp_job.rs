@@ -106,7 +106,7 @@ impl WarpJob {
             h = (h / 2).max(1);
             level += 1;
         }
-        let brush = BrushSpec {
+        let brush = BrushSpec { pressures:vec![],pressure_size:false,pressure_opacity:false,
             diameter: spec.diameter + 4.0,
             hardness: 1.0,
             opacity: 1.0,
@@ -243,6 +243,7 @@ impl WarpJob {
             transform: grid.transform,
             mask_placement: own.mask.as_ref().and_then(|m| m.placement),
             pixels: Some((w, h)),
+            pixel_depth: PixelDepth::Eight,
             mask: followed.as_ref().map(|m| (m.width, m.height)),
             regions: vec![],
             display: None,

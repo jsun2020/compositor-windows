@@ -87,7 +87,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "image-size": if (doc) s.openSheet({ kind: "imageSize" }); break;
     case "zoom-in": zoomBy(1.25); break;
     case "zoom-out": zoomBy(0.8); break;
-    case "fit": if (doc && vp) { vp.fit({ width: doc.width, height: doc.height }); s.invalidate(); } break;
+    case "fit": if (doc && vp) { vp.fit({ width: doc.width, height: doc.height }, true); s.invalidate(); } break;
     case "actual": if (doc && vp) { vp.setZoom(window.devicePixelRatio || 1, vp.center, { width: doc.width, height: doc.height }); s.invalidate(); } break;
     case "tool-move": s.setTool("move"); break;
     case "tool-hand": s.setTool("hand"); break;

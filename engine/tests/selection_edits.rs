@@ -152,7 +152,7 @@ fn a_blur_spreads_only_where_the_selection_reaches() {
     e.import_image(Some(id), &encode_png(&block, 72.0).unwrap(), "Block", Some(p(30.0, 10.0))).unwrap();
     let layer = e.state(id).unwrap().active_layer_id.unwrap();
     select(&mut e, id, 0.0, 0.0, 30.0, 20.0, true);
-    let blur = FilterParams::GaussianBlur { radius: 3.0 };
+    let blur = FilterParams::GaussianBlur { preserve_transparency:false, radius: 3.0 };
     e.set_preview(id, Some(PreviewRequest::Filter { layer, params: blur.clone() })).unwrap();
     let previewed = canvas(&e, id);
     run(&mut e, id, Command::ApplyFilter { id: layer, params: blur });
@@ -174,7 +174,7 @@ fn an_empty_selection_refuses_every_edit() {
     assert!(refused(&mut e, id, Command::ApplyAdjustment { id: layer, adjustment: hue(120.0) }));
     assert!(refused(&mut e, id, Command::InvertPixels { id: layer, mask: false }));
     assert!(refused(&mut e, id, Command::InvertPixels { id: layer, mask: true }));
-    assert!(refused(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { radius: 2.0 } }));
+    assert!(refused(&mut e, id, Command::ApplyFilter { id: layer, params: FilterParams::GaussianBlur { preserve_transparency:false, radius: 2.0 } }));
     e.set_preview(id, Some(PreviewRequest::Adjustment { layer, adjustment: hue(120.0) })).unwrap();
     assert_eq!((depth(&e, id), canvas(&e, id)), (before, shown), "nothing changed, nothing previewed");
 }

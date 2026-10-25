@@ -47,7 +47,7 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Release metadata and packaging regressions
-        run: node --test scripts/tests/release.test.mjs scripts/tests/wasm-output.test.mjs
+        run: node --test scripts/tests/release.test.mjs scripts/tests/wasm-output.test.mjs scripts/tests/uniform-fill.test.mjs
       - name: Fixed Mac 1.4.9 LUT and kernel provenance
         run: node scripts/verify-mac149-inputs.mjs
       - name: Pinned RAW helper and actual sensor development without a JPEG preview
@@ -56,8 +56,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'RAW helper build failed' }
           python -X utf8 scripts/make-phase7-dng-probe.py build-artifacts/raw-probe-ci.dng
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic sensor input generation failed' }
-          python -X utf8 scripts/verify-phase7-raw-helper.py build-artifacts/raw-helper-ci/CompositorRaw.exe build-artifacts/raw-probe-ci.dng build-artifacts/raw-verification-ci
+          python -X utf8 scripts/verify-mac157-raw.py build-artifacts/raw-helper-ci/CompositorRaw.exe build-artifacts/raw-probe-ci.dng build-artifacts/raw-verification-ci
           if ($LASTEXITCODE -ne 0) { throw 'RAW sensor development verification failed' }
+      - name: Bundled HEIF decoder without system codecs
+        run: |
+          & ./scripts/tests/heif-build-arguments.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'HEIF build argument verification failed' }
+          & ./scripts/build-heif-helper.ps1 -OutputDirectory build-artifacts/heif-helper-ci
+          if ($LASTEXITCODE -ne 0) { throw 'HEIF helper build failed' }
+          python -X utf8 scripts/verify-heif-helper.py build-artifacts/heif-helper-ci/CompositorHeif.exe build-artifacts/heif-verification-ci
+          if ($LASTEXITCODE -ne 0) { throw 'HEIF decoding verification failed' }
       - name: Original native workspace tests
         run: cargo test --workspace --locked
       - name: Release WASM

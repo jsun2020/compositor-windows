@@ -47,6 +47,13 @@ impl EngineData<'_>{
 fn path<'a>(value:&'a Json,keys:&[&str])->Option<&'a Json>{let mut value=value;for k in keys{value=value.get(k)?;}Some(value)}
 fn num(value:&Json,keys:&[&str],default:f64)->f64{path(value,keys).and_then(Json::as_f64).unwrap_or(default)}
 fn unit(v:f64)->f64{if v>1. {(v/255.).clamp(0.,1.)}else{v.clamp(0.,1.)}}
+pub(super) fn artboard(extra:&BTreeMap<String,&[u8]>)->Option<Rect>{
+    let bytes=extra.get("artb").or_else(||extra.get("artd")).or_else(||extra.get("abdd"))?;
+    let d=parse_descriptor(bytes,0)?;let r=d.find("artboardRect")?.dict()?;
+    let left=r.get("Left")?.number()?;let top=r.get("Top ").or_else(||r.get("Top"))?.number()?;
+    let right=r.get("Rght")?.number()?;let bottom=r.get("Btom")?.number()?;
+    (right-left>=1.&&bottom-top>=1.).then_some(Rect{x:left,y:top,width:right-left,height:bottom-top})
+}
 pub(super) fn text(extra:&BTreeMap<String,&[u8]>)->Option<(Json,Vec<String>)>{
     let bytes=extra.get("TySh").or_else(||extra.get("tySh"))?;if bytes.len()>8_000_000{return None;}let mut c=Cursor::new(bytes);if c.u16().ok()?!=1{return None;}
     let [xx,xy,yx,yy,_tx,_ty]=[double(&mut c)?,double(&mut c)?,double(&mut c)?,double(&mut c)?,double(&mut c)?,double(&mut c)?];
@@ -82,7 +89,7 @@ pub(super) fn shape(extra:&BTreeMap<String,&[u8]>)->Option<(ShapeSpec,[f64;3],Ve
     let left=box_value.find("Left")?.number()?;let top=box_value.find("Top ").or_else(||box_value.find("Top"))?.number()?;let right=box_value.find("Rght")?.number()?;let bottom=box_value.find("Btom")?.number()?;
     let rect=Rect{x:left.floor(),y:top.floor(),width:right.ceil()-left.floor(),height:bottom.ceil()-top.floor()};if rect.width<1.||rect.height<1.||rect.width>MAX_SIDE as f64||rect.height>MAX_SIDE as f64||rect.width*rect.height>MAX_PIXELS as f64{return None;}
     let mut radius=0.;if kind==2 {let radii=origin.find("keyOriginRRectRadii")?;let values=["topLeft","topRight","bottomRight","bottomLeft"].map(|k|radii.find(k).and_then(Value::number));let values=[values[0]?,values[1]?,values[2]?,values[3]?];let low=values.iter().copied().fold(f64::INFINITY,f64::min);radius=values.iter().copied().fold(0.,f64::max);if radius-low>0.5{return None;}}
-    let spec=match kind{1|2=>ShapeSpec::Rectangle{rect,corner_radius:radius},5=>ShapeSpec::Ellipse{rect},_=>return None};let mut notes=Vec::new();if stroke.as_ref().and_then(|s|s.find("strokeEnabled")).and_then(Value::number)==Some(1.){notes.push("The Photoshop vector stroke was omitted.".into());}Some((spec,color,notes))
+    let spec=match kind{1|2=>ShapeSpec::Rectangle{rect,corner_radius:radius, smoothing:false},5=>ShapeSpec::Ellipse{rect},_=>return None};let mut notes=Vec::new();if stroke.as_ref().and_then(|s|s.find("strokeEnabled")).and_then(Value::number)==Some(1.){notes.push("The Photoshop vector stroke was omitted.".into());}Some((spec,color,notes))
 }
 #[cfg(test)]mod tests {use super::*;
     #[test]fn engine_dictionary_handles_utf16_escaped_strings_and_refuses_unclosed_strings(){let bytes=br"<< /Text (\376\377\000A\000B) /N 12.5 /A [ true false ] >>";let value=EngineData{bytes,at:0,left:100}.parse(0).unwrap();assert_eq!(value["Text"],"AB");assert_eq!(value["N"],12.5);assert!(EngineData{bytes:b"(unterminated",at:0,left:100}.parse(0).is_none());}

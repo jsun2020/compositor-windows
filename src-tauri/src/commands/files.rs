@@ -24,3 +24,16 @@ pub fn write_file(request: Request<'_>) -> Result<(), String> {
     if let Err(e) = fs::rename(&tmp, &path) { let _ = fs::remove_file(&tmp); return Err(format!("Cannot replace {}: {e}", path.display())); }
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+pub struct ImportPaths { paths:Vec<String>, errors:Vec<String> }
+#[tauri::command]
+pub fn expand_import_paths(paths:Vec<String>)->Result<ImportPaths,String>{
+ if paths.len()>10_000{return Err("Import at most 10,000 files at once.".into());}
+ let mut result=ImportPaths{paths:Vec::new(),errors:Vec::new()};
+ for path in paths {
+  if std::path::Path::new(&path).is_dir(){match crate::image_folder::images(std::path::Path::new(&path)){Ok(files)=>result.paths.extend(files),Err(error)=>result.errors.push(error)}}else{result.paths.push(path);}
+  if result.paths.len()>10_000{return Err("Import at most 10,000 files at once.".into());}
+ }
+ Ok(result)
+}

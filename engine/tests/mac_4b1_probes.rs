@@ -30,10 +30,10 @@ fn saved_shapes() -> Vec<(String, ShapeSpec, [f64; 3])> {
         let rect = Rect { x: n(&t["origin"][0]), y: n(&t["origin"][1]), width: n(&t["size"][0]), height: n(&t["size"][1]) };
         let spec = match s["kind"].as_str().unwrap() {
             "Ellipse" => ShapeSpec::Ellipse { rect },
-            "Rectangle" => ShapeSpec::Rectangle { rect, corner_radius: n(&s["cornerRadius"]) },
+            "Rectangle" => ShapeSpec::Rectangle { rect, corner_radius: n(&s["cornerRadius"]) , smoothing:false},
             "Line" => {
                 let at = |key: &str| Point { x: rect.x + n(&s[key][0]) * rect.width, y: rect.y + n(&s[key][1]) * rect.height };
-                ShapeSpec::Line { start: at("start"), end: at("end"), width: n(&s["lineWidth"]) }
+                ShapeSpec::Line { start: at("start"), end: at("end"), width: n(&s["lineWidth"]) , style:Default::default(), cap:Default::default()}
             }
             other => panic!("no shape {other}"),
         };
@@ -48,7 +48,7 @@ fn the_mac_saved_the_shapes_the_probe_asked_for() {
     let boxes: Vec<(&str, [f64; 4])> = shapes.iter().map(|(name, spec, _)| { let b = spec.bounds(); (name.as_str(), [b.x, b.y, b.width, b.height]) }).collect();
     assert_eq!(boxes, [("Ellipse 1", [10.0, 10.0, 101.0, 61.0]), ("Rectangle 1", [130.0, 10.0, 120.0, 80.0]), ("Rectangle 2", [270.0, 10.0, 150.0, 40.0]),
         ("Line 1", [20.0, 120.0, 121.0, 1.0]), ("Line 2", [158.0, 108.0, 74.0, 74.0]), ("Line 3", [255.0, 120.0, 155.0, 95.0])]);
-    let ShapeSpec::Line { start, end, width } = &shapes[5].1 else { panic!("Line 3 is a line") };
+    let ShapeSpec::Line { start, end, width , ..} = &shapes[5].1 else { panic!("Line 3 is a line") };
     assert!((start.x - 262.5).abs() < 1e-9 && (start.y - 127.5).abs() < 1e-9 && (end.x - 402.5).abs() < 1e-9 && (end.y - 207.5).abs() < 1e-9 && *width == 15.0);
 }
 

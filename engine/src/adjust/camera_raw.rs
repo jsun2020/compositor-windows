@@ -712,6 +712,7 @@ extern "C" {
         grid: i32,
         clipping: i32,
     );
+    fn adjust_camera_raw_cached(rgba:*mut u8,width:usize,height:usize,stride:usize,table:*const f32,grid:i32,cache:*mut u32);
     fn adjust_camera_raw_effects(
         rgba: *mut u8,
         width: usize,
@@ -940,7 +941,32 @@ impl CameraRawSettings {
         .any(|v| *v != 0.0)
     }
     pub fn apply(&self, raster: &Raster) -> Result<Raster, CommandError> {
+        if raster.deep_pixels().is_some() {
+            let s = self.normalized();
+            // Only exposure: the composed color table is independent of the image statistics.
+            // Other controls and HDR retain their existing full reconstruction path.
+            let mut exposure_only = Self::default(); exposure_only.exposure = s.exposure;
+            if s.exposure != 0. && s == exposure_only && raster.depth() == crate::PixelDepth::Sixteen
+                && raster.width as u64 * raster.height as u64 >= 1_000_000 {
+                return s.apply_deep_exposure_cached(raster);
+            }
+            return raster.map_deep(true,|r|self.apply(r));
+        }
         self.apply_preview(raster, 0, -1, false, false, false)
+    }
+    fn apply_deep_exposure_cached(&self, raster: &Raster) -> Result<Raster, CommandError> {
+        let tone = self.curve.tone_table();
+        let channels = [&self.curve.red, &self.curve.green, &self.curve.blue]
+            .map(|points| std::array::from_fn(|i| point(i as f64 / 255.0, points) as f32));
+        let lut = super::camera_raw_tables::lookup(self, raster, true, &tone, &channels);
+        // One 64 MiB table, released with this operation; never retained per document or worker.
+        let mut cache = vec![0u32; 1 << 24];
+        raster.map_deep(true, |source| {
+            let mut data = source.bytes().to_vec();
+            unsafe { adjust_camera_raw_cached(data.as_mut_ptr(), source.width as usize, source.height as usize,
+                source.width as usize * 4, super::camera_raw_tables::ptr(&lut), super::camera_raw_tables::GRID, cache.as_mut_ptr()); }
+            Ok(Raster::from_premultiplied(source.width, source.height, data))
+        })
     }
     /// Preview diagnostics are never part of a committed filter's parameters.
     pub fn apply_preview(
@@ -995,6 +1021,13 @@ impl CameraRawSettings {
             let c = &s.curve;
             let tone = c.tone_table();
             let channels: [[f32;256];3] = [&c.red, &c.green, &c.blue].map(|points| std::array::from_fn(|i| point(i as f64 / 255.0, points) as f32));
+            if s.shadows != 0.0 {
+                let before = super::camera_raw_tables::before_shadows(&s, &source);
+                if before.is_some() {
+                    adjust_camera_raw(p,w,h,stride,super::camera_raw_tables::ptr(&before),super::camera_raw_tables::GRID,0);
+                }
+                super::camera_raw_shadows::apply(s.shadows, &mut data, w, h, s.pixel_scale);
+            }
             let lut=super::camera_raw_tables::lookup(&s,&source,folds_color,&tone,&channels);
             if lut.is_some() || clipping != 0 { adjust_camera_raw(p,w,h,stride,super::camera_raw_tables::ptr(&lut),super::camera_raw_tables::GRID,clipping); }
             if !folds_color && clipping == 0 && !sharpen_mask && (s.curve_color() || visualize >= 0) {
@@ -1435,5 +1468,27 @@ impl CameraRawGeometry {
             }
         }
         Ok(Raster::from_premultiplied(w, h, data))
+    }
+}
+
+#[cfg(test)]
+mod deep_exposure_cache_tests {
+    use super::*;
+    #[test]
+    fn memoized_deep_exposure_matches_original_reconstruction_exactly() {
+        let (w,h)=(113,79);let mut state=0x12345678u32;let mut samples=Vec::new();
+        for i in 0..w*h {
+            let alpha=match i%7 {0=>0,1=>1,2=>128,3=>32768,4=>65278,_=>65535};
+            for _ in 0..3 {state=state.wrapping_mul(1664525).wrapping_add(1013904223);samples.push((state>>16)as u16);}
+            samples.push(alpha);
+        }
+        let input=Raster::from_rgba16(w,h,samples);
+        for exposure in [-5.,-0.5,0.5,1.25,5.] {
+            let settings=CameraRawSettings{exposure,..Default::default()};
+            let reference=input.map_deep(true,|r|settings.apply_preview(r,0,-1,false,false,false)).unwrap();
+            let cached=settings.apply_deep_exposure_cached(&input).unwrap();
+            assert_eq!(cached.deep_pixels().unwrap().samples,reference.deep_pixels().unwrap().samples,"exposure {exposure}");
+            assert_eq!(cached.bytes(),reference.bytes());
+        }
     }
 }

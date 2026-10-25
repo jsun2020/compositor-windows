@@ -42,9 +42,9 @@ test("a Mac save at format 11 opens from File > Open and saves again at 11, its 
 test("a project from a newer format says which versions this build reads", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("engine-ready")).toBeVisible();
-  await seed(page, "C:/mac/future.comp", (m) => m.replace('"version" : 11', '"version" : 12'));
+  await seed(page, "C:/mac/future.comp", (m) => m.replace('"version" : 11', '"version" : 99'));
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/mac/future.comp"));
   await clickMenu(page, "File", "open");
-  await expect(page.getByTestId("error-banner")).toContainText("This project uses format version 12. This app supports versions 1-11, which Compositor for Mac saves up to version 1.4.5.");
+  await expect(page.getByTestId("error-banner")).toContainText("This project uses format version 99. This app supports versions 1-17.");
   await expect(page.getByTestId("layer-row")).toHaveCount(0);
 });

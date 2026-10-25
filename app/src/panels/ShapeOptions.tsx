@@ -31,6 +31,11 @@ export function ShapeOptions() {
       </span>
       {o.kind === "Line" && amount("Width", "lineWidth", 1, 100, "The line's thickness")}
       {o.kind === "Rectangle" && amount("Radius", "cornerRadius", 0, 200, "Round the rectangle's corners by this many pixels; 0 keeps them square")}
+      {o.kind === "Rectangle" && <label><input type="checkbox" checked={o.smoothing ?? false} disabled={disabled} onChange={e=>s.setShapeOptions({smoothing:e.target.checked})}/> Smooth Corners</label>}
+      {o.kind === "Line" && <>
+        <label>Line Style <select aria-label="Line Style" value={o.lineStyle ?? "Solid"} disabled={disabled} onChange={e=>s.setShapeOptions({lineStyle:e.target.value as typeof o.lineStyle})}>{["Solid","Dotted","Dashed","Long Dash"].map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Line Caps <select aria-label="Line Caps" value={o.lineCap ?? "Square"} disabled={disabled} onChange={e=>s.setShapeOptions({lineCap:e.target.value as typeof o.lineCap})}><option>Square</option><option>Round</option></select></label>
+      </>}
       <label title="Shapes fill with the foreground color; click to change it">Fill{" "}
         <button className="color-swatch-button" data-testid="shape-fill" aria-label="Fill color" style={{ background: cssColor(s.palette.foreground) }} disabled={disabled}
           onClick={(e) => { e.currentTarget.blur(); s.openColorPicker({ kind: "palette", background: false }); }} />

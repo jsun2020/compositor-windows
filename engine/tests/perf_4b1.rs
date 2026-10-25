@@ -164,7 +164,7 @@ fn a_shape_over_the_whole_canvas_at_24_and_100_mp() {
         let mut e = Engine::new();
         let id = e.new_document(w, h, false).unwrap();
         let mut times = Vec::new();
-        for (name, shape) in [("rectangle", ShapeSpec::Rectangle { rect: Rect { x: 0.0, y: 0.0, width: w as f64, height: h as f64 }, corner_radius: 400.0 }),
+        for (name, shape) in [("rectangle", ShapeSpec::Rectangle { rect: Rect { x: 0.0, y: 0.0, width: w as f64, height: h as f64 }, corner_radius: 400.0 , smoothing:false}),
             ("ellipse", ShapeSpec::Ellipse { rect: Rect { x: 0.0, y: 0.0, width: w as f64, height: h as f64 } })] {
             let t = Instant::now();
             run(&mut e, id, Command::AddShape { shape, color: [0.2, 0.4, 0.6] });

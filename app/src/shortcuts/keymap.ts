@@ -57,10 +57,42 @@ export const SHORTCUTS = {
   "fill-background": [{ key: "Backspace", ctrl: true }, { key: "Delete", ctrl: true }],
 } satisfies Record<ActionId, Shortcut[]>;
 
+export type ShortcutOverrides = Partial<Record<ActionId, Shortcut[]>>;
+export const SHORTCUT_STORAGE_KEY="compositor.shortcuts.v1";
+export function readShortcutOverrides(): ShortcutOverrides {
+  try {
+    const value:unknown=JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY)??"{}");
+    if(!value||typeof value!=="object"||Array.isArray(value))return {};
+    const out:ShortcutOverrides={};
+    for(const [id,list] of Object.entries(value)) {
+      if(!Object.hasOwn(SHORTCUTS,id)||!Array.isArray(list)||list.length>8)continue;
+      if(list.every(s=>s&&typeof s.key==="string"&&s.key.length>0&&s.key.length<=32&&[s.ctrl,s.shift,s.alt].every(v=>v===undefined||typeof v==="boolean")))out[id as ActionId]=list;
+    }
+    return out;
+  }catch{return {};}
+}
+export function effectiveShortcuts(overrides=readShortcutOverrides()):Record<ActionId,Shortcut[]> {
+  return {...SHORTCUTS,...overrides};
+}
+export const sameShortcut=(a:Shortcut,b:Shortcut)=>a.key.toLowerCase()===b.key.toLowerCase()&&!!a.ctrl===!!b.ctrl&&!!a.shift===!!b.shift&&!!a.alt===!!b.alt;
+/** An explicit empty list means unbound and must survive reopening. A new binding moves from its previous action. */
+export function assignShortcut(overrides:ShortcutOverrides,id:ActionId,binding:Shortcut|null):ShortcutOverrides {
+  const next={...overrides};
+  if(binding)for(const [other,list]of Object.entries(effectiveShortcuts(next)) as [ActionId,Shortcut[]][]) {
+    if(other!==id&&list.some(s=>sameShortcut(s,binding)))next[other]=list.filter(s=>!sameShortcut(s,binding));
+  }
+  next[id]=binding?[binding]:[];return next;
+}
+export function saveShortcutOverrides(overrides:ShortcutOverrides):void {localStorage.setItem(SHORTCUT_STORAGE_KEY,JSON.stringify(overrides));}
+export function shortcutKey(e:Pick<KeyboardEvent,"key"|"code">):string {
+  // Preserve Latin layouts, but let Cyrillic/CJK layouts use the physical Latin tool key.
+  if(e.key.length===1&&!/^[\x20-\x7e]$/.test(e.key)&&/^Key[A-Z]$/.test(e.code??""))return e.code.slice(3).toLowerCase();
+  return e.key;
+}
 export function matchShortcut(e: KeyboardEvent): ActionId | null {
-  const key = e.key.toLowerCase();
-  const ctrl = e.ctrlKey || e.metaKey;
-  for (const [id, list] of Object.entries(SHORTCUTS) as [ActionId, Shortcut[]][]) {
+  if(e.isComposing||e.getModifierState?.("AltGraph"))return null;
+  const key = shortcutKey(e).toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
+  for (const [id, list] of Object.entries(effectiveShortcuts()) as [ActionId, Shortcut[]][]) {
     for (const s of list) {
       if (s.key.toLowerCase() === key && !!s.ctrl === ctrl && !!s.shift === e.shiftKey && !!s.alt === e.altKey) return id;
     }

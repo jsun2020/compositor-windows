@@ -172,7 +172,7 @@ fn export_dimensions_dpi_alpha_and_pdf_are_independent_of_the_document() {
     ));
     let before = d.clone();
     let id = e.insert_document(d);
-    let mut o = ExportOptions {
+    let mut o = ExportOptions {gif_loop:None,channel_sources:None,
         width: 24,
         height: 16,
         format: ExportFormat::PNG,

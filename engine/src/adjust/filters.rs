@@ -6,8 +6,12 @@ fn clamp_or(n: f64, lo: f64, hi: f64, fallback: f64) -> f64 { if n.is_finite() {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "filter")]
 pub enum FilterParams {
+    LensEffects {settings:super::lens_effects::LensEffectSettings},
+    BloomGlow {amount:f64,radius:f64},
+    ProgressiveBlur {settings:super::progressive::ProgressiveBlurSettings},
+    RgbSplit {settings:super::rgb_split::RgbSplitSettings},
     /// Standard deviation in layer pixels, 0.1 to 250.
-    GaussianBlur { radius: f64 },
+    GaussianBlur { radius: f64, #[serde(rename="preserveTransparency",default)] preserve_transparency: bool },
     /// Direction in degrees counter-clockwise from horizontal (-90 to 90) and streak length in layer pixels (1 to 2000).
     MotionBlur { angle: f64, distance: f64 },
     /// Photoshop's percentage, 0.1 to 400.
@@ -18,33 +22,61 @@ pub enum FilterParams {
     Scanlines {settings:super::scanlines::ScanlinesSettings},
 }
 
+/// Sides that meet or exceed the canvas boundary. Only those edges are extended.
+#[derive(Clone,Copy,Debug,Default,PartialEq,Eq)]
+pub struct CanvasSides {pub left:bool,pub right:bool,pub top:bool,pub bottom:bool}
+pub(crate) fn edge_index(i:i64,n:i64,before:bool,after:bool)->Option<i64>{
+ if i<0 {before.then_some(0)}else if i>=n {after.then_some(n-1)}else{Some(i)}
+}
 /// Remove Distortion at +/-100 moves the corners by this share of their distance from the centre.
 pub const LENS_STRENGTH: f64 = 0.35;
 
 impl FilterParams {
     pub fn name(&self) -> &'static str {
-        match self { FilterParams::Scanlines{..}=>"Scanlines", FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
+        match self { FilterParams::LensEffects{..}=>"Lens Effects", FilterParams::BloomGlow{..}=>"Bloom / Glow", FilterParams::ProgressiveBlur{..}=>"Progressive Blur", FilterParams::RgbSplit{..}=>"RGB Split", FilterParams::Scanlines{..}=>"Scanlines", FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
             FilterParams::AddNoise { .. } => "Add Noise", FilterParams::LensCorrection { .. } => "Lens Correction", FilterParams::CameraRaw { .. } => "Camera Raw" }
     }
     pub fn normalized(&self) -> FilterParams {
         match *self {
+            FilterParams::LensEffects{ref settings}=>Self::LensEffects{settings:settings.normalized()},
+            FilterParams::BloomGlow{amount,radius}=>Self::BloomGlow{amount:clamp_or(amount,0.,100.,40.),radius:clamp_or(radius,1.,150.,24.)},
+            FilterParams::ProgressiveBlur{ref settings}=>Self::ProgressiveBlur{settings:settings.normalized()},
+            FilterParams::RgbSplit{ref settings}=>FilterParams::RgbSplit{settings:settings.normalized()},
             FilterParams::Scanlines{ref settings}=>FilterParams::Scanlines{settings:settings.normalized()},
             FilterParams::CameraRaw { ref settings } => FilterParams::CameraRaw { settings: Box::new(settings.normalized()) },
-            FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: clamp_or(radius, 0.1, 250.0, 1.0) },
+            FilterParams::GaussianBlur { radius, preserve_transparency } => FilterParams::GaussianBlur { radius: clamp_or(radius, 0.1, 250.0, 1.0), preserve_transparency },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle: clamp_or(angle, -90.0, 90.0, 0.0), distance: clamp_or(distance, 1.0, 2000.0, 10.0) },
             FilterParams::AddNoise { amount, gaussian, monochromatic, seed } => FilterParams::AddNoise { amount: clamp_or(amount, 0.1, 400.0, 10.0), gaussian, monochromatic, seed },
             FilterParams::LensCorrection { distortion } => FilterParams::LensCorrection { distortion: clamp_or(distortion, -100.0, 100.0, 0.0) },
         }
     }
+    /// Map canvas handles into the raster being processed, including reduced previews.
+    pub fn mapped(&self, transform:&crate::LayerTransform, width:u32,height:u32)->Self {
+        if let Self::ProgressiveBlur{settings}=self {
+            let mut s=settings.clone();if let Some(inv)=transform.pixel_to_document(width,height).invert(){s.start=s.start.map(|p|inv.apply(p));s.end=s.end.map(|p|inv.apply(p));}
+            return Self::ProgressiveBlur{settings:s};
+        }
+        let Self::RgbSplit{settings}=self else {return self.clone();};
+        let mut s=settings.clone();if let Some(inverse)=transform.pixel_to_document(width,height).invert(){
+            s.center=s.center.map(|p|inverse.apply(p));s.reach*=inverse.a.hypot(inverse.b);
+        }
+        Self::RgbSplit{settings:s}
+    }
     /// Whether applying this would change nothing.
     pub fn is_identity(&self) -> bool {
-        match self.normalized() { FilterParams::LensCorrection { distortion } => distortion == 0.0, FilterParams::CameraRaw { settings } => settings.is_identity(), _ => false }
+        match self.normalized() { FilterParams::LensEffects{settings}=>settings.is_identity(), FilterParams::BloomGlow{amount,..}=>amount==0., FilterParams::ProgressiveBlur{settings}=>settings.from==0.&&settings.to==0., FilterParams::RgbSplit{settings}=>settings.distance==0.&&settings.blur==0., FilterParams::LensCorrection { distortion } => distortion == 0.0, FilterParams::CameraRaw { settings } => settings.is_identity(), _ => false }
     }
     /// The room the filter needs around the layer, in layer pixels: about three standard
     /// deviations, or half a streak.
     pub fn margin(&self) -> f64 {
-        match self.normalized() {
-            FilterParams::GaussianBlur { radius } => radius * 3.0 + 2.0,
+        self.normalized().pixel_margin()
+    }
+    pub(crate) fn pixel_margin(&self) -> f64 {
+        match self.clone() {
+            FilterParams::BloomGlow{radius,..}=>radius*3.+2.,
+            FilterParams::ProgressiveBlur{settings:s}=>s.from.max(s.to)*3.+2.,
+            FilterParams::RgbSplit{settings:s}=>(s.distance+s.blur)*if s.radial{2.}else{1.}+2.,
+            FilterParams::GaussianBlur { radius, preserve_transparency } => if preserve_transparency {0.0}else{radius * 3.0 + 2.0},
             FilterParams::MotionBlur { distance, .. } => distance / 2.0 + 2.0,
             _ => 0.0,
         }
@@ -54,9 +86,12 @@ impl FilterParams {
     /// lens correction are relative to the raster's own size, so they do not scale.
     pub fn scaled(&self, factor: f64) -> FilterParams {
         match *self {
+            FilterParams::BloomGlow{amount,radius}=>Self::BloomGlow{amount,radius:radius*factor},
+            FilterParams::ProgressiveBlur{ref settings}=>{let mut s=settings.clone();s.from*=factor;s.to*=factor;Self::ProgressiveBlur{settings:s}},
+            FilterParams::RgbSplit{ref settings}=>{let mut s=settings.clone();s.distance*=factor;s.blur*=factor;FilterParams::RgbSplit{settings:s}},
             FilterParams::Scanlines{ref settings}=>FilterParams::Scanlines{settings:settings.clone()},
             FilterParams::CameraRaw { ref settings } => {let mut settings=settings.normalized();settings.pixel_scale*=factor;FilterParams::CameraRaw{settings:Box::new(settings)}},
-            FilterParams::GaussianBlur { radius } => FilterParams::GaussianBlur { radius: radius * factor },
+            FilterParams::GaussianBlur { radius, preserve_transparency } => FilterParams::GaussianBlur { radius: radius * factor, preserve_transparency },
             FilterParams::MotionBlur { angle, distance } => FilterParams::MotionBlur { angle, distance: distance * factor },
             ref other => other.clone(),
         }
@@ -83,6 +118,7 @@ fn sample_zero(raster: &Raster, x: f64, y: f64) -> [f32; 4] {
 
 /// Separable Gaussian on premultiplied channels, transparent beyond the raster.
 pub fn gaussian_blur(raster: &Raster, sigma: f64) -> Raster {
+    if raster.deep_pixels().is_some() {return super::deep_filters::gaussian(raster,sigma);}
     if !(sigma > 0.0) || raster.width == 0 || raster.height == 0 { return raster.clone(); }
     let mut data = raster.bytes().to_vec();
     gaussian_blur_in_place(&mut data, raster.width, raster.height, sigma);
@@ -97,7 +133,8 @@ pub fn gaussian_blur(raster: &Raster, sigma: f64) -> Raster {
 /// horizontal rows up to y + radius are in the band; the source rows those came from are never
 /// read again, so the output can take their place. Same sums in the same order as a full-frame
 /// pass, so the same bytes (tests/filters.rs keeps that form as its reference).
-pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f64) {
+pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f64) {gaussian_blur_edges_in_place(data,width,height,sigma,CanvasSides::default())}
+fn gaussian_blur_edges_in_place(data: &mut [u8], width: u32, height: u32, sigma: f64, sides:CanvasSides) {
     if !(sigma > 0.0) || width == 0 || height == 0 { return; }
     assert_eq!(data.len(), (width as usize) * (height as usize) * 4);
     let radius = (sigma * 3.0).ceil() as i64;
@@ -118,8 +155,7 @@ pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f
             for x in 0..w {
                 let mut acc = [0f32; 4];
                 for (k, weight) in kernel.iter().enumerate() {
-                    let sx = x + k as i64 - radius;
-                    if sx < 0 || sx >= w { continue; }
+                    let Some(sx)=edge_index(x+k as i64-radius,w,sides.left,sides.right)else{continue;};
                     let i = row + (sx * 4) as usize;
                     for c in 0..4 { acc[c] += data[i + c] as f32 * weight; }
                 }
@@ -130,8 +166,7 @@ pub fn gaussian_blur_in_place(data: &mut [u8], width: u32, height: u32, sigma: f
         }
         taps.clear();
         for (k, weight) in kernel.iter().enumerate() {
-            let sy = y + k as i64 - radius;
-            if sy < 0 || sy >= h { continue; }
+            let Some(sy)=edge_index(y+k as i64-radius,h,sides.top,sides.bottom)else{continue;};
             taps.push((((sy % band) * w * 4) as usize, *weight));
         }
         for x in 0..w {
@@ -193,6 +228,7 @@ pub fn motion_stencil(angle: f64, distance: f64) -> (Vec<(i64, i64, f32)>, f32) 
 /// never exceeds alpha. Run a row at a time over the stencil's cells, so the inner loop reads one
 /// source row in order. `programs.ts` FRAG_MOTION takes the same taps on the GPU.
 pub fn motion_blur(raster: &Raster, angle: f64, distance: f64) -> Raster {
+    if raster.deep_pixels().is_some() {return super::deep_filters::motion(raster,angle,distance);}
     let (stencil, sum) = motion_stencil(angle, distance);
     if stencil.is_empty() || raster.width == 0 || raster.height == 0 { return raster.clone(); }
     let (w, h) = (raster.width as i64, raster.height as i64);
@@ -296,12 +332,49 @@ pub fn lens_distort(raster: &Raster, k: f64) -> Raster {
 
 /// The filter at its own scale; callers reduce the raster and pass `params.scaled(factor)`.
 pub fn apply_filter(raster: &Raster, params: &FilterParams) -> Result<Raster,crate::CommandError> {
-    Ok(match params.normalized() {
+    apply_filter_pixels(raster,&params.normalized())
+}
+/// Parameters have already been normalized in document units, then scaled/mapped.
+/// Re-clamping here would turn a 0.1 px preview blur back into a 1 px blur.
+pub(crate) fn apply_filter_pixels(raster:&Raster,params:&FilterParams)->Result<Raster,crate::CommandError>{
+    if raster.deep_pixels().is_some() {
+        match params.clone() {
+            FilterParams::LensCorrection{distortion}=>return Ok(super::deep_filters::distort(raster,distortion/100.*LENS_STRENGTH)),
+            FilterParams::AddNoise{..}=>return raster.map_deep(false,|r|apply_filter(r,params)),
+            FilterParams::Scanlines{..}=>return raster.map_deep(true,|r|apply_filter(r,params)),
+            _=>{}
+        }
+    }
+    Ok(match params.clone() {
+        FilterParams::LensEffects{settings}=>return super::lens_effects::apply_checked(raster,&settings),
+        FilterParams::BloomGlow{amount,radius}=>super::bloom::bloom(raster,amount,radius),
+        FilterParams::ProgressiveBlur{settings}=>settings.apply_pixels(raster,CanvasSides::default()),
+        FilterParams::RgbSplit{settings}=>settings.apply_pixels_at(raster,crate::Point{x:0.,y:0.}),
         FilterParams::CameraRaw { settings } => return settings.apply(raster),
         FilterParams::Scanlines{settings}=>return settings.apply(raster),
-        FilterParams::GaussianBlur { radius } => gaussian_blur(raster, radius),
+        FilterParams::GaussianBlur { radius, preserve_transparency } => if preserve_transparency {gaussian_preserving_alpha(raster,radius)}else{gaussian_blur(raster, radius)},
         FilterParams::MotionBlur { angle, distance } => motion_blur(raster, angle, distance),
         FilterParams::AddNoise { amount, gaussian, monochromatic, seed } => add_noise(raster, amount, gaussian, monochromatic, seed),
         FilterParams::LensCorrection { distortion } => lens_distort(raster, distortion / 100.0 * LENS_STRENGTH),
     })
+}
+
+/// Blur straight color from the layer's own pixels, then restore each original alpha.
+/// Dividing by the blurred alpha prevents transparent neighbors from darkening edges.
+pub fn gaussian_preserving_alpha(r:&Raster,sigma:f64)->Raster {
+ super::deep_filters::gaussian_alpha(r,sigma,true)
+}
+
+pub fn apply_filter_edges(r:&Raster,p:&FilterParams,sides:CanvasSides)->Result<Raster,crate::CommandError>{apply_filter_edges_pixels(r,&p.normalized(),sides)}
+pub(crate) fn apply_filter_edges_pixels(r:&Raster,p:&FilterParams,sides:CanvasSides)->Result<Raster,crate::CommandError>{
+ if sides==CanvasSides::default(){return apply_filter_pixels(r,p);}
+ match p.clone(){
+  FilterParams::ProgressiveBlur{settings}=>Ok(settings.apply_pixels(r,sides)),
+  FilterParams::GaussianBlur{radius,preserve_transparency:false}=>{
+   if r.deep_pixels().is_some(){return Ok(super::deep_filters::gaussian_edges(r,radius,false,sides));}
+   let mut data=r.bytes().to_vec();gaussian_blur_edges_in_place(&mut data,r.width,r.height,radius,sides);Ok(Raster::from_premultiplied(r.width,r.height,data))
+  },
+  FilterParams::MotionBlur{angle,distance}=>Ok(super::deep_filters::motion_edges(r,angle,distance,sides)),
+  _=>apply_filter_pixels(r,p),
+ }
 }

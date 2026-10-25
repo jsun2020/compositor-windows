@@ -1,3 +1,4 @@
+import {applyColorProof} from "./color-proof";
 import type { Corners, Coverage, DocumentState, LayerDraw, LayerTransform, PreviewEdit, RenderPlan } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, isSpatialKind, type AdjustmentKind } from "../engine/types";
 import type { EngineClient } from "../engine/client";
@@ -19,6 +20,7 @@ const KIND_CODE: Record<AdjustmentKind, number> = {
   "Gradient Map": ADJUST_KIND.gradientMap, Grain: ADJUST_KIND.grain, Invert: ADJUST_KIND.invert,
   "Black & White": ADJUST_KIND.blackWhite, "Color Balance": ADJUST_KIND.colorBalance, "Add Noise": ADJUST_KIND.addNoise,
   // Never reach this pass: drawInto sends them to spatialPass.
+  "Progressive Blur": ADJUST_KIND.identity, "Bloom / Glow": ADJUST_KIND.identity, "RGB Split": ADJUST_KIND.identity,
   "Gaussian Blur": ADJUST_KIND.identity, "Motion Blur": ADJUST_KIND.identity,
 };
 
@@ -29,6 +31,7 @@ interface Frame { x: number; y: number; w: number; h: number; right: number; bot
 
 export class GlRenderer implements Renderer {
   readonly kind = "gl" as const;
+  compositionBackend: "gpu" | "cpu-reference" = "gpu";
   private textures: LayerTextures;
   private masks: MaskTextures;
   private fbos: FboPool;
@@ -224,6 +227,28 @@ export class GlRenderer implements Renderer {
     const plan = engine.renderPlan(state.id, edit);
     this.frame = this.frameFor(plan, viewport, state, dpr, engine, edit);
     this.fbos.resize(this.fw(), this.fh(), this.frame ? 256 : 1);
+    // New spatial kinds and high precision documents use the engine compositor
+    // until their WebGL kernels can preserve the same channels and region halos.
+    // The completed region is presented through GL; old RGBA8 plans keep their GPU path.
+    const proof=options.colorProof;
+    const needsReference=!!(proof?.lut&&(proof.proof||proof.warning)) || state.layers.some(l=>l.pixelDepth&&l.pixelDepth!=="Eight") || plan.nodes.some(n=>
+      (n.kind==="layer"?[n.draw]:[n.base,...n.children]).some(d=>["Progressive Blur","Bloom / Glow","RGB Split"].includes(d.adjustment?.kind??"")));
+    this.compositionBackend=needsReference?"cpu-reference":"gpu";
+    if(needsReference) {
+      const rect=viewport.documentRect(state),x0=Math.round(rect.x*dpr),y0=Math.round(rect.y*dpr),width=Math.max(1,Math.round((rect.x+rect.width)*dpr)-x0);
+      const scale=state.width/width,fx=this.frame?.x??0,fy=this.frame?.y??0,w=this.fw(),h=this.fh();
+      const key=JSON.stringify(["reference",state,edit,W,H,dpr,rect,this.frame,proof?.revision,proof?.proof,proof?.warning]);
+      if(this.compositionKey!==key) {
+        const pixels=engine.compositeEdit(state.id,edit,{x:(fx-x0)*scale,y:(fy-y0)*scale,width:w*scale,height:h*scale},w,h);
+        if(proof)applyColorProof(pixels,proof);
+        const flipped=new Uint8Array(pixels.length),stride=w*4;
+        for(let y=0;y<h;y++)flipped.set(pixels.subarray(y*stride,(y+1)*stride),(h-1-y)*stride);
+        gl.bindTexture(gl.TEXTURE_2D,this.fbos.get("mainA","rgba").tex);gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+        gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,flipped);gl.pixelStorei(gl.UNPACK_ALIGNMENT,4);
+        this.compositionKey=key;
+      }
+      gl.bindVertexArray(this.programs.vao);gl.disable(gl.BLEND);this.screenPass(state,viewport,dpr,options);return;
+    }
     this.syncTextures(engine, state, plan, viewport, dpr, edit);
     this.syncMasks(engine, state, plan);
     gl.bindVertexArray(this.programs.vao);

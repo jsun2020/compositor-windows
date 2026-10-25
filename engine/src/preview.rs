@@ -233,12 +233,14 @@ pub(crate) fn compute_preview_with_previous(doc: &Document, clips: &SelectionCli
             if params.is_identity() { return None; }
             // Grown but never trimmed: trimming mid-drag would make the layer jump about.
             let scaled = params.scaled(factor);
+            let original=layer.pixels.as_ref()?;
+            let sides=ops::adjust::filter_canvas_sides(doc,&layer.transform,original.width,original.height,&params);
             let (grid, placed) = match params.spreads() {
-                true => ops::adjust::grown(&source, &layer.transform, scaled.margin())?,
+                true => ops::adjust::grown_filter(&source, &layer.transform, scaled.pixel_margin(),sides)?,
                 false => (source, layer.transform),
             };
             let coverage = ops::adjust::edit_coverage(doc, clips, &placed, grid.width, grid.height).ok()?;
-            let filtered = adjust::filters::apply_filter(&grid, &scaled).ok()?;
+            let filtered = adjust::filters::apply_filter_edges_pixels(&grid, &scaled.mapped(&placed,grid.width,grid.height),sides).ok()?;
             let result = match coverage { Some(c) => adjust::apply::blend_by_coverage(&filtered, &grid, &c), None => filtered };
             Some(PixelPreview::new(layer.id, result, placed, revision, request, made_from, PreviewTarget::Pixels { followed: None }))
         }

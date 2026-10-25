@@ -28,7 +28,7 @@ fn a_rectangle_fills_a_new_layer_with_the_colour_as_one_undo_step_and_keeps_the_
     let (mut e, id) = session();
     run(&mut e, id, Command::SelectAll);
     let depth = e.state(id).unwrap().undo_depth;
-    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 30.0, 20.0), corner_radius: 0.0 }, RED);
+    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 30.0, 20.0), corner_radius: 0.0 , smoothing:false}, RED);
     let s = e.state(id).unwrap();
     assert_eq!(names(&e, id), ["Layer 1", "Rectangle 1"]);
     let layer = s.layers.iter().find(|l| l.name == "Rectangle 1").unwrap();
@@ -40,7 +40,7 @@ fn a_rectangle_fills_a_new_layer_with_the_colour_as_one_undo_step_and_keeps_the_
     assert!(s.selection.is_some(), "unlike Paste, drawing a shape keeps the selection");
     for (x, y) in [(25, 20), (10, 10), (39, 29)] { assert_eq!(pixel(&e, id, x, y), (255, 255), "({x}, {y})"); }
     for (x, y) in [(9, 20), (40, 20), (25, 30)] { assert_eq!(pixel(&e, id, x, y).1, 0, "({x}, {y})"); }
-    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(60.0, 10.0, 10.0, 10.0), corner_radius: 0.0 }, RED);
+    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(60.0, 10.0, 10.0, 10.0), corner_radius: 0.0 , smoothing:false}, RED);
     assert_eq!(names(&e, id).last().unwrap(), "Rectangle 2");
     e.undo(id).unwrap();
     e.undo(id).unwrap();
@@ -66,7 +66,7 @@ fn unrounded_rectangle_bytes_match_general_antialiased_rasterization() {
                     (channels[2] * fraction + 0.5) as u8, alpha]
             }).collect();
             for corner_radius in [-7.0, 0.0] {
-                let spec = ShapeSpec::Rectangle { rect: rect(0.25, -0.5, width, height), corner_radius };
+                let spec = ShapeSpec::Rectangle { rect: rect(0.25, -0.5, width, height), corner_radius , smoothing:false};
                 let actual = ops::shape::shape_raster(&spec, *color);
                 assert_eq!((actual.width, actual.height), (w, h));
                 assert_eq!(actual.bytes(), expected, "{spec:?}, color {color:?}");
@@ -94,8 +94,8 @@ fn an_ellipse_leaves_its_corners_clear() {
 fn rounded_rectangles_follow_the_radius_and_clamp_to_a_pill() {
     // ShapeToolTests.roundedRectanglesFollowTheRadiusAndClampToAPill.
     let (mut e, id) = session();
-    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 40.0, 30.0), corner_radius: 8.0 }, RED);
-    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(55.0, 50.0, 40.0, 20.0), corner_radius: 500.0 }, RED);
+    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 40.0, 30.0), corner_radius: 8.0 , smoothing:false}, RED);
+    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(55.0, 50.0, 40.0, 20.0), corner_radius: 500.0 , smoothing:false}, RED);
     assert_eq!(pixel(&e, id, 10, 10).1, 0, "the corner is cut away");
     assert_eq!(pixel(&e, id, 11, 11).1, 0);
     assert_eq!(pixel(&e, id, 13, 13).1, 255, "inside the rounded corner");
@@ -130,13 +130,13 @@ fn every_edge_pixel_is_the_area_the_shape_covers() {
             let (u, v) = ((x - 23.5) / 18.5, (y - 18.5) / 11.5);
             u * u + v * v <= 1.0
         })),
-        (ShapeSpec::Rectangle { rect: rect(50.0, 40.0, 40.0, 26.0), corner_radius: 9.0 }, Box::new(|x, y| {
+        (ShapeSpec::Rectangle { rect: rect(50.0, 40.0, 40.0, 26.0), corner_radius: 9.0 , smoothing:false}, Box::new(|x, y| {
             if !(50.0..=90.0).contains(&x) || !(40.0..=66.0).contains(&y) { return false; }
             let cx = x.clamp(59.0, 81.0);
             let cy = y.clamp(49.0, 57.0);
             (x - cx).hypot(y - cy) <= 9.0
         })),
-        (ShapeSpec::Line { start: p(12.5, 60.25), end: p(47.75, 71.0), width: 5.0 }, Box::new(|x, y| {
+        (ShapeSpec::Line { start: p(12.5, 60.25), end: p(47.75, 71.0), width: 5.0 , style:Default::default(), cap:Default::default()}, Box::new(|x, y| {
             let (ax, ay, bx, by) = (12.5, 60.25, 47.75, 71.0);
             let t = (((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax).powi(2) + (by - ay).powi(2))).clamp(0.0, 1.0);
             (x - (ax + t * (bx - ax))).hypot(y - (ay + t * (by - ay))) <= 2.5
@@ -170,7 +170,7 @@ fn a_line_lies_in_its_ends_box_grown_by_half_its_width_with_its_ends_as_fraction
     // (402.5, 207.5), in a document large enough.
     let mut e = Engine::new();
     let id = e.new_document(440, 280, false).unwrap();
-    shape(&mut e, id, ShapeSpec::Line { start: p(262.5, 127.5), end: p(402.5, 207.5), width: 15.0 }, [0.0, 128.0 / 255.0, 0.0]);
+    shape(&mut e, id, ShapeSpec::Line { start: p(262.5, 127.5), end: p(402.5, 207.5), width: 15.0 , style:Default::default(), cap:Default::default()}, [0.0, 128.0 / 255.0, 0.0]);
     let doc = e.document(id).unwrap();
     let layer = doc.layers.last().unwrap();
     assert_eq!(layer.name, "Line 1");
@@ -184,7 +184,7 @@ fn a_line_lies_in_its_ends_box_grown_by_half_its_width_with_its_ends_as_fraction
     // A rectangle's record carries no line fields.
     let mut e2 = Engine::new();
     let id2 = e2.new_document(50, 50, false).unwrap();
-    shape(&mut e2, id2, ShapeSpec::Rectangle { rect: rect(1.0, 2.0, 30.0, 20.0), corner_radius: 2.5 }, [0.25, 0.5, 1.0]);
+    shape(&mut e2, id2, ShapeSpec::Rectangle { rect: rect(1.0, 2.0, 30.0, 20.0), corner_radius: 2.5 , smoothing:false}, [0.25, 0.5, 1.0]);
     assert_eq!(e2.document(id2).unwrap().layers.last().unwrap().extra.shape.as_ref().unwrap(),
         &serde_json::json!({ "kind": "Rectangle", "red": 0.25, "green": 0.5, "blue": 1, "cornerRadius": 2.5 }));
 }
@@ -194,7 +194,7 @@ fn a_line_of_width_one_is_a_one_pixel_row_with_round_ends() {
     // Line 1 of the probe: 1 wide from (20.5, 120.5) to (140.5, 120.5): a 121 x 1 layer at (20, 120).
     let mut e = Engine::new();
     let id = e.new_document(200, 200, false).unwrap();
-    shape(&mut e, id, ShapeSpec::Line { start: p(20.5, 120.5), end: p(140.5, 120.5), width: 1.0 }, [0.0, 0.0, 0.0]);
+    shape(&mut e, id, ShapeSpec::Line { start: p(20.5, 120.5), end: p(140.5, 120.5), width: 1.0 , style:Default::default(), cap:Default::default()}, [0.0, 0.0, 0.0]);
     let layer = e.document(id).unwrap().layers.last().unwrap().clone();
     assert_eq!((layer.transform.origin.x, layer.transform.origin.y, layer.pixels.as_ref().unwrap().width, layer.pixels.as_ref().unwrap().height), (20.0, 120.0, 121, 1));
     let px = layer.pixels.unwrap();
@@ -223,20 +223,20 @@ fn a_click_or_a_shape_too_large_makes_nothing() {
     let depth = e.state(id).unwrap().undo_depth;
     // Under a pixel on a side: a click, or a line along an axis of width under 1 (the Mac's
     // `rect.width >= 1, rect.height >= 1`).
-    for spec in [ShapeSpec::Rectangle { rect: rect(20.0, 20.0, 0.0, 0.0), corner_radius: 0.0 },
+    for spec in [ShapeSpec::Rectangle { rect: rect(20.0, 20.0, 0.0, 0.0), corner_radius: 0.0 , smoothing:false},
         ShapeSpec::Ellipse { rect: rect(20.0, 20.0, 30.0, 0.5) },
-        ShapeSpec::Line { start: p(10.0, 10.0), end: p(50.0, 10.0), width: 0.5 }] {
+        ShapeSpec::Line { start: p(10.0, 10.0), end: p(50.0, 10.0), width: 0.5 , style:Default::default(), cap:Default::default()}] {
         assert!(matches!(e.execute(id, Command::AddShape { shape: spec, color: RED }), Err(CommandError::Argument(_))));
     }
     // Past the project's 100 megapixels: the Mac's words.
-    let big = ShapeSpec::Rectangle { rect: rect(0.0, 0.0, 20_000.0, 6_000.0), corner_radius: 0.0 };
+    let big = ShapeSpec::Rectangle { rect: rect(0.0, 0.0, 20_000.0, 6_000.0), corner_radius: 0.0 , smoothing:false};
     match e.execute(id, Command::AddShape { shape: big, color: RED }) {
         Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_TOO_LARGE),
         other => panic!("{other:?}"),
     }
     // A side past 30,000 px under the pixel budget (a thin line 40,000 long holds 80,000 pixels): the
     // side is what stops it, and the words say so (final review minor 17).
-    let long = ShapeSpec::Line { start: p(1.0, 10.0), end: p(40_001.0, 10.0), width: 2.0 };
+    let long = ShapeSpec::Line { start: p(1.0, 10.0), end: p(40_001.0, 10.0), width: 2.0 , style:Default::default(), cap:Default::default()};
     match e.execute(id, Command::AddShape { shape: long, color: RED }) {
         Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_SIDE_TOO_LARGE),
         other => panic!("{other:?}"),
@@ -248,7 +248,7 @@ fn a_click_or_a_shape_too_large_makes_nothing() {
 #[test]
 fn painting_over_a_shape_layer_drops_its_record_and_a_save_keeps_it_otherwise() {
     let (mut e, id) = session();
-    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 30.0, 20.0), corner_radius: 4.0 }, RED);
+    shape(&mut e, id, ShapeSpec::Rectangle { rect: rect(10.0, 10.0, 30.0, 20.0), corner_radius: 4.0 , smoothing:false}, RED);
     let layer = e.state(id).unwrap().layers[1].id;
     let files = e.save_package(id).unwrap();
     let manifest: serde_json::Value = serde_json::from_str(&files.manifest_json).unwrap();

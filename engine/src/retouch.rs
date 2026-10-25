@@ -1,4 +1,4 @@
-//! The original v1.4.5 C kernels, compiled for Windows and WASM. Only their
+//! The original v1.5.7 C kernels, compiled for Windows and WASM. Only their
 //! allocator and math runtime boundary changes on WASM; algorithms are intact.
 use crate::*;
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ pub enum HealingMode {
 }
 extern "C" {
     fn spot_heal(rgba: *mut u8, coverage: *const u8, width: usize, height: usize, stride: usize, opacity: f32, mode: i32, seed: u32) -> i32;
-    fn content_fill(rgba: *mut u8, stride: usize, mask: *const u8, mask_stride: usize, width: i32, height: i32) -> i32;
+    fn patch_fill(rgba: *mut u8, stride: usize, mask: *const u8, mask_stride: usize, width: i32, height: i32, seed: u32) -> i32;
 }
 pub fn heal(raster: &Raster, coverage: &GrayRaster, opacity: f32, mode: HealingMode, seed: u32) -> Result<Raster, CommandError> {
     if (raster.width,raster.height)!=(coverage.width,coverage.height) || !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {return Err(CommandError::Argument("invalid healing input".into()));}
@@ -25,7 +25,7 @@ pub const NO_FILL_SOURCE: &str = "Not enough unselected, opaque image pixels to 
 pub fn fill(raster: &Raster, coverage: &GrayRaster) -> Result<Raster,CommandError> {
     if (raster.width,raster.height)!=(coverage.width,coverage.height) {return Err(CommandError::Argument("invalid content fill input".into()));}
     let mut out=raster.bytes().to_vec();
-    let result=unsafe{content_fill(out.as_mut_ptr(),raster.width as usize*4,coverage.bytes().as_ptr(),coverage.width as usize,raster.width as i32,raster.height as i32)};
+    let result=unsafe{patch_fill(out.as_mut_ptr(),raster.width as usize*4,coverage.bytes().as_ptr(),coverage.width as usize,raster.width as i32,raster.height as i32,0x6d2b79f5)};
     if result==0{return Err(CommandError::Refused(NO_FILL_SOURCE.into()));}
     if result<0{return Err(CommandError::Refused("The content fill ran out of memory".into()));}
     Ok(Raster::from_premultiplied(raster.width,raster.height,out))
@@ -51,5 +51,6 @@ mod wasm_runtime {
     #[no_mangle] extern "C" fn compositor_sin(x:f64)->f64{x.sin()}
     #[no_mangle] extern "C" fn compositor_cos(x:f64)->f64{x.cos()}
     #[no_mangle] extern "C" fn compositor_lround(x:f64)->i32{x.round() as i32}
+    #[no_mangle] extern "C" fn compositor_lrintf(x:f32)->i32{x.round_ties_even() as i32}
     #[no_mangle] extern "C" fn compositor_labs(x:i32)->i32{x.abs()}
 }

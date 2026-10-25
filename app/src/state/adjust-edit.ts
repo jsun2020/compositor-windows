@@ -1,3 +1,4 @@
+import {defaultFilterLayerSettings,filterLayerParams,withFilterLayerParams} from "./filter-layers";
 import type { AdjustmentKind, FilterKind, FilterParams, LayerAdjustment, PreviewRequest } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { defaultHsv } from "../tools/hue-band";
@@ -39,6 +40,13 @@ export function defaultAdjustment(kind: AdjustmentKind): LayerAdjustment {
 
 export function defaultFilterParams(kind: FilterKind): FilterParams {
   switch (kind) {
+    case "LensEffects":return {filter:"LensEffects",settings:{effect:"Anamorphic Flare",threshold:90,
+      flareAmount:50,flareLength:60,flareBlue:80,starAmount:50,starLength:12,starPoints:6,starAngle:15,
+      mistStrength:50,mistSize:30,prismAmount:70,prismCopies:3,prismOffset:11,prismAngle:180,prismSpread:70,
+      bokehRadius:2,bokehBrightness:50,bokehRing:100,bokehShape:"Round"}};
+    case "BloomGlow":return {filter:"BloomGlow",amount:40,radius:24};
+    case "ProgressiveBlur":return {filter:"ProgressiveBlur",settings:{from:0,to:20,start:null,end:null,radial:false,inverted:false}};
+    case "RgbSplit":return {filter:"RgbSplit",settings:{distance:10,blur:0,angle:0,radial:false,center:null,reach:1000}};
     case "Scanlines":return {filter:"Scanlines",settings:{lineSpacing:4,thickness:70,glow:0,dots:0,wobble:0,displace:0,smoothness:50,threshold:0,split:0,density:0,contrast:0,blackLevel:0,colors:"Black & White",dark:[0,0,0],light:[1,1,1]}};
     case "CameraRaw": return { filter: "CameraRaw", settings: freshCameraRaw() };
     case "GaussianBlur": return { filter: "GaussianBlur", radius: 1 };
@@ -49,6 +57,10 @@ export function defaultFilterParams(kind: FilterKind): FilterParams {
 }
 
 export const FILTER_TITLES: Record<FilterKind, string> = {
+  LensEffects:"Lens Effects",
+  BloomGlow:"Bloom / Glow",
+  ProgressiveBlur:"Progressive Blur",
+  RgbSplit:"RGB Split",
   Scanlines:"Scanlines",
   CameraRaw: "Camera Raw",
   GaussianBlur: "Gaussian Blur", MotionBlur: "Motion Blur", AddNoise: "Add Noise", LensCorrection: "Lens Correction",
@@ -93,7 +105,12 @@ export function effectiveFilterParams(edit:Pick<AdjustEdit,"params"|"cameraRawBy
 export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" | "original"|"cameraRawBypass">, engineIdentity: EngineIdentity): boolean {
   if (edit.params) {
     const p = effectiveFilterParams(edit)!;
-    return p.filter === "CameraRaw" ? cameraRawIsIdentity(p.settings) : p.filter === "LensCorrection" ? p.distortion === 0 : false;
+    if(p.filter==="LensEffects") {
+      const s=p.settings;
+      return s.effect==="Anamorphic Flare"?s.flareAmount===0:s.effect==="Starburst"?s.starAmount===0:
+        s.effect==="Mist"?s.mistStrength===0:s.effect==="Prism"?(s.prismAmount===0||s.prismOffset===0):false;
+    }
+    return p.filter==="BloomGlow" ? p.amount===0 : p.filter==="ProgressiveBlur" ? p.settings.from===0&&p.settings.to===0 : p.filter==="RgbSplit" ? p.settings.distance===0&&p.settings.blur===0 : p.filter === "CameraRaw" ? cameraRawIsIdentity(p.settings) : p.filter === "LensCorrection" ? p.distortion === 0 : false;
   }
   const a = edit.adjustment;
   if (!a) return true;
@@ -107,6 +124,14 @@ export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" 
  * still records nothing. */
 export function resetAdjustment(current: LayerAdjustment, original: LayerAdjustment | null): LayerAdjustment {
   const fresh = defaultAdjustment(current.kind);
+  const filter=filterLayerParams(current);
+  if(filter) {
+    if(!original?.filterLayerSettings&&original)return original;
+    const s=defaultFilterLayerSettings(),p=defaultFilterParams(filter.filter);
+    if(p.filter==="ProgressiveBlur"&&filter.filter==="ProgressiveBlur"){p.settings.start=filter.settings.start;p.settings.end=filter.settings.end;}
+    if(p.filter==="RgbSplit"&&filter.filter==="RgbSplit"){p.settings.center=filter.settings.center;p.settings.reach=filter.settings.reach;}
+    return withFilterLayerParams({...current,filterLayerSettings:current.filterLayerSettings??s},p);
+  }
   const seed = (original ?? current).grainSettings?.seed;
   if (fresh.grainSettings && seed !== undefined) fresh.grainSettings.seed = seed;
   if (!original) return fresh;

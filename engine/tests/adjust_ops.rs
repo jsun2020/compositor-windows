@@ -41,7 +41,7 @@ fn invert_works_on_pixels_and_on_a_mask() {
 fn a_blur_grows_the_layer_spreads_past_its_edge_and_trims_back() {
     let (mut d, id) = doc_with_layer();
     let before = d.layer(id).unwrap().transform;
-    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { radius: 3.0 }).unwrap();
+    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { preserve_transparency:false, radius: 3.0 }).unwrap();
     let l = d.layer(id).unwrap();
     assert!(l.transform.origin.x < before.origin.x, "the blur spreads past the old left edge: {:?}", l.transform);
     assert!(l.transform.size.width > before.size.width && l.transform.size.height > before.size.height);
@@ -69,7 +69,7 @@ fn a_blur_carries_a_covering_mask_onto_the_new_grid() {
     d.layer_mut(id).unwrap().set_mask(Some(Mask {
         pixels: GrayRaster::from_bytes(20, 20, (0..400).map(|i| if (i % 20) < 10 { 255 } else { 0 }).collect()),
         enabled: true, placement: None, linked: None }));
-    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { radius: 2.0 }).unwrap();
+    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { preserve_transparency:false, radius: 2.0 }).unwrap();
     let l = d.layer(id).unwrap();
     let mask = l.mask.as_ref().unwrap();
     assert!(mask.placement.is_none(), "still a covering mask");
@@ -98,7 +98,7 @@ fn a_blur_leaves_a_positioned_mask_where_it_sits() {
     d.layer_mut(id).unwrap().set_mask(Some(Mask {
         pixels: mask_pixels.clone(), enabled: true, placement: Some(placement), linked: None }));
     let before = d.layer(id).unwrap().transform;
-    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { radius: 2.0 }).unwrap();
+    adjust::apply_filter(&mut d, id, &FilterParams::GaussianBlur { preserve_transparency:false, radius: 2.0 }).unwrap();
     let l = d.layer(id).unwrap();
     assert_ne!(l.transform, before, "the blur grew the layer");
     let mask = l.mask.as_ref().unwrap();

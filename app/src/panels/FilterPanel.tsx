@@ -1,7 +1,9 @@
+import {filterLayerParams,withFilterLayerParams} from "../state/filter-layers";
 import { useEditor } from "../state/store";
 import type { AdjustmentColor, BlackWhiteSettings, ColorBalanceSettings, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
 import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { NumberInput } from "./NumberInput";
+import { LensEffectsPanel } from "./LensEffectsPanel";
 import { CameraRawPanel } from "./CameraRawPanel";
 
 // A plain <span> caption, not a <label>, wraps the pair: a <label> would give the range
@@ -23,11 +25,43 @@ function NumberField(props: { label: string; name?: string; value: number; min: 
 const hex = (c: AdjustmentColor) => "#" + [c.red, c.green, c.blue].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
 
 export function FilterPanel() {
-  const s = useEditor();
-  const edit = s.adjustEdit!;
+  const state = useEditor();
+  const layerParams=filterLayerParams(state.adjustEdit?.adjustment);
+  const s=layerParams?{...state,updateAdjust:(patch:Parameters<typeof state.updateAdjust>[0])=>{
+    if(patch.params&&state.adjustEdit?.adjustment)state.updateAdjust({adjustment:withFilterLayerParams(state.adjustEdit.adjustment,patch.params)});
+  }}:state;
+  const edit = layerParams?{...state.adjustEdit!,params:layerParams}:state.adjustEdit!;
   if (edit.params) {
     const p = edit.params;
+    if (p.filter === "LensEffects") return <LensEffectsPanel settings={p.settings} onChange={settings=>s.updateAdjust({params:{...p,settings}})}/>;
     if (p.filter === "CameraRaw") return <CameraRawPanel />;
+    if(p.filter==="BloomGlow") return <>
+      <NumberField label="Amount" value={p.amount} min={0} max={100} step={1} onChange={amount=>s.updateAdjust({params:{...p,amount}})}/>
+      <NumberField label="Radius" value={p.radius} min={1} max={150} step={1} onChange={radius=>s.updateAdjust({params:{...p,radius}})}/>
+    </>;
+    if(p.filter==="ProgressiveBlur"){
+      const update=(patch:Partial<typeof p.settings>)=>s.updateAdjust({params:{...p,settings:{...p.settings,...patch}}});
+      return <>
+        <p className="field-hint">Drag the line on the canvas to place the blur. Drag either endpoint to adjust it.</p>
+        <NumberField label="From" value={p.settings.from} min={0} max={250} step={0.1} onChange={from=>update({from})}/>
+        <NumberField label="To" value={p.settings.to} min={0} max={250} step={0.1} onChange={to=>update({to})}/>
+        <label><input type="checkbox" checked={p.settings.radial} onChange={e=>update({radial:e.target.checked})}/>Radial</label>
+        <label><input type="checkbox" checked={p.settings.inverted} onChange={e=>update({inverted:e.target.checked})}/>Invert</label>
+      </>;
+    }
+    if(p.filter==="RgbSplit"){
+      const update=(patch:Partial<typeof p.settings>)=>s.updateAdjust({params:{...p,settings:{...p.settings,...patch}}});
+      const doc=s.activeId?s.documents[s.activeId]:null,center=p.settings.center??[doc?doc.width/2:0,doc?doc.height/2:0];
+      return <>
+        <NumberField label="Distance" value={p.settings.distance} min={0} max={200} step={1} onChange={distance=>update({distance})}/>
+        <NumberField label="Blur" value={p.settings.blur} min={0} max={400} step={1} onChange={blur=>update({blur})}/>
+        <label><input type="checkbox" checked={p.settings.radial} onChange={e=>update({radial:e.target.checked,center})}/>Radial</label>
+        {p.settings.radial?<>
+          <NumberField label="Center X" value={center[0]} min={-30000} max={30000} step={1} onChange={x=>update({center:[x,center[1]]})}/>
+          <NumberField label="Center Y" value={center[1]} min={-30000} max={30000} step={1} onChange={y=>update({center:[center[0],y]})}/>
+          <NumberField label="Reach" value={p.settings.reach} min={1} max={100000} step={1} onChange={reach=>update({reach})}/>
+        </>:<NumberField label="Angle" value={p.settings.angle} min={-180} max={180} step={1} onChange={angle=>update({angle})}/>}</>;
+    }
     if(p.filter==="Scanlines"){
       const fields=[["Line Spacing","lineSpacing",2,32],["Thickness","thickness",5,100],["Glow","glow",0,100],["Dots","dots",0,100],["Wobble","wobble",0,64],["Displace","displace",-100,100],["Smoothness","smoothness",0,100],["Threshold","threshold",0,100],["Color Split","split",0,16],["Density","density",-100,100],["Contrast","contrast",-100,100],["Black Level","blackLevel",0,100]] as const;
       const update=(patch:Partial<typeof p.settings>)=>s.updateAdjust({params:{...p,settings:{...p.settings,...patch}}});
@@ -37,7 +71,7 @@ export function FilterPanel() {
         {p.settings.colors==="Two Colors"&&(["dark","light"]as const).map(key=><label key={key}>{key==="dark"?"Dark":"Light"}<input type="color" aria-label={key==="dark"?"Dark Color":"Light Color"} value={hexColor(p.settings[key])} onChange={e=>update({[key]:[1,3,5].map(i=>parseInt(e.target.value.slice(i,i+2),16)/255) as [number,number,number]})}/></label>)}</>;
     }
     const set = (patch: Partial<FilterParams>) => s.updateAdjust({ params: { ...p, ...patch } as FilterParams });
-    if (p.filter === "GaussianBlur") return <NumberField label="Radius" value={p.radius} min={0.1} max={250} step={0.1} onChange={(radius) => set({ radius } as never)} />;
+    if (p.filter === "GaussianBlur") return <><NumberField label="Radius" value={p.radius} min={0.1} max={250} step={0.1} onChange={(radius) => set({ radius } as never)} /><label><input type="checkbox" checked={p.preserveTransparency ?? false} onChange={e=>set({preserveTransparency:e.target.checked} as never)}/> Preserve Transparency</label></>;
     if (p.filter === "MotionBlur") return (<>
       <NumberField label="Angle" value={p.angle} min={-90} max={90} step={1} onChange={(angle) => set({ angle } as never)} />
       <NumberField label="Distance" value={p.distance} min={1} max={2000} step={1} onChange={(distance) => set({ distance } as never)} />

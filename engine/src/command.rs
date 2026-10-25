@@ -5,6 +5,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Command {
+    SelectGifFrame { #[serde(with = "ids::upper")] id: Uuid, index: usize },
+    EditGif { #[serde(with = "ids::upper")] id: Uuid, edit: crate::animation::GifEdit },
     AddBlankLayer,
     RenameLayer { #[serde(with = "ids::upper")] id: Uuid, name: String },
     SetLayerVisible { #[serde(with = "ids::upper")] id: Uuid, visible: bool },
@@ -54,6 +56,7 @@ pub enum Command {
     LinkMask { #[serde(with = "ids::upper")] source: Uuid, #[serde(with = "ids::upper")] target: Uuid },
     MergeLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid> },
     ApplyAdjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    ConvertPixelDepth { #[serde(with = "ids::upper")] id: Uuid, depth: crate::PixelDepth },
     InvertPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     ApplyFilter { #[serde(with = "ids::upper")] id: Uuid, params: FilterParams },
     AddAdjustmentLayer { kind: AdjustmentKind, #[serde(default)] seed: u32, #[serde(default)] shadows: Option<[f64; 3]>, #[serde(default)] highlights: Option<[f64; 3]> },
@@ -89,6 +92,14 @@ pub enum Command {
 impl Command {
     pub fn action_name(&self) -> &'static str {
         match self {
+            Command::SelectGifFrame { .. } => "Select Animation Frame",
+            Command::EditGif { edit, .. } => match edit {
+                crate::animation::GifEdit::Duplicate { .. } => "Duplicate Animation Frame",
+                crate::animation::GifEdit::Delete { .. } => "Delete Animation Frame",
+                crate::animation::GifEdit::Move { .. } => "Move Animation Frame",
+                crate::animation::GifEdit::Timing { .. } => "Animation Timing",
+            },
+            Command::ConvertPixelDepth { depth, .. } => if *depth==crate::PixelDepth::Eight {"Convert to 8-Bit"}else{"Convert to 16-Bit"},
             Command::LayerViaCopy { .. } => "Layer via Copy",
             Command::WarpStroke { warp, .. } => match warp.mode {crate::warp::WarpMode::Liquify=>"Liquify",crate::warp::WarpMode::Smudge=>"Smudge"},
             Command::CutPixels { .. } => "Cut",

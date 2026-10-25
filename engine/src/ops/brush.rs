@@ -8,6 +8,9 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 pub struct BrushSpec {
     pub diameter: f64, pub hardness: f64, pub opacity: f64,
+    #[serde(default)] pub pressures: Vec<f64>,
+    #[serde(default)] pub pressure_size: bool,
+    #[serde(default)] pub pressure_opacity: bool,
     pub points: Vec<Point>, pub color: [f64; 4], pub erasing: bool,
     #[serde(default)] pub operation: BrushOperation,
 }
@@ -21,6 +24,7 @@ pub enum BrushOperation {
 }
 impl BrushSpec {
     fn check(&self) -> Result<(), CommandError> {
+        if (!self.pressures.is_empty() && self.pressures.len()!=self.points.len()) || self.pressures.iter().any(|v|!v.is_finite()||!(0.0..=1.0).contains(v)) {return Err(CommandError::Argument("invalid pen pressure samples".into()));}
         if !self.diameter.is_finite() || !(1.0..=2100.0).contains(&self.diameter) || !self.hardness.is_finite() || !(0.0..=1.0).contains(&self.hardness)
             || !self.opacity.is_finite() || !(0.01..=1.0).contains(&self.opacity) || self.color.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
             || self.points.is_empty() || self.points.len() > 100_000 || self.points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite() || p.x.abs() > SELECTION_COORDINATE_LIMIT || p.y.abs() > SELECTION_COORDINATE_LIMIT) {
@@ -65,8 +69,9 @@ pub fn grid_for(doc: &Document, layer: &Layer, area: Rect) -> Result<ops::raster
 
 /// BrushStroke.swift's settled centripetal Catmull-Rom path, including its final tail.
 /// Two-pixel subdivisions feed the same arc-length dab spacing as a straight stroke.
-fn curved_path(points: &[Point]) -> Vec<Point> {
-    let mut out=vec![points[0]];
+fn curved_path(points: &[Point], pressures: &[f64]) -> Vec<(Point,f64)> {
+    let pressure=|i:usize|pressures.get(i).copied().unwrap_or(1.);
+    let mut out=vec![(points[0],pressure(0))];
     let mix=|a:Point,b:Point,ta:f64,tb:f64,t:f64|Point{x:a.x*(tb-t)/(tb-ta)+b.x*(t-ta)/(tb-ta),y:a.y*(tb-t)/(tb-ta)+b.y*(t-ta)/(tb-ta)};
     for i in 0..points.len().saturating_sub(1) {
         let (p0,p1,p2,p3)=(points[i.saturating_sub(1)],points[i],points[i+1],points[(i+2).min(points.len()-1)]);
@@ -77,7 +82,7 @@ fn curved_path(points: &[Point]) -> Vec<Point> {
             let t=t1+(t2-t1)*j as f64/pieces as f64;
             let a1=mix(p0,p1,t0,t1,t);let a2=mix(p1,p2,t1,t2,t);let a3=mix(p2,p3,t2,t3,t);
             let b1=mix(a1,a2,t0,t2,t);let b2=mix(a2,a3,t1,t3,t);
-            out.push(if j==pieces {p2}else{mix(b1,b2,t1,t2,t)});
+            out.push((if j==pieces {p2}else{mix(b1,b2,t1,t2,t)},pressure(i)+(pressure(i+1)-pressure(i))*j as f64/pieces as f64));
         }
     }
     out
@@ -95,17 +100,18 @@ pub fn coverage(spec: &BrushSpec, doc: &Document, clips: &SelectionClips, transf
     let bottom=c.iter().map(|p|p.y).fold(f64::NEG_INFINITY,f64::max).ceil().max(0.0).min(h as f64) as u32;
     let rect=PixelRect{x,y,width:right.saturating_sub(x),height:bottom.saturating_sub(y)};
     let mut out=vec![0.0f32;rect.width as usize*rect.height as usize];
-    let radius=spec.diameter/2.0;
     let spacing=(spec.diameter*if spec.hardness>=1.0{0.015}else{0.025}).max(0.25);
-    let path=curved_path(&spec.points);
-    let mut dabs=vec![spec.points[0]]; let mut next=spacing;
+    let path=curved_path(&spec.points,&spec.pressures);
+    let mut dabs=vec![path[0]]; let mut next=spacing;
     for pair in path.windows(2) {
-        let (a,b)=(pair[0],pair[1]); let (dx,dy)=(b.x-a.x,b.y-a.y);let len=dx.hypot(dy);
+        let ((a,pa),(b,pb))=(pair[0],pair[1]); let (dx,dy)=(b.x-a.x,b.y-a.y);let len=dx.hypot(dy);
         if len==0.0 {continue;}
-        while next<=len {dabs.push(Point{x:a.x+dx*next/len,y:a.y+dy*next/len});next+=spacing;}
+        while next<=len {dabs.push((Point{x:a.x+dx*next/len,y:a.y+dy*next/len},pa+(pb-pa)*next/len));next+=spacing;}
         next-=len;
     }
-    for dab in dabs {
+    for (dab,pressure) in dabs {
+        let strength=if spec.pressure_opacity {pressure as f32}else{1.};if strength<=0. {continue;}
+        let radius=spec.diameter/2.*if spec.pressure_size {pressure.max((1./spec.diameter).min(1.))}else{1.};
         let corners=[Point{x:dab.x-radius-1.0,y:dab.y-radius-1.0},Point{x:dab.x+radius+1.0,y:dab.y-radius-1.0},Point{x:dab.x+radius+1.0,y:dab.y+radius+1.0},Point{x:dab.x-radius-1.0,y:dab.y+radius+1.0}].map(|p|inverse.apply(p));
         let x0=corners.iter().map(|p|p.x).fold(f64::INFINITY,f64::min).floor().max(x as f64) as u32;
         let y0=corners.iter().map(|p|p.y).fold(f64::INFINITY,f64::min).floor().max(y as f64) as u32;
@@ -122,6 +128,7 @@ pub fn coverage(spec: &BrushSpec, doc: &Document, clips: &SelectionClips, transf
                 ((-2.5*u*u).exp()-(-2.5f64).exp()).max(0.0) as f32/(1.0-(-2.5f64).exp()) as f32
             };
             let at=((yy-y)*rect.width+xx-x) as usize;
+            let value=value*strength;
             out[at]=if spec.hardness>=1.0 {out[at].max(value)}else{out[at]+value-out[at]*value};
         }}
     }
@@ -169,7 +176,7 @@ pub fn paint(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, s
         let mut cover=vec![0;grid.width as usize*grid.height as usize];
         for y in 0..rect.height {for x in 0..rect.width {cover[((y+rect.y)*grid.width+x+rect.x) as usize]=(cov[(y*rect.width+x) as usize]*255.0).round() as u8;}}
         let healed=crate::retouch::heal(&Raster::from_premultiplied(grid.width,grid.height,bytes),&GrayRaster::from_bytes(grid.width,grid.height,cover),spec.opacity as f32,mode,seed)?;
-        let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(healed));target.transform=grid.transform;
+        let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(ops::raster_edit::painted_on(&grid,original.pixels.as_ref(),healed)));target.transform=grid.transform;
         if let Some(mask)=&original.mask {if mask.placement.is_none() {target.mask_mut().unwrap().pixels=ops::raster_edit::followed(&mask.pixels,ops::raster_edit::layer_grid(&original),&grid,(0,0,grid.width,grid.height));}}
         let dirty=Dirty::pixels(vec![id]);
         return Ok(if original.pixels.as_ref().is_some_and(|p|p.width==grid.width&&p.height==grid.height){dirty.within(vec![Region{layer:id,plane:Plane::Pixels,rect}])}else{dirty});
@@ -214,7 +221,7 @@ pub fn paint(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, s
         else if spec.erasing {for v in &mut bytes[at..at+4] {*v=(*v as f64*(1.0-a)).round() as u8;}}
         else {for k in 0..4 {let v=if k==3 {1.0}else{spec.color[k]};bytes[at+k]=(v*a*255.0+bytes[at+k] as f64*(1.0-a)).round().clamp(0.0,255.0) as u8;}}
     }}
-    let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(Raster::from_premultiplied(grid.width,grid.height,bytes)));target.transform=grid.transform;
+    let target=doc.layer_mut(id).unwrap();target.set_pixels(Some(ops::raster_edit::painted_on(&grid,original.pixels.as_ref(),Raster::from_premultiplied(grid.width,grid.height,bytes))));target.transform=grid.transform;
     if let Some(mask)=&original.mask {if mask.placement.is_none() {let old=ops::raster_edit::layer_grid(&original);target.mask_mut().unwrap().pixels=ops::raster_edit::followed(&mask.pixels,old,&grid,(0,0,grid.width,grid.height));}}
     let dirty=Dirty::pixels(vec![id]);
     Ok(if original.pixels.as_ref().is_some_and(|p|p.width==grid.width&&p.height==grid.height){dirty.within(vec![Region{layer:id,plane:Plane::Pixels,rect}])}else{dirty})

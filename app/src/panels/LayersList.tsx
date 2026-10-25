@@ -1,7 +1,8 @@
+import {beginProjectLayerDrag,endProjectLayerDrag} from "../actions/project-copy";
 import { useState, useEffect, useRef, type DragEvent } from "react";
 import { useEditor } from "../state/store";
 import type { LayerState } from "../engine/types";
-import { layerRows, dropTarget, type Row } from "./layer-rows";
+import { layerRows, filteredLayerRows, LAYER_FILTERS, type LayerFilter, dropTarget, type Row } from "./layer-rows";
 import { activeLayer } from "../state/selection";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive, ungroupActive } from "../actions/layers";
@@ -29,6 +30,11 @@ export function LayersList() {
   const s = useEditor();
   const doc = s.activeId ? s.documents[s.activeId] : null;
   const list=useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const [kinds, setKinds] = useState<LayerFilter[]>([]);
+  const middle = useRef<{pointer: number; y: number} | null>(null);
   useEffect(()=>{ if(doc?.activeLayerId)list.current?.querySelector<HTMLElement>(`[data-layer-id="${doc.activeLayerId}"]`)?.scrollIntoView?.({block:"nearest"}); },[doc?.activeLayerId,s.activeId,s.collapsed]);
   const collapsed = s.activeId ? s.collapsed[s.activeId] ?? [] : [];
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -39,13 +45,16 @@ export function LayersList() {
   // keymap.ts / useShortcuts.ts) so it is routed through exactly one place; this panel
   // no longer has its own window key listener for it.
   if (!doc) return <div className="layers" />;
-  const rows = layerRows(doc, collapsed);
+  const rows = filteredLayerRows(doc, collapsed, query, kinds, s.selectedLayerIds);
+  // Drop placement is computed against every sibling, including rows hidden by the filter.
+  const allRows = layerRows(doc, query || kinds.length ? [] : collapsed);
+  const targetFor = (row: Row, zone: Zone) => dropTarget(allRows, allRows.findIndex(r => r.layer.id === row.layer.id), zone);
   // The highlight must promise only drops the engine will accept: dragging a folder into its
   // own subtree, or onto the row it already sits above, is refused by `place_layer` and used
   // to light up anyway, so the row moved back after the drop with no explanation.
   const canDropOn = (id: string, index: number, zone: Zone): boolean => {
     if (!s.engine) return false;
-    const target = dropTarget(rows, index, zone);
+    const target = targetFor(rows[index], zone);
     if (target.above === id) return false;
     return s.engine.canPlace(doc.id, id, target.parent);
   };
@@ -78,8 +87,22 @@ export function LayersList() {
   ];
   return (
     <div className="layers">
-      <div className="layers-header"><span>Layers</span></div>
-      <div className="layer-rows" ref={list} onDragLeave={() => setOver(null)}>
+      <div className="layers-header">
+        {searching ? <input autoFocus aria-label="Search layers by name" placeholder="Search layers" value={query}
+          onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); if (query) setQuery(""); else setSearching(false); } }} /> : <span>Layers</span>}
+        <button aria-label={searching ? "Close layer search" : "Search layers"} onClick={() => { setSearching(!searching); setQuery(""); }}>{searching ? "×" : "⌕"}</button>
+        <button aria-label="Filter the layer list" aria-expanded={filtering} aria-pressed={kinds.length > 0} onClick={() => setFiltering(!filtering)}>≡</button>
+      </div>
+      {filtering && <fieldset className="layer-filters"><legend>Show layers</legend>
+        <label><input type="checkbox" checked={!kinds.length} onChange={() => setKinds([])} />All Layers</label>
+        {LAYER_FILTERS.map(kind => <label key={kind}><input type="checkbox" checked={kinds.includes(kind)}
+          onChange={e => setKinds(e.target.checked ? [...kinds, kind] : kinds.filter(k => k !== kind))} />{kind === "selected" ? "Selected" : kind[0].toUpperCase() + kind.slice(1) + "s"}</label>)}
+      </fieldset>}
+      <div className="layer-rows" ref={list} onDragLeave={() => setOver(null)}
+        onPointerDownCapture={e => { if (e.button !== 1) return; e.preventDefault(); e.stopPropagation(); middle.current = {pointer:e.pointerId,y:e.clientY}; e.currentTarget.setPointerCapture(e.pointerId); e.currentTarget.style.cursor="grabbing"; }}
+        onPointerMove={e => { const drag=middle.current; if (!drag || drag.pointer!==e.pointerId) return; e.currentTarget.scrollTop += drag.y-e.clientY; drag.y=e.clientY; }}
+        onPointerUp={e => { if (middle.current?.pointer!==e.pointerId) return; middle.current=null; e.currentTarget.releasePointerCapture(e.pointerId); e.currentTarget.style.cursor=""; }}
+        onLostPointerCapture={e => { middle.current=null; e.currentTarget.style.cursor=""; }} onAuxClick={e => { if(e.button===1)e.preventDefault(); }}>
         {rows.map((row, index) => {
           const l = row.layer; const selected = s.selectedLayerIds.includes(l.id);
           return (
@@ -90,15 +113,15 @@ export function LayersList() {
               onClick={(e) => select(e, row)}
               onDoubleClick={() => { if (l.adjustment) editAdjustmentLayer(l.id); else setRenaming({ id: l.id, name: l.name }); }}
               onContextMenu={(e) => { e.preventDefault(); if (!selected) s.selectLayers([l.id], l.id); setMenu({ x: e.clientX, y: e.clientY }); }}
-              onDragStart={(e) => { setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
+              onDragStart={(e) => { beginProjectLayerDrag(e.dataTransfer,l.id); setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
               onDragOver={(e) => {
                 if (!drag || drag.id === l.id) return;
                 const zone = zoneFor(e, row);
                 if (!canDropOn(drag.id, index, zone)) { e.dataTransfer.dropEffect = "none"; setOver(null); return; }
                 e.preventDefault(); setOver({ index, zone });
               }}
-              onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, dropTarget(rows, index, zone), e.altKey); setDrag(null); setOver(null); }}
-              onDragEnd={() => { setDrag(null); setOver(null); }}>
+              onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, targetFor(rows[index], zone), e.altKey); setDrag(null); setOver(null); }}
+              onDragEnd={() => { endProjectLayerDrag(); setDrag(null); setOver(null); }}>
               {l.isGroup ? <button data-testid={`collapse-${l.id}`} className="disclosure" onClick={(e) => { e.stopPropagation(); s.toggleCollapsed(l.id); }}>{row.collapsed ? ">" : "v"}</button> : <span className="disclosure-space" />}
               <input type="checkbox" aria-label={`Visible ${l.name}`} checked={l.visible} onClick={(e) => e.stopPropagation()} onChange={(e) => s.run({ type: "SetLayerVisible", id: l.id, visible: e.target.checked })} />
               {l.maskSourceId && <span className="clip-arrow" title="Clipped to the layer below">{">"}</span>}

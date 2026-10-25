@@ -122,10 +122,10 @@ fn remove_distortion_bends_about_the_center_and_only_pincushion_opens_the_corner
 
 #[test]
 fn filter_params_carry_their_name_margin_and_preview_scaling() {
-    let blur = FilterParams::GaussianBlur { radius: 4.0 };
+    let blur = FilterParams::GaussianBlur { preserve_transparency:false, radius: 4.0 };
     assert_eq!(blur.name(), "Gaussian Blur");
     assert_eq!(blur.margin(), 14.0);
-    assert_eq!(blur.scaled(0.5), FilterParams::GaussianBlur { radius: 2.0 });
+    assert_eq!(blur.scaled(0.5), FilterParams::GaussianBlur { preserve_transparency:false, radius: 2.0 });
     assert!(blur.spreads());
     let motion = FilterParams::MotionBlur { angle: 30.0, distance: 20.0 };
     assert_eq!(motion.margin(), 12.0);
@@ -134,7 +134,7 @@ fn filter_params_carry_their_name_margin_and_preview_scaling() {
     assert!(!noise.spreads() && noise.margin() == 0.0);
     assert_eq!(noise.scaled(0.5), noise, "noise and lens correction do not scale with a preview");
     assert!(FilterParams::LensCorrection { distortion: 0.0 }.is_identity());
-    assert_eq!(FilterParams::GaussianBlur { radius: 500.0 }.normalized(), FilterParams::GaussianBlur { radius: 250.0 });
+    assert_eq!(FilterParams::GaussianBlur { preserve_transparency:false, radius: 500.0 }.normalized(), FilterParams::GaussianBlur { preserve_transparency:false, radius: 250.0 });
     let json = serde_json::to_string(&motion).unwrap();
     assert_eq!(json, r#"{"filter":"MotionBlur","angle":30.0,"distance":20.0}"#);
     assert_eq!(serde_json::from_str::<FilterParams>(&json).unwrap(), motion);
