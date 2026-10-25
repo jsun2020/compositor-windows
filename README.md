@@ -1,140 +1,90 @@
+<div align="center">
+
 # Compositor for Windows
 
-[![Windows CI](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/ci.yml)
-[![Windows Release](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml/badge.svg)](https://github.com/jsun2020/compositor-windows/actions/workflows/release.yml)
+### Your photo. Your layers. Your next idea.
 
-A free, open-source Windows image editor ported from Compositor for macOS, built with Tauri 2, Rust/WebAssembly, WebGL2 and React/TypeScript.
+A free, open-source desktop editor for photo touch-ups, layered graphics and small GIF animations.
 
-**The original v1 Windows port is complete in version 0.9.0.** It includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections. The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
+**[Download for Windows](https://github.com/jsun2020/compositor-windows/releases/latest)** · [See it in action](#a-small-edit-in-nine-seconds) · [简体中文](README.zh-CN.md)
 
-## Mac 1.5.7 update — Windows 0.11.0
+[![Latest release](https://img.shields.io/github/v/release/jsun2020/compositor-windows?color=3c7d78&label=Windows)](https://github.com/jsun2020/compositor-windows/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3c7d78)](engine/native/LICENSE-Compositor.txt)
 
-Windows 0.11.0 ports the Mac 1.4.10–1.5.7 changes: 16-bit/HDR layers and exports, CMYK proofing and print export, progressive blur, RGB Split, Lens Effects, GIF editing, Channel Pack, PDF pages, HEIF, PSD artboards, pressure controls and workspace improvements. Project saves use the lowest required format through v17.
+</div>
 
-The [Windows acceptance report](pair-test-report.md) records all seven passing gates, including 361 functional, 29 CPU and 4 GPU cases and 41 real native dialogs. The [change comparison and validation status](docs/superpowers/research/mac-1.5.7-delta.md) records the fixed upstream source, measured differences and Windows validation. High-precision/new spatial-filter display currently uses the CPU reference compositor; several Core Image effects are approximations. HEIF uses bundled libheif/libde265 decoders (no Microsoft Store codec); CMYK requires a printer ICC profile. HEIF chroma reconstruction differs from Apple at subsampled color edges; HDR gain-map reconstruction is not implemented. CMYK TIFF import currently converts to 8-bit RGB; full 16-bit CMYK import is not implemented. See the [0.11.0 release notes](docs/releases/0.11.0.md) for compatibility and clean-build provenance.
+![Compositor workspace showing an alpine travel cover, with a photo and two editable text layers](docs/media/editor-cover.png)
 
-## Mac 1.4.9 update — Windows 0.10.0
+*From a photo to a cover: adjust the image, add a headline, keep the text editable.*
 
-Windows 0.10.0 delivers the Mac 1.4.9 increment described in [prd.md](prd.md): measured Camera Raw LUTs and revised detail algorithms, alpha-preserving inner effects, 16-bit RAW dithering, physical canvas units/backgrounds, quarter-turn canvas rotation, command search, Last Filter, fullscreen, Navigator, Export As with PDF, Scanlines and Ctrl+middle-button zoom. The project schema remains version 11. Camera Raw and translucent inner-effect rendering follow 1.4.9 and can differ from previous 1.4.5 output.
+## A workspace you can recognize
 
-The [fixed-version delta report](docs/superpowers/research/mac-1.4.9-delta.md) records the upstream source commits. The [completed acceptance record](docs/superpowers/research/mac-1.4.9-acceptance-20261023.md) separates source tests, Windows hardware timing, production native behavior and actual Mac output. It records 751 native engine/shell tests, 310 frontend unit tests, 344 browser functional tests, all 29 CPU and 4 GPU performance cases, 25 native Windows dialogs, independent image/PDF readers and real/synthetic RAW development. The original timing budgets, one worker and zero retries remain in effect; 10 originally ignored native diagnostics are not counted as passes. The 33 browser performance opt-ins are covered by the separate CPU/GPU runs.
+Tools on the left, your canvas in the middle, layers on the right. Crop a photo, try a color adjustment, or combine images and text without leaving the same workspace. Preview changes before applying them, and use familiar shortcuts such as **B** for Brush, **T** for Type and **Ctrl+Z** for Undo.
 
-Large-image display and preview reductions now avoid allocating a full intermediate image ladder while retaining byte-exact staged rounding and cache precedence. Covered selection deletion and eligible grayscale/black gradients retain their original pixel results with less per-pixel work. Canvas renderer ownership survives React development effect replay and still disposes resources on real unmount.
+## A small edit in nine seconds
 
-The production WasmEngine `ApplyFilter` path matches all 31 legal Mac Scanlines Glow spacing cases and all five original Scanlines recipes byte for byte, including the recorded Undo/Redo case. Four half elements in historical composed MPS inputs still differ in the reduction model; they remain documented and do not change the verified final outputs. Other effects keep their existing blur implementation. These fixture results do not establish universal font, camera colour or GPU arithmetic equivalence.
+Open **Image → Hue/Saturation**, increase saturation, toggle **Preview** to compare, then apply.
 
-Local hardware/native acceptance was completed using the pre-release 0.9.0 version label. The 0.10.0 publication changes version metadata and documentation and uses a fresh clean-source Windows CI build. The [release notes](docs/releases/0.10.0.md) and [acceptance receipt](docs/releases/0.10.0-acceptance.json) retain that distinction. Earlier releases and failure evidence stay available.
+![Silent demonstration: open Hue/Saturation, increase saturation, compare before and after, then apply](docs/media/color-preview.gif)
 
-## Download
+[Watch the silent MP4](docs/media/color-preview.mp4) · [View a full-size edited image](docs/media/editor-color.png)
 
-Get the portable Windows x64 ZIP from [the latest published release](https://github.com/jsun2020/compositor-windows/releases/latest), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
+*Captured from the actual 0.11.0 editor frontend in its browser preview. Windows uses the same editing interface; native window chrome, dialogs and fonts may differ. [Media details](docs/media/README.md).*
 
-Keep `CompositorRaw.exe`, `CompositorHeif.exe`, all bundled DLLs, `LibRaw-notices`, `HEIF-notices` and license files beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
+## What will you make?
 
-## Features
+| Your next task | Tools to get it done | Take away |
+| --- | --- | --- |
+| Give a travel or product photo a finishing pass | Crop, Levels, Curves, color adjustments, Clone Stamp and Spot Healing | A PNG or JPEG ready to share |
+| Make a social cover, poster or thumbnail | Image layers, editable text and shapes, masks, blend modes, shadows and strokes | An exported graphic and an editable `.comp` project |
+| Develop a camera RAW image | Sensor decoding, exposure, white balance, tone curves and Camera Raw adjustments | A developed image you can keep editing with layers |
+| Polish a short GIF | Frame editing, timing and playback preview | An animated GIF |
 
-- **Projects:** image import, multiple tabs, drag-and-drop, PNG/JPEG export with
-  quality preview, crop, Canvas Size, Image Size, flip, zoom and pan.
-- **Layers:** folders, reorder/nesting, all 24 Mac blend modes, opacity, clipping
-  masks, linked/unlinked layer and folder masks, mask painting, multi-layer
-  transforms, snapping, merge, duplicate and ungroup.
-- **Adjustments:** Levels, Curves, Hue/Saturation, Exposure, Gradient Map, Grain,
-  Invert, Black & White and Color Balance, with previews and adjustment layers.
-  Gaussian/Motion Blur, Add Noise and Lens Correction are available.
-- **Selections and fills:** marquee, lasso, Magic Wand, add/subtract, move outline,
-  invert/expand/contract/feather, foreground/background fills and gradients.
-- **Clipboard:** Windows PNG/DIB Cut, Copy, Copy Merged and Paste; Layer via Copy;
-  floating-selection move/resize/rotate/distort; cancellation and one undo per
-  gesture. Internal copies retain editable metadata; external PNGs carry pixels.
-- **Liquify and Smudge:** press **R** and choose **Mode** in the tool options. Size, Hardness and Strength control each stroke; Escape cancels it and mouse-up commits one undo step. Large live previews use bounded copies.
-- **Painting and retouching:** Brush/Eraser size, hardness, opacity and smoothing,
-  Shift straight lines, Blur, aligned Clone Stamp, three Spot Healing modes and
-  Content-Aware Fill with Preview, Cancel and Apply. Windows 0.11.0 uses the Mac 1.4.10
-  PatchMatch/healing kernels; the published 0.10.0 uses the earlier kernels.
-- **Text, shapes and effects:** point and fixed-box text, UTF-16 font/color runs,
-  live shape redraw on resize, editable Stroke and Drop Shadow. Save/reopen,
-  cancellation and undo preserve editable records. Other effects are rendered
-  and preserved.
+Need more room to experiment? Work with **16-bit/HDR layers**, import **PDF pages** and **HEIF** images, open supported **PSD/PSB** content, or use an ICC printer profile for **CMYK proofing and export**. See [format support and limits](docs/technical-reference.md#camera-raw-and-photoshop-import) before bringing a complex production file.
 
-Large edits and histograms use background jobs with visible progress and
-cooperative transfers. Packed RGBA reductions retain exact integer averages
-and established undo/memory budgets.
+## Already have an image editor?
 
-## Shortcuts
+Compositor is worth a try when you want:
+
+- **A portable tool for a focused job.** Extract a ZIP and open the app. Keep a copy for quick photo edits, covers and layered compositions.
+- **Local editing, without an account.** Your working images stay on your computer; editing does not require a cloud upload or a subscription.
+- **More than a flattened result.** Keep text, shapes, masks and layers in a project, then return to it for the next revision.
+- **An open-source tool you can understand and adapt.** The editor is MIT-licensed, with its source and build instructions available here.
+
+Use it alongside your existing workflow. Complex Photoshop documents and Mac/Windows rendering are not guaranteed to match exactly; check a copy of an important file first.
+
+## Try your first edit
+
+1. **[Download the latest Windows x64 ZIP](https://github.com/jsun2020/compositor-windows/releases/latest)** and extract the **entire** archive. Keep its helpers, DLLs and license files together.
+2. Open **`Compositor.exe`**, then open an image with **File → Open**. Microsoft Edge WebView2 Runtime is required; Node and Rust are not.
+3. Try **Image → Hue/Saturation** or **Curves**, compare the preview, then export a PNG or JPEG. Save a `.comp` project if you want to keep editing later.
+
+`.comp` projects are folders: keep their contents together when copying or sharing them. This is a portable, unsigned release; it has no installer or automatic updater. The release page includes checksums for verifying the download.
+
+<details>
+<summary><strong>A few useful shortcuts</strong></summary>
 
 | Action | Shortcut |
 | --- | --- |
-| Move / Type / Brush / Eraser | V / T / B / E |
-| Marquee / Lasso / Magic Wand | M / L / W |
-| Blur / Clone Stamp / Spot Healing | R / S / J |
-| Gradient / Shape / Eyedropper | G / U / I |
+| Move / Type / Brush | V / T / B |
 | Crop / Hand / Zoom | C / H / Z |
-| Copy / Copy Merged / Cut / Paste | Ctrl+C / Ctrl+Shift+C / Ctrl+X / Ctrl+V |
-| Layer via Copy / duplicate | Ctrl+J |
-| Select All / Deselect / Inverse | Ctrl+A / Ctrl+D / Ctrl+Shift+I |
-| Fill foreground / background | Alt+Backspace / Ctrl+Backspace |
-| Swap / reset palette colors | X / D |
 | Levels / Curves / Hue-Saturation | Ctrl+L / Ctrl+M / Ctrl+U |
-| Group / Ungroup / Merge | Ctrl+G / Ctrl+Shift+G / Ctrl+E |
-| Apply / cancel transform or gradient | Enter / Escape |
-| Apply / cancel text editing | Ctrl+Enter / Escape |
-| Clone source | Alt-click |
+| Duplicate layer | Ctrl+J |
+| Undo | Ctrl+Z |
+| Apply / cancel transform | Enter / Escape |
 
+[Full shortcut reference](docs/technical-reference.md#shortcuts)
 
-## Camera Raw and Photoshop import
+</details>
 
-- **Camera Raw filter:** Light, Color, parametric/point curves, Color Mixer, Point Color, Color Grading, Effects, Detail, Optics, Geometry and Calibration. Resets, group bypass, sampling and diagnostic previews preserve the original pixels until Apply. Apply records one undo step.
-- **PSD/PSB:** bounded 8-bit raw/PackBits decoding (RGB, plus CMYK in 0.11.0), folders, visibility/opacity, supported blend modes and clipping, raster masks, supported adjustments, first-style editable text and supported live shapes. Text keeps its cached Photoshop raster until edited. Unsupported records are reported; ZIP compression, 16/32-bit and unsupported color modes are refused. Windows 0.11.0 opens artboards as separate project tabs.
-- **Camera RAW:** pinned LibRaw 0.22.2 sensor development, As Shot reset, exposure, estimated temperature, tint, tone curve, bounded preview and cancellation. An embedded JPEG is never substituted for sensor processing. LibRaw and Apple CIRAWFilter can produce different colour and tone; supported cameras depend on the decoder.
+## What's new, and what's next?
 
-For modified projects, **Save and Close** saves first, **Don't Save and Close** discards changes, and **Cancel Close** keeps the project open. Cancelling the Save As picker also keeps it open. Closing the last tab clears the canvas and shows an empty dark workspace; use File > New to create another canvas.
+**Windows 0.11.0** brings the Mac 1.5.7 update: high-precision editing, GIF tools, PDF and bundled HEIF import, CMYK workflows, new effects, and workspace improvements. [Read the release notes](docs/releases/0.11.0.md).
 
-## Interoperability and limits
+Found a rough edge or have an idea? **[Open an issue](https://github.com/jsun2020/compositor-windows/issues)** with what you were doing, your app version and, when useful, a small example you can share.
 
-Published 0.10.0 reads `.comp` versions 1–11 and writes version 11. Windows 0.11.0 reads through v17 and saves the lowest version required by the document, including high-precision layers and GIF frame edits. Supported unknown manifest fields and text runs survive a round trip. Mac regenerates its Quick Look preview after a Windows save.
+---
 
-- Layer images and masks are limited to 100 megapixels. History retains at most 256 MiB of distinct rasters; a whole 100 MP replacement cannot retain its previous raster for Undo.
-- Windows/Mac fonts and fallback can draw different glyphs.
-- CG affine rotation, reduction and mask sampling are checked against independently returned synthetic Mac images. All ordinary affine and ten convex-distortion RGBA records are byte exact; six mask-related records differ by at most one byte.
-- The four fixed Camera Raw recipes, including Geometry/Calibration, match the Mac exports byte for byte. The [perspective arithmetic reference](engine/tests/fixtures/core-image-perspective.md) records the measured hardware and exponent scope; those results do not establish equality for every possible image or GPU.
-- Large blur/effect and warp previews use reduced images. Liquify/Smudge without a GPU uses a fallback limited to 4 Mi pixels. Exact Metal/WebGL retouch-kernel equality is not claimed.
-- The v1 scope excludes Vision-based selection, HEIC, auto-update, installers/signing and single-file project containers.
+[Build & contribute](docs/technical-reference.md#build-and-test) · [Compatibility reference](docs/technical-reference.md#interoperability-and-limits) · [Acceptance report](pair-test-report.md) · [Release history](https://github.com/jsun2020/compositor-windows/releases)
 
-## Validation
-
-Source tests, hardware timing, production WebView2, native clipboard and actual Mac execution are separate gates. Hardware checks use one worker, zero retries and the original timing assertions/budgets. Historical failures and hardware qualifications remain in the acceptance records.
-
-- [Phase 4/5 delivery](docs/superpowers/phase4-remaining-and-phase5-report.md) and [Phase 5 acceptance](docs/superpowers/phase5-acceptance-2026-10-03.md).
-- [Phase 6 runtime acceptance](docs/superpowers/research/phase6-runtime-checkpoint-2026-10-06.md).
-- [Phase 7 plan and evidence](docs/superpowers/plans/2026-10-06-phase7-camera-raw-and-import.md).
-- [Final sampling and stable-release gates](docs/superpowers/plans/2026-10-09-phase35d-and-final-release.md).
-
-## Build and test
-
-Windows prerequisites: Rust **1.95.0** with `wasm32-unknown-unknown`, Node 22, pnpm **10.34.5**, Visual Studio C++ Build Tools, LLVM (`clang` and `llvm-ar`) and WebView2. Install the pinned WASM tool with `cargo install wasm-pack --version 0.15.0 --locked`.
-
-```powershell
-pnpm install --frozen-lockfile
-pnpm wasm:dev             # development WASM
-pnpm dev                  # browser with mock shell
-pnpm tauri:dev            # native desktop development
-pnpm wasm                # production WASM plus binary/export verification
-pnpm build               # three type checks and frontend build
-pnpm test
-cargo test --workspace --locked
-pnpm exec playwright install chromium
-pnpm exec playwright test --workers 1 --retries 0
-pnpm build:portable
-```
-
-Portable outputs are in `build-artifacts/windows-x64/`. Packaging restores the original build-info file and refuses to overwrite an existing portable. The WASM gate rejects invalid/truncated binaries and JavaScript/export mismatches, including when packaging with `-SkipWasm`.
-
-## Automatic releases
-
-CI runs on main/development pushes and pull requests. A new stable version on `main`, its matching `vX.Y.Z` tag, or a manual Windows Release run starts validation. Keep package, Cargo and Tauri versions aligned and add `docs/releases/X.Y.Z.md`.
-
-Native/unit/functional tests run before the production portable build. ZIP CRCs, required decoder/runtime/license files, hashes and the downloaded artifact's source receipt are verified before publication. Published releases are immutable. Only the publishing job has write permission; actions are pinned to reviewed commits. Hosted CI does not replace local hardware, native clipboard or Mac evidence.
-
-## Scope and credits
-
-[Original design and scope](docs/superpowers/specs/2026-09-20-windows-port-design.md). Original Mac sources and retouch kernels use MIT. Icons use [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are not used in this Windows port.
+Ported from Compositor for macOS. Built with Tauri, Rust/WebAssembly and React. Original Compositor sources and retouch kernels use MIT; [Lucide](https://lucide.dev) icons use ISC. Bundled decoder licenses and notices accompany every release.

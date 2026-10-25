@@ -31,4 +31,8 @@ Accepted local ZIP: `Compositor-portable-0.11.0-20261025-1954.zip`, 15721905 byt
 
 No remaining local acceptance failures. Mac/Windows rendering differences and unsupported cases are documented in `docs/superpowers/research/mac-1.5.7-delta.md` and `docs/releases/0.11.0.md`.
 
-The accepted local package was built from the reviewed working tree. Publication uses the repository Windows release workflow to rebuild a clean tagged commit and verify its own ZIP, marker, source commit and checksums. This report does not claim that the later CI package is byte-identical to the local acceptance ZIP, or that publication has already occurred.
+The accepted local package was built from the reviewed working tree. Publication uses the repository Windows release workflow to rebuild a clean tagged commit and verify its own ZIP, marker, source commit and checksums. The CI package is not claimed to be byte-identical to the local acceptance ZIP.
+
+Published [v0.11.0](https://github.com/jsun2020/compositor-windows/releases/tag/v0.11.0) from clean commit `824488defc40bd55dc314efb2e6dcd8c6820f8e1`. Both [Windows Release](https://github.com/jsun2020/compositor-windows/actions/runs/40195836163) and [Windows CI](https://github.com/jsun2020/compositor-windows/actions/runs/40195836198) succeeded. The downloaded public ZIP, all 25 entries, release manifest, checksum file and tag/source commit were independently verified on 2026-10-25.
+
+Published ZIP: `Compositor-portable-0.11.0-20261025-1322.zip`, 15981646 bytes, SHA256 `9797cfba903e58531e703cb7681f8577a84525d9df78a77f0e4da918bf19f212`.
