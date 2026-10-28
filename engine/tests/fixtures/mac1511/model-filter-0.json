@@ -1,0 +1,25 @@
+{
+  "bloomAmount" : 40,
+  "bloomRadius" : 24,
+  "progressiveFrom" : 0,
+  "progressiveInverted" : false,
+  "progressiveRadial" : false,
+  "progressiveTo" : 20,
+  "rgbSplitAngle" : 0,
+  "rgbSplitBlur" : 0,
+  "rgbSplitDistance" : 10,
+  "rgbSplitRadial" : false,
+  "rgbSplitReach" : 1000,
+  "vignette" : {
+    "amount" : 72,
+    "color" : {
+      "blue" : 0.56,
+      "green" : 0.34,
+      "red" : 0.12
+    },
+    "feather" : 60,
+    "highlights" : 25,
+    "midpoint" : 50,
+    "roundness" : -45
+  }
+}

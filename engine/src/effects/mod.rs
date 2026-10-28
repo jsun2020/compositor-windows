@@ -161,7 +161,22 @@ struct Entry { pixels: Raster, mask: Option<GrayRaster>, draw: EffectsDraw, imag
 
 /// The entries, least recently used first, and how many images were made.
 #[derive(Default)]
-struct Kept { entries: Vec<Entry>, made: u64 }
+struct Kept { entries: Vec<Entry>, spatial: Vec<SpatialEntry>, made: u64 }
+struct SpatialEntry {
+    document: uuid::Uuid, layer: uuid::Uuid, input: Raster, image: Raster,
+    adjustment: crate::LayerAdjustment, region: crate::Rect, canvas: crate::Size,
+}
+impl Kept {
+    fn bytes(&self)->usize {
+        self.entries.iter().map(|e|e.image.storage_bytes()).sum::<usize>()
+        +self.spatial.iter().map(|e|e.input.storage_bytes()+e.image.storage_bytes()).sum::<usize>()
+    }
+    fn trim(&mut self,entries:usize,bytes:usize) {
+        while self.entries.len()+self.spatial.len()>entries || self.bytes()>bytes {
+            if !self.entries.is_empty() {self.entries.remove(0);}else if !self.spatial.is_empty(){self.spatial.remove(0);}else{break;}
+        }
+    }
+}
 
 /// The effects images an engine has made (ruling F-B1), keyed by content: the pixel buffer, the
 /// mask buffer (compared by identity, never by revision number) and an equal `EffectsDraw`. It
@@ -204,9 +219,7 @@ impl EffectsCache {
         kept.made += 1;
         if image.bytes().len() <= self.max_bytes {
             kept.entries.push(Entry { pixels: pixels.clone(), mask, draw: draw.clone(), image: image.clone() });
-            while kept.entries.len() > self.max_entries || kept.entries.iter().map(|e| e.image.bytes().len()).sum::<usize>() > self.max_bytes {
-                kept.entries.remove(0);
-            }
+            kept.trim(self.max_entries,self.max_bytes);
         }
         Some(image)
     }
@@ -230,9 +243,7 @@ impl EffectsCache {
         let mask = draw.mask.as_ref().and(layer.mask.as_ref()).map(|m| m.pixels.clone());
         let mut kept = self.kept();
         kept.entries.push(Entry { pixels: pixels.clone(), mask, draw: draw.clone(), image });
-        while kept.entries.len() > self.max_entries || kept.entries.iter().map(|e| e.image.bytes().len()).sum::<usize>() > self.max_bytes {
-            kept.entries.remove(0);
-        }
+        kept.trim(self.max_entries,self.max_bytes);
     }
     /// Drops the images no one can find again: those whose pixel or mask buffer only the cache
     /// holds (a closed document, an ended preview, a history entry let go). They would otherwise
@@ -255,10 +266,31 @@ impl EffectsCache {
         let mut i = 0;
         kept.entries.retain(|_| { let keep = live[i]; i += 1; keep });
     }
+    /// A whole-canvas spatial result before the adjustment's mask is applied.
+    /// Masks and opacity may change without changing the expensive optical image.
+    /// Compare the full input, not just a revision or hash, to prevent stale pixels.
+    pub(crate) fn spatial_image(&self,document:uuid::Uuid,layer:uuid::Uuid,input:&Raster,adjustment:&crate::LayerAdjustment,region:crate::Rect,canvas:crate::Size)->Raster {
+        {
+            let mut kept=self.kept();
+            if let Some(i)=kept.spatial.iter().position(|e|e.document==document && e.layer==layer && e.input==*input && e.adjustment==*adjustment && e.region==region && e.canvas==canvas) {
+                let e=kept.spatial.remove(i);let image=e.image.clone();kept.spatial.push(e);return image;
+            }
+            // Release the obsolete full frame before allocating its replacement.
+            kept.spatial.retain(|e|e.document!=document || e.layer!=layer);
+        }
+        let image=adjustment.apply_spatial_filter_on_canvas(input,region,canvas);
+        let mut kept=self.kept();kept.made+=1;
+        if input.storage_bytes()+image.storage_bytes()<=self.max_bytes {
+            kept.spatial.push(SpatialEntry{document,layer,input:input.clone(),image:image.clone(),adjustment:adjustment.clone(),region,canvas});
+            kept.trim(self.max_entries,self.max_bytes);
+        }
+        image
+    }
+    pub(crate) fn forget_spatial(&self,document:uuid::Uuid) {self.kept().spatial.retain(|e|e.document!=document);}
     /// Images kept.
-    pub fn len(&self) -> usize { self.kept().entries.len() }
+    pub fn len(&self) -> usize { let k=self.kept();k.entries.len()+k.spatial.len() }
     /// Bytes of the images kept.
-    pub fn bytes(&self) -> usize { self.kept().entries.iter().map(|e| e.image.bytes().len()).sum() }
+    pub fn bytes(&self) -> usize { self.kept().bytes() }
     /// Images made since the cache was created, kept or not.
     pub fn made(&self) -> u64 { self.kept().made }
 }

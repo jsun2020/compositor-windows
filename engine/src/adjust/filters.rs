@@ -6,6 +6,9 @@ fn clamp_or(n: f64, lo: f64, hi: f64, fallback: f64) -> f64 { if n.is_finite() {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "filter")]
 pub enum FilterParams {
+    Vignette { settings: super::finishing::VignetteLayerSettings },
+    TonalContrast { settings: super::finishing::TonalLayerSettings },
+    Sharpen { amount: f64, radius: f64 },
     LensEffects {settings:super::lens_effects::LensEffectSettings},
     BloomGlow {amount:f64,radius:f64},
     ProgressiveBlur {settings:super::progressive::ProgressiveBlurSettings},
@@ -33,11 +36,14 @@ pub const LENS_STRENGTH: f64 = 0.35;
 
 impl FilterParams {
     pub fn name(&self) -> &'static str {
-        match self { FilterParams::LensEffects{..}=>"Lens Effects", FilterParams::BloomGlow{..}=>"Bloom / Glow", FilterParams::ProgressiveBlur{..}=>"Progressive Blur", FilterParams::RgbSplit{..}=>"RGB Split", FilterParams::Scanlines{..}=>"Scanlines", FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
+        match self { Self::Vignette {..} => "Vignette", Self::TonalContrast {..} => "Tonal Contrast", Self::Sharpen {..} => "Sharpen", FilterParams::LensEffects{..}=>"Lens Effects", FilterParams::BloomGlow{..}=>"Bloom / Glow", FilterParams::ProgressiveBlur{..}=>"Progressive Blur", FilterParams::RgbSplit{..}=>"RGB Split", FilterParams::Scanlines{..}=>"Scanlines", FilterParams::GaussianBlur { .. } => "Gaussian Blur", FilterParams::MotionBlur { .. } => "Motion Blur",
             FilterParams::AddNoise { .. } => "Add Noise", FilterParams::LensCorrection { .. } => "Lens Correction", FilterParams::CameraRaw { .. } => "Camera Raw" }
     }
     pub fn normalized(&self) -> FilterParams {
         match *self {
+            Self::Vignette {ref settings} => Self::Vignette {settings:settings.normalized()},
+            Self::TonalContrast {ref settings} => Self::TonalContrast {settings:settings.normalized()},
+            Self::Sharpen {amount,radius} => Self::Sharpen {amount:clamp_or(amount,0.,300.,100.),radius:clamp_or(radius,0.1,20.,1.)},
             FilterParams::LensEffects{ref settings}=>Self::LensEffects{settings:settings.normalized()},
             FilterParams::BloomGlow{amount,radius}=>Self::BloomGlow{amount:clamp_or(amount,0.,100.,40.),radius:clamp_or(radius,1.,150.,24.)},
             FilterParams::ProgressiveBlur{ref settings}=>Self::ProgressiveBlur{settings:settings.normalized()},
@@ -64,7 +70,7 @@ impl FilterParams {
     }
     /// Whether applying this would change nothing.
     pub fn is_identity(&self) -> bool {
-        match self.normalized() { FilterParams::LensEffects{settings}=>settings.is_identity(), FilterParams::BloomGlow{amount,..}=>amount==0., FilterParams::ProgressiveBlur{settings}=>settings.from==0.&&settings.to==0., FilterParams::RgbSplit{settings}=>settings.distance==0.&&settings.blur==0., FilterParams::LensCorrection { distortion } => distortion == 0.0, FilterParams::CameraRaw { settings } => settings.is_identity(), _ => false }
+        match self.normalized() { Self::Vignette {settings} => settings.amount==0., Self::TonalContrast {settings} => settings.is_identity(), Self::Sharpen {amount,..} => amount==0., FilterParams::LensEffects{settings}=>settings.is_identity(), FilterParams::BloomGlow{amount,..}=>amount==0., FilterParams::ProgressiveBlur{settings}=>settings.from==0.&&settings.to==0., FilterParams::RgbSplit{settings}=>settings.distance==0.&&settings.blur==0., FilterParams::LensCorrection { distortion } => distortion == 0.0, FilterParams::CameraRaw { settings } => settings.is_identity(), _ => false }
     }
     /// The room the filter needs around the layer, in layer pixels: about three standard
     /// deviations, or half a streak.
@@ -73,6 +79,8 @@ impl FilterParams {
     }
     pub(crate) fn pixel_margin(&self) -> f64 {
         match self.clone() {
+            Self::Sharpen {radius,..} => radius*3.+2.,
+            Self::TonalContrast {settings} => settings.radius*3.+2.,
             FilterParams::BloomGlow{radius,..}=>radius*3.+2.,
             FilterParams::ProgressiveBlur{settings:s}=>s.from.max(s.to)*3.+2.,
             FilterParams::RgbSplit{settings:s}=>(s.distance+s.blur)*if s.radial{2.}else{1.}+2.,
@@ -86,6 +94,8 @@ impl FilterParams {
     /// lens correction are relative to the raster's own size, so they do not scale.
     pub fn scaled(&self, factor: f64) -> FilterParams {
         match *self {
+            Self::Sharpen {amount,radius} => Self::Sharpen {amount,radius:radius*factor},
+            Self::TonalContrast {ref settings} => {let mut s=settings.clone();s.radius*=factor;Self::TonalContrast {settings:s}},
             FilterParams::BloomGlow{amount,radius}=>Self::BloomGlow{amount,radius:radius*factor},
             FilterParams::ProgressiveBlur{ref settings}=>{let mut s=settings.clone();s.from*=factor;s.to*=factor;Self::ProgressiveBlur{settings:s}},
             FilterParams::RgbSplit{ref settings}=>{let mut s=settings.clone();s.distance*=factor;s.blur*=factor;FilterParams::RgbSplit{settings:s}},
@@ -346,6 +356,9 @@ pub(crate) fn apply_filter_pixels(raster:&Raster,params:&FilterParams)->Result<R
         }
     }
     Ok(match params.clone() {
+        FilterParams::Vignette {settings} => super::finishing::vignette(raster,&settings,crate::Rect{x:0.,y:0.,width:raster.width as f64,height:raster.height as f64},false),
+        FilterParams::TonalContrast {settings} => super::finishing::tonal(raster,&settings),
+        FilterParams::Sharpen {amount,radius} => super::finishing::sharpen(raster,amount,radius,CanvasSides::default()),
         FilterParams::LensEffects{settings}=>return super::lens_effects::apply_checked(raster,&settings),
         FilterParams::BloomGlow{amount,radius}=>super::bloom::bloom(raster,amount,radius),
         FilterParams::ProgressiveBlur{settings}=>settings.apply_pixels(raster,CanvasSides::default()),
@@ -367,6 +380,7 @@ pub fn gaussian_preserving_alpha(r:&Raster,sigma:f64)->Raster {
 
 pub fn apply_filter_edges(r:&Raster,p:&FilterParams,sides:CanvasSides)->Result<Raster,crate::CommandError>{apply_filter_edges_pixels(r,&p.normalized(),sides)}
 pub(crate) fn apply_filter_edges_pixels(r:&Raster,p:&FilterParams,sides:CanvasSides)->Result<Raster,crate::CommandError>{
+ if let FilterParams::Sharpen {amount,radius}=p {return Ok(super::finishing::sharpen(r,*amount,*radius,sides));}
  if sides==CanvasSides::default(){return apply_filter_pixels(r,p);}
  match p.clone(){
   FilterParams::ProgressiveBlur{settings}=>Ok(settings.apply_pixels(r,sides)),

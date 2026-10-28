@@ -20,3 +20,5 @@ pub mod brush;
 pub mod text;
 pub mod content_fill;
 pub mod warp;
+
+pub mod align;

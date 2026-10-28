@@ -77,7 +77,7 @@
 
 ## 最近更新
 
-**Windows 0.11.0** 对齐 Mac 1.5.7，带来高精度编辑、GIF 工具、PDF 与内置 HEIF 导入、CMYK 工作流、新效果和工作区改进。[查看版本说明](docs/releases/0.11.0.md)。
+**Windows 0.12.0** 对齐 Mac 1.5.11：用图层对齐与分布整理版面，把暗角、镜头效果、色调对比与锐化保存为可继续修改的调整图层，并按自己的宽高比裁剪。Prism 新增模糊、色边和双向副本控制。[查看版本说明](docs/releases/0.12.0.md)。
 
 发现问题或有建议，欢迎 **[提交 Issue](https://github.com/jsun2020/compositor-windows/issues)**，说明操作步骤、软件版本，并在方便时附上可公开的小样例。
 

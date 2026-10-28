@@ -11,7 +11,7 @@ A free, open-source Windows image editor ported from Compositor for macOS, built
 
 Windows 0.11.0 ports the Mac 1.4.10–1.5.7 changes: 16-bit/HDR layers and exports, CMYK proofing and print export, progressive blur, RGB Split, Lens Effects, GIF editing, Channel Pack, PDF pages, HEIF, PSD artboards, pressure controls and workspace improvements. Project saves use the lowest required format through v17.
 
-The [Windows acceptance report](../pair-test-report.md) records all seven passing gates, including 361 functional, 29 CPU and 4 GPU cases and 41 real native dialogs. The [change comparison and validation status](superpowers/research/mac-1.5.7-delta.md) records the fixed upstream source, measured differences and Windows validation. High-precision/new spatial-filter display currently uses the CPU reference compositor; several Core Image effects are approximations. HEIF uses bundled libheif/libde265 decoders (no Microsoft Store codec); CMYK requires a printer ICC profile. HEIF chroma reconstruction differs from Apple at subsampled color edges; HDR gain-map reconstruction is not implemented. CMYK TIFF import currently converts to 8-bit RGB; full 16-bit CMYK import is not implemented. See the [0.11.0 release notes](releases/0.11.0.md) for compatibility and clean-build provenance.
+The [0.11.0 Windows acceptance report](releases/0.11.0-acceptance.md) records all seven passing gates, including 361 functional, 29 CPU and 4 GPU cases and 41 real native dialogs. The [change comparison and validation status](superpowers/research/mac-1.5.7-delta.md) records the fixed upstream source, measured differences and Windows validation. High-precision/new spatial-filter display currently uses the CPU reference compositor; several Core Image effects are approximations. HEIF uses bundled libheif/libde265 decoders (no Microsoft Store codec); CMYK requires a printer ICC profile. HEIF chroma reconstruction differs from Apple at subsampled color edges; HDR gain-map reconstruction is not implemented. CMYK TIFF import currently converts to 8-bit RGB; full 16-bit CMYK import is not implemented. See the [0.11.0 release notes](releases/0.11.0.md) for compatibility and clean-build provenance.
 
 ## Mac 1.4.9 update — Windows 0.10.0
 
@@ -138,3 +138,10 @@ Native/unit/functional tests run before the production portable build. ZIP CRCs,
 ## Scope and credits
 
 [Original design and scope](superpowers/specs/2026-09-20-windows-port-design.md). Original Mac sources and retouch kernels use MIT. Icons use [Lucide](https://lucide.dev) under ISC; Apple's SF Symbols are not used in this Windows port.
+
+
+## Mac 1.5.11 candidate (Windows 0.12.0)
+
+The new layer settings, crop controls, alignment commands and Prism controls are covered by `pair-test-report.md`. Original Swift/C/Metal fixtures are pinned to commit `9959c32d77330ec8d7b42a49353d903283ecb8e6`. The model interchange test uses original Swift Codable declarations; it does not claim a GUI run of the Mac application.
+
+Optical memory guards use the existing Lens Effects working-set ceiling for both destructive filters and adjustment renders. Fit-to-window previews can work at reduced size when a native-resolution render exceeds that ceiling. The application reports the refusal and preserves the document; it does not silently export a lower-resolution effect. Core Image Gaussian, resampling and some optical operations remain documented portable approximations. The Tonal C stage itself is byte-exact against the original C implementation; its Gaussian input can differ at edges.

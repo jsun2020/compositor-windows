@@ -149,6 +149,10 @@ pub fn magic_wand_select(doc: &mut Document, at: Point, mode: SelectionMode, set
         return Err(CommandError::Argument("the Magic Wand's point must lie on the canvas".into()));
     }
     if settings.tolerance > 255 || settings.sample_radius > 2 { return Err(CommandError::Argument("tolerance is 0 to 255, sample radius 0 to 2".into())); }
+    if settings.all_layers {
+        let canvas=Rect{x:0.,y:0.,width:doc.width as f64,height:doc.height as f64};
+        compositor::check_lens_render(doc,&render_plan(doc,None),canvas,doc.width,doc.height)?;
+    }
     let sample = wand_sample(doc, settings.all_layers);
     match magic_wand(&sample, at, settings) {
         Err(TraceError::TooDetailed) => Err(refused(TOO_DETAILED)),

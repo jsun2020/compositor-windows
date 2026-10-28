@@ -1,0 +1,17 @@
+{
+  "bloomAmount" : 40,
+  "bloomRadius" : 24,
+  "progressiveFrom" : 0,
+  "progressiveInverted" : false,
+  "progressiveRadial" : false,
+  "progressiveTo" : 20,
+  "rgbSplitAngle" : 0,
+  "rgbSplitBlur" : 0,
+  "rgbSplitDistance" : 10,
+  "rgbSplitRadial" : false,
+  "rgbSplitReach" : 1000,
+  "sharpen" : {
+    "amount" : 230,
+    "radius" : 4.5
+  }
+}

@@ -48,11 +48,16 @@ pub enum AdjustmentKind {
     #[serde(rename = "Progressive Blur")] ProgressiveBlur,
     #[serde(rename = "Bloom / Glow")] BloomGlow,
     #[serde(rename = "RGB Split")] RgbSplit,
+    #[serde(rename = "Vignette")] Vignette,
+    #[serde(rename = "Lens Effects")] LensEffects,
+    #[serde(rename = "Tonal Contrast")] TonalContrast,
+    #[serde(rename = "Sharpen")] Sharpen,
     #[serde(rename = "Invert")] Invert,
     #[serde(rename = "Black & White")] BlackWhite,
     #[serde(rename = "Color Balance")] ColorBalance,
 }
 impl AdjustmentKind {
+    pub fn minimum_version(self) -> u32 { match self { Self::Sharpen => 19, Self::Vignette | Self::LensEffects | Self::TonalContrast => 18, _ if self.needs_version_16() => 16, _ if self.needs_version_9() => 9, _ => 7 } }
     pub fn needs_version_16(self)->bool {matches!(self,Self::ProgressiveBlur|Self::BloomGlow|Self::RgbSplit)}
     /// Gaussian Blur, Motion Blur and Add Noise adjustment layers need format v9 (ProjectStore.swift:199-204).
     pub fn needs_version_9(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::AddNoise) }
@@ -60,9 +65,10 @@ impl AdjustmentKind {
     pub fn is_editable(self) -> bool { self != AdjustmentKind::Invert }
     /// The kinds that read neighbouring pixels: they blur what lies beneath them as a whole
     /// (compositor::spatial_target) rather than mapping one colour at a time.
-    pub fn is_spatial(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | Self::ProgressiveBlur | Self::BloomGlow | Self::RgbSplit) }
+    pub fn is_spatial(self) -> bool { matches!(self, AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | Self::ProgressiveBlur | Self::BloomGlow | Self::RgbSplit | Self::Vignette | Self::LensEffects | Self::TonalContrast | Self::Sharpen) }
     pub fn name(self) -> &'static str {
         match self {
+            Self::Vignette => "Vignette", Self::LensEffects => "Lens Effects", Self::TonalContrast => "Tonal Contrast", Self::Sharpen => "Sharpen",
             Self::ProgressiveBlur => "Progressive Blur", Self::BloomGlow => "Bloom / Glow", Self::RgbSplit => "RGB Split",
             AdjustmentKind::Hsv => "Hue/Saturation", AdjustmentKind::Levels => "Levels", AdjustmentKind::Curves => "Curves", AdjustmentKind::Exposure => "Exposure", AdjustmentKind::GradientMap => "Gradient Map", AdjustmentKind::Grain => "Grain",
             AdjustmentKind::AddNoise => "Add Noise", AdjustmentKind::GaussianBlur => "Gaussian Blur", AdjustmentKind::MotionBlur => "Motion Blur", AdjustmentKind::Invert => "Invert", AdjustmentKind::BlackWhite => "Black & White", AdjustmentKind::ColorBalance => "Color Balance",
@@ -71,6 +77,7 @@ impl AdjustmentKind {
     /// Undo names, static so `Command::action_name` can stay `&'static str`.
     pub fn new_action_name(self) -> &'static str {
         match self {
+            Self::Vignette => "New Vignette Adjustment", Self::LensEffects => "New Lens Effects Adjustment", Self::TonalContrast => "New Tonal Contrast Adjustment", Self::Sharpen => "New Sharpen Adjustment",
             Self::ProgressiveBlur => "New Progressive Blur Adjustment", Self::BloomGlow => "New Bloom / Glow Adjustment", Self::RgbSplit => "New RGB Split Adjustment",
             AdjustmentKind::Hsv => "New Hue/Saturation Adjustment", AdjustmentKind::Levels => "New Levels Adjustment", AdjustmentKind::Curves => "New Curves Adjustment",
             AdjustmentKind::Exposure => "New Exposure Adjustment", AdjustmentKind::GradientMap => "New Gradient Map Adjustment", AdjustmentKind::Grain => "New Grain Adjustment",
@@ -80,6 +87,7 @@ impl AdjustmentKind {
     }
     pub fn edit_action_name(self) -> &'static str {
         match self {
+            Self::Vignette => "Edit Vignette Adjustment", Self::LensEffects => "Edit Lens Effects Adjustment", Self::TonalContrast => "Edit Tonal Contrast Adjustment", Self::Sharpen => "Edit Sharpen Adjustment",
             Self::ProgressiveBlur => "Edit Progressive Blur Adjustment", Self::BloomGlow => "Edit Bloom / Glow Adjustment", Self::RgbSplit => "Edit RGB Split Adjustment",
             AdjustmentKind::Hsv => "Edit Hue/Saturation Adjustment", AdjustmentKind::Levels => "Edit Levels Adjustment", AdjustmentKind::Curves => "Edit Curves Adjustment",
             AdjustmentKind::Exposure => "Edit Exposure Adjustment", AdjustmentKind::GradientMap => "Edit Gradient Map Adjustment", AdjustmentKind::Grain => "Edit Grain Adjustment",
@@ -459,7 +467,8 @@ impl LayerAdjustment {
     /// equal the whole one, so it pads that far.
     pub fn sampling_margin(&self) -> f64 {
         match self.kind {
-            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => self.filter_params().unwrap().margin(),
+            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit | AdjustmentKind::TonalContrast | AdjustmentKind::Sharpen => self.filter_params().unwrap().margin(),
+            AdjustmentKind::LensEffects => 1_000_000.,
             AdjustmentKind::GaussianBlur => self.gaussian_radius() * 3.0 + 2.0,
             AdjustmentKind::MotionBlur => crate::motion_reach(self.motion_distance_pixels()) + 2.0,
             _ => 0.0,
@@ -476,7 +485,7 @@ impl LayerAdjustment {
     /// Whether applying this adjustment would change nothing (used to skip no-op commits).
     pub fn is_identity(&self) -> bool {
         match self.kind {
-            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => self.filter_params().unwrap().is_identity(),
+            AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit | AdjustmentKind::Vignette | AdjustmentKind::LensEffects | AdjustmentKind::TonalContrast | AdjustmentKind::Sharpen => self.filter_params().unwrap().is_identity(),
             AdjustmentKind::Hsv => self.resolved_hsv().is_identity(),
             AdjustmentKind::Levels => self.levels.is_identity(),
             AdjustmentKind::Curves => self.curves.is_identity(),

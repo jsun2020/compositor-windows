@@ -19,15 +19,19 @@ export type Corners = [PointTuple, PointTuple, PointTuple, PointTuple];
 
 export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure" | "Gradient Map" | "Grain"
   // Mac 1.2.6 additions (R 3).
-  | "Progressive Blur" | "Bloom / Glow" | "RGB Split" | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance";
+  | "Progressive Blur" | "Bloom / Glow" | "RGB Split" | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance"
+  // Mac 1.5.8–1.5.11 (project format v18–v20).
+  | "Vignette" | "Lens Effects" | "Tonal Contrast" | "Sharpen";
 /** Every adjustment kind, in the order the Mac's New Adjustment Layer menu lists them
- * (`AdjustmentKind.allCases`, LayerAdjustment.swift:4-9). */
+ * (`AdjustmentKind.allCases`, LayerAdjustment.swift). */
 export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain",
-  "Progressive Blur", "Bloom / Glow", "RGB Split", "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance"];
+  "Progressive Blur", "Bloom / Glow", "RGB Split", "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance",
+  "Vignette", "Lens Effects", "Tonal Contrast", "Sharpen"];
 /** Whether the kind opens a panel: all but Invert, which has nothing to set (engine `AdjustmentKind::is_editable`). */
 export const isEditableKind = (kind: AdjustmentKind): boolean => kind !== "Invert";
 /** The kinds that blur what lies beneath them (engine `AdjustmentKind::is_spatial`). */
-export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur" || kind === "Progressive Blur" || kind === "Bloom / Glow" || kind === "RGB Split";
+export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur" || kind === "Progressive Blur" || kind === "Bloom / Glow" || kind === "RGB Split"
+  || kind === "Vignette" || kind === "Lens Effects" || kind === "Tonal Contrast" || kind === "Sharpen";
 export type LevelsChannel = "RGB" | "Red" | "Green" | "Blue";
 export type ColorRange = "Master" | "Reds" | "Yellows" | "Greens" | "Cyans" | "Blues" | "Magentas";
 export type LevelsAuto = "Contrast" | "Color" | "Neutral";
@@ -64,9 +68,20 @@ export const DEFAULT_COLOR_BALANCE: ColorBalanceSettings = { highlightCyanRed: 0
   midCyanRed: 0, midMagentaGreen: 0, midYellowBlue: 0, preserveLuminosity: true, shadowCyanRed: 0, shadowMagentaGreen: 0, shadowYellowBlue: 0 };
 /** The Mac's LayerAdjustment: the optional settings are written only when present, so a project
  * saved by either app re-encodes byte for byte. */
+export interface VignetteLayerSettings {
+  amount: number; color: AdjustmentColor; midpoint: number; roundness: number; feather: number; highlights: number;
+}
+export interface TonalLayerSettings {
+  amount: number; radius: number; shadows: number; midtones: number; highlights: number;
+}
+export interface SharpenLayerSettings { amount: number; radius: number; }
+export const DEFAULT_VIGNETTE: VignetteLayerSettings = { amount: 35, color: { red: 0, green: 0, blue: 0 }, midpoint: 50, roundness: 100, feather: 60, highlights: 25 };
+export const DEFAULT_TONAL: TonalLayerSettings = { amount: 50, radius: 16, shadows: 40, midtones: 60, highlights: 30 };
+export const DEFAULT_SHARPEN: SharpenLayerSettings = { amount: 100, radius: 1 };
 export interface FilterLayerSettings {
  progressiveFrom:number;progressiveTo:number;progressiveStart?:PointTuple;progressiveEnd?:PointTuple;progressiveRadial:boolean;progressiveInverted:boolean;
  bloomAmount:number;bloomRadius:number;rgbSplitDistance:number;rgbSplitBlur:number;rgbSplitAngle:number;rgbSplitRadial:boolean;rgbSplitCenter?:PointTuple;rgbSplitReach:number;
+ vignette?: VignetteLayerSettings; tonal?: TonalLayerSettings; sharpen?: SharpenLayerSettings; lens?: LensEffectSettings;
 }
 export interface LayerAdjustment {
   filterLayerSettings?:FilterLayerSettings;
@@ -85,7 +100,10 @@ export interface LensEffectSettings {
   flareAmount:number; flareLength:number; flareBlue:number;
   starAmount:number; starLength:number; starPoints:number; starAngle:number;
   mistStrength:number; mistSize:number;
-  prismAmount:number; prismCopies:number; prismOffset:number; prismAngle:number; prismSpread:number;
+  prismAmount:number; prismCopies:number; prismOffset:number; prismAngle:number;
+  /** Legacy read-compat; UI no longer exposes Reach. */
+  prismSpread?:number;
+  prismBothWays?:boolean; prismBlur?:number; prismFringe?:number;
   bokehRadius:number; bokehBrightness:number; bokehRing:number; bokehShape:"Round"|"Hexagon"|"Oval"|"Cat's Eye";
 }
 export type FilterParams =
@@ -98,7 +116,10 @@ export type FilterParams =
   | { filter: "GaussianBlur"; radius: number; preserveTransparency?: boolean }
   | { filter: "MotionBlur"; angle: number; distance: number }
   | { filter: "AddNoise"; amount: number; gaussian: boolean; monochromatic: boolean; seed: number }
-  | { filter: "LensCorrection"; distortion: number };
+  | { filter: "LensCorrection"; distortion: number }
+  | { filter: "Vignette"; settings: VignetteLayerSettings }
+  | { filter: "TonalContrast"; settings: TonalLayerSettings }
+  | { filter: "Sharpen"; amount: number; radius: number };
 export type FilterKind = FilterParams["filter"];
 export interface ScanlinesSettings {lineSpacing:number;thickness:number;glow:number;dots:number;wobble:number;displace:number;smoothness:number;threshold:number;split:number;density:number;contrast:number;blackLevel:number;colors:"Black & White"|"Original"|"Two Colors";dark:[number,number,number];light:[number,number,number]}
 
@@ -272,7 +293,9 @@ export type Command =
   | { type: "AddMaskFromSelection"; id: string; revealing: boolean }
   | { type: "Fill"; id: string; mask: boolean; color: [number, number, number] }
   | { type: "Gradient"; id: string; mask: boolean; gradient: GradientSpec }
-  | { type: "AddShape"; shape: ShapeSpec; color: [number, number, number] };
+  | { type: "AddShape"; shape: ShapeSpec; color: [number, number, number] }
+  | { type: "AlignLayers"; ids: string[]; alignment: "Left Edges" | "Horizontal Centers" | "Right Edges" | "Top Edges" | "Vertical Centers" | "Bottom Edges" }
+  | { type: "DistributeLayers"; ids: string[]; distribution: "Horizontal Centers" | "Vertical Centers" | "Horizontal Spacing" | "Vertical Spacing" };
 
 export interface Dirty { structure: boolean; canvas: boolean; layers: string[]; }
 /** A rectangle of a layer's pixel grid (or its mask's), in whole pixels (engine `PixelRect`). */

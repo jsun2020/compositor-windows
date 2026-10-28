@@ -45,6 +45,6 @@ test("a project from a newer format says which versions this build reads", async
   await seed(page, "C:/mac/future.comp", (m) => m.replace('"version" : 11', '"version" : 99'));
   await page.evaluate(() => (window as any).__compositor.bridge.setNextPick("C:/mac/future.comp"));
   await clickMenu(page, "File", "open");
-  await expect(page.getByTestId("error-banner")).toContainText("This project uses format version 99. This app supports versions 1-17.");
+  await expect(page.getByTestId("error-banner")).toContainText("This project uses format version 99. This app supports versions 1-20.");
   await expect(page.getByTestId("layer-row")).toHaveCount(0);
 });

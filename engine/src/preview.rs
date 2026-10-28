@@ -214,6 +214,15 @@ pub(crate) fn compute_preview_with_previous(doc: &Document, clips: &SelectionCli
         return gradient_preview(doc, clips, request, *layer, *mask, gradient, revision, previous);
     }
     let layer = doc.layer(request.layer())?;
+    if layer.pixels.is_none() && !layer.is_group && !layer.is_adjustment() {
+        if let PreviewRequest::Filter { params: FilterParams::Vignette { settings }, .. } = request {
+            let settings = settings.normalized();
+            if settings.amount == 0. { return None; }
+            let (result, placed) = ops::adjust::blank_vignette(doc, clips, &settings, preview_limit(request)).ok()?;
+            return Some(PixelPreview::new(layer.id, result, placed, revision, request,
+                PreviewSource::of(doc, layer.id), PreviewTarget::Pixels { followed: None }));
+        }
+    }
     let raster = layer.pixels.as_ref()?;
     let limit = preview_limit(request);
     let (source, factor) = reduced(raster, limit);

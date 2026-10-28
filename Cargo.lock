@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-engine"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "cc",
  "gif",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-engine-wasm"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "compositor-engine",
  "console_error_panic_hook",
@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "compositor-shell"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "compositor-engine",
  "moxcms",

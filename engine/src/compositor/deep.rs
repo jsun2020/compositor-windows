@@ -21,7 +21,7 @@ fn draw(doc:&Document,plan:&RenderPlan,t:&mut Surface,d:&LayerDraw,mode:BlendMod
         let original=Raster::from_premultiplied_f32(t.w,t.h,input,t.depth);
         let adjusted=if a.kind.is_spatial() {
             let b=spatial_blur(a,sx);
-            match a.kind {AdjustmentKind::GaussianBlur=>gaussian_blur(&original,b.sigma),AdjustmentKind::MotionBlur=>motion_blur(&original,b.angle,b.distance),_=>a.apply_spatial_filter(&original,t.region)}
+            match a.kind {AdjustmentKind::GaussianBlur=>gaussian_blur(&original,b.sigma),AdjustmentKind::MotionBlur=>motion_blur(&original,b.angle,b.distance),AdjustmentKind::LensEffects=>cache.spatial_image(doc.id,d.id,&original,a,t.region,doc.size()),_=>a.apply_spatial_filter_on_canvas(&original,t.region,doc.size())}
         } else {apply_adjustment(&original,a,Point{x:t.region.x,y:t.region.y},1./sx,None)};
         for y in 0..t.h {for x in 0..t.w {
             let p=t.point(x,y);if p.x<0.||p.y<0.||p.x>=doc.width as f64||p.y>=doc.height as f64 {continue;}
@@ -74,7 +74,7 @@ fn composite_one(doc:&Document,plan:&RenderPlan,region:Rect,w:u32,h:u32,cache:&E
 /// Large deep composites keep the float working surface in row bands. The final
 /// 16-bit buffer is retained; only spatial dependencies enlarge each band's halo.
 pub(super) fn composite(doc:&Document,plan:&RenderPlan,region:Rect,w:u32,h:u32,cache:&EffectsCache)->Raster {
- if w as u64*h as u64<=1_000_000 {return composite_one(doc,plan,region,w,h,cache);}
+ if w as u64*h as u64<=1_000_000 || crate::adjust::spatial::spatial_blurs(plan).iter().any(|a|a.kind==AdjustmentKind::LensEffects) {return composite_one(doc,plan,region,w,h,cache);}
  composite_banded(doc,plan,region,w,h,cache,128)
 }
 fn composite_banded(doc:&Document,plan:&RenderPlan,region:Rect,w:u32,h:u32,cache:&EffectsCache,rows:u32)->Raster {

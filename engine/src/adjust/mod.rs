@@ -28,3 +28,5 @@ pub mod bloom;
 
 pub mod filter_layer;
 pub mod lens_effects;
+
+pub mod finishing;

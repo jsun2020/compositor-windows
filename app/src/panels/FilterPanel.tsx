@@ -1,7 +1,7 @@
 import {filterLayerParams,withFilterLayerParams} from "../state/filter-layers";
 import { useEditor } from "../state/store";
-import type { AdjustmentColor, BlackWhiteSettings, ColorBalanceSettings, ExposureSettings, FilterParams, GrainSettings } from "../engine/types";
-import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
+import type { AdjustmentColor, BlackWhiteSettings, ColorBalanceSettings, ExposureSettings, FilterParams, GrainSettings, TonalLayerSettings, VignetteLayerSettings } from "../engine/types";
+import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE, DEFAULT_TONAL, DEFAULT_VIGNETTE } from "../engine/types";
 import { NumberInput } from "./NumberInput";
 import { LensEffectsPanel } from "./LensEffectsPanel";
 import { CameraRawPanel } from "./CameraRawPanel";
@@ -82,6 +82,38 @@ export function FilterPanel() {
         <option>Uniform</option><option>Gaussian</option></select></label>
       <label><input type="checkbox" aria-label="Monochromatic" checked={p.monochromatic} onChange={(e) => set({ monochromatic: e.target.checked } as never)} /> Monochromatic</label>
     </>);
+    if (p.filter === "Vignette") {
+      const v: VignetteLayerSettings = { ...DEFAULT_VIGNETTE, ...p.settings };
+      const update = (patch: Partial<VignetteLayerSettings>) => s.updateAdjust({ params: { filter: "Vignette", settings: { ...v, ...patch } } });
+      return <>
+        <NumberField label="Amount" value={v.amount} min={0} max={100} step={1} onChange={(amount) => update({ amount })} />
+        <label>Color <button aria-label="Vignette Color" data-testid="vignette-color" className="color-swatch-button"
+          style={{ background: hex(v.color) }} disabled={!!state.colorPicker}
+          onClick={(e) => { e.currentTarget.blur(); state.openColorPicker({ kind: "vignette" }); }} /></label>
+        <NumberField label="Midpoint" value={v.midpoint} min={0} max={100} step={1} onChange={(midpoint) => update({ midpoint })} />
+        <NumberField label="Roundness" value={v.roundness} min={-100} max={100} step={1} onChange={(roundness) => update({ roundness })} />
+        <NumberField label="Feather" value={v.feather} min={0} max={100} step={1} onChange={(feather) => update({ feather })} />
+        <NumberField label="Highlights" value={v.highlights} min={0} max={100} step={1} onChange={(highlights) => update({ highlights })} />
+      </>;
+    }
+    if (p.filter === "TonalContrast") {
+      const t: TonalLayerSettings = { ...DEFAULT_TONAL, ...p.settings };
+      const update = (patch: Partial<TonalLayerSettings>) => s.updateAdjust({ params: { filter: "TonalContrast", settings: { ...t, ...patch } } });
+      return <>
+        <NumberField label="Amount" value={t.amount} min={0} max={100} step={1} onChange={(amount) => update({ amount })} />
+        <NumberField label="Shadows" value={t.shadows} min={-100} max={100} step={1} onChange={(shadows) => update({ shadows })} />
+        <NumberField label="Midtones" value={t.midtones} min={-100} max={100} step={1} onChange={(midtones) => update({ midtones })} />
+        <NumberField label="Highlights" value={t.highlights} min={-100} max={100} step={1} onChange={(highlights) => update({ highlights })} />
+        <NumberField label="Radius" value={t.radius} min={1} max={100} step={1} onChange={(radius) => update({ radius })} />
+      </>;
+    }
+    if (p.filter === "Sharpen") {
+      const update = (patch: Partial<{ amount: number; radius: number }>) => s.updateAdjust({ params: { filter: "Sharpen", amount: patch.amount ?? p.amount, radius: patch.radius ?? p.radius } });
+      return <>
+        <NumberField label="Amount" value={p.amount} min={0} max={300} step={1} onChange={(amount) => update({ amount })} />
+        <NumberField label="Radius" value={p.radius} min={0.1} max={20} step={0.1} onChange={(radius) => update({ radius })} />
+      </>;
+    }
     return <NumberField label="Remove distortion" value={p.distortion} min={-100} max={100} step={1} onChange={(distortion) => set({ distortion } as never)} />;
   }
   const a = edit.adjustment!;

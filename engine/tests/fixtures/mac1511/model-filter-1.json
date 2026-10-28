@@ -1,0 +1,20 @@
+{
+  "bloomAmount" : 40,
+  "bloomRadius" : 24,
+  "progressiveFrom" : 0,
+  "progressiveInverted" : false,
+  "progressiveRadial" : false,
+  "progressiveTo" : 20,
+  "rgbSplitAngle" : 0,
+  "rgbSplitBlur" : 0,
+  "rgbSplitDistance" : 10,
+  "rgbSplitRadial" : false,
+  "rgbSplitReach" : 1000,
+  "tonal" : {
+    "amount" : 85,
+    "highlights" : 12,
+    "midtones" : 67,
+    "radius" : 31.5,
+    "shadows" : -30
+  }
+}

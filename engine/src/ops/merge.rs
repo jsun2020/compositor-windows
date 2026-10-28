@@ -50,7 +50,7 @@ pub fn merge(doc: &mut Document, selected: &[Uuid]) -> Result<Uuid, CommandError
         l
     }).collect();
     let canvas = Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 };
-    let flat = composite(&subset, canvas, doc.width, doc.height);
+    let flat = compositor::checked_composite(&subset, canvas, doc.width, doc.height)?;
     let (raster, origin) = match compositor::alpha_bounds(&flat) {
         Some((x0, y0, x1, y1)) => (flat.cropped(x0, y0, x1 - x0, y1 - y0), Point { x: x0 as f64, y: y0 as f64 }),
         None => (flat, Point { x: 0.0, y: 0.0 }),

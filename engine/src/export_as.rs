@@ -81,7 +81,7 @@ pub fn render(
     o.validate()?;
     if preview > 0 {
         let scale = (preview as f64 / o.width.max(o.height) as f64).min(1.);
-        return Ok(compositor::composite_edit_with(
+        return Ok(compositor::checked_composite_edit_with(
             doc,
             None,
             Rect {
@@ -93,7 +93,7 @@ pub fn render(
             (o.width as f64 * scale).round().max(1.) as u32,
             (o.height as f64 * scale).round().max(1.) as u32,
             cache,
-        ));
+        )?);
     }
     Ok(resized(
         compositor::render_full_with(doc, cache)?,

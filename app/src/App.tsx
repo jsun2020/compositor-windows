@@ -23,6 +23,7 @@ import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
 import { JpegExportSheet } from "./sheets/JpegExportSheet";
 import { CropOptions } from "./panels/CropOptions";
+import { MoveOptions } from "./panels/MoveOptions";
 import { SelectionOptions } from "./panels/SelectionOptions";
 import { GradientOptions } from "./panels/GradientOptions";
 import { ShapeOptions } from "./panels/ShapeOptions";
@@ -116,6 +117,7 @@ export function App() {
       <MenuBar />
       <ProjectTabs />
       <CropOptions />
+      <MoveOptions />
       <SelectionOptions />
       <GradientOptions />
       <ShapeOptions />

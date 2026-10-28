@@ -203,7 +203,7 @@ pub fn paint(doc: &mut Document, clips: &SelectionClips, id: Uuid, mask: bool, s
             Some((adjust::filters::gaussian_blur(&Raster::from_premultiplied(w,h,patch),sigma),placed,Point{x:0.0,y:0.0}))
         },
         BrushOperation::Clone { offset, all_layers }=>{
-            if *all_layers {Some((compositor::composite(doc,Rect{x:0.0,y:0.0,width:doc.width as f64,height:doc.height as f64},doc.width,doc.height),LayerTransform::axis_aligned(Point{x:0.0,y:0.0},doc.size()),*offset))}
+            if *all_layers {Some((compositor::checked_composite(doc,Rect{x:0.0,y:0.0,width:doc.width as f64,height:doc.height as f64},doc.width,doc.height)?,LayerTransform::axis_aligned(Point{x:0.0,y:0.0},doc.size()),*offset))}
             else {Some((original.pixels.as_ref().unwrap().clone(),original.transform,*offset))}
         },
         _=>None,

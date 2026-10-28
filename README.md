@@ -79,7 +79,7 @@ Use it alongside your existing workflow. Complex Photoshop documents and Mac/Win
 
 ## What's new, and what's next?
 
-**Windows 0.11.0** brings the Mac 1.5.7 update: high-precision editing, GIF tools, PDF and bundled HEIF import, CMYK workflows, new effects, and workspace improvements. [Read the release notes](docs/releases/0.11.0.md).
+**Windows 0.12.0** brings the Mac 1.5.11 update: align and distribute layers for cleaner layouts, revisit Vignette, Lens Effects, Tonal Contrast and Sharpen as editable adjustment layers, and crop to your own aspect ratio. Prism gains Blur, Fringe and two-way copies. [Read the release notes](docs/releases/0.12.0.md).
 
 Found a rough edge or have an idea? **[Open an issue](https://github.com/jsun2020/compositor-windows/issues)** with what you were doing, your app version and, when useful, a small example you can share.
 

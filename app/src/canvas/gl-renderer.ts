@@ -22,6 +22,7 @@ const KIND_CODE: Record<AdjustmentKind, number> = {
   // Never reach this pass: drawInto sends them to spatialPass.
   "Progressive Blur": ADJUST_KIND.identity, "Bloom / Glow": ADJUST_KIND.identity, "RGB Split": ADJUST_KIND.identity,
   "Gaussian Blur": ADJUST_KIND.identity, "Motion Blur": ADJUST_KIND.identity,
+  "Vignette": ADJUST_KIND.identity, "Lens Effects": ADJUST_KIND.identity, "Tonal Contrast": ADJUST_KIND.identity, "Sharpen": ADJUST_KIND.identity,
 };
 
 /** The part of the view the offscreen buffers cover, in device pixels, y down. `right` and
@@ -232,7 +233,7 @@ export class GlRenderer implements Renderer {
     // The completed region is presented through GL; old RGBA8 plans keep their GPU path.
     const proof=options.colorProof;
     const needsReference=!!(proof?.lut&&(proof.proof||proof.warning)) || state.layers.some(l=>l.pixelDepth&&l.pixelDepth!=="Eight") || plan.nodes.some(n=>
-      (n.kind==="layer"?[n.draw]:[n.base,...n.children]).some(d=>["Progressive Blur","Bloom / Glow","RGB Split"].includes(d.adjustment?.kind??"")));
+      (n.kind==="layer"?[n.draw]:[n.base,...n.children]).some(d=>["Progressive Blur","Bloom / Glow","RGB Split","Vignette","Lens Effects","Tonal Contrast","Sharpen"].includes(d.adjustment?.kind??"")));
     this.compositionBackend=needsReference?"cpu-reference":"gpu";
     if(needsReference) {
       const rect=viewport.documentRect(state),x0=Math.round(rect.x*dpr),y0=Math.round(rect.y*dpr),width=Math.max(1,Math.round((rect.x+rect.width)*dpr)-x0);

@@ -242,6 +242,7 @@ impl Engine {
         adjust::camera_raw_tables::clear_cache();
         if let Some(s) = self.sessions.remove(&id) { self.clips.forget(s.document.id); }
         self.order.retain(|d| *d != id);
+        self.effects.forget_spatial(id);
         self.effects.prune();
     }
 
@@ -618,6 +619,8 @@ impl Engine {
                 Ok(Dirty::pixels(baked))
             }
             Command::SetLayerTransform { id, transform } => { ops::transform::set_transform(doc, id, transform)?; Ok(Dirty::structure()) }
+            Command::AlignLayers { ids, alignment } => { ops::align::align(doc, &ids, alignment)?; Ok(Dirty::structure()) }
+            Command::DistributeLayers { ids, distribution } => { ops::align::distribute(doc, &ids, distribution)?; Ok(Dirty::structure()) }
             Command::TransformLayers { ids, bounds, draft } => { ops::transform::transform_group(doc, &ids, &bounds, &draft)?; Ok(Dirty::structure()) }
             Command::FlipLayers { ids, horizontal } => { ops::transform::flip_layers(doc, &ids, horizontal)?; Ok(Dirty::structure()) }
             Command::NudgeLayers { ids, dx, dy } => { ops::transform::nudge(doc, &ids, dx, dy)?; Ok(Dirty::structure()) }
@@ -942,11 +945,11 @@ impl Engine {
         Ok(compositor::export_jpeg_preview_with(&self.session(id)?.document, quality, matte, max_side, &self.effects)?)
     }
     pub fn composite(&self, id: Uuid, region: Rect, width: u32, height: u32) -> Result<Raster, CommandError> {
-        Ok(compositor::composite_edit_with(&*self.render_bytes(id)?, None, region, width, height, &self.effects))
+        Ok(compositor::checked_composite_edit_with(&*self.render_bytes(id)?, None, region, width, height, &self.effects)?)
     }
 
     pub fn render_plan(&self, id: Uuid, edit: Option<&PreviewEdit>) -> Result<RenderPlan, CommandError> { Ok(plan::render_plan(&*self.render_document(id)?, edit)) }
-    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::composite_edit_with(&*self.render_bytes(id)?, edit, region, w, h, &self.effects)) }
+    pub fn composite_edit(&self, id: Uuid, edit: Option<&PreviewEdit>, region: Rect, w: u32, h: u32) -> Result<Raster, CommandError> { Ok(compositor::checked_composite_edit_with(&*self.render_bytes(id)?, edit, region, w, h, &self.effects)?) }
     pub fn clip_dependents(&self, id: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, CommandError> { Ok(ops::hierarchy::clip_dependents(&self.session(id)?.document, ids)) }
     pub fn merge_action(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<&'static str>, CommandError> { Ok(ops::merge::merge_plan(&self.session(id)?.document, ids).map(|p| p.action)) }
     pub fn group_box(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<LayerTransform>, CommandError> { Ok(ops::transform::group_box(&self.session(id)?.document, ids)) }
@@ -986,7 +989,7 @@ impl Engine {
     /// histogram reads. A full composite, so a panel computes it once, when it opens.
     pub fn adjustment_source(&self, id: Uuid, layer: Uuid) -> Result<Raster, CommandError> {
         let below = self.beneath(id, layer)?;
-        Ok(compositor::composite_edit_with(&below, None, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height, &self.effects))
+        Ok(compositor::checked_composite_edit_with(&below, None, Rect { x: 0.0, y: 0.0, width: below.width as f64, height: below.height as f64 }, below.width, below.height, &self.effects)?)
     }
     /// A panel's histogram: an adjustment layer reads what lies beneath it, any other layer its
     /// own stored pixels (never the preview, or the graph would chase itself), weighted by the
@@ -1014,7 +1017,7 @@ impl Engine {
             (None, true) => {
                 if at.x < 0.0 || at.y < 0.0 || at.x >= doc.width as f64 || at.y >= doc.height as f64 { return Ok(None); }
                 let below = self.beneath(id, layer)?;
-                let pixel = compositor::composite_edit_with(&below, None, Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 }, 1, 1, &self.effects).pixel(0, 0);
+                let pixel = compositor::checked_composite_edit_with(&below, None, Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 }, 1, 1, &self.effects)?.pixel(0, 0);
                 if pixel[3] == 0 { return Ok(None); }
                 return Ok(Some([0, 1, 2].map(|c| (pixel[c] as f64 / pixel[3] as f64).min(1.0))));
             }
@@ -1050,7 +1053,7 @@ impl Engine {
         let doc = &self.session(id)?.document;
         if !(at.x >= 0.0 && at.y >= 0.0 && at.x < doc.width as f64 && at.y < doc.height as f64) { return Ok(None); }
         let region = Rect { x: at.x.floor(), y: at.y.floor(), width: 1.0, height: 1.0 };
-        let pixel = compositor::composite_edit_with(doc, None, region, 1, 1, &self.effects).pixel(0, 0);
+        let pixel = compositor::checked_composite_edit_with(doc, None, region, 1, 1, &self.effects)?.pixel(0, 0);
         if pixel[3] == 0 { return Ok(None); }
         let alpha = pixel[3] as f64;
         Ok(Some([0, 1, 2].map(|c| ((pixel[c] as f64).min(alpha) / alpha * 255.0).round() / 255.0)))

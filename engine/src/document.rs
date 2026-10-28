@@ -151,7 +151,7 @@ impl Document {
             if shape.get("smoothing").and_then(serde_json::Value::as_bool)==Some(true) {m.version=m.version.max(14);}
             if ["lineStyle","lineCap"].iter().any(|k|shape.get(k).is_some_and(|v|!v.is_null())) {m.version=m.version.max(15);}
         }
-        if self.layers.iter().filter_map(|l|l.extra.adjustment.as_ref()).any(|a|a.kind.needs_version_16()||a.filter_layer_settings.is_some()) {m.version=m.version.max(16);}
+        for adjustment in self.layers.iter().filter_map(|l|l.extra.adjustment.as_ref()) {m.version=m.version.max(adjustment.minimum_version());}
         if self.layers.iter().any(|l| l.extra.gif.is_some()) { m.version = m.version.max(17); }
         m.resolution = Some(self.resolution);
         m.guides = if self.guides.is_empty() { None } else { Some(self.guides.clone()) };

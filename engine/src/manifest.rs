@@ -10,7 +10,7 @@ pub const MANIFEST_FORMAT: &str = "com.compositor.project";
 /// font runs (ProjectStore.swift:209-213); every save writes 11, as the Mac's does.
 pub const CURRENT_VERSION: u32 = 11;
 // Deep PNG/EXR, shape styles, filter adjustment layers and GIF timelines through v17.
-pub const MAX_READ_VERSION: u32 = 17;
+pub const MAX_READ_VERSION: u32 = 20;
 pub const MAX_GUIDES: usize = 1_000;
 pub const MAX_SIDE: i64 = 30_000;
 pub const MAX_PIXELS: u64 = 100_000_000;
@@ -236,7 +236,7 @@ impl Manifest {
             }
             if let Some(adjustment) = &layer.adjustment {
                 if self.version < 7 || layer.is_group() || layer.image_file.is_some() || !adjustment.is_valid() { return Err(Invalid); }
-                if (adjustment.kind.needs_version_16() || adjustment.filter_layer_settings.is_some()) && self.version<16 {return Err(Invalid);}
+                if self.version < adjustment.minimum_version() {return Err(Invalid);}
                 if adjustment.kind.needs_version_9() && self.version < 9 { return Err(Invalid); }
             }
             if let Some(mask) = &layer.mask_file {

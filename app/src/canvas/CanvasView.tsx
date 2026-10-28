@@ -1,7 +1,8 @@
 import {useColorProof} from "../state/color-proof";
 import { filterHandleLine, installFilterHandles } from "./filter-handles";
+import { installSpaceHand } from "./space-hand";
 import {Navigator} from "./Navigator";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEditor } from "../state/store";
 import { createRenderer, type Renderer } from "./renderer";
 import { drawOverlay, type AntsState } from "./overlay";
@@ -31,6 +32,7 @@ export function CanvasView() {
   // Whether the space bar is currently held, shared by the pan and crop pointer
   // handlers below (both treat space-held as "temporarily pan" regardless of tool).
   const spaceRef = useRef(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
   const engine = useEditor((s) => s.engine);
   const rendererOwnerRef = useRef<{ canvas: HTMLCanvasElement; engine: typeof engine; renderer: Renderer; lease: number } | null>(null);
   const activeId = useEditor((s) => s.activeId);
@@ -252,7 +254,14 @@ export function CanvasView() {
       return;
     }
     const dpr = window.devicePixelRatio || 1;
-    renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current, colorProof:useColorProof.getState() }, useEditor.getState().previewEdit());
+    try {
+      renderer.render(engine, state, viewport, dpr, { checkerboard: checkerboardRef.current, colorProof:useColorProof.getState() }, useEditor.getState().previewEdit());
+    } catch (error) {
+      // An optical working-set refusal must not leave the previous image on
+      // screen or unmount the editor. The document remains editable/saveable.
+      renderer.clear();
+      useEditor.getState().setError(error instanceof Error ? error.message : String(error));
+    }
     paintOverlay();
   }, [state, viewport, cropRect, tool, renderTick, engine, transformEdit, snapGuides, selectedLayerIds, maskSelected, showGuides]);
 
@@ -296,14 +305,12 @@ export function CanvasView() {
 
   // Track the space bar globally; shared by the pan and crop pointer handlers below,
   // instead of each keeping its own duplicate keydown/keyup listener and local flag.
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.code === "Space") spaceRef.current = e.type === "keydown"; };
-    // Holding space, Alt-Tabbing away and releasing space in another window leaves no keyup
-    // event for this window to see, so also drop the flag when the window loses focus.
-    const blur = () => { spaceRef.current = false; };
-    window.addEventListener("keydown", key); window.addEventListener("keyup", key); window.addEventListener("blur", blur);
-    return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
-  }, []);
+  useEffect(() => installSpaceHand(window,
+    () => { const s = useEditor.getState(); return !!s.sheet || !!s.colorPicker; },
+    (held) => { spaceRef.current = held; setSpaceHeld(held); }), []);
+  // A sheet/picker can open while Space is already held.
+  const handBlocked = useEditor((s) => !!s.sheet || !!s.colorPicker);
+  useEffect(() => { if (handBlocked) { spaceRef.current = false; setSpaceHeld(false); } }, [handBlocked]);
 
   // Sampling into the colour picker while it is open (canvas/sampling.ts): ahead of every tool gesture.
   useEffect(() => {
@@ -351,8 +358,8 @@ export function CanvasView() {
   const picking = useEditor((s) => !!s.colorPicker);
   useEffect(() => {
     const el = glRef.current?.parentElement; if (!el) return;
-    el.style.cursor = tool==="hand"?"grab":tool==="text"?"text":sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
-  }, [sampleMode, tool, picking]);
+    el.style.cursor = tool==="hand" || spaceHeld ? "grab" : tool==="text"?"text":sampleMode || picking || tool === "eyedropper" || tool === "gradient" || tool === "shape" || isSelectionTool(tool) ? "crosshair" : "";
+  }, [sampleMode, tool, picking, spaceHeld]);
 
   // Drag to pan with the hand tool or the space bar.
   useEffect(() => {

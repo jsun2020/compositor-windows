@@ -12,6 +12,7 @@ import { cornersOf, cornersToTuples, isValidTransform, roundedTransform } from "
 import { activeLayer, canTransform, groupBox, transformsAsGroup, visibleIds } from "./selection";
 import { reorderedTabs } from "./tab-reorder";
 import type { AdjustEdit, SampleMode } from "./adjust-edit";
+import { defaultFilterLayerSettings } from "./filter-layers";
 import { defaultAdjustment, defaultFilterParams, isAdjustIdentity, isFilterKind, previewRequestFor,effectiveFilterParams } from "./adjust-edit";
 import { DEFAULT_BANDS, centeredOn, defaultHsv, excludeHue, hueOf, includeHue } from "../tools/hue-band";
 import { DEFAULT_SHAPE, nextShapeKind, shapeSpec, type ShapeDraft, type ShapeOptions } from "../tools/shape-draft";
@@ -23,7 +24,7 @@ import {cancelText,type TextEdit} from "../actions/text";
 import {cancelEffects,type EffectsEdit} from "../actions/effects";
 
 export type Tool = "move" | "hand" | "zoom" | "crop" | "marquee" | "lasso" | "wand" | "eyedropper" | "gradient" | "shape" | "brush" | "eraser" | "blur" | "clone" | "healing" | "text";
-export type CropRatio = "None" | "Original" | "1:1" | "4:3" | "16:9";
+export type CropRatio = "Free" | "Canvas" | "1:1" | "4:3" | "16:9" | "2.39:1" | "3:4" | "9:16" | string;
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
@@ -69,7 +70,7 @@ export const DEFAULT_PALETTE: Palette = { foreground: BLACK, background: WHITE, 
 
 /** What the open colour picker edits (`ColorPickerTarget`): a palette swatch, or one end of the
  * Gradient Map being edited in its panel. */
-export type PickerTarget = { kind: "palette"; background: boolean } | { kind: "gradientMap"; highlights: boolean };
+export type PickerTarget = { kind: "palette"; background: boolean } | { kind: "gradientMap"; highlights: boolean } | { kind: "vignette" };
 /** The open picker (`ColorPickerState`): its target, the colour it opened on, and its working values.
  * Nothing reaches a swatch until OK; a Gradient Map end previews the working colour and Cancel puts
  * the original back. */
@@ -77,6 +78,7 @@ export interface ColorPicker { target: PickerTarget; original: PaletteColor; hsb
 /** The picker's title bar (`ColorPickerTarget.title`). */
 export function pickerTitle(target: PickerTarget): string {
   if (target.kind === "palette") return target.background ? "Color Picker (Background Color)" : "Color Picker (Foreground Color)";
+  if (target.kind === "vignette") return "Color Picker (Vignette Color)";
   return target.highlights ? "Color Picker (Gradient Map Highlights)" : "Color Picker (Gradient Map Shadows)";
 }
 /** The ring shown while the canvas is being sampled (`SampleRingOverlay`): where, in view px, the
@@ -215,7 +217,7 @@ export interface EditorStore {
   setEngine(engine: EngineClient): void;
   setJobs(jobs: JobClient): void;
   /** Whether an edit of `layerId`'s pixels goes to the job worker: it has more than `jobPixels`. */
-  usesJob(layerId: string): boolean;
+  usesJob(layerId: string, canvasSized?: boolean): boolean;
   /** Runs `command` on `layerId` in the job worker and puts the result back as one undo step, unless
    * the layer changed meanwhile. The document is busy until then: other commands, undo and redo wait.
    * The canvas keeps what it showed (an open panel's preview) until the result is in. */
@@ -261,7 +263,7 @@ export interface EditorStore {
    * selection, open a sheet or disturb the panel's preview. With `refuse`, also raises the
    * refusal banner. Every such entry point and menu flag goes through this one guard. */
   panelOwnsDocument(refuse?: boolean): boolean;
-  canAdjust(): boolean;
+  canAdjust(kind?: AdjustmentKind | FilterKind): boolean;
   beginAdjust(opts: { kind: AdjustmentKind | FilterKind; layerId?: string; target?: "layer" | "adjustmentLayer" }): boolean;
   updateAdjust(patch: { adjustment?: AdjustEdit["adjustment"]; params?: AdjustEdit["params"]; cameraRawBypass?:AdjustEdit["cameraRawBypass"];cameraRawView?:AdjustEdit["cameraRawView"] }): void;
   setAdjustPreview(on: boolean): void;
@@ -315,8 +317,8 @@ function dropOpenPanel(): void {
   cancelSettle();
   const { adjustEdit, engine, activeId } = useEditor.getState();
   if (!adjustEdit) return;
-  // A picker open on one of the panel's Gradient Map ends goes with it.
-  useEditor.setState({ adjustEdit: null, ...(useEditor.getState().colorPicker?.target.kind === "gradientMap" ? { colorPicker: null } : {}) });
+  // A picker owned by the filter panel closes with that panel.
+  useEditor.setState({ adjustEdit: null, ...(["gradientMap", "vignette"].includes(useEditor.getState().colorPicker?.target.kind ?? "") ? { colorPicker: null } : {}) });
   if (activeId) engine!.setPreview(activeId, null);
 }
 
@@ -329,6 +331,35 @@ function setGradientMapEnd(highlights: boolean, color: PaletteColor): void {
   const current = highlights ? settings.highlights : settings.shadows;
   if (current.red === end.red && current.green === end.green && current.blue === end.blue) return;
   useEditor.getState().updateAdjust({ adjustment: { ...edit.adjustment, gradientMapSettings: { ...settings, [highlights ? "highlights" : "shadows"]: end } } });
+}
+/** Current vignette settings from a destructive filter panel or an adjustment-layer edit. */
+function vignetteSettingsFromEdit(): { color: PaletteColor; via: "params" | "adjustment" } | null {
+  const edit = useEditor.getState().adjustEdit;
+  if (!edit) return null;
+  if (edit.params?.filter === "Vignette") return { color: edit.params.settings.color, via: "params" };
+  if (edit.adjustment?.kind === "Vignette") {
+    const color = edit.adjustment.filterLayerSettings?.vignette?.color
+      ?? { red: 0, green: 0, blue: 0 };
+    return { color, via: "adjustment" };
+  }
+  return null;
+}
+function setVignetteColor(color: PaletteColor): void {
+  const edit = useEditor.getState().adjustEdit;
+  const info = vignetteSettingsFromEdit();
+  if (!edit || !info) return;
+  const end = { red: color.red, green: color.green, blue: color.blue };
+  const current = info.color;
+  if (current.red === end.red && current.green === end.green && current.blue === end.blue) return;
+  if (info.via === "params" && edit.params?.filter === "Vignette") {
+    useEditor.getState().updateAdjust({ params: { ...edit.params, settings: { ...edit.params.settings, color: end } } });
+    return;
+  }
+  if (edit.adjustment?.kind === "Vignette") {
+    const base = { ...defaultFilterLayerSettings(), ...edit.adjustment.filterLayerSettings };
+    const vignette = { ...(base.vignette ?? { amount: 35, color: end, midpoint: 50, roundness: 100, feather: 60, highlights: 25 }), color: end };
+    useEditor.getState().updateAdjust({ adjustment: { ...edit.adjustment, filterLayerSettings: { ...base, vignette } } });
+  }
 }
 /** Whether the active layer's pixels, or its mask, can take paint now (`canPaint`,
  * EditorSession+Brush.swift:5-11): one layer selected and shown, not a folder unless its mask is the
@@ -384,7 +415,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     set({brushOptions:next});
   },
   invalidateOverlay: () => set(s=>({overlayTick:s.overlayTick+1})),
-  engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "None",
+  engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "Free",
   untitledNames: {}, lastFilter: null, canvasOnly: false, showsNavigator: false,
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
   selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(),
@@ -472,6 +503,11 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (target.kind === "palette") {
       if (get().maskTargeted()) return false;
       original = get().paletteColor(target.background);
+    } else if (target.kind === "vignette") {
+      if (get().colorPicker) return false;
+      const info = vignetteSettingsFromEdit();
+      if (!info) return false;
+      original = info.color;
     } else {
       const edit = get().adjustEdit;
       const settings = edit?.adjustment?.kind === "Gradient Map" && !edit.params ? edit.adjustment.gradientMapSettings : undefined;
@@ -485,6 +521,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const picker = get().colorPicker; if (!picker) return;
     set({ colorPicker: { ...picker, hsb } });
     if (picker.target.kind === "gradientMap") setGradientMapEnd(picker.target.highlights, get().pickerColor()!);
+    if (picker.target.kind === "vignette") setVignetteColor(get().pickerColor()!);
   },
   closeColorPicker: (commit) => {
     const picker = get().colorPicker; if (!picker) return;
@@ -495,6 +532,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const color = get().pickerColor()!;
     set({ colorPicker: null });
     if (picker.target.kind === "palette") { if (commit && !get().maskTargeted()) get().setPaletteColor(color, picker.target.background); }
+    else if (picker.target.kind === "vignette") setVignetteColor(commit ? color : picker.original);
     else setGradientMapEnd(picker.target.highlights, commit ? color : picker.original);
   },
   sampleIntoPicker: (at) => {
@@ -551,11 +589,13 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setEngine: (engine) => set({ engine }),
   setJobs: (jobs) => set({ jobs }),
-  usesJob: (layerId) => {
+  usesJob: (layerId, canvasSized = false) => {
     const { jobs, engine, activeId, documents, jobPixels } = get();
     const layer = activeId ? documents[activeId]?.layers.find((l) => l.id === layerId) : undefined;
     // The stored layer's size: under an open preview the state shows the preview's, maybe reduced.
-    return !!jobs && !!engine && !!layer && engine.storedPixels(activeId!, layerId) > jobPixels;
+    if (!jobs || !engine || !layer || !activeId) return false;
+    const stored = engine.storedPixels(activeId, layerId);
+    return Math.max(stored, canvasSized ? documents[activeId].width * documents[activeId].height : 0) > jobPixels;
   },
   runEditJob: async (command, layerId) => {
     const { engine, jobs, activeId } = get();
@@ -941,7 +981,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     if (refuse) set({ error: "Apply or cancel the open adjustment first" });
     return true;
   },
-  canAdjust: () => {
+  canAdjust: (kind) => {
     const { activeId, documents, selectedLayerIds, maskSelected } = get();
     // A job's result is still to come: no panel may open onto a layer that may change underneath it.
     if (get().working) return false;
@@ -949,7 +989,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const state = documents[activeId];
     const layer = activeLayer(state);
     // An empty selection refuses every edit (`canAdjustColors`: `selection?.isEmpty != true`).
-    return !!layer && !layer.isGroup && layer.hasPixels && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id)
+    return !!layer && !layer.isGroup && !layer.adjustment && (layer.hasPixels || kind === "Vignette") && !maskSelected && selectedLayerIds.length === 1 && visibleIds(state).has(layer.id)
       && state.selection?.empty !== true;
   },
   beginAdjust: ({ kind, layerId, target }) => {
@@ -969,9 +1009,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const layer = id ? state.layers.find((l) => l.id === id) : null;
     if (!layer || get().panelOwnsDocument()) return false;
     const editing = target === "adjustmentLayer";
-    if (editing ? !layer.adjustment : !get().canAdjust()) return false;
+    if (editing ? !layer.adjustment : !get().canAdjust(kind)) return false;
     const requestId = ++histogramRequestId;
-    const filter = isFilterKind(kind as string);
+    const filter = !editing && isFilterKind(kind as string);
     const adjustment = filter ? null : (editing ? layer.adjustment! : defaultAdjustment(kind as AdjustmentKind));
     // A destructive Gradient Map starts from the image's foreground and background (Filters.swift:490).
     if (adjustment?.gradientMapSettings && !editing) {
@@ -1133,9 +1173,9 @@ export const useEditor = create<EditorStore>((set, get) => ({
       : { type: "ApplyAdjustment", id: edit.layerId, adjustment: edit.adjustment! };
     // A large layer is edited by the job worker: the panel closes but the canvas keeps its preview
     // until the result is put back (runEditJob clears it then); the document is busy meanwhile.
-    if (!identity && edit.target === "layer" && get().usesJob(edit.layerId)) {
+    if (!identity && edit.target === "layer" && get().usesJob(edit.layerId, edit.params?.filter === "Vignette")) {
       cancelSettle();
-      set({ adjustEdit: null, ...(get().colorPicker?.target.kind === "gradientMap" ? { colorPicker: null } : {}) });
+      set({ adjustEdit: null, ...(["gradientMap", "vignette"].includes(get().colorPicker?.target.kind ?? "") ? { colorPicker: null } : {}) });
       void get().runEditJob(command, edit.layerId);
       return;
     }

@@ -63,7 +63,7 @@ pub fn apply_adjustment(raster: &Raster, a: &LayerAdjustment, origin: Point, uni
         AdjustmentKind::AddNoise => add_noise_at(raster, a.noise_amount_percent(), a.noise_is_gaussian(), a.noise_is_monochromatic(), a.noise_seed_or_zero(), 0, 0),
         // A blur changes the layer's size: the destructive blurs are FilterParams
         // (ops::adjust::apply_filter), and apply_adjustment_to_layer refuses these kinds.
-        AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => raster.clone(),
+        AdjustmentKind::GaussianBlur | AdjustmentKind::MotionBlur | AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit | AdjustmentKind::Vignette | AdjustmentKind::LensEffects | AdjustmentKind::TonalContrast | AdjustmentKind::Sharpen => raster.clone(),
     };
     match selection { Some(coverage) => blend_by_coverage(&adjusted, raster, coverage), None => adjusted }
 }

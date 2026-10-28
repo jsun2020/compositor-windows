@@ -48,8 +48,41 @@ export function cropSeed(state: DocumentState): Rect {
   return isValid(rect) ? rect : canvas;
 }
 
+/** Max document side used to bound custom ratios (DocumentLimits.maxSideExtent on Mac). */
+const MAX_SIDE_EXTENT = 30000;
+
+/** Parse custom "width:height" text; null when invalid (CropGeometry.ratio on Mac). */
+export function parseCustomRatio(text: string): number | null {
+  const parts = text.split(":");
+  if (parts.length !== 2) return null;
+  const width = Number(parts[0].trim().replace(",", "."));
+  const height = Number(parts[1].trim().replace(",", "."));
+  if (![width, height].every((v) => Number.isFinite(v) && v > 0)) return null;
+  const ratio = width / height;
+  if (!Number.isFinite(ratio)) return null;
+  const min = 1 / MAX_SIDE_EXTENT, max = MAX_SIDE_EXTENT;
+  if (ratio < min || ratio > max) return null;
+  return ratio;
+}
+
+/** Normalize a custom ratio string to "w:h" with trimmed decimal dots (Mac CropControls.applyCustomRatio). */
+export function normalizeCustomRatioText(text: string): string | null {
+  if (parseCustomRatio(text) === null) return null;
+  return text.split(":").map((p) => p.trim().replace(",", ".")).join(":");
+}
+
 export function ratioValue(choice: CropRatio, state: DocumentState): number | null {
-  switch (choice) { case "Original": return state.width / state.height; case "1:1": return 1; case "4:3": return 4 / 3; case "16:9": return 16 / 9; default: return null; }
+  switch (choice) {
+    case "Free": case "None": return null;
+    case "Canvas": case "Original": return state.width / state.height;
+    case "1:1": return 1;
+    case "4:3": return 4 / 3;
+    case "16:9": return 16 / 9;
+    case "2.39:1": return 2.39;
+    case "3:4": return 3 / 4;
+    case "9:16": return 9 / 16;
+    default: return parseCustomRatio(choice);
+  }
 }
 
 /** Keeps the width and the center, like changeCropRatio on macOS. */

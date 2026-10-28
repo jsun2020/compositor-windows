@@ -9,3 +9,8 @@ engine/tests/fixtures/cg-sampling-mac-1.2.10/** -text
 engine/tests/fixtures/cg-ci-sampling-mac-1.4.5/** -text
 engine/tests/fixtures/mac157/** -text
 src-tauri/native/heif/tests/** -text
+engine/tests/fixtures/mac1511/** -text
+
+# Raw pixel/float reference payloads are binary even when they contain no NUL.
+engine/tests/fixtures/mac1511/*.rgba binary
+engine/tests/fixtures/mac1511/*.f32 binary

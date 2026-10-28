@@ -24,7 +24,7 @@ test("five lens effects expose their own controls; preview cancels and applied b
   await page.getByTestId("adjust-panel").getByLabel("Effect",{exact:true}).selectOption("Mist");
   await expect(page.getByTestId("adjust-panel").getByLabel("Strength",{exact:true})).toHaveValue("50");
   await page.getByTestId("adjust-panel").getByLabel("Effect",{exact:true}).selectOption("Prism");
-  await expect(page.getByTestId("adjust-panel").getByLabel("Copies",{exact:true})).toHaveValue("3");
+  await expect(page.getByTestId("adjust-panel").getByLabel("Copies",{exact:true})).toHaveValue("5");
   await page.getByTestId("adjust-panel").getByLabel("Effect",{exact:true}).selectOption("Bokeh");
   await page.getByTestId("adjust-panel").getByLabel("Shape",{exact:true}).selectOption("Cat's Eye");
   await page.getByTestId("adjust-cancel").click();expect(await pixels(page)).toEqual(before);

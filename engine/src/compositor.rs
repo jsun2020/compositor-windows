@@ -496,7 +496,8 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
     let blurred = match adjustment.kind {
         AdjustmentKind::GaussianBlur => blur_for_layer(input, b.sigma),
         AdjustmentKind::MotionBlur => streak_for_layer(input, b.angle, b.distance),
-        AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit => adjustment.apply_spatial_filter(&input,target.region),
+        AdjustmentKind::LensEffects => cache.spatial_image(doc.id,draw.id,&input,adjustment,target.region,doc.size()),
+        AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit | AdjustmentKind::Vignette | AdjustmentKind::TonalContrast | AdjustmentKind::Sharpen => adjustment.apply_spatial_filter_on_canvas(&input,target.region,doc.size()),
         _ => return,
     };
     let blurred = blurred.bytes();
@@ -596,6 +597,32 @@ pub fn composite_plan(doc: &Document, plan: &RenderPlan, region: Rect, out_width
 /// `composite_plan`, finding and keeping effects images in `cache` (the engine's). The functions
 /// without `_with` make each image once for their own render and keep none afterwards.
 pub fn composite_plan_with(doc: &Document, plan: &RenderPlan, region: Rect, out_width: u32, out_height: u32, cache: &EffectsCache) -> Raster {
+    // Lens optics see the complete canvas. Beyond 100%, magnify the native
+    // canvas result, not a full canvas multiplied by the viewport zoom (which
+    // could otherwise allocate billions of pixels for a tiny inspected area).
+    // Native-size exports still evaluate the complete original pixel grid.
+    let enlarged = region.width > 0. && region.height > 0.
+        && (out_width as f64 > region.width || out_height as f64 > region.height);
+    if enlarged && crate::adjust::spatial::spatial_blurs(plan).iter()
+        .any(|a| a.kind==AdjustmentKind::LensEffects && !a.is_identity()) {
+        let full = composite_region(doc, plan,
+            Rect { x:0., y:0., width:doc.width as f64, height:doc.height as f64 },
+            doc.width, doc.height, cache);
+        let pixel = |x:u32,y:u32| {
+            let px=region.x+(x as f64+0.5)*region.width/out_width as f64;
+            let py=region.y+(y as f64+0.5)*region.height/out_height as f64;
+            if px<0. || py<0. || px>=doc.width as f64 || py>=doc.height as f64 {[0.;4]}
+            else {sample(&full,px,py,false)}
+        };
+        if full.depth()==PixelDepth::Eight {
+            let mut bytes=Vec::with_capacity(out_width as usize*out_height as usize*4);
+            for y in 0..out_height {for x in 0..out_width {bytes.extend(pixel(x,y).map(|v|(v*255.).round().clamp(0.,255.)as u8));}}
+            return Raster::from_premultiplied(out_width,out_height,bytes);
+        }
+        let mut values=Vec::with_capacity(out_width as usize*out_height as usize*4);
+        for y in 0..out_height {for x in 0..out_width {values.extend(pixel(x,y));}}
+        return Raster::from_premultiplied_f32(out_width,out_height,values,full.depth());
+    }
     match padding(doc, plan, region, out_width, out_height) {
         Some(p) => composite_region(doc, plan, p.region, p.width, p.height, cache).cropped(p.left, p.top, out_width, out_height),
         None => composite_region(doc, plan, region, out_width, out_height, cache),
@@ -626,6 +653,32 @@ pub fn composite_edit_with(doc: &Document, edit: Option<&PreviewEdit>, region: R
 
 pub fn composite(doc: &Document, region: Rect, w: u32, h: u32) -> Raster { composite_edit(doc, None, region, w, h) }
 
+/// Check before allocating the complete optical canvas, including a pending
+/// adjustment edit. Preview/export must report the ceiling rather than abort WASM.
+pub fn check_lens_render(doc:&Document,plan:&RenderPlan,region:Rect,w:u32,h:u32)->Result<(),ExportError> {
+    let lenses:Vec<_>=crate::adjust::spatial::spatial_blurs(plan).into_iter()
+        .filter(|a|a.kind==AdjustmentKind::LensEffects && !a.is_identity()).collect();
+    if lenses.is_empty(){return Ok(());}
+    let enlarged=region.width>0. && region.height>0. && (w as f64>region.width || h as f64>region.height);
+    let (width,height)=if enlarged {(doc.width,doc.height)} else {
+        padding(doc,plan,region,w,h).map_or((w,h),|p|(p.width,p.height))
+    };
+    for a in lenses {
+        if !crate::adjust::lens_effects::working_size_allowed(width,height,&a.filter_layer().lens.unwrap_or_default()) {
+            return Err(ExportError::LensWorkingMemory);
+        }
+    }Ok(())
+}
+pub fn checked_composite_edit_with(doc:&Document,edit:Option<&PreviewEdit>,region:Rect,w:u32,h:u32,cache:&EffectsCache)->Result<Raster,ExportError> {
+    let plan=render_plan(doc,edit);
+    check_lens_render(doc,&plan,region,w,h)?;
+    Ok(composite_plan_with(doc,&plan,region,w,h,cache))
+}
+pub fn checked_composite(doc:&Document,region:Rect,w:u32,h:u32)->Result<Raster,ExportError> {
+    checked_composite_edit_with(doc,None,region,w,h,&EffectsCache::default())
+}
+
+
 /// Draws a single layer with Normal blend and its opacity, ignoring masks and clipping (Image Size resampling).
 pub fn render_layer(target: &mut [u8], tw: u32, th: u32, region: Rect, layer: &Layer) {
     let doc = Document { id: Uuid::nil(), width: 1, height: 1, resolution: 72.0, layers: vec![layer.clone()], active_layer_id: None,
@@ -649,7 +702,7 @@ fn check_export_size(doc: &Document) -> Result<(), ExportError> {
 pub fn render_full(doc: &Document) -> Result<Raster, ExportError> { render_full_with(doc, &EffectsCache::default()) }
 pub fn render_full_with(doc: &Document, cache: &EffectsCache) -> Result<Raster, ExportError> {
     check_export_size(doc)?;
-    Ok(composite_edit_with(doc, None, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height, cache))
+    checked_composite_edit_with(doc, None, Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 }, doc.width, doc.height, cache)
 }
 
 pub fn export_png(doc: &Document) -> Result<Vec<u8>, ExportError> { export_png_with(doc, &EffectsCache::default()) }
@@ -679,6 +732,6 @@ pub fn export_jpeg_preview_with(doc: &Document, quality: f64, matte: [f64; 3], m
     let out_width = ((doc.width as f64 * scale).round() as u32).max(1);
     let out_height = ((doc.height as f64 * scale).round() as u32).max(1);
     let region = Rect { x: 0.0, y: 0.0, width: doc.width as f64, height: doc.height as f64 };
-    let raster = composite_edit_with(doc, None, region, out_width, out_height, cache);
+    let raster = checked_composite_edit_with(doc, None, region, out_width, out_height, cache)?;
     encode_jpeg(&raster, quality, matte, doc.resolution)
 }

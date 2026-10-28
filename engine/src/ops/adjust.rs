@@ -88,7 +88,7 @@ pub fn grown(raster: &Raster, transform: &LayerTransform, margin: f64) -> Option
 
 pub fn filter_canvas_sides(doc:&Document,transform:&LayerTransform,w:u32,h:u32,p:&FilterParams)->adjust::filters::CanvasSides {
  use adjust::filters::CanvasSides;
- if transform.rotation!=0. || !matches!(p,FilterParams::GaussianBlur{preserve_transparency:false,..}|FilterParams::MotionBlur{..}|FilterParams::ProgressiveBlur{..}) {return CanvasSides::default();}
+ if transform.rotation!=0. || !matches!(p,FilterParams::GaussianBlur{preserve_transparency:false,..}|FilterParams::MotionBlur{..}|FilterParams::ProgressiveBlur{..}|FilterParams::Sharpen{..}) {return CanvasSides::default();}
  let Some(inv)=transform.pixel_to_document(w,h).invert()else{return CanvasSides::default();};
  let a=inv.apply(Point{x:0.,y:0.});let b=inv.apply(Point{x:doc.width as f64,y:doc.height as f64});
  CanvasSides{left:a.x.min(b.x)>=-0.5,right:a.x.max(b.x)<=w as f64+0.5,top:a.y.min(b.y)>=-0.5,bottom:a.y.max(b.y)<=h as f64+0.5}
@@ -159,6 +159,23 @@ pub fn apply_filter(doc: &mut Document, id: Uuid, params: &FilterParams) -> Resu
 pub fn apply_filter_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, params: &FilterParams) -> Result<(), CommandError> {
     let params = params.normalized();
     if params.is_identity() { return Ok(()); }
+    let original = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    if original.pixels.is_none() && !original.is_group && !original.is_adjustment() {
+        if let FilterParams::Vignette { settings } = &params {
+            let (result, placed) = blank_vignette(doc, clips, settings, u32::MAX)?;
+            let old = original.clone();
+            let mask = old.mask.as_ref().map(|m| {
+                if m.placement.is_none() && !m.is_uniform() && placed != old.transform {
+                    Mask { pixels: carry_mask(m, &old.transform, &placed), ..m.clone() }
+                } else { m.clone() }
+            });
+            let target = doc.layer_mut(id).unwrap();
+            target.set_pixels(Some(result));
+            target.transform = placed;
+            if mask != old.mask { target.set_mask(mask); }
+            return Ok(());
+        }
+    }
     let layer = pixel_layer(doc, id)?.clone();
     let raster = layer.pixels.as_ref().unwrap();
     let sides=filter_canvas_sides(doc,&layer.transform,raster.width,raster.height,&params);
@@ -182,6 +199,28 @@ pub fn apply_filter_with(doc: &mut Document, clips: &SelectionClips, id: Uuid, p
     target.transform = transform;
     if mask != layer.mask { target.set_mask(mask); }
     Ok(())
+}
+
+/// Empty means no stored asset, not a transparent pixel asset. Only that case
+/// paints the whole canvas; an existing transparent image remains transparent.
+/// Preview allocates the reduced canvas directly, without a full-size clear copy.
+pub(crate) fn blank_vignette(doc: &Document, clips: &SelectionClips,
+    settings: &adjust::finishing::VignetteLayerSettings, limit: u32,
+) -> Result<(Raster, LayerTransform), CommandError> {
+    let scale = (limit as f64 / doc.width.max(doc.height).max(1) as f64).min(1.);
+    let w = (doc.width as f64 * scale).round().max(1.) as u32;
+    let h = (doc.height as f64 * scale).round().max(1.) as u32;
+    if w as u64 * h as u64 > MAX_PIXELS { return Err(CommandError::Project(ProjectError::TooLarge)); }
+    let placed = LayerTransform::axis_aligned(Point { x: 0., y: 0. }, doc.size());
+    let source = Raster::new_transparent(w, h);
+    let coverage = edit_coverage(doc, clips, &placed, w, h)?;
+    let output = adjust::finishing::vignette(&source, settings,
+        Rect { x: 0., y: 0., width: w as f64, height: h as f64 }, true);
+    let result = match coverage {
+        Some(c) => adjust::apply::blend_by_coverage(&output, &source, &c),
+        None => output,
+    };
+    Ok((result, placed))
 }
 
 /// A new adjustment layer above the active layer (inside it when a folder is active).
