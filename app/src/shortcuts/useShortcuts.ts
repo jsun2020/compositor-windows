@@ -7,14 +7,14 @@ import { isEditableTarget } from "./target";
 import { nudgeDelta } from "../tools/transform-session";
 import type { Corners, PointTuple } from "../engine/types";
 import { activeLayer } from "../state/selection";
-import { addFolder, cycleBlendMode, deleteKeyPressed, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive, ungroupActive } from "../actions/layers";
+import { duplicateSelected, addFolder, cycleBlendMode, deleteKeyPressed, fillActive, groupSelected, invertActive, mergeSelected, moveActiveBy, setOpacityOfSelected, toggleClippingOfActive, ungroupActive } from "../actions/layers";
 import { isSelectionTool } from "../tools/selection-draft";
 import { copyPixels, pastePixels, layerViaCopy } from "../actions/clipboard";
 import { cancelBrush, finishBrush,isBrushTool } from "../tools/brush";
 
 const NUDGE_KEYS: Partial<Record<ActionId, string>> = { "nudge-left": "ArrowLeft", "nudge-right": "ArrowRight", "nudge-up": "ArrowUp", "nudge-down": "ArrowDown" };
 
-export function runAction(id: ActionId, shift = false): void {
+export function runAction(id: ActionId, shift = false, alt = false): void {
   const s = useEditor.getState();
   const doc = s.activeId ? s.documents[s.activeId] : null;
   const vp = s.activeId ? s.viewports[s.activeId] : null;
@@ -23,7 +23,7 @@ export function runAction(id: ActionId, shift = false): void {
   if (nudgeKey) {
     // In a selection tool the arrows move the outline, 1 px or 10 with Shift, one step a press
     // (`nudgeSelection`, EditorCanvas.swift:1809-1814); only a selection with something in it moves.
-    if (doc && isSelectionTool(s.tool)) {
+    if (doc && !alt && isSelectionTool(s.tool)) {
       const delta = nudgeDelta(nudgeKey, shift);
       if (delta && !s.selectionDraft && s.hasSelection()) s.run({ type: "MoveSelection", dx: delta.dx, dy: delta.dy });
       return;
@@ -31,6 +31,10 @@ export function runAction(id: ActionId, shift = false): void {
     if (!doc || s.tool !== "move") return;
     const delta = nudgeDelta(nudgeKey, shift);
     if (!delta) return;
+    if (alt) {
+      if (!s.transformEdit && !s.maskSelected) duplicateSelected(delta.dx, delta.dy);
+      return;
+    }
     if (s.transformEdit) {
       const e = s.transformEdit;
       const draft = { ...e.draft, origin: [e.draft.origin[0] + delta.dx, e.draft.origin[1] + delta.dy] as PointTuple };
@@ -54,6 +58,8 @@ export function runAction(id: ActionId, shift = false): void {
     return;
   }
   switch (id) {
+    case "toggle-extras": if (doc) s.toggleExtras(); break;
+    case "toggle-guides": if (doc) s.toggleGuides(); break;
     case "search-commands": if(!s.panelOwnsDocument())s.openSheet({kind:"searchCommands"});break;
     case "last-filter": repeatLastFilter();break;
     case "fullscreen": void toggleFullscreen();break;
@@ -151,7 +157,7 @@ export function runAction(id: ActionId, shift = false): void {
     case "invert": invertActive(); break;
     default:
       if (id.startsWith("opacity-")) {
-        if (s.tool === "move" && doc) typeOpacityDigit(Number(id.slice(8)));
+        if (doc && ["move", "marquee", "lasso", "wand"].includes(s.tool)) typeOpacityDigit(Number(id.slice(8)));
         // With the Gradient tool the digits set its opacity, at least 1 % (`typeOpacityDigit`, EditorSession+Brush.swift:193-211).
         else if (s.tool === "gradient" && !s.working) typeOpacityDigit(Number(id.slice(8)), Date.now(), (v) => s.setGradientOptions({ opacity: Math.max(0.01, v) }));
         else if (isBrushTool(s.tool) && !s.working) typeOpacityDigit(Number(id.slice(8)),Date.now(),v=>s.setBrushOptions({opacity:Math.max(0.01,v)}));
@@ -196,7 +202,7 @@ export function useShortcuts(): void {
       const id = matchShortcut(e);
       if (!id) return;
       e.preventDefault();
-      runAction(id, e.shiftKey);
+      runAction(id, e.shiftKey, e.altKey);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

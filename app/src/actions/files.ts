@@ -152,6 +152,52 @@ export async function importImages(paths?: string[], at?: { x: number; y: number
   if(request){const s=useEditor.getState();if(s.documents[request.doc]?.layers.some(l=>l.id===request.layer)){s.setActive(request.doc);s.selectLayers([request.layer],request.layer);s.beginAdjust({kind:"CameraRaw"});}}
 }
 
+export function layerExportNames(names: string[]): string[] {
+  const used = new Set<string>();
+  return names.map(raw => {
+    let base = raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").trim().replace(/[ .]+$/g, "");
+    if (!base || base.startsWith(".") || /^(con|prn|aux|nul|(?:lpt|com)[1-9])(?:\.|$)/i.test(base)) base = "Layer" + base;
+    // Keep room for the numeric suffix and PNG extension within a Windows filename component.
+    base = Array.from(base).reduce((s,c) => s.length+c.length <= 230 ? s+c : s,"");
+    let unique = base, index = 2;
+    while (used.has(unique.toLowerCase())) unique = base + " " + index++;
+    used.add(unique.toLowerCase());
+    return unique + ".png";
+  });
+}
+
+export async function exportSelectedLayers(): Promise<void> {
+  await guarded(async () => {
+    const {s, engine, bridge} = ctx();
+    const doc = s.activeId ? s.documents[s.activeId] : null;
+    if (!doc) return;
+    const selected = new Set(s.selectedLayerIds.length ? s.selectedLayerIds : [doc.activeLayerId]);
+    const layers = [...doc.layers].reverse().filter(l => selected.has(l.id));
+    if (!layers.length) return;
+    const names = layerExportNames(layers.map(l => l.name));
+    let paths: string[];
+    if (layers.length === 1) {
+      const path = await bridge.pickExportFile(names[0].slice(0,-4), "png");
+      if (!path) return;
+      paths = [path];
+    } else {
+      if (!bridge.pickExportFolder || !bridge.existingFiles) throw new Error("Folder export is unavailable in this window.");
+      const folder = await bridge.pickExportFolder();
+      if (!folder) return;
+      paths = names.map(name => folder.replace(/[\\/]+$/,"") + "/" + name);
+      const existing = await bridge.existingFiles(paths);
+      if (existing.length && !window.confirm("Replace " + existing.length + " existing PNG file(s) in this folder?")) return;
+    }
+    const skipped: string[] = [];
+    for (const [index, layer] of layers.entries()) {
+      const png = engine.exportLayerPng(doc.id, layer.id);
+      if (png?.length) await bridge.writeFile(paths[index], png);
+      else skipped.push(layer.name);
+    }
+    if (skipped.length) s.setError("No visible pixels to export in " + skipped.join(", ") + ".");
+  });
+}
+
 export async function exportPng(): Promise<void> {
   await guarded(async () => {
     const { s, engine, bridge } = ctx();

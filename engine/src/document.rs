@@ -148,6 +148,7 @@ impl Document {
         if self.layers.iter().any(|l| l.pixels.as_ref().is_some_and(|p|p.depth()==crate::PixelDepth::Hdr)) {m.version=13;}
         else if self.layers.iter().any(|l| l.pixels.as_ref().is_some_and(|p|p.depth()==crate::PixelDepth::Sixteen)) {m.version=12;}
         for shape in self.layers.iter().filter_map(|l|l.extra.shape.as_ref()) {
+            if crate::ops::shape::has_stroke(shape) { m.version=m.version.max(22); }
             if shape.get("smoothing").and_then(serde_json::Value::as_bool)==Some(true) {m.version=m.version.max(14);}
             if ["lineStyle","lineCap"].iter().any(|k|shape.get(k).is_some_and(|v|!v.is_null())) {m.version=m.version.max(15);}
         }
@@ -234,14 +235,28 @@ impl Document {
     pub fn siblings(&self, parent: Option<Uuid>) -> Vec<Uuid> {
         self.layers.iter().filter(|l| l.parent_id == parent).map(|l| l.id).collect()
     }
-    /// Layers whose every ancestor is visible (groups included).
+    /// Visibility follows folder ancestry and lower clipping bases in the same sibling stack.
     pub fn visible_ids(&self) -> std::collections::HashSet<Uuid> {
-        let by_id: std::collections::HashMap<Uuid, &Layer> = self.layers.iter().map(|l| (l.id, l)).collect();
-        self.layers.iter().filter(|layer| {
-            let mut node = Some(*layer); let mut steps = 0;
-            while let Some(n) = node { if !n.visible || steps > crate::MAX_NESTING { return false; } steps += 1; node = n.parent_id.and_then(|p| by_id.get(&p).copied()); }
-            true
-        }).map(|l| l.id).collect()
+        use std::collections::{HashMap, HashSet};
+        let mut siblings: HashMap<Option<Uuid>, Vec<&Layer>> = HashMap::new();
+        for layer in &self.layers {
+            siblings.entry(layer.parent_id).or_default().push(layer);
+        }
+        fn visit(parent: Option<Uuid>, siblings: &HashMap<Option<Uuid>, Vec<&Layer>>, visible: &mut HashSet<Uuid>, depth: usize) {
+            if depth > crate::MAX_NESTING { return; }
+            let mut below = HashSet::new();
+            for layer in siblings.get(&parent).into_iter().flatten() {
+                let hidden_base = layer.mask_source_id.is_some_and(|id| below.contains(&id) && !visible.contains(&id));
+                if layer.visible && !hidden_base {
+                    visible.insert(layer.id);
+                    if layer.is_group { visit(Some(layer.id), siblings, visible, depth + 1); }
+                }
+                below.insert(layer.id);
+            }
+        }
+        let mut visible = HashSet::new();
+        visit(None, &siblings, &mut visible, 0);
+        visible
     }
     /// Visible pixel layers bottom to top in hierarchy order, groups excluded: what the
     /// compositor draws. Hierarchy order, not array order, is the z-order on both platforms -

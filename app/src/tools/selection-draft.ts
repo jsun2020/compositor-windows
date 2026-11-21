@@ -65,6 +65,12 @@ export class SelectionDraft {
     const b = dragBox(this.anchor, pixel, this.squareArmed && shift, false);
     this.points = [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }];
   }
+  moveMarquee(from:P,to:P):void {
+    if(!this.anchor)return;
+    const dx=Math.round(to.x)-Math.round(from.x),dy=Math.round(to.y)-Math.round(from.y);
+    this.anchor.x+=dx;this.anchor.y+=dy;
+    this.points=this.points.map(p=>({x:p.x+dx,y:p.y+dy}));
+  }
   /** A Freehand point, or a Polygonal corner (`extendLasso`). */
   extend(pixel: P): void {
     if (!Number.isFinite(pixel.x) || !Number.isFinite(pixel.y)) return;

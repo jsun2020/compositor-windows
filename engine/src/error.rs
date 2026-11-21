@@ -40,6 +40,8 @@ pub enum ImportError {
 pub enum ExportError {
     #[error("Lens Effects working memory limit exceeded at this resolution. Use a smaller canvas or disable the Lens Effects adjustment.")]
     LensWorkingMemory,
+    #[error("Reduce Noise ran out of working memory at this resolution.")]
+    NoiseWorkingMemory,
     #[error("Image export supports canvases up to 100 megapixels and 30,000 pixels per side.")]
     TooLarge,
     #[error("The canvas could not be rendered. Try a smaller canvas.")]

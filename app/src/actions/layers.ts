@@ -22,7 +22,39 @@ export function deleteSelected(): void {
   if (dependents.length > 0) bake = window.confirm("This layer supplies a clipping mask.\n\nOK bakes the masked look into the dependent layers. Cancel removes the links instead.");
   c.s.run({ type: "DeleteLayers", ids: c.selected, bake });
 }
-export function duplicateSelected(): void { const c = ctx(); if (!c?.active || c.active.isGroup) return; c.s.commitTransform(); c.s.run({ type: "DuplicateLayer", id: c.active.id }); }
+export function duplicateSelected(dx = 0, dy = 0): void {
+  const c = ctx();
+  if (!c?.active || c.s.working || c.s.panelOwnsDocument()) return;
+  c.s.commitTransform();
+  const ids = c.selected.length ? c.selected : [c.active.id];
+  const originals = new Set(c.doc.layers.map(layer => layer.id));
+  if (!c.s.run({type:"DuplicateLayers", ids, dx, dy})) return;
+  const state = useEditor.getState(), doc = state.documents[c.doc.id];
+  const copies = doc.layers.filter(layer => !originals.has(layer.id));
+  const roots = copies.filter(layer => !layer.parentId || originals.has(layer.parentId));
+  state.selectLayers(roots.map(layer => layer.id), doc.activeLayerId);
+}
+
+export function toggleSelectedVisibility(): void {
+  const c = ctx();
+  if (c?.active) c.s.run({type:"SetLayersVisible", ids:[...new Set([...c.selected,c.active.id])], visible:!c.active.visible});
+}
+
+export function canConvertSelectedDepth(depth: "Eight" | "Sixteen"): boolean {
+  const c = ctx();
+  if (!c?.active || c.s.maskSelected) return false;
+  const selected = new Set([...c.selected,c.active.id]);
+  const parents = new Map(c.doc.layers.map(l => [l.id,l.parentId]));
+  return c.doc.layers.some(layer => {
+    if (layer.isGroup || layer.gif || layer.text || layer.adjustment || (layer.pixelDepth ?? "Eight") === depth) return false;
+    for (let id: string | null = layer.id; id; id = parents.get(id) ?? null) if (selected.has(id)) return true;
+    return false;
+  });
+}
+export function convertSelectedDepth(depth: "Eight" | "Sixteen"): void {
+  const c = ctx();
+  if (c?.active) c.s.run({type:"ConvertLayersDepth", ids:[...new Set([...c.selected,c.active.id])], depth});
+}
 export function groupSelected(): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "GroupLayers", ids: c.selected }); }
 /** Ungroup Layers needs a folder as the active layer (`canUngroupLayers`, LayerGroups.swift:215 at v1.4.5). */
 export function canUngroupActive(): boolean { const c = ctx(); return !!c?.active?.isGroup && !c.s.panelOwnsDocument(); }
@@ -124,8 +156,24 @@ export function blurMaskOfActive(): void {
 // Guarded here rather than at each call site, so the Ctrl+Alt+G shortcut, the Layer menu item
 // and the context menu all behave alike. macOS guards inside `toggleClippingMask` the same way
 // and returns silently; nothing below to clip to is a no-op, not an error worth a banner.
-export function toggleClippingOfActive(): void { const c = ctx(); if (!c?.active || c.active.isGroup || !canClipActive()) return; c.s.run({ type: "ToggleClipping", id: c.active.id }); }
-export function canClipActive(): boolean { const c = ctx(); return !!c?.active && !c.active.isGroup && c.engine.canToggleClipping(c.doc.id, c.active.id); }
+export function toggleClippingOfActive(): void {
+  const c = ctx();
+  if (!c?.active || !canClipActive()) return;
+  c.s.run({ type: "ToggleLayersClipping", ids: [...new Set([...c.selected, c.active.id])] });
+}
+export function canClipActive(): boolean {
+  const c = ctx();
+  if (!c?.active) return false;
+  if (c.selected.length <= 1) return c.engine.canToggleClipping(c.doc.id,c.active.id);
+  return c.engine.canToggleSelectedClipping(c.doc.id,[...new Set([...c.selected,c.active.id])]);
+}
+export function clippingTitle(): string {
+  const c = ctx();
+  const selected = new Set(c?.selected);
+  if (c?.active) selected.add(c.active.id);
+  return c && selected.size && c.doc.layers.filter(l => selected.has(l.id)).every(l => l.maskSourceId)
+    ? "Release Clipping Mask" : "Create Clipping Mask";
+}
 export function flipSelected(horizontal: boolean): void { const c = ctx(); if (!c) return; c.s.commitTransform(); c.s.run({ type: "FlipLayers", ids: c.selected, horizontal }); }
 /** Whether the active layer has a sibling `offset` steps away to swap with. Mirrors macOS's
  * `canMoveActiveLayer(by:)`: siblings are the layers sharing its parent, in array order. */
@@ -142,7 +190,13 @@ export function moveActiveBy(offset: number): void { const c = ctx(); if (!c?.ac
 export function placeDropped(id: string, target: DropTarget, copy: boolean): void {
   const c = ctx(); if (!c) return;
   if (!c.engine.canPlace(c.doc.id, id, target.parent)) return;
-  c.s.run(copy ? { type: "DuplicateLayerTo", id, parent: target.parent, above: target.above, atBottom: target.atBottom } : { type: "PlaceLayer", id, parent: target.parent, above: target.above, atBottom: target.atBottom });
+  if (!copy) { c.s.run({type:"PlaceLayer",id,...target}); return; }
+  const ids=c.selected.includes(id)?c.selected:[id];
+  const originals=new Set(c.doc.layers.map(l=>l.id));
+  if (!c.s.run({type:"DuplicateLayersTo",ids,...target})) return;
+  const s=useEditor.getState(), doc=s.documents[c.doc.id];
+  const roots=doc.layers.filter(l=>!originals.has(l.id)&&(!l.parentId||originals.has(l.parentId)));
+  s.selectLayers(roots.map(l=>l.id),doc.activeLayerId);
 }
 export function setOpacityOfSelected(opacity: number): void { const c = ctx(); if (!c) return; c.s.run({ type: "SetLayersOpacity", ids: c.selected, opacity }); }
 export function setBlendModeOfActive(mode: BlendMode): void { const c = ctx(); if (!c?.active || c.active.isGroup) return; c.s.run({ type: "SetLayerBlendMode", id: c.active.id, mode }); }

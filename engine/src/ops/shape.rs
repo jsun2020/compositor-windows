@@ -186,6 +186,37 @@ pub fn shape_record(spec: &ShapeSpec, color: [f64; 3]) -> serde_json::Value {
     record
 }
 
+const STROKE_KEYS: [&str; 4] = ["strokeWidth", "strokeRed", "strokeGreen", "strokeBlue"];
+
+pub(crate) fn has_stroke(record: &serde_json::Value) -> bool {
+    STROKE_KEYS.iter().any(|key| record.get(key).is_some_and(|v| !v.is_null()))
+}
+pub(crate) fn valid_stroke(record: &serde_json::Value) -> bool {
+    matches!(record["kind"].as_str(), Some("Rectangle" | "Ellipse"))
+        && record["strokeWidth"].as_f64().is_some_and(|w| w > 0. && w <= 5000.)
+        && STROKE_KEYS[1..].iter().all(|key| record[key].as_f64().is_some_and(|c| (0.0..=1.0).contains(&c)))
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShapeStroke { pub width: f64, pub color: [f64; 3] }
+
+impl ShapeStroke {
+    fn write(&self, record: &mut serde_json::Value) -> Result<(), CommandError> {
+        if !matches!(record["kind"].as_str(),Some("Rectangle" | "Ellipse")) ||
+            !(0.0..=5000.0).contains(&self.width) || self.color.iter().any(|v| !(0.0..=1.0).contains(v)) {
+            return Err(CommandError::Argument("Invalid shape stroke".into()));
+        }
+        if self.width == 0. {
+            for key in STROKE_KEYS { record.as_object_mut().unwrap().remove(key); }
+        } else {
+            for (key, value) in STROKE_KEYS.into_iter().zip([self.width, self.color[0], self.color[1], self.color[2]]) {
+                record[key] = swift_number(value);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// "Rectangle 1", "Ellipse 2", ... skipping names already in the document (`nextShapeName`).
 pub fn next_shape_name(doc: &Document, kind: ShapeKind) -> String {
     let mut n = 1;
@@ -197,6 +228,10 @@ pub fn next_shape_name(doc: &Document, kind: ShapeKind) -> String {
 /// (`finishShape`, `addPixelLayer(dropsSelection: false)`). Refused when its box is under a pixel
 /// on either side (a click makes nothing) or its pixels pass what the project may hold.
 pub fn add_shape(doc: &mut Document, spec: &ShapeSpec, color: [f64; 3]) -> Result<Uuid, CommandError> {
+    add_styled(doc, spec, color, None)
+}
+
+pub fn add_styled(doc: &mut Document, spec: &ShapeSpec, color: [f64; 3], stroke: Option<&ShapeStroke>) -> Result<Uuid, CommandError> {
     spec.check()?;
     if color.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v)) { return Err(CommandError::Argument("shape colour out of range".into())); }
     let bounds = spec.bounds();
@@ -204,8 +239,13 @@ pub fn add_shape(doc: &mut Document, spec: &ShapeSpec, color: [f64; 3]) -> Resul
     let (w, h) = (bounds.width as u64, bounds.height as u64);
     if w as i64 > MAX_SIDE || h as i64 > MAX_SIDE { return Err(CommandError::Refused(SHAPE_SIDE_TOO_LARGE.into())); }
     if w * h > MAX_PIXELS.saturating_sub(doc.used_pixels()) { return Err(CommandError::Refused(SHAPE_TOO_LARGE.into())); }
-    let mut layer = Layer::with_pixels(&next_shape_name(doc, spec.kind()), shape_raster(spec, color), Point { x: bounds.x, y: bounds.y });
-    layer.extra.shape = Some(shape_record(spec, color));
+    let mut record = shape_record(spec, color);
+    let raster = if let Some(stroke) = stroke {
+        stroke.write(&mut record)?;
+        redraw_image(&record, Size { width: w as f64, height: h as f64 }, 1.).ok_or_else(|| CommandError::Argument("Cannot draw shape".into()))?
+    } else { shape_raster(spec, color) };
+    let mut layer = Layer::with_pixels(&next_shape_name(doc, spec.kind()), raster, Point { x: bounds.x, y: bounds.y });
+    layer.extra.shape = Some(record);
     ops::layers::insert_above_active(doc, layer)
 }
 
@@ -225,7 +265,22 @@ pub fn redraw_image(record:&serde_json::Value,size:Size,scale:f64)->Option<Raste
             let width=record.get("lineWidth")?.as_f64()?*scale;if !width.is_finite()||width<=0.0{return None;}line_contours(unit("start")?,unit("end")?,width,record.get("lineStyle").map(|v|serde_json::from_value(v.clone())).transpose().ok()?.unwrap_or_default(),record.get("lineCap").map(|v|serde_json::from_value(v.clone())).transpose().ok()?.unwrap_or_default())
         },_=>return None,
     };
-    let coverage=rasterize(&contours,0.0,0.0,w,h,true);let mut data=vec![0;w as usize*h as usize*4];
+    let coverage=rasterize(&contours,0.0,0.0,w,h,true);
+    let mut data=vec![0;w as usize*h as usize*4];
+    if has_stroke(record) {
+        if !valid_stroke(record) { return None; }
+        let width=(record["strokeWidth"].as_f64()? * scale).min(w.min(h) as f64 / 2.);
+        let stroke=STROKE_KEYS[1..].iter().map(|key|record[key].as_f64()).collect::<Option<Vec<_>>>()?;
+        let band=crate::selection::geometry::band(&contours,width)?;
+        let inside=crate::selection::geometry::combine(&contours,&band,crate::selection::geometry::Boolean::Difference);
+        let fill=rasterize(&inside,0.,0.,w,h,true);
+        for ((pixel,&outer),&inner) in data.chunks_exact_mut(4).zip(coverage.bytes()).zip(fill.bytes()) {
+            let inner=inner.min(outer);
+            for c in 0..3 {pixel[c]=(stroke[c]*f64::from(outer-inner)+color[c]*f64::from(inner)).round() as u8;}
+            pixel[3]=outer;
+        }
+        return Some(Raster::from_premultiplied(w,h,data));
+    }
     for(p,&a)in data.chunks_exact_mut(4).zip(coverage.bytes()){for k in 0..3{p[k]=(color[k]*a as f64).round() as u8;}p[3]=a;}
     Some(Raster::from_premultiplied(w,h,data))
 }
@@ -238,4 +293,96 @@ pub fn redraw(doc:&mut Document,id:Uuid)->Result<(),CommandError>{
     let Some(drawn)=redraw_image(record,old.transform.size,1.0)else{return Ok(());};
     let target=doc.layer_mut(id).unwrap();if target.mask.as_ref().is_some_and(|m|m.placement.is_none()){target.mask_mut().unwrap().placement=Some(old.transform);}
     target.set_pixels(Some(drawn));target.extra.shape=Some(record.clone());Ok(())
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapeAppearance {
+    pub fill: Option<[f64; 3]>,
+    pub stroke: Option<ShapeStroke>,
+    pub corner_radius: Option<f64>,
+    pub smoothing: Option<bool>,
+    pub line_width: Option<f64>,
+    pub line_cap: Option<ShapeLineCap>,
+    pub line_style: Option<ShapeLineStyle>,
+}
+
+/// Changing a line's pen preserves its endpoints. Expand the layer first so the
+/// thicker pen and square end caps have enough space in the replacement raster.
+fn refit_line(record: &mut serde_json::Value, transform: &mut LayerTransform, width: f64, cap: ShapeLineCap) -> Result<(), CommandError> {
+    let old_width = record["lineWidth"].as_f64().unwrap_or(width);
+    let grid_shift = |w: f64| if w.round() as i64 % 2 == 1 { 0.5 } else { 0.0 };
+    let shift = grid_shift(width) - grid_shift(old_width);
+    let point = |key: &str, far: bool| -> Result<Point, CommandError> {
+        if record[key].is_null() {
+            let inset = old_width * 0.5;
+            return Ok(Point {
+                x: transform.origin.x + if far { transform.size.width - inset } else { inset } + grid_shift(width),
+                y: transform.origin.y + if far { transform.size.height - inset } else { inset } + grid_shift(width),
+            });
+        }
+        let unit: Point = serde_json::from_value(record[key].clone()).map_err(|_| CommandError::Argument("Invalid line endpoint".into()))?;
+        Ok(Point { x: transform.origin.x + unit.x * transform.size.width + shift,
+                   y: transform.origin.y + unit.y * transform.size.height + shift })
+    };
+    let start = point("start", false)?;
+    let end = point("end", true)?;
+    let reach = line_reach(start, end, width, cap);
+    transform.origin = Point { x: start.x.min(end.x) - reach, y: start.y.min(end.y) - reach };
+    transform.size = Size { width: ((start.x-end.x).abs()+2.*reach).max(1.),
+                            height: ((start.y-end.y).abs()+2.*reach).max(1.) };
+    record["lineWidth"] = swift_number(width);
+    for (key,p) in [("start",start),("end",end)] {
+        record[key] = serde_json::json!([(p.x-transform.origin.x)/transform.size.width,
+                                        (p.y-transform.origin.y)/transform.size.height]);
+    }
+    Ok(())
+}
+
+pub fn edit_appearance(doc: &mut Document, id: Uuid, edit: &ShapeAppearance) -> Result<(),CommandError> {
+    let layer = doc.layer(id).ok_or(CommandError::NoLayer)?;
+    let mut record = layer.extra.shape.clone().ok_or_else(||CommandError::Argument("Select a live shape".into()))?;
+    let old = layer.pixels.as_ref().ok_or(CommandError::NoLayer)?;
+    let mut transform = layer.transform;
+    if let Some(fill) = edit.fill {
+        if fill.iter().any(|v| !(0.0..=1.0).contains(v)) {return Err(CommandError::Argument("Invalid shape color".into()));}
+        for (name,value) in ["red","green","blue"].into_iter().zip(fill) { record[name]=swift_number(value); }
+    }
+    if let Some(stroke)=&edit.stroke { stroke.write(&mut record)?; }
+    if edit.line_width.is_some() || edit.line_cap.is_some() || edit.line_style.is_some() {
+        if record["kind"]!="Line" { return Err(CommandError::Argument("Select a line".into())); }
+        let width = edit.line_width.or_else(||record["lineWidth"].as_f64()).unwrap_or(1.);
+        if !(1.0..=5000.0).contains(&width) {return Err(CommandError::Argument("Invalid line width".into()));}
+        let old_cap = serde_json::from_value(record["lineCap"].clone()).unwrap_or(ShapeLineCap::Round);
+        let cap = edit.line_cap.unwrap_or(old_cap);
+        if cap != old_cap || edit.line_width.is_some_and(|v|Some(v)!=record["lineWidth"].as_f64()) {
+            refit_line(&mut record,&mut transform,width,cap)?;
+        }
+        if let Some(cap) = edit.line_cap { record["lineCap"] = serde_json::json!(cap); }
+        if let Some(style) = edit.line_style { record["lineStyle"] = serde_json::json!(style); }
+    }
+    if edit.corner_radius.is_some() || edit.smoothing.is_some() {
+        if record["kind"]!="Rectangle" {return Err(CommandError::Argument("Select a rectangle".into()));}
+        if let Some(radius) = edit.corner_radius {
+            if !(0.0..=5000.0).contains(&radius) {return Err(CommandError::Argument("Invalid corner radius".into()));}
+            record["cornerRadius"]=swift_number(radius);
+        }
+        if let Some(smoothing) = edit.smoothing {record["smoothing"] = serde_json::json!(smoothing);}
+    }
+    if layer.extra.shape.as_ref()==Some(&record) {return Ok(());}
+    let size = transform.size;
+    if !transform.is_valid() || size.width > MAX_SIDE as f64 || size.height > MAX_SIDE as f64 {return Err(ProjectError::TooLarge.into());}
+    let pixels = size.width.round() as u64 * size.height.round() as u64;
+    let others = doc.used_pixels() - old.width as u64 * old.height as u64;
+    if pixels > MAX_PIXELS.saturating_sub(others) {return Err(ProjectError::TooLarge.into());}
+    let image=redraw_image(&record,size,1.).ok_or_else(||CommandError::Argument("Cannot redraw shape".into()))?;
+    let layer=doc.layer_mut(id).unwrap();
+    if transform!=layer.transform && layer.mask.as_ref().is_some_and(|m|m.placement.is_none()) {
+        let previous=layer.transform;
+        layer.mask_mut().unwrap().placement=Some(previous);
+    }
+    layer.transform=transform;
+    layer.set_pixels(Some(image));
+    layer.extra.shape=Some(record);
+    Ok(())
 }

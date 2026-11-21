@@ -31,7 +31,7 @@ fn upstream_core_graphics_shape_geometry_and_coverage() {
 fn shape_format_gates_and_roundtrip_keep_new_settings() {
  for(spec,version)in [(json!({"kind":"Rectangle","rect":{"x":0,"y":0,"width":80,"height":60},"cornerRadius":12,"smoothing":true}),14),
  (json!({"kind":"Line","start":[10,10],"end":[50,30],"width":5,"lineStyle":"Dotted","lineCap":"Square"}),15)] {
-  let mut e=Engine::new();let id=e.new_document(100,100,false).unwrap();e.execute(id,Command::AddShape{shape:serde_json::from_value(spec).unwrap(),color:[1.,0.,0.]}).unwrap();
+  let mut e=Engine::new();let id=e.new_document(100,100,false).unwrap();e.execute(id,Command::AddShape{stroke:None,shape:serde_json::from_value(spec).unwrap(),color:[1.,0.,0.]}).unwrap();
   let d=e.document(id).unwrap();let mut m=d.manifest();assert_eq!(m.version,version);m.version=version-1;assert!(m.validate().is_err());
   let saved=e.save_package(id).unwrap();let reopened=e.open_package(&saved,None).unwrap();assert_eq!(e.document(reopened).unwrap().layers[0].extra.shape,e.document(id).unwrap().layers[0].extra.shape);
   e.undo(id).unwrap();assert!(e.document(id).unwrap().layers.is_empty());e.redo(id).unwrap();assert_eq!(e.document(id).unwrap().manifest().version,version);

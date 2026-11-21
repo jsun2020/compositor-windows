@@ -40,11 +40,11 @@ test("a clipped source keeps both final 2:1 taps after sharp halving", async ({ 
     const png=async(size:number,sparse:boolean)=>{const canvas=document.createElement("canvas");canvas.width=size;canvas.height=size;const ctx=canvas.getContext("2d")!;const image=ctx.createImageData(size,size);for(let y=0;y<size;y++)for(let x=0;x<size;x++){const i=(y*size+x)*4,v=!sparse||(x%4===0&&y%4===0)?255:0;image.data.set(sparse?[v,v,v,v]:[0,0,255,255],i);}ctx.putImageData(image,0,0);const blob=await new Promise<Blob>(r=>canvas.toBlob(b=>r(b!)));return new Uint8Array(await blob.arrayBuffer());};
     const doc=engine.newDocument(64,64,false);engine.importImage(doc,await png(64,true),"source",{x:32,y:32});const base=engine.state(doc).layers[0].id;
     engine.importImage(doc,await png(8,false),"clipped",{x:32,y:32});const top=engine.state(doc).layers[1];engine.execute(doc,{type:"SetLayerTransform",id:top.id,transform:{...top.transform,origin:[0,0],size:[64,64]}});
-    engine.execute(doc,{type:"LinkMask",source:base,target:top.id});engine.execute(doc,{type:"SetLayerVisible",id:base,visible:false});
+    engine.execute(doc,{type:"LinkMask",source:base,target:top.id});
     api.store.getState().openDocument(doc);await api.setZoom(0.25);api.setCheckerboard(false);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     const state=api.store.getState(),d=state.documents[doc],vp=state.viewports[doc],dpr=window.devicePixelRatio||1;const rect=vp.documentRect(d);vp.translate({width:(Math.round(rect.x*dpr)-rect.x*dpr)/dpr,height:(Math.round(rect.y*dpr)-rect.y*dpr)/dpr});
     api.renderer.render(engine,d,vp,dpr,{checkerboard:false},null);const gpu=Array.from(api.readDocumentPixels()) as number[],cpu=Array.from(engine.composite(doc,{x:0,y:0,width:64,height:64},16,16)) as number[];
-    const outcome={kind:state.rendererKind,length:gpu.length,expectedLength:cpu.length,worst:gpu.reduce((m,v,i)=>Math.max(m,Math.abs(v-cpu[i])),0),alphas:Array.from({length:16},(_,x)=>cpu[(8*16+x)*4+3])};api.store.getState().closeDocument(doc);return outcome;
+    const outcome={kind:state.rendererKind,length:gpu.length,expectedLength:cpu.length,worst:gpu.reduce((m,v,i)=>Math.max(m,Math.abs(v-cpu[i])),0),blue:Array.from({length:16},(_,x)=>cpu[(8*16+x)*4+2]),reds:Array.from({length:16},(_,x)=>cpu[(8*16+x)*4])};api.store.getState().closeDocument(doc);return outcome;
   });
-  expect(result.kind).toBe("gl");expect(result.length).toBe(result.expectedLength);expect(result.worst).toBeLessThanOrEqual(2);expect(result.alphas.every(a=>a>=8&&a<=32)).toBe(true);
+  expect(result.kind).toBe("gl");expect(result.length).toBe(result.expectedLength);expect(result.worst).toBeLessThanOrEqual(2);expect(result.blue.every(v=>v>=8&&v<=32)).toBe(true);expect(result.reds.every((v,i)=>v<result.blue[i])).toBe(true);
 });

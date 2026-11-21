@@ -65,6 +65,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'HEIF helper build failed' }
   Copy-Item (Join-Path $root 'src-tauri/native/moxcms-LICENSE.txt') (Join-Path $stage 'moxcms-LICENSE.txt')
   Copy-Item (Join-Path $root 'engine/native/LICENSE-Compositor.txt') (Join-Path $stage 'LICENSE-Compositor.txt')
+  Copy-Item -LiteralPath (Join-Path $root 'app/public/licenses/depthmini') -Destination (Join-Path $stage 'Vision-notices') -Recurse
   @(
     "Compositor for Windows $version ($marker)",
     'Portable build: run Compositor.exe. Requires the Microsoft Edge WebView2 Runtime (preinstalled on Windows 10 19045 and later).',

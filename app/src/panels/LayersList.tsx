@@ -1,3 +1,4 @@
+import { exportSelectedLayers } from "../actions/files";
 import {beginProjectLayerDrag,endProjectLayerDrag} from "../actions/project-copy";
 import { useState, useEffect, useRef, type DragEvent } from "react";
 import { useEditor } from "../state/store";
@@ -5,7 +6,7 @@ import type { LayerState } from "../engine/types";
 import { layerRows, filteredLayerRows, LAYER_FILTERS, type LayerFilter, dropTarget, type Row } from "./layer-rows";
 import { activeLayer } from "../state/selection";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive, ungroupActive } from "../actions/layers";
+import { clippingTitle, toggleSelectedVisibility, addFolder, addMaskToActive, canClipActive, deleteSelected, duplicateSelected, editAdjustmentLayer, flipSelected, groupSelected, loadSelection, mergeSelected, mergeTitle, placeDropped, toggleClippingOfActive, ungroupActive } from "../actions/layers";
 
 /** Ctrl-click on a thumbnail loads it as a selection, Ctrl-Shift adds and Ctrl-Alt subtracts
  * (`loadMode`, NativeLayerList.swift:1007-1019, :1235-1238); Ctrl-click elsewhere in a row still
@@ -39,7 +40,7 @@ export function LayersList() {
   const collapsed = s.activeId ? s.collapsed[s.activeId] ?? [] : [];
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [drag, setDrag] = useState<{ id: string } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; copy:boolean } | null>(null);
   const [over, setOver] = useState<{ index: number; zone: Zone } | null>(null);
   // The Delete/Backspace key is handled by the global shortcut hook (delete-layer in
   // keymap.ts / useShortcuts.ts) so it is routed through exactly one place; this panel
@@ -55,7 +56,7 @@ export function LayersList() {
   const canDropOn = (id: string, index: number, zone: Zone): boolean => {
     if (!s.engine) return false;
     const target = targetFor(rows[index], zone);
-    if (target.above === id) return false;
+    if (target.above === id && !drag?.copy) return false;
     return s.engine.canPlace(doc.id, id, target.parent);
   };
   const select = (e: React.MouseEvent, row: Row) => {
@@ -70,7 +71,9 @@ export function LayersList() {
     } else if (!s.selectedLayerIds.includes(id) || s.selectedLayerIds.length !== 1) s.selectLayers([id], id);
   };
   const menuItems = (): MenuItem[] => [
-    { id: "duplicate", label: "Duplicate Layer", run: duplicateSelected },
+    { id: "export-layers", label: s.selectedLayerIds.length > 1 ? "Export Layers as PNGs…" : "Export Layer as PNG…", run: () => void exportSelectedLayers() },
+    { id: "visibility", label: (doc?.layers.find(l => l.id === doc.activeLayerId)?.visible === false ? "Show " : "Hide ") + (s.selectedLayerIds.length > 1 ? "Layers" : "Layer"), run: toggleSelectedVisibility },
+    { id: "duplicate", label: s.selectedLayerIds.length > 1 ? "Duplicate Layers" : "Duplicate Layer", run: () => duplicateSelected() },
     { id: "group", label: "Group Layers", run: groupSelected },
     // A folder right-clicked can be ungrouped (NativeLayerList.swift:159-165 at v1.4.5).
     ...(activeLayer(doc)?.isGroup ? [{ id: "ungroup", label: "Ungroup Layers", run: ungroupActive }] : []),
@@ -78,7 +81,7 @@ export function LayersList() {
     "separator",
     { id: "mask-reveal", label: "Add Mask (Reveal All)", run: () => addMaskToActive(true) },
     { id: "mask-hide", label: "Add Mask (Hide All)", run: () => addMaskToActive(false) },
-    { id: "clip", label: "Create/Release Clipping Mask", run: toggleClippingOfActive, disabled: !canClipActive() },
+    { id: "clip", label: clippingTitle(), run: toggleClippingOfActive, disabled: !canClipActive() },
     "separator",
     { id: "flip-h", label: "Flip Horizontal", run: () => flipSelected(true) },
     { id: "flip-v", label: "Flip Vertical", run: () => flipSelected(false) },
@@ -109,18 +112,18 @@ export function LayersList() {
             <div key={l.id} data-testid="layer-row" data-layer-id={l.id} data-depth={row.depth} aria-selected={selected}
               data-drop-zone={over?.index === index ? over.zone : undefined}
               className={"layer-row" + (selected ? " selected" : "") + (l.id === doc.activeLayerId ? " active" : "") + (row.visible ? "" : " dimmed")}
-              style={{ paddingLeft: 8 + row.depth * 14 }} draggable
+              style={{ paddingLeft: 8 + row.depth * 14, opacity:drag?.id === l.id ? .5 : undefined }} draggable
               onClick={(e) => select(e, row)}
               onDoubleClick={() => { if (l.adjustment) editAdjustmentLayer(l.id); else setRenaming({ id: l.id, name: l.name }); }}
               onContextMenu={(e) => { e.preventDefault(); if (!selected) s.selectLayers([l.id], l.id); setMenu({ x: e.clientX, y: e.clientY }); }}
-              onDragStart={(e) => { beginProjectLayerDrag(e.dataTransfer,l.id); setDrag({ id: l.id }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
+              onDragStart={(e) => { beginProjectLayerDrag(e.dataTransfer,l.id); setDrag({ id: l.id, copy:e.altKey }); e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "copyMove"; }}
               onDragOver={(e) => {
                 if (!drag || drag.id === l.id) return;
                 const zone = zoneFor(e, row);
                 if (!canDropOn(drag.id, index, zone)) { e.dataTransfer.dropEffect = "none"; setOver(null); return; }
                 e.preventDefault(); setOver({ index, zone });
               }}
-              onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, targetFor(rows[index], zone), e.altKey); setDrag(null); setOver(null); }}
+              onDrop={(e) => { e.preventDefault(); if (!drag) return; const zone = zoneFor(e, row); placeDropped(drag.id, targetFor(rows[index], zone), drag.copy || e.altKey); setDrag(null); setOver(null); }}
               onDragEnd={() => { endProjectLayerDrag(); setDrag(null); setOver(null); }}>
               {l.isGroup ? <button data-testid={`collapse-${l.id}`} className="disclosure" onClick={(e) => { e.stopPropagation(); s.toggleCollapsed(l.id); }}>{row.collapsed ? ">" : "v"}</button> : <span className="disclosure-space" />}
               <input type="checkbox" aria-label={`Visible ${l.name}`} checked={l.visible} onClick={(e) => e.stopPropagation()} onChange={(e) => s.run({ type: "SetLayerVisible", id: l.id, visible: e.target.checked })} />

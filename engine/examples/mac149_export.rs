@@ -40,6 +40,7 @@ fn main() {
             ExportFormat::PNG16 => "png",
             ExportFormat::EXR => "exr",
             ExportFormat::TIFF => "tif",
+            ExportFormat::PSD => "psd",
         };
         let options = ExportOptions {gif_loop:None,channel_sources:None,
             width: 24,

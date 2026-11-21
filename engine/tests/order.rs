@@ -167,11 +167,11 @@ fn a_clipping_source_prefilters_like_any_other_draw() {
     let t = d.layer(top).unwrap().transform;
     ops::transform::set_transform(&mut d, top, LayerTransform { origin: Point { x: 0.0, y: 0.0 }, size: Size { width: 64.0, height: 64.0 }, ..t }).unwrap();
     hierarchy::link_mask(&mut d, base, top).unwrap();
-    // A visible base and its clipped layer become a Stack node, which shares the base's alpha
-    // directly and never consults the source. Hiding the base is what routes the draw through
-    // `source_coverage_at`, the path the GL renderer's `applyClip` mirrors; coverage uses the
-    // source's alpha regardless of its visibility, on both platforms.
     d.layer_mut(base).unwrap().visible = false;
+    let area = Rect { x: 0., y: 0., width: 64., height: 64. };
+    assert!(compositor::composite(&d, area, 16, 16).bytes().iter().all(|b| *b == 0));
+    // A reference to a source above the target is independent of stack visibility.
+    d.layers.swap(0, 1);
     // One output pixel per four source pixels in each axis: one halving.
     let out = compositor::composite(&d, Rect { x: 0.0, y: 0.0, width: 64.0, height: 64.0 }, 16, 16);
     let alphas: Vec<u8> = (0..16).map(|x| out.pixel(x, 8)[3]).collect();

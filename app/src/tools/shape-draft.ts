@@ -1,4 +1,4 @@
-import type { ShapeSpec } from "../engine/types";
+import type { ShapeSpec, ShapeStroke } from "../engine/types";
 import { dragBox, type P } from "./selection-draft";
 import { snapped45 } from "../state/gradient-edit";
 
@@ -7,7 +7,7 @@ export type ShapeKind = "Rectangle" | "Ellipse" | "Line";
 export const SHAPE_KINDS: ShapeKind[] = ["Rectangle", "Ellipse", "Line"];
 /** The tool's settings (EditorSession.swift:236-240): the kind, a rectangle's corner radius and a
  * line's width, in document pixels; the bar's sliders reach 200 and 100, its fields 5000. */
-export interface ShapeOptions { kind: ShapeKind; cornerRadius: number; lineWidth: number; smoothing?: boolean; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round"; }
+export interface ShapeOptions { stroke?: ShapeStroke; kind: ShapeKind; cornerRadius: number; lineWidth: number; smoothing?: boolean; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round"; }
 export const DEFAULT_SHAPE: ShapeOptions = { kind: "Rectangle", cornerRadius: 0, lineWidth: 4, smoothing: false, lineStyle: "Solid", lineCap: "Square" };
 export const SHAPE_FIELD_MAX = 5000;
 

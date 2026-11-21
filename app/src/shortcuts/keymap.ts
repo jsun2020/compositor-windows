@@ -1,5 +1,5 @@
 export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "export-jpeg" | "close" | "undo" | "redo" | "new-layer"
-  | "tool-text" | "search-commands" | "last-filter" | "fullscreen" | "export-as"
+  | "toggle-extras" | "toggle-guides" | "tool-text" | "search-commands" | "last-filter" | "fullscreen" | "export-as"
   | "copy" | "copy-merged" | "cut" | "paste" | "transform" | "tool-brush" | "tool-eraser" | "tool-blur" | "tool-clone" | "tool-healing"
   | "canvas-size" | "image-size" | "zoom-in" | "zoom-out" | "fit" | "actual" | "tool-move" | "tool-hand" | "tool-zoom" | "tool-crop" | "apply" | "cancel"
   | "nudge-left" | "nudge-right" | "nudge-up" | "nudge-down"
@@ -12,6 +12,7 @@ export type ActionId = "new" | "open" | "save" | "save-as" | "export-png" | "exp
 export interface Shortcut { key: string; ctrl?: boolean; shift?: boolean; alt?: boolean; }
 
 export const SHORTCUTS = {
+  "toggle-extras":[{key:"h",ctrl:true}], "toggle-guides":[{key:";",ctrl:true}],
   "search-commands":[{key:"f",ctrl:true}], "last-filter":[{key:"f",ctrl:true,alt:true}],
   "fullscreen":[{key:"f"}], "export-as":[{key:"w",ctrl:true,shift:true,alt:true}],
   "tool-text":[{key:"t"}],
@@ -30,10 +31,10 @@ export const SHORTCUTS = {
   // Enter/Escape apply or cancel whatever pending edit owns the current tool (crop rect or
   // move-tool transform); runAction routes by tool and by whether an edit is pending.
   "apply": [{ key: "Enter" }], "cancel": [{ key: "Escape" }],
-  "nudge-left": [{ key: "ArrowLeft" }, { key: "ArrowLeft", shift: true }],
-  "nudge-right": [{ key: "ArrowRight" }, { key: "ArrowRight", shift: true }],
-  "nudge-up": [{ key: "ArrowUp" }, { key: "ArrowUp", shift: true }],
-  "nudge-down": [{ key: "ArrowDown" }, { key: "ArrowDown", shift: true }],
+  "nudge-left": [{ key: "ArrowLeft" }, { key: "ArrowLeft", shift: true }, { key: "ArrowLeft", alt: true }, { key: "ArrowLeft", shift: true, alt: true }],
+  "nudge-right": [{ key: "ArrowRight" }, { key: "ArrowRight", shift: true }, { key: "ArrowRight", alt: true }, { key: "ArrowRight", shift: true, alt: true }],
+  "nudge-up": [{ key: "ArrowUp" }, { key: "ArrowUp", shift: true }, { key: "ArrowUp", alt: true }, { key: "ArrowUp", shift: true, alt: true }],
+  "nudge-down": [{ key: "ArrowDown" }, { key: "ArrowDown", shift: true }, { key: "ArrowDown", alt: true }, { key: "ArrowDown", shift: true, alt: true }],
   "new-folder": [], "duplicate": [{ key: "j", ctrl: true }], "group": [{ key: "g", ctrl: true }], "ungroup": [{ key: "g", ctrl: true, shift: true }], "merge": [{ key: "e", ctrl: true }],
   "clip": [{ key: "g", ctrl: true, alt: true }], "layer-up": [{ key: "]", ctrl: true }], "layer-down": [{ key: "[", ctrl: true }],
   "blend-next": [{ key: "=", shift: true }, { key: "+", shift: true }], "blend-prev": [{ key: "-", shift: true }, { key: "_", shift: true }],

@@ -18,6 +18,7 @@ import { NewCanvasSheet } from "./sheets/NewCanvasSheet";
 import { CommandSearchSheet } from "./sheets/CommandSearchSheet";
 import { KeyboardShortcutsSheet } from "./sheets/KeyboardShortcutsSheet";
 import { ColorProofSheet } from "./sheets/ColorProofSheet";
+import { LightingSheet } from "./sheets/LightingSheet";
 import { ExportAsSheet } from "./sheets/ExportAsSheet";
 import { CanvasSizeSheet } from "./sheets/CanvasSizeSheet";
 import { ImageSizeSheet } from "./sheets/ImageSizeSheet";
@@ -46,6 +47,14 @@ export function App() {
   // below for why a second live wasm call at the wrong moment is unsafe here).
   const [version, setVersion] = useState("");
   const sheet = useEditor((s) => s.sheet);
+  const documentSize = useEditor(s=>{
+    const doc=s.activeId?s.documents[s.activeId]:null;
+    if(!doc)return "";
+    const draft=s.selectionDraft?.isMarquee?s.selectionDraft.points:null;
+    const bounds=draft?.length===4?{width:Math.abs(draft[2].x-draft[0].x),height:Math.abs(draft[2].y-draft[0].y)}:doc.selection?.bounds;
+    return ` · ${doc.width} × ${doc.height} px`+(bounds?` · Selection ${Math.round(bounds.width)} × ${Math.round(bounds.height)} px`:"")
+      +(doc.selection?.feather?` · Feather ${doc.selection.feather} px`:"");
+  });
   const canvasOnly=useEditor(s=>s.canvasOnly);
   const activeId=useEditor(s=>s.activeId);
   useEffect(()=>{if(canvasOnly&&!activeId)void toggleFullscreen();},[canvasOnly,activeId]);
@@ -138,12 +147,13 @@ export function App() {
       <EffectsPanel />
       <ColorPickerPanel />
       <UndrawnNotice />
-      <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){working && <span data-testid="working"> - Working...</span>}</div>
+      <div className="status" data-testid="engine-ready">Compositor engine {version} ({BUILD_MARKER}){documentSize}{working && <span data-testid="working"> - Working...</span>}</div>
       {banner && <div data-testid="error-banner" className="error-banner">{banner}<button onClick={() => useEditor.getState().setError(null)}>Dismiss</button></div>}
       {sheet?.kind === "new" && <NewCanvasSheet />}
       {sheet?.kind === "searchCommands" && <CommandSearchSheet />}
       {sheet?.kind === "keyboardShortcuts" && <KeyboardShortcutsSheet />}
       {sheet?.kind === "colorProof" && <ColorProofSheet />}
+      {sheet?.kind === "lighting" && <LightingSheet kind={sheet.effect} />}
       {sheet?.kind === "exportAs" && <ExportAsSheet />}
       {sheet?.kind === "canvasSize" && <CanvasSizeSheet />}
       {sheet?.kind === "imageSize" && <ImageSizeSheet />}

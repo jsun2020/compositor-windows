@@ -47,7 +47,7 @@ test('tampered payload, duplicate entries, traversal and truncation fail', () =>
   for (const b of [changed, zip(['Compositor.exe', 'Compositor.exe', 'README.txt']), zip(['../Compositor.exe', 'LICENSE-Compositor.txt', 'README.txt']), zip().subarray(0, 20)]) assert.throws(() => inspectZip(b));
 });
 test('missing RAW helper, runtime or license and unapproved added files fail',()=>{
-  for(const name of ['moxcms-LICENSE.txt','CompositorRaw.exe','CompositorHeif.exe','heif.dll','libde265.dll','vcruntime140.dll','LibRaw-notices/LICENSE.CDDL','HEIF-notices/libheif-1.23.6.tar.gz','HEIF-notices/build-heif-helper.ps1'])assert.throws(()=>inspectZip(zip(PORTABLE_FILES.filter(n=>n!==name))));
+  for(const name of ['Vision-notices/NOTICE.txt','Vision-notices/onnxruntime-ThirdPartyNotices.txt','moxcms-LICENSE.txt','CompositorRaw.exe','CompositorHeif.exe','heif.dll','libde265.dll','vcruntime140.dll','LibRaw-notices/LICENSE.CDDL','HEIF-notices/libheif-1.23.6.tar.gz','HEIF-notices/build-heif-helper.ps1'])assert.throws(()=>inspectZip(zip(PORTABLE_FILES.filter(n=>n!==name))));
   assert.throws(()=>inspectZip(zip([...PORTABLE_FILES,'private-photo.dng'])));
 });
 

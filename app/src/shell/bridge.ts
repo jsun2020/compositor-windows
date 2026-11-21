@@ -24,7 +24,9 @@ export interface ShellBridge {
   pickImportImages(): Promise<string[]>;
   pickImportFolder?(): Promise<string | null>;
   expandImportPaths?(paths:string[]): Promise<{paths:string[];errors:string[]}>;
-  pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif"): Promise<string | null>;
+  pickExportFolder?(): Promise<string | null>;
+  existingFiles?(paths: string[]): Promise<string[]>;
+  pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif" | "psd"): Promise<string | null>;
   readPackage(path: string): Promise<PackageFiles>;
   writePackage(path: string, files: PackageFiles): Promise<void>;
   readFile(path: string): Promise<Uint8Array>;

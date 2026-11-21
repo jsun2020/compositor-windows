@@ -544,6 +544,10 @@ impl Engine {
             Command::EditGif { id, edit } => { animation::edit(doc, id, edit)?; Ok(Dirty::everything()) },
             Command::AddBlankLayer => { ops::layers::add_blank_layer(doc)?; Ok(Dirty::structure()) }
             Command::RenameLayer { id, name } => { ops::layers::rename_layer(doc, id, &name)?; Ok(Dirty::structure()) }
+            Command::SetLayersVisible { ids, visible } => {
+                for id in ids { ops::layers::set_layer_visible(doc, id, visible)?; }
+                Ok(Dirty::structure())
+            }
             Command::SetLayerVisible { id, visible } => { ops::layers::set_layer_visible(doc, id, visible)?; Ok(Dirty::structure()) }
             Command::DeleteLayer { id } => { ops::layers::delete_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::SetActiveLayer { id } => { ops::layers::set_active_layer(doc, id)?; Ok(Dirty::structure()) }
@@ -591,6 +595,10 @@ impl Engine {
             Command::UngroupLayers { id } => { ops::hierarchy::ungroup_layers(doc, id)?; Ok(Dirty::structure()) }
             Command::PlaceLayer { id, parent, above, at_bottom } => { ops::hierarchy::place_layer(doc, id, parent, above, at_bottom)?; Ok(Dirty::structure()) }
             Command::MoveLayerBy { id, offset } => { ops::hierarchy::move_layer_by(doc, id, offset)?; Ok(Dirty::structure()) }
+            Command::DuplicateLayers { ids, dx, dy } => {
+                ops::hierarchy::duplicate_selected(doc, &ids, dx, dy)?;
+                Ok(Dirty::structure())
+            }
             Command::DuplicateLayer { id } => { ops::hierarchy::duplicate_layer(doc, id)?; Ok(Dirty::structure()) }
             Command::LayerViaCopy { id, mask } => { ops::clipboard::layer_via_copy(doc, id, mask)?; Ok(Dirty::everything()) }
             Command::BrushStroke { id, mask, brush } => ops::brush::paint(doc, clips, id, mask, &brush),
@@ -609,6 +617,7 @@ impl Engine {
                 doc.selection = selection;
                 Ok(Dirty::pixels(vec![id]))
             }
+            Command::DuplicateLayersTo {ids,parent,above,at_bottom} => {ops::hierarchy::duplicate_selected_to(doc,&ids,parent,above,at_bottom)?;Ok(Dirty::structure())}
             Command::DuplicateLayerTo { id, parent, above, at_bottom } => { ops::hierarchy::duplicate_layer_to(doc, id, parent, above, at_bottom)?; Ok(Dirty::structure()) }
             Command::DuplicateLayerTransformed { id, transform } => { let copy = ops::hierarchy::duplicate_layer(doc, id)?; ops::transform::set_transform(doc, copy, transform)?; Ok(Dirty::structure()) }
             Command::DeleteLayers { ids, bake } => {
@@ -639,6 +648,10 @@ impl Engine {
             Command::FillMask { id, white } => { ops::masks::fill_mask(doc, id, white)?; Ok(Dirty::structure()) }
             Command::BlurMask { id, radius } => { ops::masks::blur_mask(doc, id, radius)?; Ok(Dirty::structure()) }
             Command::CopyMask { from, to } => { ops::masks::copy_mask(doc, from, to)?; Ok(Dirty::structure()) }
+            Command::ToggleLayersClipping { ids } => {
+                ops::hierarchy::toggle_selected_clipping(doc, &ids)?;
+                Ok(Dirty::structure())
+            }
             Command::ToggleClipping { id } => { ops::hierarchy::toggle_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::ReleaseClipping { id } => { ops::hierarchy::release_clipping(doc, id)?; Ok(Dirty::structure()) }
             Command::LinkMask { source, target } => { ops::hierarchy::link_mask(doc, source, target)?; Ok(Dirty::structure()) }
@@ -647,6 +660,10 @@ impl Engine {
             Command::ApplyAdjustment { id, adjustment } => {
                 ops::adjust::apply_adjustment_to_layer_with(doc, clips, id, &adjustment)?;
                 Ok(Dirty::pixels(vec![id]).within(selection_regions(doc, clips, id, Plane::Pixels)))
+            }
+            Command::ConvertLayersDepth { ids, depth } => {
+                let changed = ops::layers::convert_selected_depth(doc, &ids, depth)?;
+                Ok(Dirty::pixels(changed))
             }
             Command::ConvertPixelDepth { id, depth } => {
                 if depth==PixelDepth::Hdr {return Err(CommandError::Argument("Choose 8-bit or 16-bit conversion".into()));}
@@ -698,7 +715,8 @@ impl Engine {
                 let plane = if mask { Plane::Mask } else { Plane::Pixels };
                 Ok(Dirty::pixels(if mask { vec![] } else { vec![id] }).within(selection_regions(doc, clips, id, plane)))
             }
-            Command::AddShape { shape, color } => { ops::shape::add_shape(doc, &shape, color)?; Ok(Dirty::structure()) }
+            Command::SetShapeAppearance {id,edit} => {ops::shape::edit_appearance(doc,id,&edit)?; Ok(Dirty::structure())}
+            Command::AddShape { shape, color, stroke } => { ops::shape::add_styled(doc, &shape, color, stroke.as_ref())?; Ok(Dirty::structure()) }
         })
     }
 
@@ -931,10 +949,92 @@ impl Engine {
 
     // Exports and every render below find effects images in, and leave them in, the engine's cache.
     pub fn export_png(&self, id: Uuid) -> Result<Vec<u8>, CommandError> { Ok(compositor::export_png_with(&self.session(id)?.document, &self.effects)?) }
+    pub fn apply_light_field(&mut self, doc:Uuid, source:Uuid, revision:u64, width:u32, height:u32, field:&[f32]) -> Result<(),CommandError> {
+        self.edit(doc, |doc,clips| {
+            let original = doc.layer(source).ok_or(CommandError::NoLayer)?;
+            let pixels = original.pixels.as_ref().filter(|_| original.pixels_revision == revision)
+                .ok_or_else(|| CommandError::Refused(jobs::LAYER_CHANGED.into()))?;
+            let selection = ops::adjust::edit_coverage(doc, clips, &original.transform,pixels.width,pixels.height)?;
+            let lit = crate::light_field::apply(pixels,selection.as_ref(),width,height,field)?;
+            if &lit == pixels { return Ok(Dirty::pixels(vec![])); }
+            doc.layer_mut(source).unwrap().set_pixels(Some(lit));
+            Ok(Dirty::pixels(vec![source]))
+        })?;
+        Ok(())
+    }
+    /// Expand the guided depth map to the source pixel grid and keep its canvas placement.
+    pub fn insert_depth_map(&mut self, doc:Uuid, source:Uuid, revision:u64, width:u32, height:u32, gray:&[u8]) -> Result<(),CommandError> {
+        if width == 0 || height == 0 || width > 640 || height > 640 || gray.len() != width as usize * height as usize {
+            return Err(CommandError::Argument("Invalid depth map dimensions".into()));
+        }
+        self.edit(doc, |doc,_| {
+            let index = doc.index_of(source).ok_or(CommandError::NoLayer)?;
+            let original = &doc.layers[index];
+            let pixels = original.pixels.as_ref().filter(|_| original.pixels_revision == revision)
+                .ok_or_else(|| CommandError::Refused(jobs::LAYER_CHANGED.into()))?;
+            let count = u64::from(pixels.width) * u64::from(pixels.height);
+            if doc.layers.len() >= MAX_LAYERS || doc.used_pixels() + count > MAX_PIXELS { return Err(ProjectError::OverBudget.into()); }
+            let axis = |at: u32, source: u32, target: u32| {
+                let coord = ((f64::from(at) + 0.5) * f64::from(source) / f64::from(target) - 0.5)
+                    .clamp(0.0, f64::from(source - 1));
+                let lo = coord.floor() as usize;
+                (lo, (lo+1).min(source as usize - 1), coord.fract())
+            };
+            let columns: Vec<_> = (0..pixels.width).map(|x| axis(x, width, pixels.width)).collect();
+            let mut rgba = Vec::new();
+            rgba.try_reserve_exact(count as usize * 4).map_err(|_| ProjectError::OverBudget)?;
+            for y in 0..pixels.height {
+                let (y0, y1, fy) = axis(y, height, pixels.height);
+                for &(x0,x1,fx) in &columns {
+                    let row = |y: usize| f64::from(gray[y * width as usize + x0]) * (1.0-fx)
+                        + f64::from(gray[y * width as usize + x1]) * fx;
+                    let value = (row(y0)*(1.0-fy) + row(y1)*fy).round() as u8;
+                    rgba.extend_from_slice(&[value,value,value,255]);
+                }
+            }
+            let mut layer = Layer::with_pixels("Depth", Raster::from_premultiplied(pixels.width,pixels.height,rgba), original.transform.origin);
+            layer.transform = original.transform;
+            layer.parent_id = original.parent_id;
+            doc.active_layer_id = Some(layer.id);
+            doc.layers.insert(index+1,layer);
+            Ok(Dirty::structure())
+        })?;
+        Ok(())
+    }
+    /// Render one layer or folder as displayed with its masks, clipping stack and ancestors.
+    pub fn export_layer_png(&self, doc: Uuid, id: Uuid) -> Result<Option<Vec<u8>>, CommandError> {
+        let mut isolated = self.session(doc)?.document.clone();
+        let mut parent = isolated.layer(id).ok_or(CommandError::NoLayer)?.parent_id;
+        let mut parents = std::collections::HashSet::new();
+        while let Some(folder) = parent {
+            if !parents.insert(folder) { break; }
+            parent = isolated.layer(folder).and_then(|l| l.parent_id);
+        }
+        let mut kept: std::collections::HashSet<_> = isolated.descendants(id).into_iter().collect();
+        kept.insert(id);
+        for layer in &mut isolated.layers {
+            if layer.id == id || parents.contains(&layer.id) { layer.visible = true; }
+            else if !kept.contains(&layer.id) && !layer.mask_source_id.is_some_and(|base| kept.contains(&base)) { layer.visible = false; }
+        }
+        let raster = compositor::render_full_with(&isolated, &self.effects)?;
+        let Some((x,y,right,bottom)) = compositor::alpha_bounds(&raster) else { return Ok(None); };
+        let trimmed = raster.cropped(x,y,right-x,bottom-y);
+        Ok(Some(encode_png(&trimmed, isolated.resolution)?))
+    }
     pub fn export_as(&self,id:Uuid,options:&export_as::ExportOptions,preview:u32)->Result<Vec<u8>,CommandError>{
         let doc=&self.session(id)?.document;
         if options.format==export_as::ExportFormat::ChannelPack {return crate::channel_pack::export(doc,&self.effects,options,preview);}
         if options.format==export_as::ExportFormat::GIF {return animation::export::encode(doc,options,preview);}
+        if options.format == export_as::ExportFormat::PSD {
+            options.validate()?;
+            if (options.width, options.height) != (doc.width, doc.height) || options.background.is_some() {
+                return Err(CommandError::Argument("Layered PSD uses the document size and transparency".into()));
+            }
+            if preview == 0 {
+                let merged = compositor::render_full_with(doc, &self.effects)?;
+                return crate::psd_writer::encode(doc, &self.effects, &merged);
+            }
+        }
         let raster=export_as::render(doc,&self.effects,options,preview)?;
         export_as::encode(raster,doc.resolution,options,preview>0)
     }
@@ -953,6 +1053,10 @@ impl Engine {
     pub fn clip_dependents(&self, id: Uuid, ids: &[Uuid]) -> Result<Vec<Uuid>, CommandError> { Ok(ops::hierarchy::clip_dependents(&self.session(id)?.document, ids)) }
     pub fn merge_action(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<&'static str>, CommandError> { Ok(ops::merge::merge_plan(&self.session(id)?.document, ids).map(|p| p.action)) }
     pub fn group_box(&self, id: Uuid, ids: &[Uuid]) -> Result<Option<LayerTransform>, CommandError> { Ok(ops::transform::group_box(&self.session(id)?.document, ids)) }
+    pub fn can_toggle_selected_clipping(&self, id: Uuid, ids: &[Uuid]) -> Result<bool, CommandError> {
+        let mut probe = self.session(id)?.document.clone();
+        Ok(ops::hierarchy::toggle_selected_clipping(&mut probe, ids).is_ok())
+    }
     pub fn can_toggle_clipping(&self, id: Uuid, layer: Uuid) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_toggle_clipping(&self.session(id)?.document, layer)) }
     pub fn can_place(&self, id: Uuid, layer: Uuid, parent: Option<Uuid>) -> Result<bool, CommandError> { Ok(ops::hierarchy::can_place(&self.session(id)?.document, layer, parent)) }
 

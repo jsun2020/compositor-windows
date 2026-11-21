@@ -1,4 +1,4 @@
-use crate::{CommandError, Document, Layer, MAX_LAYERS, MAX_NESTING};
+use crate::{CommandError, Document, Layer, PixelDepth, Raster, MAX_PIXELS, MAX_LAYERS, MAX_NESTING};
 use uuid::Uuid;
 
 pub fn next_layer_name(doc: &Document) -> String {
@@ -27,18 +27,23 @@ pub fn add_blank_layer(doc: &mut Document) -> Result<Uuid, CommandError> {
 
 /// Inserts `layer` where New Layer puts one: above the active layer (or at the top), inside the
 /// active folder if one is active; it becomes the active layer.
-pub fn insert_above_active(doc: &mut Document, mut layer: Layer) -> Result<Uuid, CommandError> {
+pub fn insert_above_active(doc: &mut Document, layer: Layer) -> Result<Uuid, CommandError> {
+    insert_at_active(doc, layer, true)
+}
+
+pub(crate) fn insert_at_active(doc: &mut Document, mut layer: Layer, inside_folder: bool) -> Result<Uuid, CommandError> {
     if doc.layers.len() >= MAX_LAYERS { return Err(CommandError::Argument("too many layers".into())); }
     let active = doc.active_layer_id.and_then(|id| doc.layer(id).cloned());
-    layer.parent_id = match &active { Some(a) if a.is_group => Some(a.id), Some(a) => a.parent_id, None => None };
+    layer.parent_id = match &active { Some(a) if a.is_group && inside_folder => Some(a.id), Some(a) => a.parent_id, None => None };
     let mut insertion = doc.active_layer_id.and_then(|id| doc.index_of(id)).map(|i| i + 1).unwrap_or(doc.layers.len());
     if let Some(a) = &active {
-        if a.is_group {
+        if a.is_group && inside_folder {
             if let Some(top) = doc.layers.iter().rposition(|l| is_inside(doc, l.id, a.id)) { insertion = insertion.max(top + 1); }
         }
     }
     let id = layer.id;
     doc.layers.insert(insertion, layer);
+    super::hierarchy::adopt_clipping(&mut doc.layers, id);
     doc.active_layer_id = Some(id);
     Ok(id)
 }
@@ -91,4 +96,29 @@ pub fn import_raster(doc: &mut Document, raster: crate::Raster, name: &str, at: 
     doc.layers.push(layer);
     doc.active_layer_id = Some(id);
     Ok(id)
+}
+
+/// Selected folders contribute their editable pixel layers, including hidden children.
+pub fn convert_selected_depth(doc: &mut Document, ids: &[Uuid], depth: PixelDepth) -> Result<Vec<Uuid>, CommandError> {
+    if depth == PixelDepth::Hdr { return Err(CommandError::Argument("Choose 8-bit or 16-bit conversion".into())); }
+    let mut targets: std::collections::HashSet<_> = ids.iter().copied().collect();
+    for id in ids { targets.extend(doc.descendants(*id)); }
+    let mut used = doc.used_pixels();
+    let mut changed = Vec::new();
+    for layer in &mut doc.layers {
+        if !targets.contains(&layer.id) || layer.is_group || layer.extra.gif.is_some() || layer.extra.text.is_some() || layer.is_adjustment() { continue; }
+        let pixels = match &layer.pixels {
+            Some(raster) if raster.depth() != depth => raster.to_depth(depth),
+            None if depth == PixelDepth::Sixteen => {
+                let count = u64::from(doc.width) * u64::from(doc.height);
+                used = used.saturating_add(count);
+                if used > MAX_PIXELS { return Err(CommandError::Argument("too many pixels".into())); }
+                Raster::from_premultiplied(doc.width, doc.height, vec![0; count as usize * 4]).to_depth(depth)
+            }
+            _ => continue,
+        };
+        layer.set_pixels(Some(pixels));
+        changed.push(layer.id);
+    }
+    Ok(changed)
 }

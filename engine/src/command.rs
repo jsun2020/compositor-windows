@@ -9,6 +9,7 @@ pub enum Command {
     EditGif { #[serde(with = "ids::upper")] id: Uuid, edit: crate::animation::GifEdit },
     AddBlankLayer,
     RenameLayer { #[serde(with = "ids::upper")] id: Uuid, name: String },
+    SetLayersVisible { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, visible: bool },
     SetLayerVisible { #[serde(with = "ids::upper")] id: Uuid, visible: bool },
     DeleteLayer { #[serde(with = "ids::upper")] id: Uuid },
     SetActiveLayer { #[serde(with = "ids::upper_opt")] id: Option<Uuid> },
@@ -26,6 +27,7 @@ pub enum Command {
     UngroupLayers { #[serde(with = "ids::upper")] id: Uuid },
     PlaceLayer { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     MoveLayerBy { #[serde(with = "ids::upper")] id: Uuid, offset: i32 },
+    DuplicateLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, #[serde(default)] dx: f64, #[serde(default)] dy: f64 },
     DuplicateLayer { #[serde(with = "ids::upper")] id: Uuid },
     LayerViaCopy { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     CutPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
@@ -33,6 +35,7 @@ pub enum Command {
     WarpStroke { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, warp: crate::WarpSpec },
     ContentAwareFill { #[serde(with = "ids::upper")] id: Uuid },
     SetLayerEffects { #[serde(with = "ids::upper")] id: Uuid, effects: Option<crate::LayerEffects> },
+    DuplicateLayersTo { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     DuplicateLayerTo { #[serde(with = "ids::upper")] id: Uuid, #[serde(default, with = "ids::upper_opt")] parent: Option<Uuid>, #[serde(default, with = "ids::upper_opt")] above: Option<Uuid>, #[serde(default, rename = "atBottom")] at_bottom: bool },
     DuplicateLayerTransformed { #[serde(with = "ids::upper")] id: Uuid, transform: LayerTransform },
     DeleteLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, #[serde(default)] bake: bool },
@@ -53,11 +56,13 @@ pub enum Command {
     FillMask { #[serde(with = "ids::upper")] id: Uuid, white: bool },
     BlurMask { #[serde(with = "ids::upper")] id: Uuid, radius: f64 },
     CopyMask { #[serde(with = "ids::upper")] from: Uuid, #[serde(with = "ids::upper")] to: Uuid },
+    ToggleLayersClipping { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid> },
     ToggleClipping { #[serde(with = "ids::upper")] id: Uuid },
     ReleaseClipping { #[serde(with = "ids::upper")] id: Uuid },
     LinkMask { #[serde(with = "ids::upper")] source: Uuid, #[serde(with = "ids::upper")] target: Uuid },
     MergeLayers { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid> },
     ApplyAdjustment { #[serde(with = "ids::upper")] id: Uuid, adjustment: LayerAdjustment },
+    ConvertLayersDepth { #[serde(deserialize_with = "deserialize_ids", serialize_with = "serialize_ids")] ids: Vec<Uuid>, depth: crate::PixelDepth },
     ConvertPixelDepth { #[serde(with = "ids::upper")] id: Uuid, depth: crate::PixelDepth },
     InvertPixels { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool },
     ApplyFilter { #[serde(with = "ids::upper")] id: Uuid, params: FilterParams },
@@ -88,7 +93,8 @@ pub enum Command {
     /// Paint a gradient over the layer's pixels or its mask, inside the selection.
     Gradient { #[serde(with = "ids::upper")] id: Uuid, #[serde(default)] mask: bool, gradient: GradientSpec },
     /// A shape filled with `color` on a new layer above the active one (the Shape tool).
-    AddShape { shape: ShapeSpec, color: [f64; 3] },
+    AddShape { shape: ShapeSpec, color: [f64; 3], #[serde(default)] stroke: Option<crate::ops::shape::ShapeStroke> },
+    SetShapeAppearance { #[serde(with = "ids::upper")] id: Uuid, #[serde(flatten)] edit: crate::ops::shape::ShapeAppearance },
 }
 
 impl Command {
@@ -101,7 +107,7 @@ impl Command {
                 crate::animation::GifEdit::Move { .. } => "Move Animation Frame",
                 crate::animation::GifEdit::Timing { .. } => "Animation Timing",
             },
-            Command::ConvertPixelDepth { depth, .. } => if *depth==crate::PixelDepth::Eight {"Convert to 8-Bit"}else{"Convert to 16-Bit"},
+            Command::ConvertPixelDepth { depth, .. } | Command::ConvertLayersDepth { depth, .. } => if *depth==crate::PixelDepth::Eight {"Convert to 8-Bit"}else{"Convert to 16-Bit"},
             Command::LayerViaCopy { .. } => "Layer via Copy",
             Command::WarpStroke { warp, .. } => match warp.mode {crate::warp::WarpMode::Liquify=>"Liquify",crate::warp::WarpMode::Smudge=>"Smudge"},
             Command::CutPixels { .. } => "Cut",
@@ -110,7 +116,7 @@ impl Command {
             Command::SetLayerEffects {..}=>"Layer Effects",
             Command::AddBlankLayer => "New Layer",
             Command::RenameLayer { .. } => "Rename Layer",
-            Command::SetLayerVisible { .. } => "Layer Visibility",
+            Command::SetLayerVisible { .. } | Command::SetLayersVisible { .. } => "Layer Visibility",
             Command::DeleteLayer { .. } => "Delete Layer",
             Command::SetActiveLayer { .. } => "Select Layer",
             Command::CanvasSize { .. } => "Canvas Size",
@@ -128,8 +134,8 @@ impl Command {
             Command::UngroupLayers { .. } => "Ungroup Layers",
             Command::PlaceLayer { .. } => "Move Layer",
             Command::MoveLayerBy { .. } => "Reorder Layers",
-            Command::DuplicateLayer { .. } => "Duplicate Layer",
-            Command::DuplicateLayerTo { .. } => "Duplicate Layer",
+            Command::DuplicateLayer { .. } | Command::DuplicateLayers { .. } => "Duplicate Layer",
+            Command::DuplicateLayerTo { .. } | Command::DuplicateLayersTo { .. } => "Duplicate Layer",
             Command::DuplicateLayerTransformed { .. } => "Duplicate Layer",
             Command::DeleteLayers { .. } => "Delete Layers",
             Command::SetLayerTransform { .. } => "Transform Layer",
@@ -151,7 +157,7 @@ impl Command {
             Command::FillMask { .. } => "Fill Mask",
             Command::BlurMask { .. } => "Blur Mask",
             Command::CopyMask { .. } => "Copy Layer Mask",
-            Command::ToggleClipping { .. } => "Clipping Mask",
+            Command::ToggleClipping { .. } | Command::ToggleLayersClipping { .. } => "Clipping Mask",
             Command::ReleaseClipping { .. } => "Release Clipping Mask",
             Command::LinkMask { .. } => "Create Clipping Mask",
             Command::MergeLayers { .. } => "Merge Layers",
@@ -184,6 +190,7 @@ impl Command {
             Command::Gradient { mask: false, .. } => "Gradient",
             Command::Gradient { mask: true, .. } => "Gradient Mask",
             // ShapeTool.swift:146: the kind's own name.
+            Command::SetShapeAppearance { .. } => "Edit Shape",
             Command::AddShape { shape, .. } => shape.kind().name(),
         }
     }

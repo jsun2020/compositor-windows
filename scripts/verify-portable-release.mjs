@@ -10,6 +10,11 @@ import { projectVersion } from './release-metadata.mjs';
 export const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 export const PORTABLE_FILES = ['Compositor.exe','CompositorRaw.exe','LICENSE-Compositor.txt','README.txt','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll','LibRaw-notices/COPYRIGHT','LibRaw-notices/LICENSE.CDDL','LibRaw-notices/LICENSE.LGPL','LibRaw-notices/provenance.json'];
 PORTABLE_FILES.push('moxcms-LICENSE.txt','CompositorHeif.exe','heif.dll','libde265.dll',...['heif-decode.cpp','heif-sources.json','CMakeLists.txt','README.txt','build-heif-helper.ps1','libheif-1.23.6.tar.gz','libde265-1.1.3.tar.gz','libheif-COPYING.txt','libde265-COPYING.txt','provenance.json'].map(n=>'HEIF-notices/'+n));
+const visionNotices = [
+  'NOTICE.txt', 'Compositor-LICENSE.txt', 'Depth-Anything-LICENSE.txt', 'torchvision-LICENSE.txt',
+  'U2NET-LICENSE.txt', 'onnxruntime-LICENSE.txt', 'onnxruntime-ThirdPartyNotices.txt',
+];
+PORTABLE_FILES.push(...visionNotices.map(name => 'Vision-notices/' + name));
 export function crc32(data) {
   let crc = 0xffffffff;
   for (const byte of data) {
@@ -110,6 +115,10 @@ function prepare(zipPath, output) {
   assert.deepEqual(raw.msvcRuntime.map(e=>e.name).sort(),['msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll'].sort());
   for(const dll of raw.msvcRuntime)assert.equal(dll.sha256.toLowerCase(),sha256(entries.find(e=>e.name===dll.name).bytes));
   validateHeifEntries(entries);
+  for (const name of visionNotices) {
+    const packaged = entries.find(entry => entry.name === 'Vision-notices/' + name).bytes;
+    assert(packaged.equals(fs.readFileSync(path.join('app/public/licenses/depthmini', name))), name);
+  }
   assert(entries.find(e => e.name === 'README.txt').bytes.toString('utf8').includes(`Compositor for Windows ${version} (${marker})`));
   assert(entries.find(e => e.name === 'moxcms-LICENSE.txt').bytes.equals(fs.readFileSync('src-tauri/native/moxcms-LICENSE.txt')));
   assert(entries.find(e => e.name === 'LICENSE-Compositor.txt').bytes.equals(fs.readFileSync('engine/native/LICENSE-Compositor.txt')));

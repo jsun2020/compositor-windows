@@ -1,0 +1,20 @@
+Local inference in Compositor for Windows
+
+DepthMini is the model published by Robbie Tilton for Compositor.
+The ONNX graph converts the original Core ML weights without retraining.
+ONNX SHA-256: 06ab4f88a2190a377f2d726bb6c1bd42552a45a915f0a66c71e9aa7feef019bd
+Source model: https://github.com/robbietilton/Compositor/releases/tag/depth-model-1
+Source and conversion: https://github.com/jsun2020/compositor-windows (scripts/convert-depthmini.py)
+DepthMini was distilled from Depth Anything V2 Small (Apache License 2.0) and
+initialized from torchvision MobileNetV3 ImageNet weights (BSD 3-Clause).
+https://github.com/DepthAnything/Depth-Anything-V2
+https://github.com/pytorch/vision
+
+Foreground segmentation uses U²-Net (Qin et al., 2020), the lightweight U2NETP
+model provided in ONNX format by rembg. Licensed under Apache License 2.0.
+https://github.com/xuebinqin/U-2-Net
+https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx
+SHA-256: 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+
+ONNX Runtime Web is distributed under the MIT License by Microsoft.
+License texts and third-party notices accompany this file.

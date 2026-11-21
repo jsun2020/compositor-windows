@@ -118,7 +118,7 @@ pub fn can_place(doc: &Document, id: Uuid, parent: Option<Uuid>) -> bool {
 }
 
 /// A layer dropped between a base and a layer clipped to it joins the clipping group.
-fn adopt_clipping(layers: &mut [Layer], id: Uuid) {
+pub(super) fn adopt_clipping(layers: &mut [Layer], id: Uuid) {
     let Some(layer) = layers.iter().find(|l| l.id == id).cloned() else { return; };
     if layer.is_group { return; }
     let siblings: Vec<Layer> = layers.iter().filter(|l| l.parent_id == layer.parent_id).cloned().collect();
@@ -199,6 +199,82 @@ pub fn duplicate_layer(doc: &mut Document, id: Uuid) -> Result<Uuid, CommandErro
     doc.layers.insert(index + 1, copy);
     doc.active_layer_id = Some(cid);
     Ok(cid)
+}
+
+/// Copy the selection as a block above its topmost sibling in each parent.
+pub fn duplicate_selected(doc: &mut Document, ids: &[Uuid], dx: f64, dy: f64) -> Result<(), CommandError> {
+    if ids.is_empty() || ids.iter().any(|id| doc.layer(*id).is_none()) { return Err(CommandError::NoLayer); }
+    let mut members: HashSet<_> = ids.iter().copied().collect();
+    for id in ids { members.extend(doc.descendants(*id)); }
+    if doc.layers.len() + members.len() > MAX_LAYERS { return Err(CommandError::Argument("too many layers".into())); }
+    let copies: HashMap<_,_> = members.iter().map(|id| (*id, Uuid::new_v4())).collect();
+    let mut by_parent: HashMap<Option<Uuid>, Vec<Layer>> = HashMap::new();
+    let mut last = HashMap::new();
+    let mut children = Vec::new();
+    for (index, layer) in doc.layers.iter().enumerate().filter(|(_,l)| members.contains(&l.id)) {
+        let mut copy = layer.clone();
+        copy.id = copies[&layer.id];
+        copy.mask_source_id = layer.mask_source_id.map(|id| copies.get(&id).copied().unwrap_or(id));
+        if let Some(parent) = layer.parent_id.and_then(|id| copies.get(&id)) {
+            copy.parent_id = Some(*parent);
+            children.push(copy);
+        } else {
+            copy.name = format!("{} copy", layer.name);
+            by_parent.entry(layer.parent_id).or_default().push(copy);
+            last.insert(layer.parent_id, index);
+        }
+    }
+    let mut layers = Vec::with_capacity(doc.layers.len() + copies.len());
+    for (index, layer) in doc.layers.drain(..).enumerate() {
+        let parent = layer.parent_id;
+        layers.push(layer);
+        if last.get(&parent) == Some(&index) {
+            layers.append(by_parent.get_mut(&parent).unwrap());
+        }
+    }
+    layers.extend(children);
+    doc.layers = layers;
+    let new_ids: Vec<_> = ids.iter().map(|id| copies[id]).collect();
+    doc.active_layer_id = doc.active_layer_id.and_then(|id| copies.get(&id).copied()).or_else(|| new_ids.last().copied());
+    if dx != 0.0 || dy != 0.0 { ops::transform::nudge(doc, &new_ids, dx, dy)?; }
+    if doc.used_pixels()>MAX_PIXELS || doc.used_mask_pixels()>MAX_PIXELS {return Err(ProjectError::OverBudget.into());}
+    validate(doc)
+}
+
+/// Relocate all copied roots as a block. Releasing clipping between individual moves would
+/// split the copies from their new base before the rest of the block reached its destination.
+pub fn duplicate_selected_to(doc:&mut Document,ids:&[Uuid], parent:Option<Uuid>, above:Option<Uuid>,at_bottom:bool)->Result<(),CommandError>{
+    if ids.iter().any(|id|!can_place(doc,*id,parent)) {return Err(CommandError::Argument("Cannot copy into that folder".into()));}
+    let previous: HashSet<_>=doc.layers.iter().map(|l|l.id).collect();
+    duplicate_selected(doc,ids,0.,0.)?;
+    let mut block=Vec::new();
+    doc.layers.retain_mut(|layer|{
+        if !previous.contains(&layer.id) && layer.parent_id.is_none_or(|p|previous.contains(&p)){
+            layer.parent_id=parent;block.push(layer.clone());false
+        }else{true}
+    });
+    let at=if let Some(target)=above {
+        doc.layers.iter().position(|l|l.id==target && l.parent_id==parent)
+            .ok_or_else(||CommandError::Argument("Drop target is outside its folder".into()))?+1
+    }else if at_bottom {parent.and_then(|p|doc.index_of(p)).map_or(0,|i|i+1)}else{doc.layers.len()};
+    let roots:Vec<_>=block.iter().map(|l|l.id).collect();
+    doc.layers.splice(at..at,block);
+    for id in roots {adopt_clipping(&mut doc.layers,id);}
+    release_detached_clipping(&mut doc.layers);
+    validate(doc)
+}
+
+pub fn toggle_selected_clipping(doc: &mut Document, ids: &[Uuid]) -> Result<(), CommandError> {
+    if ids.is_empty() || ids.iter().any(|id| doc.layer(*id).is_none()) { return Err(CommandError::NoLayer); }
+    let targets: HashSet<_> = ids.iter().copied().collect();
+    let releasing = ids.iter().all(|id| doc.layer(*id).unwrap().mask_source_id.is_some());
+    let ordered: Vec<_> = doc.layers.iter().filter(|l| targets.contains(&l.id)).map(|l| l.id).collect();
+    for id in ordered {
+        let clipped = doc.layer(id).unwrap().mask_source_id.is_some();
+        if releasing && clipped { release_clipping(doc,id)?; }
+        if !releasing && !clipped { toggle_clipping(doc,id)?; }
+    }
+    Ok(())
 }
 
 pub fn duplicate_layer_to(doc: &mut Document, id: Uuid, parent: Option<Uuid>, above: Option<Uuid>, at_bottom: bool) -> Result<Uuid, CommandError> {

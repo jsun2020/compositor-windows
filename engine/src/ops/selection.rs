@@ -92,7 +92,7 @@ pub fn move_selection(doc: &mut Document, dx: f64, dy: f64) -> Result<(), Comman
     Ok(())
 }
 
-/// Expand (`delta` > 0) or Contract: the round-capped, round-joined band `|delta|` wide either
+/// Expand (`delta` > 0) or Contract: the miter-joined band `|delta|` wide either
 /// side of the outline, added and cut to the canvas, or taken away (so Contract also moves in from
 /// the canvas edges, and can leave an empty selection). `resizeSelection`, Selection.swift:333-342.
 pub fn resize_selection(doc: &mut Document, delta: i64) -> Result<(), CommandError> {
@@ -108,11 +108,11 @@ pub fn resize_selection(doc: &mut Document, delta: i64) -> Result<(), CommandErr
     Ok(())
 }
 
-/// Feather: two soft edges together spread as blurs do, sqrt(a^2 + b^2), at most 250.
+/// Feather: repeated applications add to the stored radius, at most 250.
 pub fn feather_selection(doc: &mut Document, amount: u32) -> Result<(), CommandError> {
     if !(1..=MAX_FEATHER as u32).contains(&amount) { return Err(CommandError::Argument("Feather takes 1 to 250 pixels".into())); }
     let current = modifiable(doc)?;
-    let softened = (current.feather * current.feather + (amount as f64) * (amount as f64)).sqrt().min(MAX_FEATHER);
+    let softened = (current.feather + amount as f64).min(MAX_FEATHER);
     doc.selection = Some(Selection { feather: softened, ..current.clone() });
     Ok(())
 }

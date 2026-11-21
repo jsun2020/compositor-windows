@@ -15,6 +15,11 @@ async function expectMatchesCpuAtZoom(page: Page, label: string, tolerance = 2) 
     const api = (window as unknown as { __compositor: any }).__compositor;
     const s = api.store.getState(); const d = s.documents[s.activeId];
     const vp = s.viewports[s.activeId]; const dpr = window.devicePixelRatio || 1;
+    // Toolbars and OS font metrics can leave the canvas half a device pixel off grid.
+    // The CPU reference below samples the entire document, starting at its exact origin.
+    const position = vp.documentRect(d);
+    vp.translate({ width: Math.round(position.x*dpr)/dpr-position.x, height: Math.round(position.y*dpr)/dpr-position.y });
+    s.invalidate();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const gl = Array.from(api.readDocumentPixels()) as number[];
     // The same independent edge rounding readDocumentPixels and the GL scissor both use.
@@ -76,7 +81,7 @@ test("zoom 1 still matches, so the prefilter rule does not fire when it should n
  * clipping source is painted through the same `drawOwn` closure as any other layer, so it goes
  * through `LayerRenderer.draw` and its sharp halvings.
  *
- * The base is hidden on purpose. A visible base and its clipped layer become a Stack node,
+ * The source sits above the target and is hidden on purpose. A visible base and its clipped layer become a Stack node,
  * which shares the base's alpha directly and never consults the source; hiding it routes the
  * draw through the clip-source path on both renderers, where coverage uses the source's alpha
  * regardless of visibility.
@@ -90,11 +95,11 @@ test("a clipping stack zoomed out matches the CPU compositor", async ({ page }) 
     const decode = (b: string) => Uint8Array.from(atob(b), (c: string) => c.charCodeAt(0));
     const doc = api.engine.newDocument(64, 64, false);
     // The source's alpha is what becomes coverage, so it is the sparse fixture.
-    api.engine.importImage(doc, decode(sparse), "source", { x: 32, y: 32 });
-    const source = api.engine.state(doc).activeLayerId;
     api.engine.importImage(doc, decode(noise), "clipped", { x: 32, y: 32 });
     const clipped = api.engine.state(doc).activeLayerId;
-    api.engine.execute(doc, { type: "ToggleClipping", id: clipped });
+    api.engine.importImage(doc, decode(sparse), "source", { x: 32, y: 32 });
+    const source = api.engine.state(doc).activeLayerId;
+    api.engine.execute(doc, { type: "LinkMask", source, target: clipped });
     api.engine.execute(doc, { type: "SetLayerVisible", id: source, visible: false });
     api.store.getState().openDocument(doc);
     await api.setZoom(0.25);

@@ -14,3 +14,4 @@ engine/tests/fixtures/mac1511/** -text
 # Raw pixel/float reference payloads are binary even when they contain no NUL.
 engine/tests/fixtures/mac1511/*.rgba binary
 engine/tests/fixtures/mac1511/*.f32 binary
+app/src/vision/*.onnx binary

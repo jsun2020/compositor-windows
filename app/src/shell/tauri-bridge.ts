@@ -47,7 +47,12 @@ export class TauriBridge implements ShellBridge {
     const picked = await open({ multiple: true, filters: [{ name: "Images, Photoshop and Camera RAW", extensions: ["png", "gif", "pdf", "heic", "heif", "hif", "jpg", "jpeg", "tif", "tiff", "exr", "hdr", "webp", "bmp", "psd", "psb", "dng", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "rw2", "orf", "pef", "ptx", "raw", "rwl", "srw", "3fr", "fff", "iiq", "kdc", "dcr", "mos", "mef", "erf", "x3f"] }] });
     return Array.isArray(picked) ? picked : picked ? [picked] : [];
   }
-  async pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif"): Promise<string | null> {
+  async pickExportFolder(): Promise<string | null> {
+    const path = await open({directory:true, multiple:false, title:"Export Layers as PNGs"});
+    return typeof path === "string" ? path : null;
+  }
+  existingFiles(paths: string[]): Promise<string[]> { return invoke("existing_files", {paths}); }
+  async pickExportFile(suggested: string, ext: "png" | "jpg" | "pdf" | "exr" | "tif" | "gif" | "psd"): Promise<string | null> {
     return (await save({ defaultPath: `${suggested}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: ext === "jpg" ? ["jpg", "jpeg"] : [ext] }] })) ?? null;
   }
   async readPackage(path: string): Promise<PackageFiles> {

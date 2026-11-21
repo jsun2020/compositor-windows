@@ -37,6 +37,8 @@ export class MockBridge implements ShellBridge {
   async pickOpenPackage(): Promise<string | null> { return this.nextPick(); }
   async pickSavePackage(): Promise<string | null> { return this.nextPick(); }
   async pickImportImages(): Promise<string[]> { const p = this.nextPick(); return p ? [p] : []; }
+  async pickExportFolder(): Promise<string | null> { return this.nextPick(); }
+  async existingFiles(paths: string[]): Promise<string[]> { return paths.filter(path => this.files.has(path)); }
   async pickExportFile(): Promise<string | null> { return this.nextPick(); }
   async readPackage(path: string): Promise<PackageFiles> {
     const p = this.packages.get(path); if (!p) throw new Error(`${path} is not a Compositor project folder.`);

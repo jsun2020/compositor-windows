@@ -10,8 +10,9 @@ import { installTestApi } from "../test-api";
 import { EFFECTS_LIMITS } from "./effects-images";
 import { CropSession, hitTest, ratioValue, SNAP_SCREEN_PX } from "../tools/crop-tool";
 import { TransformSession, startMode } from "../tools/transform-session";
-import { containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
-import { activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
+import {layerDistances,type DistanceLine} from "../tools/layer-distances";
+import { boundsOf, containsPoint, cornersToTuples, fromTuple, hitOverlay, overlayGeometry, snapTargets, type OverlayGeometry, type P } from "../tools/transform-geometry";
+import { visibleIds, activeLayer, canTransform, editedShape, transformsAsGroup } from "../state/selection";
 import { beginBrush, moveBrush, finishBrush, cancelBrush,isBrushTool } from "../tools/brush";
 import { antsDelay, AntsPathCache, ANTS_INTERVAL_MS, nextPhase, OutlineCache, outlineStep } from "./ants";
 import { isSelectionTool, outlineOffset, SelectionDraft, selectionMode, type P as DocP } from "../tools/selection-draft";
@@ -53,6 +54,21 @@ export function CanvasView() {
   const outlineCacheRef = useRef(new OutlineCache());
   const antsPathRef = useRef(new AntsPathCache(() => new Path2D()));
   const antsPhaseRef = useRef(0);
+  const distanceHover=useRef<P|null>(null), measureHover=useRef(false);
+  useEffect(()=>{
+    const el=glRef.current?.parentElement;if(!el)return;
+    const move=(e:PointerEvent)=>{
+      const s=useEditor.getState();if(!s.activeId||s.tool!=="move"||!s.showDistances)return;
+      const rect=el.getBoundingClientRect();
+      distanceHover.current=s.viewports[s.activeId].documentPoint({x:e.clientX-rect.left,y:e.clientY-rect.top},s.documents[s.activeId]);
+      const prev=measureHover.current;measureHover.current=e.ctrlKey||e.metaKey;if(measureHover.current||prev)s.repaintOverlay();
+    };
+    const key=(e:KeyboardEvent)=>{if(e.key==="Control"||e.key==="Meta"){measureHover.current=e.type==="keydown";useEditor.getState().repaintOverlay();}};
+    const leave=()=>{distanceHover.current=null;measureHover.current=false;useEditor.getState().repaintOverlay();};
+    el.addEventListener("pointermove",move);el.addEventListener("pointerleave",leave);
+    window.addEventListener("keydown",key);window.addEventListener("keyup",key);window.addEventListener("blur",leave);
+    return()=>{el.removeEventListener("pointermove",move);el.removeEventListener("pointerleave",leave);window.removeEventListener("keydown",key);window.removeEventListener("keyup",key);window.removeEventListener("blur",leave);};
+  },[]);
   const brushHoverRef=useRef<{x:number;y:number}|null>(null);
 
   /** Draws the overlay from the store as it is now: the pixel grid, guides, the crop frame, the
@@ -69,14 +85,25 @@ export function CanvasView() {
     if (overlay.width !== gl.width) overlay.width = gl.width;
     if (overlay.height !== gl.height) overlay.height = gl.height;
     let transformGeometry: OverlayGeometry | null = null;
-    if (s.tool === "move" && (s.transformEdit || canTransform(doc, s.selectedLayerIds, s.maskSelected))) {
+    if (s.tool === "move" && (s.transformEdit || s.showTransformControls && canTransform(doc, s.selectedLayerIds, s.maskSelected))) {
       const shape = editedShape(doc, s.transformEdit, s.selectedLayerIds, s.maskSelected);
       if (shape) transformGeometry = overlayGeometry(shape.corners ?? shape.transform, vp, { width: doc.width, height: doc.height });
+    }
+    let distances:DistanceLine[]=[];
+    if(s.showDistances && s.tool==="move" && (s.transformEdit || measureHover.current && distanceHover.current)){
+      const shape=editedShape(doc,s.transformEdit,s.selectedLayerIds,s.maskSelected);
+      if(shape){
+        const moving=new Set(s.transformEdit?.ids??s.selectedLayerIds),visible=visibleIds(doc);
+        const boxes=doc.layers.filter(l=>visible.has(l.id)&&!moving.has(l.id)&&l.hasPixels).map(l=>boundsOf(l.transform));
+        const point=distanceHover.current;
+        const other=s.transformEdit?undefined:boxes.slice().reverse().find(r=>point&&point.x>=r.x&&point.x<r.x+r.width&&point.y>=r.y&&point.y<r.y+r.height)??null;
+        distances=layerDistances(boundsOf(shape.transform),boxes,{x:0,y:0,width:doc.width,height:doc.height},other);
+      }
     }
     const sel = doc.selection;
     const engine = s.engine; const id = s.activeId;
     let ants: AntsState | null = null;
-    if (sel && !sel.empty) {
+    if (sel && !sel.empty && !(s.hiddenSelectionEdges?.document === id && s.hiddenSelectionEdges.revision === sel.revision)) {
       // The kept path, stroked about the document's scaled origin moved by any outline drag; the
       // view box, in the path's own coordinates, lets a very detailed outline keep only nearby edges.
       const step = outlineStep(vp.zoom);
@@ -93,11 +120,11 @@ export function CanvasView() {
     const [from, to] = gradientStops(s.gradientOptions, s.paletteColor(false), s.paletteColor(true));
     drawOverlay(overlay.getContext("2d")!, vp, dpr, {
       docWidth: doc.width, docHeight: doc.height, cropRect: s.tool === "crop" ? s.cropRect : null, guides: s.snapGuides,
-      transform: transformGeometry, canvasGuides: s.showGuides ? doc.guides : null,
+      distances, transform: transformGeometry, canvasGuides: s.showGuides && !s.extrasHideGuides ? doc.guides : null,
       ants, draft: d ? { kind: d.kind, points: d.points, cursor: d.cursor } : null, sampleRing: s.sampleRing,
       gradientLine: filterHandleLine() ?? (line ? { ...line, radial: s.gradientOptions.shape === "Radial", from, to } : null),
       shapeDraft: s.shapeDraft ? { kind: s.shapeDraft.kind, rect: s.shapeDraft.rect, start: s.shapeDraft.anchor, end: s.shapeDraft.end,
-        smoothing: s.shapeDraft.smoothing, lineStyle: s.shapeDraft.lineStyle, lineCap: s.shapeDraft.lineCap, cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
+        stroke: s.shapeOptions.stroke, smoothing: s.shapeDraft.smoothing, lineStyle: s.shapeDraft.lineStyle, lineCap: s.shapeDraft.lineCap, cornerRadius: s.shapeDraft.cornerRadius, lineWidth: s.shapeOptions.lineWidth, color: s.palette.foreground } : null,
     });
     const text=s.textEdit;
     if(text?.document===id&&!text.layer&&text.preview&&text.bitmap){
@@ -484,7 +511,7 @@ export function CanvasView() {
       const isMaskEdit = s0.transformEdit ? s0.transformEdit.kind === "mask" : maskAlone;
       const geometry = overlayGeometry(edited.corners ?? edited.transform, vp, { width: d.width, height: d.height });
       const r = el.getBoundingClientRect(); const view = { x: e.clientX - r.left, y: e.clientY - r.top };
-      const mode = startMode(hitOverlay(geometry, view), containsPoint(edited.transform, docPoint(e)), e.ctrlKey && !isMaskEdit, !!edited.corners);
+      const mode = startMode(s0.showTransformControls || s0.transformEdit ? hitOverlay(geometry, view) : null, containsPoint(edited.transform, docPoint(e)), e.ctrlKey && !isMaskEdit, !!edited.corners);
       if (!s0.transformEdit) {
         const started = s0.beginTransform({ persistent: false, duplicate: e.altKey && mode.kind === "move" && !transformsAsGroup(d, s0.selectedLayerIds) && !maskAlone });
         if (!started) return;
@@ -591,8 +618,10 @@ export function CanvasView() {
       const draft = s.selectionDraft; if (!draft) return;
       if (draft.kind === "Polygonal") { draft.moveCursor(pixel); s.setSelectionDraft(draft); return; }
       if (!el.hasPointerCapture(e.pointerId)) return;
+      if (draft.isMarquee && spaceRef.current && lastPixel) draft.moveMarquee(lastPixel,pixel);
+      else if (draft.isMarquee) draft.dragMarquee(pixel, e.shiftKey);
+      else draft.extend(pixel);
       lastPixel = pixel;
-      if (draft.isMarquee) draft.dragMarquee(pixel, e.shiftKey); else draft.extend(pixel);
       s.setSelectionDraft(draft);
     };
     const up = () => {

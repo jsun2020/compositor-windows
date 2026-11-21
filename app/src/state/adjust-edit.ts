@@ -1,6 +1,6 @@
 import {defaultFilterLayerSettings,filterLayerParams,withFilterLayerParams} from "./filter-layers";
 import type { AdjustmentKind, FilterKind, FilterParams, LayerAdjustment, PreviewRequest } from "../engine/types";
-import { DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
+import { DEFAULT_REDUCE_NOISE, DEFAULT_BLACK_WHITE, DEFAULT_COLOR_BALANCE } from "../engine/types";
 import { defaultHsv } from "../tools/hue-band";
 import { freshCameraRaw, cameraRawIsIdentity,effectiveCameraRaw,type CameraRawGroupName } from "../engine/camera-raw";
 
@@ -47,6 +47,7 @@ export function defaultFilterParams(kind: FilterKind): FilterParams {
       bokehRadius:2,bokehBrightness:50,bokehRing:100,bokehShape:"Round"}};
     case "Vignette": return { filter: "Vignette", settings: { amount: 35, color: { red: 0, green: 0, blue: 0 }, midpoint: 50, roundness: 100, feather: 60, highlights: 25 } };
     case "TonalContrast": return { filter: "TonalContrast", settings: { amount: 50, radius: 16, shadows: 40, midtones: 60, highlights: 30 } };
+    case "ReduceNoise": return { filter: "ReduceNoise", settings: { ...DEFAULT_REDUCE_NOISE } };
     case "Sharpen": return { filter: "Sharpen", amount: 100, radius: 1 };
     case "BloomGlow":return {filter:"BloomGlow",amount:40,radius:24};
     case "ProgressiveBlur":return {filter:"ProgressiveBlur",settings:{from:0,to:20,start:null,end:null,radial:false,inverted:false}};
@@ -68,7 +69,7 @@ export const FILTER_TITLES: Record<FilterKind, string> = {
   Scanlines:"Scanlines",
   CameraRaw: "Camera Raw",
   GaussianBlur: "Gaussian Blur", MotionBlur: "Motion Blur", AddNoise: "Add Noise", LensCorrection: "Lens Correction",
-  Vignette: "Vignette", TonalContrast: "Tonal Contrast", Sharpen: "Sharpen",
+  Vignette: "Vignette", TonalContrast: "Tonal Contrast", Sharpen: "Sharpen", ReduceNoise: "Reduce Noise",
 };
 export function adjustTitle(edit: Pick<AdjustEdit, "kind" | "params">): string {
   return edit.params ? FILTER_TITLES[edit.params.filter] : (edit.kind as string);
@@ -117,6 +118,7 @@ export function isAdjustIdentity(edit: Pick<AdjustEdit, "adjustment" | "params" 
     }
     if (p.filter === "Vignette") return p.settings.amount === 0;
     if (p.filter === "TonalContrast") return p.settings.amount === 0 || (p.settings.shadows === 0 && p.settings.midtones === 0 && p.settings.highlights === 0);
+    if (p.filter === "ReduceNoise") return p.settings.strength === 0 && p.settings.color === 0;
     if (p.filter === "Sharpen") return p.amount === 0;
     return p.filter==="BloomGlow" ? p.amount===0 : p.filter==="ProgressiveBlur" ? p.settings.from===0&&p.settings.to===0 : p.filter==="RgbSplit" ? p.settings.distance===0&&p.settings.blur===0 : p.filter === "CameraRaw" ? cameraRawIsIdentity(p.settings) : p.filter === "LensCorrection" ? p.distortion === 0 : false;
   }

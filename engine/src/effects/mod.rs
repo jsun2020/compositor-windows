@@ -10,7 +10,7 @@ pub mod render;
 
 use crate::*;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{Arc,Mutex,atomic::{AtomicBool,Ordering}};
 
 /// How the layer's own enabled mask lies over the layer's pixel grid, for baking it into the pixels
 /// before the effects are made (`clipImage`, LayerMask.swift:110-125).
@@ -184,7 +184,7 @@ impl Kept {
 /// layers' buffers, so they find the same entries, and no document or snapshot keeps an image.
 /// Least recently used goes first once there are more than `max_entries` or their images hold
 /// more than `max_bytes`.
-pub struct EffectsCache { max_entries: usize, max_bytes: usize, kept: Mutex<Kept> }
+pub struct EffectsCache { max_entries: usize, max_bytes: usize, kept: Arc<Mutex<Kept>>, failed: AtomicBool }
 
 impl Default for EffectsCache {
     fn default() -> EffectsCache { EffectsCache::new(EFFECTS_CACHE_ENTRIES, EFFECTS_CACHE_BYTES) }
@@ -192,7 +192,14 @@ impl Default for EffectsCache {
 
 impl EffectsCache {
     pub fn new(max_entries: usize, max_bytes: usize) -> EffectsCache {
-        EffectsCache { max_entries, max_bytes, kept: Mutex::new(Kept::default()) }
+        EffectsCache { max_entries, max_bytes, kept: Arc::new(Mutex::new(Kept::default())), failed: AtomicBool::new(false) }
+    }
+    /// Each render shares completed cache entries and owns its own failure state. Concurrent
+    /// exports cannot consume each other's errors or retain a partial filtered frame.
+    pub(crate) fn checked(&self, render:impl FnOnce(&Self)->Raster)->Result<Raster,crate::ExportError>{
+        let scope=Self {max_entries:self.max_entries,max_bytes:self.max_bytes,kept:Arc::clone(&self.kept),failed:AtomicBool::new(false)};
+        let result=render(&scope);
+        if scope.failed.load(Ordering::Relaxed) {Err(crate::ExportError::NoiseWorkingMemory)} else {Ok(result)}
     }
     fn kept(&self) -> std::sync::MutexGuard<'_, Kept> { self.kept.lock().unwrap_or_else(|e| e.into_inner()) }
     /// `layer` drawn with its effects as `draw` describes them: the kept image when there is one
@@ -278,7 +285,11 @@ impl EffectsCache {
             // Release the obsolete full frame before allocating its replacement.
             kept.spatial.retain(|e|e.document!=document || e.layer!=layer);
         }
-        let image=adjustment.apply_spatial_filter_on_canvas(input,region,canvas);
+        if self.failed.load(Ordering::Relaxed) {return input.clone();}
+        let image=match adjustment.try_spatial_filter(input,region,canvas) {
+            Ok(image)=>image,
+            Err(_)=>{self.failed.store(true,Ordering::Relaxed);return input.clone();}
+        };
         let mut kept=self.kept();kept.made+=1;
         if input.storage_bytes()+image.storage_bytes()<=self.max_bytes {
             kept.spatial.push(SpatialEntry{document,layer,input:input.clone(),image:image.clone(),adjustment:adjustment.clone(),region,canvas});

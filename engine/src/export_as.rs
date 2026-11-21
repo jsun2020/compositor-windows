@@ -12,6 +12,7 @@ pub enum ExportFormat {
     TIFF,
     JPEG,
     PDF,
+    PSD,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -125,7 +126,7 @@ pub fn encode(
     o: &ExportOptions,
     preview: bool,
 ) -> Result<Vec<u8>, CommandError> {
-    if matches!(o.format, ExportFormat::GIF | ExportFormat::ChannelPack) {
+    if matches!(o.format, ExportFormat::GIF | ExportFormat::ChannelPack) || (o.format == ExportFormat::PSD && !preview) {
         return Err(CommandError::Argument("This export format requires the document's layers".into()));
     }
     if o.format == ExportFormat::JPEG {

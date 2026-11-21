@@ -21,17 +21,17 @@ export type AdjustmentKind = "Hue/Saturation" | "Levels" | "Curves" | "Exposure"
   // Mac 1.2.6 additions (R 3).
   | "Progressive Blur" | "Bloom / Glow" | "RGB Split" | "Add Noise" | "Gaussian Blur" | "Motion Blur" | "Invert" | "Black & White" | "Color Balance"
   // Mac 1.5.8–1.5.11 (project format v18–v20).
-  | "Vignette" | "Lens Effects" | "Tonal Contrast" | "Sharpen";
+  | "Vignette" | "Lens Effects" | "Tonal Contrast" | "Sharpen" | "Reduce Noise";
 /** Every adjustment kind, in the order the Mac's New Adjustment Layer menu lists them
  * (`AdjustmentKind.allCases`, LayerAdjustment.swift). */
 export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["Hue/Saturation", "Levels", "Curves", "Exposure", "Gradient Map", "Grain",
   "Progressive Blur", "Bloom / Glow", "RGB Split", "Add Noise", "Gaussian Blur", "Motion Blur", "Invert", "Black & White", "Color Balance",
-  "Vignette", "Lens Effects", "Tonal Contrast", "Sharpen"];
+  "Vignette", "Lens Effects", "Tonal Contrast", "Sharpen", "Reduce Noise"];
 /** Whether the kind opens a panel: all but Invert, which has nothing to set (engine `AdjustmentKind::is_editable`). */
 export const isEditableKind = (kind: AdjustmentKind): boolean => kind !== "Invert";
 /** The kinds that blur what lies beneath them (engine `AdjustmentKind::is_spatial`). */
 export const isSpatialKind = (kind: AdjustmentKind): boolean => kind === "Gaussian Blur" || kind === "Motion Blur" || kind === "Progressive Blur" || kind === "Bloom / Glow" || kind === "RGB Split"
-  || kind === "Vignette" || kind === "Lens Effects" || kind === "Tonal Contrast" || kind === "Sharpen";
+  || kind === "Vignette" || kind === "Lens Effects" || kind === "Tonal Contrast" || kind === "Sharpen" || kind === "Reduce Noise";
 export type LevelsChannel = "RGB" | "Red" | "Green" | "Blue";
 export type ColorRange = "Master" | "Reds" | "Yellows" | "Greens" | "Cyans" | "Blues" | "Magentas";
 export type LevelsAuto = "Contrast" | "Color" | "Neutral";
@@ -74,6 +74,8 @@ export interface VignetteLayerSettings {
 export interface TonalLayerSettings {
   amount: number; radius: number; shadows: number; midtones: number; highlights: number;
 }
+export interface ReduceNoiseSettings { strength: number; details: number; color: number; }
+export const DEFAULT_REDUCE_NOISE: ReduceNoiseSettings = { strength: 50, details: 50, color: 50 };
 export interface SharpenLayerSettings { amount: number; radius: number; }
 export const DEFAULT_VIGNETTE: VignetteLayerSettings = { amount: 35, color: { red: 0, green: 0, blue: 0 }, midpoint: 50, roundness: 100, feather: 60, highlights: 25 };
 export const DEFAULT_TONAL: TonalLayerSettings = { amount: 50, radius: 16, shadows: 40, midtones: 60, highlights: 30 };
@@ -81,7 +83,7 @@ export const DEFAULT_SHARPEN: SharpenLayerSettings = { amount: 100, radius: 1 };
 export interface FilterLayerSettings {
  progressiveFrom:number;progressiveTo:number;progressiveStart?:PointTuple;progressiveEnd?:PointTuple;progressiveRadial:boolean;progressiveInverted:boolean;
  bloomAmount:number;bloomRadius:number;rgbSplitDistance:number;rgbSplitBlur:number;rgbSplitAngle:number;rgbSplitRadial:boolean;rgbSplitCenter?:PointTuple;rgbSplitReach:number;
- vignette?: VignetteLayerSettings; tonal?: TonalLayerSettings; sharpen?: SharpenLayerSettings; lens?: LensEffectSettings;
+ vignette?: VignetteLayerSettings; tonal?: TonalLayerSettings; reduceNoise?: ReduceNoiseSettings; sharpen?: SharpenLayerSettings; lens?: LensEffectSettings;
 }
 export interface LayerAdjustment {
   filterLayerSettings?:FilterLayerSettings;
@@ -119,6 +121,7 @@ export type FilterParams =
   | { filter: "LensCorrection"; distortion: number }
   | { filter: "Vignette"; settings: VignetteLayerSettings }
   | { filter: "TonalContrast"; settings: TonalLayerSettings }
+  | { filter: "ReduceNoise"; settings: ReduceNoiseSettings }
   | { filter: "Sharpen"; amount: number; radius: number };
 export type FilterKind = FilterParams["filter"];
 export interface ScanlinesSettings {lineSpacing:number;thickness:number;glow:number;dots:number;wobble:number;displace:number;smoothness:number;threshold:number;split:number;density:number;contrast:number;blackLevel:number;colors:"Black & White"|"Original"|"Two Colors";dark:[number,number,number];light:[number,number,number]}
@@ -132,6 +135,7 @@ export interface GradientSpec {
 
 /** What the Shape tool made (engine `ShapeSpec`): a whole-pixel box for a rectangle or an ellipse;
  * a line's two ends and its width. */
+export interface ShapeStroke { width: number; color: [number, number, number]; }
 export type ShapeSpec =
   | { kind: "Rectangle"; rect: PixelRect; cornerRadius: number; smoothing?: boolean }
   | { kind: "Ellipse"; rect: PixelRect }
@@ -228,6 +232,7 @@ export type Command =
   | {type:"SetLayerEffects";id:string;effects:LayerEffects|null}
   | { type: "AddBlankLayer" }
   | { type: "RenameLayer"; id: string; name: string }
+  | { type: "SetLayersVisible"; ids: string[]; visible: boolean }
   | { type: "SetLayerVisible"; id: string; visible: boolean }
   | { type: "DeleteLayer"; id: string }
   | { type: "SetActiveLayer"; id: string | null }
@@ -244,12 +249,14 @@ export type Command =
   | { type: "UngroupLayers"; id: string }
   | { type: "PlaceLayer"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "MoveLayerBy"; id: string; offset: number }
+  | { type: "DuplicateLayers"; ids: string[]; dx?: number; dy?: number }
   | { type: "DuplicateLayer"; id: string }
   | { type: "LayerViaCopy"; id: string; mask: boolean }
   | { type: "CutPixels"; id: string; mask: boolean }
   | { type: "BrushStroke"; id: string; mask: boolean; brush: { pressureSize?:boolean;pressureOpacity?:boolean;pressures?:number[];diameter: number; hardness: number; opacity: number; points: PointTuple[]; color: [number,number,number,number]; erasing: boolean; operation?:BrushOperation } }
   | { type: "WarpStroke"; id: string; mask: boolean; warp: WarpSpec }
   | { type:"ContentAwareFill";id:string }
+  | { type:"DuplicateLayersTo"; ids:string[]; parent:string|null; above:string|null; atBottom:boolean }
   | { type: "DuplicateLayerTo"; id: string; parent: string | null; above: string | null; atBottom: boolean }
   | { type: "DuplicateLayerTransformed"; id: string; transform: LayerTransform }
   | { type: "DeleteLayers"; ids: string[]; bake: boolean }
@@ -268,11 +275,13 @@ export type Command =
   | { type: "FillMask"; id: string; white: boolean }
   | { type: "BlurMask"; id: string; radius: number }
   | { type: "CopyMask"; from: string; to: string }
+  | { type: "ToggleLayersClipping"; ids: string[] }
   | { type: "ToggleClipping"; id: string }
   | { type: "ReleaseClipping"; id: string }
   | { type: "LinkMask"; source: string; target: string }
   | { type: "MergeLayers"; ids: string[] }
   | { type: "ApplyAdjustment"; id: string; adjustment: LayerAdjustment }
+  | { type: "ConvertLayersDepth"; ids: string[]; depth: "Eight" | "Sixteen" }
   | { type: "ConvertPixelDepth"; id: string; depth: "Eight" | "Sixteen" }
   | { type: "InvertPixels"; id: string; mask: boolean }
   | { type: "ApplyFilter"; id: string; params: FilterParams }
@@ -293,7 +302,8 @@ export type Command =
   | { type: "AddMaskFromSelection"; id: string; revealing: boolean }
   | { type: "Fill"; id: string; mask: boolean; color: [number, number, number] }
   | { type: "Gradient"; id: string; mask: boolean; gradient: GradientSpec }
-  | { type: "AddShape"; shape: ShapeSpec; color: [number, number, number] }
+  | { type: "AddShape"; shape: ShapeSpec; color: [number, number, number]; stroke?: ShapeStroke }
+  | { type: "SetShapeAppearance"; id: string; fill?: [number, number, number]; stroke?: ShapeStroke; cornerRadius?: number; lineWidth?: number; smoothing?: boolean; lineCap?: "Square" | "Round"; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash" }
   | { type: "AlignLayers"; ids: string[]; alignment: "Left Edges" | "Horizontal Centers" | "Right Edges" | "Top Edges" | "Vertical Centers" | "Bottom Edges" }
   | { type: "DistributeLayers"; ids: string[]; distribution: "Horizontal Centers" | "Vertical Centers" | "Horizontal Spacing" | "Vertical Spacing" };
 

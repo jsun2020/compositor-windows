@@ -80,7 +80,7 @@ pub fn spatial_grid(plan: &RenderPlan, out_per_doc: f64) -> SpatialGrid {
     // Lens effects depend on the full image (density threshold and shifted copies).
     // spatial_span clips this sentinel to the actual canvas, never allocates a
     // sentinel-sized surface. This also fixes the origin across partial redraws.
-    if spatial_blurs(plan).iter().any(|a|a.kind==AdjustmentKind::LensEffects && !a.is_identity()) {
+    if spatial_blurs(plan).iter().any(|a|matches!(a.kind,AdjustmentKind::LensEffects|AdjustmentKind::ReduceNoise) && !a.is_identity()) {
         return SpatialGrid {cell:1,pad:u32::MAX};
     }
     let (mut cell, mut pad) = (1u32, 0.0);

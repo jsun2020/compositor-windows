@@ -10,7 +10,7 @@ pub const MANIFEST_FORMAT: &str = "com.compositor.project";
 /// font runs (ProjectStore.swift:209-213); every save writes 11, as the Mac's does.
 pub const CURRENT_VERSION: u32 = 11;
 // Deep PNG/EXR, shape styles, filter adjustment layers and GIF timelines through v17.
-pub const MAX_READ_VERSION: u32 = 20;
+pub const MAX_READ_VERSION: u32 = 22;
 pub const MAX_GUIDES: usize = 1_000;
 pub const MAX_SIDE: i64 = 30_000;
 pub const MAX_PIXELS: u64 = 100_000_000;
@@ -227,6 +227,8 @@ impl Manifest {
                     || layer.text.is_some() || layer.shape.is_some() || layer.image_file.as_deref() != Some(&LayerRecord::image_filename(&layer.id)) { return Err(Invalid); }
             }
             if let Some(shape)=&layer.shape {
+                if crate::ops::shape::has_stroke(shape)
+                    && (self.version < 22 || !crate::ops::shape::valid_stroke(shape)) { return Err(Invalid); }
                 if shape.get("smoothing").and_then(Value::as_bool)==Some(true) && self.version<14 {return Err(Invalid);}
                 if shape.get("lineStyle").is_some_and(|v|!v.is_null()) || shape.get("lineCap").is_some_and(|v|!v.is_null()) {
                     if self.version<15 || shape.get("kind").and_then(Value::as_str)!=Some("Line") {return Err(Invalid);}

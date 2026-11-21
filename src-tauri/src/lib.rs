@@ -16,7 +16,7 @@ pub fn run() {
             commands::package::write_package_image, commands::package::write_package_commit, commands::package::write_package_abort,
             commands::color_profiles::import_cmyk_file, commands::color_profiles::list_color_profiles, commands::color_profiles::proof_color_profile, commands::color_profiles::export_cmyk,
             commands::fonts::list_fonts, commands::native_images::decode_native_image,
-            commands::files::expand_import_paths, commands::files::read_file, commands::files::write_file,
+            commands::files::existing_files, commands::files::expand_import_paths, commands::files::read_file, commands::files::write_file,
             commands::raw::raw_inspect, commands::raw::raw_develop, commands::raw::raw_cancel,
             commands::clipboard::read_clipboard_image, commands::clipboard::write_clipboard_image,
             commands::recent::recent_packages, commands::recent::add_recent_package,

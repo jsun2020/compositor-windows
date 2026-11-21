@@ -1,0 +1,102 @@
+{
+  "astronaut": {
+    "width": 440,
+    "height": 440,
+    "detailRect": [
+      119,
+      7,
+      154,
+      121
+    ],
+    "sha256": {
+      "astronaut.png": "90fcf39918544d2ccd817280192118695358e893aaba4f1ce1b7d22ac0b7145f",
+      "mac-astronaut-rim.png": "a307d92cdaacbb151a725869371d68da3ba5d81b409768ea72d7fd7773ad4393",
+      "mac-astronaut-volume.png": "669f65a7cab0c39b91bd48ac10fa90901dbefd68afbfaa5da0baabf62d86f853"
+    },
+    "rim": {
+      "mae": 0.493,
+      "p95": 1.0,
+      "detailMae": 0.18
+    },
+    "volume": {
+      "mae": 2.673,
+      "p95": 10.0,
+      "detailMae": 2.0
+    }
+  },
+  "coffee": {
+    "width": 440,
+    "height": 293,
+    "detailRect": [
+      114,
+      4,
+      212,
+      163
+    ],
+    "sha256": {
+      "coffee.png": "a6c477e400bd87a61ad0a5bf9cfac9b8c28f077660f4b4b268ecb7aab3c43d7e",
+      "mac-coffee-rim.png": "d9d67ba8d8a8c106998446be27ed014750348f6c353cfd3ca225777bea7a24f9",
+      "mac-coffee-volume.png": "e73fb8c7c1355ba1489e321fe0286c7dece450b30d066e73ee081aaff1f26155"
+    },
+    "rim": {
+      "mae": 0.179,
+      "p95": 0.0,
+      "detailMae": 0.409
+    },
+    "volume": {
+      "mae": 3.022,
+      "p95": 14.0,
+      "detailMae": 1.744
+    }
+  },
+  "chelsea": {
+    "width": 440,
+    "height": 293,
+    "detailRect": [
+      0,
+      176,
+      299,
+      114
+    ],
+    "sha256": {
+      "chelsea.png": "c8925cc8feaf0681dfe69d7c4dfd79292b425ba6888fbfe2d82ca8c4846a00c1",
+      "mac-chelsea-rim.png": "b1ae07202a639af474bbb0c24c09e8afb358debe4f5b295ec950417fd957ea37",
+      "mac-chelsea-volume.png": "8b3c4f9de81660dfb3988c7592c81fe0d1b0c6f5ac14437daa87754797b5aca2"
+    },
+    "rim": {
+      "mae": 1.464,
+      "p95": 6.0,
+      "detailMae": 3.828
+    },
+    "volume": {
+      "mae": 5.143,
+      "p95": 26.0,
+      "detailMae": 6.352
+    }
+  },
+  "hands": {
+    "width": 348,
+    "height": 440,
+    "detailRect": [
+      59,
+      238,
+      226,
+      118
+    ],
+    "sha256": {
+      "hands.png": "3d831c1937f6a657cd23c9cfa9c11d3aee48c1468467b48931be0a3d9aa0ec18",
+      "mac-hands-rim.png": "a67a44d4fe994b4742540c7b4626a5ce40a3c1e781bdaba8cbff178f534c52e9",
+      "mac-hands-volume.png": "004d01a016673ee492f1a3fe5fb70408c9f24d87c23532db87222aa98d6354e9"
+    },
+    "rim": {
+      "mae": 0.059,
+      "p95": 0.0,
+      "detailMae": 0.004
+    },
+    "volume": {
+      "mae": 5.303,
+      "p95": 19.0,
+      "detailMae": 0.856
+    }
+  }
+}

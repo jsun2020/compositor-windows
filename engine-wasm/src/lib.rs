@@ -502,6 +502,16 @@ impl WasmEngine {
         let at = match (x, y) { (Some(x), Some(y)) => Some(Point { x, y }), _ => None };
         self.engine.import_image(id, bytes, name, at).map(|id| ids::upper_string(&id)).map_err(js_err)
     }
+    pub fn apply_light_field(&mut self, doc: &str, layer: &str, revision: u64, width:u32, height:u32, field:&[f32]) -> Result<(), JsError> {
+        self.engine.apply_light_field(parse_id(doc)?, parse_id(layer)?, revision, width, height, field).map_err(js_err)
+    }
+    pub fn insert_depth_map(&mut self, doc: &str, layer: &str, revision: u64, width:u32, height:u32, gray: &[u8]) -> Result<(), JsError> {
+        self.engine.insert_depth_map(parse_id(doc)?, parse_id(layer)?, revision, width, height, gray).map_err(js_err)
+    }
+    pub fn export_layer_png(&self, doc: &str, layer: &str) -> Result<Option<Uint8Array>, JsError> {
+        Ok(self.engine.export_layer_png(parse_id(doc)?,parse_id(layer)?).map_err(js_err)?
+            .map(|bytes| Uint8Array::from(bytes.as_slice())))
+    }
     pub fn export_png(&self, doc: &str) -> Result<Uint8Array, JsError> {
         Ok(Uint8Array::from(self.engine.export_png(parse_id(doc)?).map_err(js_err)?.as_slice()))
     }
@@ -715,6 +725,9 @@ impl WasmEngine {
     }
     pub fn group_box(&self, doc: &str, ids_json: &str) -> Result<Option<String>, JsError> {
         match self.engine.group_box(parse_id(doc)?, &Self::parse_ids(ids_json)?).map_err(js_err)? { Some(t) => Ok(Some(serde_json::to_string(&t).map_err(js_err)?)), None => Ok(None) }
+    }
+    pub fn can_toggle_selected_clipping(&self, doc: &str, ids: &str) -> Result<bool, JsError> {
+        self.engine.can_toggle_selected_clipping(parse_id(doc)?, &Self::parse_ids(ids)?).map_err(js_err)
     }
     pub fn can_toggle_clipping(&self, doc: &str, id: &str) -> Result<bool, JsError> { self.engine.can_toggle_clipping(parse_id(doc)?, parse_id(id)?).map_err(js_err) }
     pub fn can_place(&self, doc: &str, id: &str, parent: Option<String>) -> Result<bool, JsError> {

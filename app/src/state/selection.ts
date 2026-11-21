@@ -4,13 +4,26 @@ import type { TransformEdit } from "./store";
 
 export function activeLayer(state: DocumentState): LayerState | null { return state.layers.find((l) => l.id === state.activeLayerId) ?? null; }
 export function visibleIds(state: DocumentState): Set<string> {
-  const byId = new Map(state.layers.map((l) => [l.id, l]));
-  const out = new Set<string>();
+  const siblings = new Map<string | null, LayerState[]>();
   for (const layer of state.layers) {
-    let node: LayerState | undefined = layer; let ok = true; let steps = 0;
-    while (node && steps++ < 65) { if (!node.visible) { ok = false; break; } node = node.parentId ? byId.get(node.parentId) : undefined; }
-    if (ok) out.add(layer.id);
+    const group = siblings.get(layer.parentId);
+    if (group) group.push(layer);
+    else siblings.set(layer.parentId, [layer]);
   }
+  const out = new Set<string>();
+  function visit(parent: string | null, depth: number) {
+    if (depth > 64) return;
+    const below = new Set<string>();
+    for (const layer of siblings.get(parent) ?? []) {
+      const base = layer.maskSourceId;
+      if (layer.visible && !(base && below.has(base) && !out.has(base))) {
+        out.add(layer.id);
+        if (layer.isGroup) visit(layer.id, depth + 1);
+      }
+      below.add(layer.id);
+    }
+  }
+  visit(null, 0);
   return out;
 }
 export function transformsAsGroup(state: DocumentState, selected: string[]): boolean {

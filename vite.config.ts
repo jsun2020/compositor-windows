@@ -5,6 +5,7 @@ export default defineConfig({
   root: "app",
   plugins: [react()],
   clearScreen: false,
+  optimizeDeps: { include: ["onnxruntime-web/wasm"] },
   // Bind explicitly to the IPv4 loopback: on some Windows hosts IPv6 loopback is
   // broken or "localhost" resolves to the other stack than the dev server bound
   // (see Claude-LL.md LL-024), which makes a browser or Playwright's health check

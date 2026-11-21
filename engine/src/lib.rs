@@ -6,6 +6,8 @@ pub mod manifest;
 pub mod raster;
 pub mod codec;
 pub mod psd;
+pub mod psd_writer;
+mod light_field;
 pub mod document;
 pub mod package;
 pub mod compositor;

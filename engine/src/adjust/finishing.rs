@@ -50,6 +50,20 @@ impl SharpenLayerSettings {
     pub fn normalized(&self) -> Self { Self { amount: clamp(self.amount,0.,300.,100.), radius: clamp(self.radius,0.1,20.,1.) } }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReduceNoiseSettings { pub strength: f64, pub details: f64, pub color: f64 }
+
+impl Default for ReduceNoiseSettings {
+    fn default() -> Self { Self { strength: 50., details: 50., color: 50. } }
+}
+
+impl ReduceNoiseSettings {
+    pub fn normalized(&self) -> Self {
+        Self { strength: clamp(self.strength, 0., 100., 50.), details: clamp(self.details, 0., 100., 50.), color: clamp(self.color, 0., 100., 50.) }
+    }
+}
+
 extern "C" {
     fn adjust_colored_vignette(rgba: *mut u8, width: usize, height: usize, stride: usize,
         frame_x: f64, frame_y: f64, frame_width: f64, frame_height: f64, fills_clear: i32,

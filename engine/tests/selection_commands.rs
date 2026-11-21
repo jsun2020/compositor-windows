@@ -208,13 +208,13 @@ fn expand_stays_on_the_canvas_and_contract_can_empty_the_selection() {
 }
 
 #[test]
-fn feathers_combine_as_blurs_do_and_stop_at_250() {
+fn feather_radii_add_and_stop_at_250() {
     let (mut e, id) = session(60, 20);
     run(&mut e, id, Command::SelectAll);
     run(&mut e, id, Command::FeatherSelection { amount: 6 });
     assert_eq!(selection(&e, id).unwrap().feather, 6.0);
     run(&mut e, id, Command::FeatherSelection { amount: 8 });
-    assert_eq!(selection(&e, id).unwrap().feather, (36.0f64 + 64.0).sqrt());
+    assert_eq!(selection(&e, id).unwrap().feather, 14.0);
     run(&mut e, id, Command::FeatherSelection { amount: 250 });
     assert_eq!(selection(&e, id).unwrap().feather, 250.0);
     assert!(e.execute(id, Command::FeatherSelection { amount: 251 }).is_err());

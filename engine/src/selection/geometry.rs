@@ -1,6 +1,6 @@
 //! Outlines as Core Graphics builds and combines them for the Mac's selection (Selection.swift):
 //! polygons, the Marquee's rectangle and ellipse, the canvas clip, union / intersection /
-//! difference with the winding rule, and the round-joined band Expand and Contract stroke. The
+//! difference with the winding rule, and the miter-joined band Expand and Contract stroke. The
 //! booleans and the stroke are i_overlay's, on its i32 integer engine, in `SUBPIXEL` units, so a
 //! whole-pixel shape comes back exactly.
 use super::{Contour, SUBPIXEL};
@@ -10,9 +10,8 @@ use i_overlay::core::overlay::Overlay;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::i_float::int::angle::Angle;
 use i_overlay::i_float::int::point::IntPoint;
-use i_overlay::mesh::int::arc::ArcOptions;
 use i_overlay::mesh::int::stroke::offset::IntStrokeOffset;
-use i_overlay::mesh::int::style::{IntLineCap, IntLineJoin, IntStrokeStyle};
+use i_overlay::mesh::int::style::{IntLineJoin, IntStrokeStyle};
 
 /// How far a flattened curve may stray from the curve, in document pixels: an ellipse's edge
 /// coverage moves by at most about 1/255 per 0.004 px, so this keeps a flattened ellipse within
@@ -100,14 +99,12 @@ pub fn combine(a: &[Contour], b: &[Contour], op: Boolean) -> Vec<Contour> {
 }
 
 /// The band `half_width` pixels either side of every contour: `copy(strokingWithWidth: 2 x
-/// half_width, lineCap: .round, lineJoin: .round)` (Selection.swift:336), as a filled outline.
-/// Round joins turn in steps whose chords stray at most `CURVE_TOLERANCE` from the arc.
+/// half_width, lineCap: .butt, lineJoin: .miter)` (Selection.swift:336), as a filled outline.
+/// Closed paths use a miter limit of three to preserve rectangular selection corners.
 pub fn band(contours: &[Contour], half_width: f64) -> Option<Vec<Contour>> {
     let radius = (half_width * SUBPIXEL).round();
-    // The chord of an arc of radius r over angle a strays r (1 - cos(a / 2)) from it.
-    let step = 2.0 * (1.0 - CURVE_TOLERANCE * SUBPIXEL / radius).clamp(-1.0, 1.0).acos();
-    let arc = ArcOptions { max_step: Angle::from_radians(step).unwrap_or(ArcOptions::MIN_STEP), rotation_precision: 32 };
-    let style = IntStrokeStyle::new(2 * radius as i32).line_join(IntLineJoin::Round(arc)).start_cap(IntLineCap::Round(arc)).end_cap(IntLineCap::Round(arc));
+    let angle = Angle::from_radians(2.0 * (1.0_f64 / 3.0).asin()).unwrap();
+    let style = IntStrokeStyle::new(2 * radius as i32).line_join(IntLineJoin::Miter(angle));
     let paths = to_int(contours);
     // i_overlay's stroke assumes its safe coordinate range (2^30 units) without checking it (a debug
     // panic, a garbled band in release), so it is checked first: None, never an empty band, which

@@ -14,7 +14,7 @@ fn session() -> (Engine, Uuid) {
     let id = e.new_document(100, 80, true).unwrap();
     (e, id)
 }
-fn shape(e: &mut Engine, id: Uuid, shape: ShapeSpec, color: [f64; 3]) { run(e, id, Command::AddShape { shape, color }); }
+fn shape(e: &mut Engine, id: Uuid, shape: ShapeSpec, color: [f64; 3]) { run(e, id, Command::AddShape { stroke: None, shape, color }); }
 /// The flattened document's pixel: (red, alpha), premultiplied as the Mac's test reads it.
 fn pixel(e: &Engine, id: Uuid, x: u32, y: u32) -> (u8, u8) {
     let px = e.composite(id, Rect { x: x as f64, y: y as f64, width: 1.0, height: 1.0 }, 1, 1).unwrap().pixel(0, 0);
@@ -34,7 +34,7 @@ fn a_rectangle_fills_a_new_layer_with_the_colour_as_one_undo_step_and_keeps_the_
     let layer = s.layers.iter().find(|l| l.name == "Rectangle 1").unwrap();
     assert_eq!(s.active_layer_id, Some(layer.id));
     assert_eq!(s.undo_depth, depth + 1);
-    assert_eq!(Command::AddShape { shape: ShapeSpec::Ellipse { rect: rect(0.0, 0.0, 1.0, 1.0) }, color: RED }.action_name(), "Ellipse", "the undo name is the kind");
+    assert_eq!(Command::AddShape { stroke: None, shape: ShapeSpec::Ellipse { rect: rect(0.0, 0.0, 1.0, 1.0) }, color: RED }.action_name(), "Ellipse", "the undo name is the kind");
     assert_eq!((layer.transform.origin.x, layer.transform.origin.y, layer.transform.size.width, layer.transform.size.height), (10.0, 10.0, 30.0, 20.0));
     assert_eq!((layer.pixels_width, layer.pixels_height), (30, 20));
     assert!(s.selection.is_some(), "unlike Paste, drawing a shape keeps the selection");
@@ -226,18 +226,18 @@ fn a_click_or_a_shape_too_large_makes_nothing() {
     for spec in [ShapeSpec::Rectangle { rect: rect(20.0, 20.0, 0.0, 0.0), corner_radius: 0.0 , smoothing:false},
         ShapeSpec::Ellipse { rect: rect(20.0, 20.0, 30.0, 0.5) },
         ShapeSpec::Line { start: p(10.0, 10.0), end: p(50.0, 10.0), width: 0.5 , style:Default::default(), cap:Default::default()}] {
-        assert!(matches!(e.execute(id, Command::AddShape { shape: spec, color: RED }), Err(CommandError::Argument(_))));
+        assert!(matches!(e.execute(id, Command::AddShape { stroke: None, shape: spec, color: RED }), Err(CommandError::Argument(_))));
     }
     // Past the project's 100 megapixels: the Mac's words.
     let big = ShapeSpec::Rectangle { rect: rect(0.0, 0.0, 20_000.0, 6_000.0), corner_radius: 0.0 , smoothing:false};
-    match e.execute(id, Command::AddShape { shape: big, color: RED }) {
+    match e.execute(id, Command::AddShape { stroke: None, shape: big, color: RED }) {
         Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_TOO_LARGE),
         other => panic!("{other:?}"),
     }
     // A side past 30,000 px under the pixel budget (a thin line 40,000 long holds 80,000 pixels): the
     // side is what stops it, and the words say so (final review minor 17).
     let long = ShapeSpec::Line { start: p(1.0, 10.0), end: p(40_001.0, 10.0), width: 2.0 , style:Default::default(), cap:Default::default()};
-    match e.execute(id, Command::AddShape { shape: long, color: RED }) {
+    match e.execute(id, Command::AddShape { stroke: None, shape: long, color: RED }) {
         Err(CommandError::Refused(m)) => assert_eq!(m, SHAPE_SIDE_TOO_LARGE),
         other => panic!("{other:?}"),
     }

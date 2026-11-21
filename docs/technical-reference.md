@@ -7,6 +7,10 @@ A free, open-source Windows image editor ported from Compositor for macOS, built
 
 **The original v1 Windows port is complete in version 0.9.0.** It includes Phase 6 Liquify/Smudge, Phase 7 Camera Raw and Photoshop/camera RAW import, and the final Phase 3.5d sampling corrections. The original v1 scope and its acceptance evidence are linked below. Published 0.8.0 artifacts remain unchanged.
 
+## Mac 1.6.15 update — Windows 0.13.0
+
+Layered PSD export supports 8-bit and 16-bit documents. Project format 21 stores editable Reduce Noise adjustments, and format 22 stores inside strokes on live shapes. The two lighting filters and Extract Depth use bundled models and run locally. See the [feature notes and same-photo comparison](releases/0.13.0.md).
+
 ## Mac 1.5.7 update — Windows 0.11.0
 
 Windows 0.11.0 ports the Mac 1.4.10–1.5.7 changes: 16-bit/HDR layers and exports, CMYK proofing and print export, progressive blur, RGB Split, Lens Effects, GIF editing, Channel Pack, PDF pages, HEIF, PSD artboards, pressure controls and workspace improvements. Project saves use the lowest required format through v17.
@@ -29,7 +33,7 @@ Local hardware/native acceptance was completed using the pre-release 0.9.0 versi
 
 Get the portable Windows x64 ZIP from [the latest published release](https://github.com/jsun2020/compositor-windows/releases/latest), extract the entire archive and run `Compositor.exe`. Microsoft Edge WebView2 Runtime is required. Node and Rust are needed only for development.
 
-Keep `CompositorRaw.exe`, `CompositorHeif.exe`, all bundled DLLs, `LibRaw-notices`, `HEIF-notices` and license files beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
+Keep `CompositorRaw.exe`, `CompositorHeif.exe`, all bundled DLLs, `LibRaw-notices`, `HEIF-notices`, `Vision-notices` and license files beside the application. Releases include `SHA256SUMS.txt` and `release-manifest.json` with artifact hashes, the build marker and exact source commit. Projects are `.comp` folders; keep their manifest and assets together.
 
 ## Features
 

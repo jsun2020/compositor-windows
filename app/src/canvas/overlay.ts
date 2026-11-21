@@ -18,6 +18,7 @@ export interface OverlayState {
   /** Temporary smart-snap lines shown while dragging a crop or transform; not the saved guides. */
   guides: { xs: number[]; ys: number[] };
   transform: OverlayGeometry | null;
+  distances?: import("../tools/layer-distances").DistanceLine[];
   /** The document's saved guides, or null while View > Hide Guides is in effect. */
   canvasGuides: Guide[] | null;
   /** Null with no selection, or an empty one. */
@@ -27,7 +28,7 @@ export interface OverlayState {
   gradientLine?: { start: { x: number; y: number }; end: { x: number; y: number }; radial: boolean; from: number[]; to: number[] } | null;
   /** A shape being dragged out: its kind, its box and a line's ends in document px, its corner
    * radius and a line's width in document px, and the colour it will be made in. */
-  shapeDraft?: { kind: "Rectangle" | "Ellipse" | "Line"; rect: { x: number; y: number; width: number; height: number }; start: { x: number; y: number }; end: { x: number; y: number } | null; cornerRadius: number; smoothing?: boolean; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round"; lineWidth: number; color: PaletteColor } | null;
+  shapeDraft?: { kind: "Rectangle" | "Ellipse" | "Line"; rect: { x: number; y: number; width: number; height: number }; start: { x: number; y: number }; end: { x: number; y: number } | null; stroke?: import("../engine/types").ShapeStroke; cornerRadius: number; smoothing?: boolean; lineStyle?: "Solid" | "Dotted" | "Dashed" | "Long Dash"; lineCap?: "Square" | "Round"; lineWidth: number; color: PaletteColor } | null;
   /** While the canvas is sampled: the ring about the pointer (view px). */
   sampleRing?: { at: { x: number; y: number }; sampled: PaletteColor; original: PaletteColor } | null;
 }
@@ -77,6 +78,13 @@ function drawShapeDraft(ctx: CanvasRenderingContext2D, viewport: Viewport, size:
     if (d.kind === "Ellipse") ctx.ellipse(tl.x + w / 2, tl.y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     else smoothedRectPath(ctx, tl.x, tl.y, w, h, d.cornerRadius*scale, d.smoothing ?? false);
     ctx.fill();
+    if (d.stroke && d.stroke.width > 0) {
+      ctx.clip();
+      const [red, green, blue] = d.stroke.color;
+      ctx.strokeStyle = cssColor({red, green, blue});
+      ctx.lineWidth = Math.min(d.stroke.width * scale * 2, w, h);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -150,6 +158,19 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, viewport: Viewport, d
   ctx.clearRect(0, 0, W, H);
   const size = { width: state.docWidth, height: state.docHeight };
   const rect = viewport.documentRect(size);
+  if(state.distances?.length){
+    ctx.save();ctx.font="11px sans-serif";ctx.textAlign="center";ctx.strokeStyle="#da6ab2";
+    for(const {horizontal,start,end,cross} of state.distances){
+      const a=viewport.viewPoint(horizontal?{x:start,y:cross}:{x:cross,y:start},size);
+      const b=viewport.viewPoint(horizontal?{x:end,y:cross}:{x:cross,y:end},size);
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+      const label=Math.round(end-start)+" px",midX=(a.x+b.x)/2,midY=(a.y+b.y)/2-4;
+      const width=ctx.measureText(label).width+6;
+      ctx.fillStyle="#512740";ctx.fillRect(midX-width/2,midY-10,width,14);
+      ctx.fillStyle="#fff";ctx.fillText(label,midX,midY+1);
+    }
+    ctx.restore();
+  }
   // Pixel grid once a document pixel is 8 device pixels or larger.
   if (viewport.zoom >= 8) {
     ctx.strokeStyle = "rgba(0,0,0,0.25)"; ctx.lineWidth = 1 / dpr;

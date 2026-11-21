@@ -250,3 +250,13 @@ body { margin: 0; }
 .sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > button { align-self:flex-start; cursor:pointer; }
 .sheet-backdrop[aria-label="CMYK Proof"] .sheet-body > button:disabled { opacity:.5; cursor:default; }
 .sheet-backdrop[aria-label="CMYK Proof"] p { line-height:1.5; }
+
+.lighting-layout { display:grid; grid-template-columns:minmax(200px, min(45vw, 560px)) minmax(190px, 235px); gap:16px; }
+.light-preview { position:relative; display:flex; align-items:center; justify-content:center; min-width:0; background:#202020; }
+.light-preview canvas { display:block; width:auto; height:auto; max-width:100%; max-height:min(65vh,480px); }
+.light-preview [role=status] { position:absolute; background:#202020; padding:8px; }
+.light-controls { display:flex; flex-direction:column; gap:9px; max-height:65vh; overflow:auto; }
+.light-controls fieldset { margin:0; border:1px solid #505050; }
+.light-controls .light-slider { display:grid; grid-template-columns:85px minmax(40px,1fr) 22px; align-items:center; gap:4px; }
+.light-controls .light-slider input { width:100%; padding:0; }
+.light-controls input[type=checkbox], .light-controls input[type=color] { width:auto; }

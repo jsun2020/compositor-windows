@@ -153,7 +153,7 @@ fn union_intersection_and_difference_keep_whole_pixel_edges_exact() {
 }
 
 #[test]
-fn a_band_round_joined_about_the_outline_grows_and_shrinks_it() {
+fn mitered_corners_survive_expansion_and_contraction() {
     // SelectionTests.expandAndContractGrowAndShrinkTheOutline, on the outline: the square
     // (40,40)-(60,60), grown by 5, then that shrunk by 8.
     let square = vec![rectangle(rect(40.0, 40.0, 20.0, 20.0))];
@@ -162,9 +162,7 @@ fn a_band_round_joined_about_the_outline_grows_and_shrinks_it() {
     assert!((g.x - 35.0).abs() < 0.01 && (g.width - 30.0).abs() < 0.01, "{g:?}");
     let c = coverage(&Selection::new(grown.clone(), true, 0.0), 100, 100);
     assert_eq!((at(&c, 37, 50), at(&c, 33, 50)), (255, 0));
-    // The joins are round: pixel (35, 35) is the square's grown corner, and its nearest point,
-    // (36, 36), lies 5.66 px from the corner (40, 40), outside the 5-px arc. A mitred join fills it.
-    assert_eq!(at(&c, 35, 35), 0);
+    assert_eq!(at(&c, 35, 35), 255, "expanding a rectangle preserves all four corners");
     let shrunk = combine(&grown, &band(&grown, 8.0).unwrap(), Boolean::Difference);
     let s = Selection::new(shrunk, true, 0.0).bounds().unwrap();
     assert!((s.x - 43.0).abs() < 0.01 && (s.width - 14.0).abs() < 0.01, "{s:?}");

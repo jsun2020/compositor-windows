@@ -25,6 +25,17 @@ pub fn write_file(request: Request<'_>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn existing_files(paths: Vec<String>) -> Result<Vec<String>, String> {
+    let mut existing = Vec::new();
+    for path in paths {
+        if std::path::Path::new(&path).try_exists().map_err(|e| format!("Cannot check {path}: {e}"))? {
+            existing.push(path);
+        }
+    }
+    Ok(existing)
+}
+
 #[derive(serde::Serialize)]
 pub struct ImportPaths { paths:Vec<String>, errors:Vec<String> }
 #[tauri::command]

@@ -496,7 +496,7 @@ fn spatial_target(doc: &Document, plan: &RenderPlan, target: &mut Target, draw: 
     let blurred = match adjustment.kind {
         AdjustmentKind::GaussianBlur => blur_for_layer(input, b.sigma),
         AdjustmentKind::MotionBlur => streak_for_layer(input, b.angle, b.distance),
-        AdjustmentKind::LensEffects => cache.spatial_image(doc.id,draw.id,&input,adjustment,target.region,doc.size()),
+        AdjustmentKind::LensEffects | AdjustmentKind::ReduceNoise => cache.spatial_image(doc.id,draw.id,&input,adjustment,target.region,doc.size()),
         AdjustmentKind::ProgressiveBlur | AdjustmentKind::BloomGlow | AdjustmentKind::RgbSplit | AdjustmentKind::Vignette | AdjustmentKind::TonalContrast | AdjustmentKind::Sharpen => adjustment.apply_spatial_filter_on_canvas(&input,target.region,doc.size()),
         _ => return,
     };
@@ -604,7 +604,7 @@ pub fn composite_plan_with(doc: &Document, plan: &RenderPlan, region: Rect, out_
     let enlarged = region.width > 0. && region.height > 0.
         && (out_width as f64 > region.width || out_height as f64 > region.height);
     if enlarged && crate::adjust::spatial::spatial_blurs(plan).iter()
-        .any(|a| a.kind==AdjustmentKind::LensEffects && !a.is_identity()) {
+        .any(|a| matches!(a.kind,AdjustmentKind::LensEffects|AdjustmentKind::ReduceNoise) && !a.is_identity()) {
         let full = composite_region(doc, plan,
             Rect { x:0., y:0., width:doc.width as f64, height:doc.height as f64 },
             doc.width, doc.height, cache);
@@ -672,7 +672,7 @@ pub fn check_lens_render(doc:&Document,plan:&RenderPlan,region:Rect,w:u32,h:u32)
 pub fn checked_composite_edit_with(doc:&Document,edit:Option<&PreviewEdit>,region:Rect,w:u32,h:u32,cache:&EffectsCache)->Result<Raster,ExportError> {
     let plan=render_plan(doc,edit);
     check_lens_render(doc,&plan,region,w,h)?;
-    Ok(composite_plan_with(doc,&plan,region,w,h,cache))
+    cache.checked(|scope|composite_plan_with(doc,&plan,region,w,h,scope))
 }
 pub fn checked_composite(doc:&Document,region:Rect,w:u32,h:u32)->Result<Raster,ExportError> {
     checked_composite_edit_with(doc,None,region,w,h,&EffectsCache::default())

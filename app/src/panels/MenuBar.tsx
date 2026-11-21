@@ -1,3 +1,5 @@
+import { extractDepth } from "../actions/depth";
+import { exportSelectedLayers } from "../actions/files";
 import { useEffect, useState } from "react";
 import { FILTER_TITLES } from "../state/adjust-edit";
 import { useEditor } from "../state/store";
@@ -6,6 +8,7 @@ import { runAction } from "../shortcuts/useShortcuts";
 import { activeLayer } from "../state/selection";
 import {
   addAdjustmentLayer, addMaskToActive, blurMaskOfActive, canClipActive, canEditAdjustment, canInvert, canMoveActiveBy, canPaint,
+  canConvertSelectedDepth, convertSelectedDepth, toggleSelectedVisibility, clippingTitle,
   deleteMaskOfActive, deleteSelected, editAdjustmentLayer, fillMaskOfActive, flipSelected, invertMaskOfActive,
   loadSelection, mergeTitle, toggleMaskEnabled, toggleMaskLink, canUngroupActive,
 } from "../actions/layers";
@@ -47,6 +50,7 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "save", label: "Save", run: () => runAction("save"), enabled: hasDoc },
       { id: "save-as", label: "Save As...", run: () => runAction("save-as"), enabled: hasDoc },
       { id: "export-as", label: "Export As...", run: () => runAction("export-as"), enabled: editable },
+      { id: "export-layers", label: s.selectedLayerIds.length > 1 ? "Export Layers as PNGs…" : "Export Layer as PNG…", run: () => void exportSelectedLayers(), enabled: editable && !!active },
       { id: "export-png", label: "Export PNG...", run: () => runAction("export-png"), enabled: hasDoc },
       { id: "export-jpeg", label: "Export JPEG...", run: () => runAction("export-jpeg"), enabled: editable },
       "separator",
@@ -76,6 +80,7 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       {id:"layer-effects",label:"Layer Effects...",run:beginEffects,enabled:canEditEffects()},
       { id: "layer-new", label: "New Layer", run: () => runAction("new-layer"), enabled: editable },
       { id: "layer-new-folder", label: "New Folder", run: () => runAction("new-folder"), enabled: editable },
+      { id: "layer-visibility", label: (active?.visible === false ? "Show " : "Hide ") + (s.selectedLayerIds.length > 1 ? "Layers" : "Layer"), run: toggleSelectedVisibility, enabled: editable && !!active },
       { id: "layer-duplicate", label: activeDoc?.selection ? "Layer via Copy" : "Duplicate Layer", run: () => runAction("duplicate"), enabled: editable },
       { id: "layer-group", label: "Group Layers", run: () => runAction("group"), enabled: editable },
       { id: "layer-ungroup", label: "Ungroup Layers", run: () => runAction("ungroup"), enabled: editable && canUngroupActive() },
@@ -98,7 +103,7 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "layer-mask-fill-black", label: "Fill Mask Black", run: () => fillMaskOfActive(false), enabled: editable && hasMask },
       { id: "layer-mask-blur", label: "Blur/Feather Mask...", run: () => blurMaskOfActive(), enabled: editable && hasMask },
       "separator",
-      { id: "layer-clip", label: "Create/Release Clipping Mask", run: () => runAction("clip"), enabled: editable && canClipActive() },
+      { id: "layer-clip", label: clippingTitle(), run: () => runAction("clip"), enabled: editable && canClipActive() },
       "separator",
       { id: "layer-flip-h", label: "Flip Layer Horizontal", run: () => flipSelected(true), enabled: editable },
       { id: "layer-flip-v", label: "Flip Layer Vertical", run: () => flipSelected(false), enabled: editable },
@@ -124,12 +129,16 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       {id:"filter-scanlines",label:"Scanlines...",run:()=>s.beginAdjust({kind:"Scanlines"}),enabled:s.canAdjust()},
       {id:"last-filter",label:s.lastFilter?`Last Filter: ${FILTER_TITLES[s.lastFilter.filter]}`:"Last Filter",run:()=>runAction("last-filter"),enabled:!!s.lastFilter&&s.canAdjust(s.lastFilter.filter)},
       "separator",
+      { id: "rim-light", label: "Rim Light...", run: () => s.openSheet({kind:"lighting",effect:"rim"}), enabled:s.canAdjust() && !s.maskSelected },
+      { id: "volumetric-light", label: "Volumetric Light...", run: () => s.openSheet({kind:"lighting",effect:"volume"}), enabled:s.canAdjust() && !s.maskSelected },
+      { id: "extract-depth", label: "Extract Depth", run: () => void extractDepth(), enabled:editable && !!active?.hasPixels && !s.maskSelected && !s.working },
       { id: "filter-camera-raw", label: "Camera Raw...", run: () => s.beginAdjust({ kind: "CameraRaw" }), enabled: s.canAdjust() },
       { id: "filter-gaussian-blur", label: "Gaussian Blur...", run: () => s.beginAdjust({ kind: "GaussianBlur" }), enabled: s.canAdjust() },
       { id: "filter-lens-effects", label: "Lens Effects...", run: () => s.beginAdjust({ kind: "LensEffects" }), enabled: s.canAdjust() },
       { id: "filter-vignette", label: "Vignette...", run: () => s.beginAdjust({ kind: "Vignette" }), enabled: s.canAdjust("Vignette") },
       { id: "filter-tonal-contrast", label: "Tonal Contrast...", run: () => s.beginAdjust({ kind: "TonalContrast" }), enabled: s.canAdjust() },
       { id: "filter-sharpen", label: "Sharpen...", run: () => s.beginAdjust({ kind: "Sharpen" }), enabled: s.canAdjust() },
+      { id: "filter-reduce-noise", label: "Reduce Noise...", run: () => s.beginAdjust({ kind: "ReduceNoise" }), enabled: s.canAdjust() },
       { id: "filter-bloom-glow", label: "Bloom / Glow...", run: () => s.beginAdjust({ kind: "BloomGlow" }), enabled: s.canAdjust() },
       { id: "filter-progressive-blur", label: "Progressive Blur...", run: () => s.beginAdjust({ kind: "ProgressiveBlur" }), enabled: s.canAdjust() },
       { id: "filter-rgb-split", label: "RGB Split...", run: () => s.beginAdjust({ kind: "RgbSplit" }), enabled: s.canAdjust() },
@@ -149,7 +158,11 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "image-exposure", label: "Exposure...", run: () => s.beginAdjust({ kind: "Exposure" }), enabled: s.canAdjust() },
       { id: "image-gradient-map", label: "Gradient Map...", run: () => s.beginAdjust({ kind: "Gradient Map" }), enabled: s.canAdjust() },
       { id: "image-grain", label: "Grain...", run: () => s.beginAdjust({ kind: "Grain" }), enabled: s.canAdjust() },
-      { id: "image-depth", label: active?.pixelDepth && active.pixelDepth !== "Eight" ? "Convert to 8-Bit" : "Convert to 16-Bit", run: () => {if(active) s.run({type:"ConvertPixelDepth",id:active.id,depth:active.pixelDepth && active.pixelDepth!=="Eight"?"Eight":"Sixteen"});}, enabled: editable && !!active?.hasPixels && !active.isGroup && !active.gif && !s.maskSelected },
+      ...(["Sixteen", "Eight"] as const).map(depth => ({
+        id: depth === "Sixteen" ? "image-depth-sixteen" : "image-depth-eight",
+        label: `Convert to ${depth === "Sixteen" ? 16 : 8}-Bit`,
+        run: () => convertSelectedDepth(depth), enabled: editable && canConvertSelectedDepth(depth),
+      })),
       { id: "image-invert", label: s.maskSelected ? "Invert Mask" : "Invert", run: () => runAction("invert"), enabled: editable && canInvert() },
       "separator",
       // Flip has no keyboard shortcut (and so no ActionId either); keep calling the
@@ -167,7 +180,9 @@ export function commandMenus(s: ReturnType<typeof useEditor.getState>, recent: s
       { id: "zoom-out", label: "Zoom Out", run: () => runAction("zoom-out"), enabled: hasDoc },
       { id: "fit", label: "Fit on Screen", run: () => runAction("fit"), enabled: hasDoc },
       { id: "actual", label: "Actual Size", run: () => runAction("actual"), enabled: hasDoc },
-      { id: "view-guides", label: s.showGuides ? "Hide Guides" : "Show Guides", run: () => s.toggleGuides(), enabled: hasDoc },
+      { id: "view-extras", label: s.tool === "move" ? "Show Transform Controls" : "Show Extras", checked:s.tool === "move" ? s.showTransformControls : !s.extrasHideGuides, run:s.toggleExtras, enabled:hasDoc },
+      { id:"view-distances",label:"Show Distances",checked:s.showDistances,run:()=>useEditor.setState({showDistances:!s.showDistances,overlayTick:s.overlayTick+1}),enabled:hasDoc },
+      { id: "view-guides", label: s.showGuides && !s.extrasHideGuides ? "Hide Guides" : "Show Guides", run: () => s.toggleGuides(), enabled: hasDoc },
     ] },
   ];
 }

@@ -1,5 +1,5 @@
 import type { FilterLayerSettings, FilterParams, LayerAdjustment, LensEffectSettings } from "../engine/types";
-import { DEFAULT_SHARPEN, DEFAULT_TONAL, DEFAULT_VIGNETTE } from "../engine/types";
+import { DEFAULT_REDUCE_NOISE, DEFAULT_SHARPEN, DEFAULT_TONAL, DEFAULT_VIGNETTE } from "../engine/types";
 
 export function defaultFilterLayerSettings(): FilterLayerSettings {
   return {
@@ -35,6 +35,7 @@ export function filterLayerParams(a: LayerAdjustment | null | undefined): Filter
   if (a.kind === "Vignette") return { filter: "Vignette", settings: { ...DEFAULT_VIGNETTE, ...s.vignette } };
   if (a.kind === "Tonal Contrast") return { filter: "TonalContrast", settings: { ...DEFAULT_TONAL, ...s.tonal } };
   if (a.kind === "Lens Effects") return { filter: "LensEffects", settings: { ...defaultLensSettings(), ...s.lens } };
+  if (a.kind === "Reduce Noise") return { filter: "ReduceNoise", settings: { ...DEFAULT_REDUCE_NOISE, ...s.reduceNoise } };
   if (a.kind === "Sharpen") { const sh = { ...DEFAULT_SHARPEN, ...s.sharpen }; return { filter: "Sharpen", amount: sh.amount, radius: sh.radius }; }
   return null;
 }
@@ -55,6 +56,8 @@ export function withFilterLayerParams(a: LayerAdjustment, p: FilterParams): Laye
     s.tonal = { ...p.settings };
   } else if (p.filter === "LensEffects") {
     s.lens = { ...p.settings };
+  } else if (p.filter === "ReduceNoise") {
+    s.reduceNoise = { ...p.settings };
   } else if (p.filter === "Sharpen") {
     s.sharpen = { amount: p.amount, radius: p.radius };
   } else return a;

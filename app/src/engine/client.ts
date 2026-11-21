@@ -75,8 +75,15 @@ export class EngineClient {
   importImage(doc: string | null, bytes: Uint8Array, name: string, at: { x: number; y: number } | null): string {
     return this.wasm.import_image(doc ?? undefined, bytes, name, at?.x, at?.y);
   }
+  applyLightField(doc:string,id:string,revision:number,width:number,height:number,field:Float32Array):void {
+    this.wasm.apply_light_field(doc,id,BigInt(revision),width,height,field);
+  }
+  insertDepthMap(doc: string,id: string,revision: number,width: number,height: number,values:Uint8Array): void {
+    this.wasm.insert_depth_map(doc,id,BigInt(revision),width,height,values);
+  }
+  exportLayerPng(doc: string, layer: string): Uint8Array | undefined { return this.wasm.export_layer_png(doc,layer); }
   exportPng(doc: string): Uint8Array { return this.wasm.export_png(doc); }
-  exportAs(doc:string,options:{width:number;height:number;format:"PNG"|"JPEG"|"PDF"|"PNG16"|"EXR"|"TIFF"|"ChannelPack"|"GIF";quality:number;background:[number,number,number]|null;gifLoop?:boolean;channelSources?:({kind:"Black"|"White"}|{kind:"Layer";id:string})[]},preview=0):Uint8Array{return this.wasm.export_as(doc,JSON.stringify(options),preview);}
+  exportAs(doc:string,options:{width:number;height:number;format:"PNG"|"JPEG"|"PDF"|"PNG16"|"EXR"|"TIFF"|"ChannelPack"|"GIF"|"PSD";quality:number;background:[number,number,number]|null;gifLoop?:boolean;channelSources?:({kind:"Black"|"White"}|{kind:"Layer";id:string})[]},preview=0):Uint8Array{return this.wasm.export_as(doc,JSON.stringify(options),preview);}
   gifThumbnail(doc:string,layer:string,index:number):Uint8Array{return this.wasm.gif_thumbnail(doc,layer,index);}
   copyLayersToProject(source:string,ids:string[],destination:string|null,at:{x:number;y:number}|null=null):{document:string;selected:string[]}{
     return JSON.parse(this.wasm.copy_layers_to_project(source,JSON.stringify(ids),destination,at?.x,at?.y));
@@ -344,6 +351,9 @@ export class EngineClient {
   clipDependents(doc: string, ids: string[]): string[] { return JSON.parse(this.wasm.clip_dependents(doc, JSON.stringify(ids))) as string[]; }
   mergeAction(doc: string, ids: string[]): string | null { return this.wasm.merge_action(doc, JSON.stringify(ids)) ?? null; }
   groupBox(doc: string, ids: string[]): LayerTransform | null { const t = this.wasm.group_box(doc, JSON.stringify(ids)); return t ? (JSON.parse(t) as LayerTransform) : null; }
+  canToggleSelectedClipping(doc: string, ids: string[]): boolean {
+    return this.wasm.can_toggle_selected_clipping(doc, JSON.stringify(ids));
+  }
   canToggleClipping(doc: string, id: string): boolean { return this.wasm.can_toggle_clipping(doc, id); }
   canPlace(doc: string, id: string, parent: string | null): boolean { return this.wasm.can_place(doc, id, parent ?? undefined); }
 

@@ -1492,3 +1492,23 @@ mod deep_exposure_cache_tests {
         }
     }
 }
+
+pub(super) fn reduce_noise(raster: &Raster, settings: &super::finishing::ReduceNoiseSettings, scale: f64) -> Result<Raster, CommandError> {
+    if settings.strength == 0. && settings.color == 0. { return Ok(raster.clone()); }
+    if raster.deep_pixels().is_some() {
+        return raster.map_deep(true, |plane| reduce_noise(plane, settings, scale));
+    }
+    let mut data = Vec::new();
+    data.try_reserve_exact(raster.bytes().len()).map_err(|_|CommandError::Refused("Insufficient memory for Reduce Noise".into()))?;
+    data.extend_from_slice(raster.bytes());
+    let width = raster.width as usize;
+    super::camera_raw_runtime::begin();
+    unsafe {
+        adjust_camera_raw_detail(data.as_mut_ptr(), width, raster.height as usize, width * 4,
+            0., 0., 0., 0., settings.strength, settings.details, 0., settings.color, 50., 50., scale);
+    }
+    if super::camera_raw_runtime::failed() {
+        return Err(CommandError::Refused("Insufficient memory for Reduce Noise".into()));
+    }
+    Ok(Raster::from_premultiplied(raster.width, raster.height, data))
+}

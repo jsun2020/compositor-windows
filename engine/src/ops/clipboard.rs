@@ -73,6 +73,10 @@ pub fn copy(doc: &Document, id: Option<Uuid>, mask: bool, merged: bool) -> Resul
 }
 
 pub fn paste(doc: &mut Document, raster: Raster, origin: Option<Point>) -> Result<Uuid, CommandError> {
+    insert_pixels(doc, raster, origin, false)
+}
+
+fn insert_pixels(doc: &mut Document, raster: Raster, origin: Option<Point>, inside_folder: bool) -> Result<Uuid, CommandError> {
     if raster.width as i64 > MAX_SIDE || raster.height as i64 > MAX_SIDE || raster.width as u64 * raster.height as u64 > MAX_PIXELS.saturating_sub(doc.used_pixels()) {
         return Err(CommandError::Import(ImportError::TooLarge));
     }
@@ -81,7 +85,7 @@ pub fn paste(doc: &mut Document, raster: Raster, origin: Option<Point>) -> Resul
         return Err(CommandError::Argument("invalid clipboard origin".into()));
     }
     let layer = Layer::with_pixels(&ops::layers::next_layer_name(doc), raster, origin);
-    let id = ops::layers::insert_above_active(doc, layer)?;
+    let id = ops::layers::insert_at_active(doc, layer, inside_folder)?;
     doc.selection = None;
     Ok(id)
 }
@@ -91,7 +95,7 @@ pub fn layer_via_copy(doc: &mut Document, id: Uuid, mask: bool) -> Result<(), Co
     let copied = copy(doc, Some(id), mask, false)?;
     // Unlike Paste, Layer via Copy keeps the selection.
     let selection = doc.selection.clone();
-    paste(doc, copied.raster, Some(copied.origin))?;
+    insert_pixels(doc, copied.raster, Some(copied.origin), true)?;
     doc.selection = selection;
     Ok(())
 }

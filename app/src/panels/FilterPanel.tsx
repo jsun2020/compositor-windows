@@ -107,6 +107,12 @@ export function FilterPanel() {
         <NumberField label="Radius" value={t.radius} min={1} max={100} step={1} onChange={(radius) => update({ radius })} />
       </>;
     }
+    if (p.filter === "ReduceNoise") {
+      const field = (key: keyof typeof p.settings, label: string) =>
+        <NumberField label={label} value={p.settings[key]} min={0} max={100} step={1}
+          onChange={value => s.updateAdjust({ params: { filter: "ReduceNoise", settings: { ...p.settings, [key]: value } } })} />;
+      return <>{field("strength", "Strength")}{field("details", "Preserve Details")}{field("color", "Color Noise")}</>;
+    }
     if (p.filter === "Sharpen") {
       const update = (patch: Partial<{ amount: number; radius: number }>) => s.updateAdjust({ params: { filter: "Sharpen", amount: patch.amount ?? p.amount, radius: patch.radius ?? p.radius } });
       return <>

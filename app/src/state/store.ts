@@ -28,7 +28,7 @@ export type CropRatio = "Free" | "Canvas" | "1:1" | "4:3" | "16:9" | "2.39:1" | 
 /** Select > Expand / Contract / Feather ask for an amount (`SelectionAmountSheet`, LassoControls.swift:180-236). */
 export type SelectionAmountOperation = "Expand" | "Contract" | "Feather";
 export type Sheet = null | { kind: "new" } | { kind: "canvasSize" } | { kind: "imageSize" } | { kind: "jpeg" } | {kind:"rawDevelop"} | {kind:"importReport"}
-  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" } | { kind: "searchCommands" } | { kind: "exportAs" } | {kind:"colorProof"} | {kind:"keyboardShortcuts"};
+  | { kind: "selectionAmount"; operation: SelectionAmountOperation } | { kind: "closeProject" } | { kind: "searchCommands" } | { kind: "exportAs" } | {kind:"colorProof"} | {kind:"keyboardShortcuts"} | {kind:"lighting"; effect:"rim"|"volume"};
 
 /** The selection tools' settings, kept per app session as the Mac keeps them per session
  * (EditorSession.swift:232-285): the options bar's mode, Anti-alias, the Marquee's and the Lasso's
@@ -140,6 +140,11 @@ export interface EditorStore {
   /** Whether the document's saved guides are drawn (View > Hide/Show Guides). Persisted so the
    * choice survives a relaunch, as it does on the Mac. */
   showGuides: boolean;
+  showDistances:boolean;
+  extrasHideGuides: boolean;
+  hiddenSelectionEdges: {document: string; revision: number} | null;
+  showTransformControls: boolean;
+  toggleExtras(): void;
   blendPreview: BlendMode | null;
   adjustEdit: AdjustEdit | null;
   selectionOptions: SelectionOptions;
@@ -296,7 +301,7 @@ export interface EditorStore {
 /** Commands that insert a layer or move one into a folder, and so make it active somewhere the
  * panel may not be showing. Each is followed by `revealActiveLayer`. */
 const REVEALING_COMMANDS: ReadonlySet<Command["type"]> = new Set<Command["type"]>([
-  "AddBlankLayer", "AddShape", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
+  "AddBlankLayer", "AddShape", "AddGroup", "GroupLayers", "PlaceLayer", "DuplicateLayers", "DuplicateLayer", "DuplicateLayerTo", "DuplicateLayerTransformed", "MergeLayers", "DeleteLayers", "DeleteLayer",
 ]);
 
 /** How long after the last slider tick a colour adjustment's quick drag preview is replaced by
@@ -418,7 +423,7 @@ export const useEditor = create<EditorStore>((set, get) => ({
   engine: null, jobs: null, jobPixels: JOB_PIXELS, working: false, bridge: null, documents: {}, order: [], activeId: null, viewports: {}, tool: "move", cropRect: null, cropRatio: "Free",
   untitledNames: {}, lastFilter: null, canvasOnly: false, showsNavigator: false,
   sheet: null, error: null, busy: false, rendererKind: null, renderTick: 0, overlayTick: 0, recentTick: 0,
-  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(),
+  selectedLayerIds: [], maskSelected: false, collapsed: {}, transformEdit: null, snapGuides: { xs: [], ys: [] }, locksTransformRatio: true, showGuides: loadShowGuides(), showDistances:false, extrasHideGuides: false, hiddenSelectionEdges: null, showTransformControls: true,
   blendPreview: null,
   adjustEdit: null,
   selectionOptions: DEFAULT_SELECTION_OPTIONS, selectionDraft: null, outlineMove: null, heldSelectionMode: null,
@@ -438,7 +443,8 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const spec = shapeSpec(draft, get().shapeOptions.lineWidth);
     if (!spec) return;
     const { red, green, blue } = get().palette.foreground;
-    get().run({ type: "AddShape", shape: spec, color: [red, green, blue] });
+    const stroke = spec.kind !== "Line" && get().shapeOptions.stroke;
+    get().run({ type: "AddShape", shape: spec, color: [red, green, blue], ...(stroke && stroke.width > 0 ? {stroke} : {}) });
   },
   setGradientOptions: (patch, dragging = false) => { set((s) => ({ gradientOptions: { ...s.gradientOptions, ...patch } })); get().refreshGradient(dragging); },
   beginGradient: (at) => {
@@ -793,7 +799,10 @@ export const useEditor = create<EditorStore>((set, get) => ({
     const { activeId, documents, cropRect } = get();
     const doc = activeId ? documents[activeId] : null;
     const seeded = tool === "crop" ? (cropRect ?? (doc ? cropSeed(doc) : null)) : null;
-    set({ tool, cropRect: seeded, ...(tool !== get().tool ? { selectionDraft: null, outlineMove: null, shapeDraft: null } : {}) });
+    const liveShape = tool === "shape" && doc && activeLayer(doc)?.shape?.kind;
+    const shapeOptions = liveShape && (liveShape === "Rectangle" || liveShape === "Ellipse" || liveShape === "Line")
+      ? {...get().shapeOptions,kind:liveShape as ShapeOptions["kind"]} : get().shapeOptions;
+    set({ tool, shapeOptions, cropRect: seeded, ...(tool !== get().tool ? { selectionDraft: null, outlineMove: null, shapeDraft: null } : {}) });
     get().invalidate();
   },
   setCropRect: (cropRect) => set({ cropRect }),
@@ -960,10 +969,18 @@ export const useEditor = create<EditorStore>((set, get) => ({
   },
   setSnapGuides: (g) => set({ snapGuides: g }),
   setLocksTransformRatio: (v) => set({ locksTransformRatio: v }),
+  toggleExtras: () => set(s => {
+    if (!s.activeId) return {};
+    if (s.tool === "move") return {showTransformControls: !s.showTransformControls, renderTick: s.renderTick + 1};
+    const sel = s.documents[s.activeId]?.selection;
+    const hiding = !s.extrasHideGuides;
+    return {extrasHideGuides: hiding,
+      hiddenSelectionEdges: hiding && sel ? {document:s.activeId,revision:sel.revision} : null, renderTick:s.renderTick+1};
+  }),
   toggleGuides: () => set((s) => {
-    const showGuides = !s.showGuides;
+    const showGuides = !s.showGuides || s.extrasHideGuides;
     try { localStorage.setItem(GUIDES_KEY, String(showGuides)); } catch { /* ignore */ }
-    return { showGuides };
+    return { showGuides, extrasHideGuides:false, renderTick:s.renderTick+1 };
   }),
   setBlendPreview: (m) => set({ blendPreview: m }),
   previewEdit: () => {

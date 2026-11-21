@@ -43,7 +43,7 @@ function NumberField({ label, value, onCommit }: { label: string; value: number;
       <input aria-label={label} type="number" value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }} />
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }} />
     </label>
   );
 }

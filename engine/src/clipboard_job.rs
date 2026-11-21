@@ -93,7 +93,7 @@ impl Engine {
             let map:std::collections::HashMap<_,_>=source.layers.iter().map(|l|(l.id,Uuid::new_v4())).collect();
             let mut copies:Vec<_>=source.layers.iter().cloned().map(|mut l|{let old=l.id;l.id=map[&old];l.parent_id=l.parent_id.and_then(|p|map.get(&p).copied());l.mask_source_id=l.mask_source_id.and_then(|p|map.get(&p).copied());l}).collect();
             let index=copies.iter().position(|l|l.id==map[&target]).ok_or(CommandError::NoLayer)?;
-            let root=copies.remove(index);let root=ops::layers::insert_above_active(doc,root)?;
+            let root=copies.remove(index);let root=ops::layers::insert_at_active(doc,root,false)?;
             let at=doc.index_of(root).unwrap()+1;
             doc.layers.splice(at..at,copies);doc.selection=None;
             Ok(Dirty::everything())

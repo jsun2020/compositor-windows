@@ -54,7 +54,7 @@ export function AdjustPanel() {
       <div className="adjust-header" data-testid="adjust-title">{adjustTitle(edit)}</div>
       <div className="adjust-body">{body}</div>
       <div className="adjust-footer">
-        <label><input type="checkbox" data-testid="adjust-preview" checked={edit.preview} onChange={(e) => s.setAdjustPreview(e.target.checked)} /> Preview</label>
+        {edit.target !== "adjustmentLayer" && <label><input type="checkbox" data-testid="adjust-preview" checked={edit.preview} onChange={(e) => s.setAdjustPreview(e.target.checked)} /> Preview</label>}
         <button data-testid="adjust-reset" onClick={reset}>Reset</button>
         <button data-testid="adjust-cancel" onClick={s.cancelAdjust}>Cancel</button>
         <button data-testid="adjust-ok" className="primary" onClick={s.commitAdjust}>OK</button>
